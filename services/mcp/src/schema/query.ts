@@ -111,6 +111,31 @@ const EventsNode = BaseEntityObject.extend({
     }
 )
 
+// Series node type — uses pick to select only the base fields relevant for series items
+const SeriesEventsNode = BaseEntityObject.pick({
+    custom_name: true,
+    math: true,
+    math_property: true,
+    properties: true,
+})
+    .extend({
+        kind: z.literal('EventsNode'),
+        event: z.string().optional(),
+    })
+    .refine(
+        (data) => {
+            if (PROPERTY_MATH_TYPES.includes(data.math || '')) {
+                return !!data.math_property
+            }
+            return true
+        },
+        {
+            message: `math_property is required for ${PROPERTY_MATH_TYPES.join(', ')} math types`,
+        }
+    )
+
+const AnySeriesNode = SeriesEventsNode
+
 const AnyEntityNode = EventsNode
 
 // Base query interface
@@ -149,7 +174,7 @@ const TrendsFilter = z.object({
 const TrendsQuerySchema = InsightsQueryBase.extend({
     kind: z.literal('TrendsQuery'),
     interval: IntervalType.optional().default('day'),
-    series: z.array(AnyEntityNode),
+    series: z.array(AnySeriesNode),
     trendsFilter: TrendsFilter.optional(),
     breakdownFilter: BreakdownFilter.optional(),
     compareFilter: CompareFilter.optional(),
@@ -181,7 +206,7 @@ const FunnelsFilter = z.object({
 const FunnelsQuerySchema = InsightsQueryBase.extend({
     kind: z.literal('FunnelsQuery'),
     interval: IntervalType.optional(),
-    series: z.array(AnyEntityNode).min(2, 'At least two steps are required for a funnel'),
+    series: z.array(AnySeriesNode).min(2, 'At least two steps are required for a funnel'),
     funnelsFilter: FunnelsFilter.optional(),
     breakdownFilter: BreakdownFilter.optional(),
 })
@@ -260,6 +285,9 @@ export {
     // Entity nodes
     EventsNode,
     AnyEntityNode,
+    // Series nodes
+    SeriesEventsNode,
+    AnySeriesNode,
     // Filters
     BreakdownFilter,
     CompareFilter,
@@ -279,6 +307,8 @@ export {
     InsightQuerySchema,
 }
 
+export type SeriesEventsNodeType = z.infer<typeof SeriesEventsNode>
+export type AnySeriesNodeType = z.infer<typeof AnySeriesNode>
 export type TrendsQuery = z.infer<typeof TrendsQuerySchema>
 export type FunnelsQuery = z.infer<typeof FunnelsQuerySchema>
 export type PathsQuery = z.infer<typeof PathsQuerySchema>
