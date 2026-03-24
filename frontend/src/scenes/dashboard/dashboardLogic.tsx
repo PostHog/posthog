@@ -564,6 +564,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.dashboard
                     }
                     if (tile.button_tile && !tile.insight && !tile.text) {
+                        lemonToast.error('Copying button tiles to another dashboard is not supported')
                         return values.dashboard
                     }
                     if (fromDashboard === toDashboard) {
@@ -1884,6 +1885,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updatedTile.text = {
                     ...txt,
                     dashboard_tiles: nextTilePlacement(txt.dashboard_tiles ?? undefined),
+                }
+            }
+
+            if (updatedTile.button_tile) {
+                const btn = updatedTile.button_tile
+                updatedTile.button_tile = {
+                    ...btn,
+                    dashboard_tiles: nextTilePlacement(btn.dashboard_tiles ?? undefined),
                 }
             }
 

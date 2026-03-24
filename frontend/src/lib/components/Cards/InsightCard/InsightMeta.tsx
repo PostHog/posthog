@@ -56,7 +56,6 @@ import {
 import { DashboardInsightActions } from './DashboardInsightActions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
-import { getDisplayLabelsToggleText, toggleDisplayLabelsInInsightQuery } from './displayLabelsToggle'
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
 
