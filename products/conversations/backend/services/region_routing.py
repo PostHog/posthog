@@ -28,8 +28,11 @@ def is_primary_region(request: HttpRequest) -> bool:
     return request.get_host() == PRIMARY_REGION_DOMAIN
 
 
-def proxy_to_secondary_region(request: HttpRequest, *, log_prefix: str, timeout: int = 3) -> None:
-    """Forward an incoming webhook to the secondary region."""
+def proxy_to_secondary_region(request: HttpRequest, *, log_prefix: str, timeout: int = 3) -> bool:
+    """Forward an incoming webhook to the secondary region.
+
+    Returns True if the proxy request succeeded (2xx), False otherwise.
+    """
     parsed_url = urlparse(request.build_absolute_uri())
     target_url = urlunparse(parsed_url._replace(netloc=SECONDARY_REGION_DOMAIN))
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
@@ -43,14 +46,23 @@ def proxy_to_secondary_region(request: HttpRequest, *, log_prefix: str, timeout:
             data=request.body or None,
             timeout=timeout,
         )
-        logger.info(
-            f"{log_prefix}_proxy_to_secondary_region",
-            target_url=target_url,
-            status_code=response.status_code,
-        )
+        if response.ok:
+            logger.info(
+                f"{log_prefix}_proxy_to_secondary_region",
+                target_url=target_url,
+                status_code=response.status_code,
+            )
+        else:
+            logger.warning(
+                f"{log_prefix}_proxy_to_secondary_region_bad_status",
+                target_url=target_url,
+                status_code=response.status_code,
+            )
+        return response.ok
     except RequestException as exc:
         logger.exception(
             f"{log_prefix}_proxy_to_secondary_region_failed",
             error=str(exc),
             target_url=target_url,
         )
+        return False

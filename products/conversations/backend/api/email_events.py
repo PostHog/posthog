@@ -89,8 +89,8 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         config = TeamConversationsEmailConfig.objects.select_related("team").get(inbound_token=inbound_token)
     except TeamConversationsEmailConfig.DoesNotExist:
         if is_primary_region(request):
-            proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
-            return HttpResponse(status=200)
+            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
+            return HttpResponse(status=200 if success else 502)
         logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
         return HttpResponse("Unknown recipient", status=404)
 
