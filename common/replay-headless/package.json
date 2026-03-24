@@ -18,8 +18,7 @@
     },
     "scripts": {
         "build": "node build.mjs",
-        "test": "jest",
-        "test:puppeteer": "node test-puppeteer.mjs"
+        "test": "jest"
     },
     "dependencies": {
         "@posthog/replay-shared": "workspace:*",
