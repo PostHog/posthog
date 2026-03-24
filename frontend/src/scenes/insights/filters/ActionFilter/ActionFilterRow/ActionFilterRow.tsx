@@ -520,9 +520,6 @@ export function ActionFilterRow({
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                         : undefined
-                    posthog.capture('taxonomic show filters clicked', {
-                        filterVisible: !propertyFiltersVisible,
-                    })
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
                 tooltip="Show filters"
