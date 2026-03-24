@@ -212,7 +212,9 @@ impl JsResolveErr {
             Self::NoUrlOrChunkId | Self::NoSourceUrl => "no_reference",
             Self::NoSourcemap(_) | Self::NoSourcemapUploaded(_) => "no_symbol_set",
             Self::TokenNotFound(..) => "symbol_not_found",
-            Self::Timeout(_) | Self::HttpStatus(..) | Self::NetworkError(_)
+            Self::Timeout(_)
+            | Self::HttpStatus(..)
+            | Self::NetworkError(_)
             | Self::RedirectError(_) => "network_error",
             Self::InvalidSourceMap(_)
             | Self::InvalidSourceUrl(_)

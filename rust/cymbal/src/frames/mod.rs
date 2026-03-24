@@ -193,7 +193,7 @@ pub struct Frame {
     pub resolved: bool, // Did we manage to resolve the frame?
     #[serde(
         serialize_with = "frame_error_serde::serialize",
-        deserialize_with = "frame_error_serde::deserialize",
+        skip_deserializing,
         skip_serializing_if = "Option::is_none",
         default
     )]
@@ -364,7 +364,11 @@ impl std::fmt::Display for Frame {
         writeln!(
             f,
             "  resolve_failure: {}",
-            self.resolve_failure.as_ref().map(|e| e.to_string()).as_deref().unwrap_or("no failure")
+            self.resolve_failure
+                .as_ref()
+                .map(|e| e.to_string())
+                .as_deref()
+                .unwrap_or("no failure")
         )?;
 
         // Context
@@ -419,7 +423,7 @@ impl From<Frame> for FrameData {
 
 mod frame_error_serde {
     use super::FrameError;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::Serializer;
 
     pub fn serialize<S>(value: &Option<FrameError>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -429,16 +433,6 @@ mod frame_error_serde {
             Some(err) => serializer.serialize_str(&err.to_string()),
             None => serializer.serialize_none(),
         }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<FrameError>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // We can't reconstruct the typed error from a string, so just discard it.
-        // This only matters for test deserialization; production never deserializes Frame.
-        let _unused: Option<String> = Option::deserialize(deserializer)?;
-        Ok(None)
     }
 }
 
