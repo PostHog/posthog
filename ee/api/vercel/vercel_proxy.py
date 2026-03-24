@@ -1,9 +1,10 @@
 import urllib.parse
 from typing import Any, cast
 
+from django.conf import settings as django_settings
+
 import requests
 import structlog
-from django.conf import settings as django_settings
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -32,8 +33,8 @@ VERCEL_API_BASE_URL = "https://api.vercel.com"
 REQUEST_TIMEOUT_SECONDS = 30
 CROSS_REGION_PROXY_TIMEOUT_SECONDS = 10
 
-US_DOMAIN = getattr(django_settings, "REGION_US_DOMAIN", "us.posthog.com")
-EU_DOMAIN = getattr(django_settings, "REGION_EU_DOMAIN", "eu.posthog.com")
+DEFAULT_US_DOMAIN = "us.posthog.com"
+DEFAULT_EU_DOMAIN = "eu.posthog.com"
 
 
 class VercelProxyRequestSerializer(serializers.Serializer):
@@ -136,9 +137,11 @@ class VercelProxyViewSet(viewsets.ViewSet):
     @property
     def _current_region(self) -> str | None:
         site_url = django_settings.SITE_URL
-        if site_url == f"https://{US_DOMAIN}":
+        us_domain = getattr(django_settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN)
+        eu_domain = getattr(django_settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
+        if site_url == f"https://{us_domain}":
             return "us"
-        elif site_url == f"https://{EU_DOMAIN}":
+        elif site_url == f"https://{eu_domain}":
             return "eu"
         return None
 
@@ -146,7 +149,8 @@ class VercelProxyViewSet(viewsets.ViewSet):
         if self._current_region != "us":
             return None
 
-        target_url = f"https://{EU_DOMAIN}/api/vercel/proxy/"
+        eu_domain = getattr(django_settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
+        target_url = f"https://{eu_domain}/api/vercel/proxy/"
 
         headers = {
             "Authorization": request.META.get("HTTP_AUTHORIZATION", ""),
