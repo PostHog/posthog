@@ -502,8 +502,9 @@ def _do_experimental_backfill(
                 wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
 
                 if num_chunks > 1:
-                    chunk_where_clause = f"({where_clause}) AND {chunk_where_fn(chunk_i)}"
-                    context.log.info(f"Processing chunk {chunk_i + 1}/{num_chunks} ({chunk_where_fn(chunk_i)})")
+                    chunk_condition = chunk_where_fn(chunk_i)
+                    chunk_where_clause = f"({where_clause}) AND {chunk_condition}"
+                    context.log.info(f"Processing chunk {chunk_i + 1}/{num_chunks} ({chunk_condition})")
                 else:
                     chunk_where_clause = where_clause
 
