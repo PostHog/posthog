@@ -1,10 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Provider } from 'kea'
-
-import { waitFor } from '@testing-library/react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
@@ -252,6 +250,18 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByTestId('math-selector-0')).toBeInTheDocument()
             })
 
+            it('renders math selector when MathAvailability.ActorsOnly', () => {
+                const { logic } = setup()
+                renderRow(logic, { mathAvailability: MathAvailability.ActorsOnly })
+                expect(screen.getByTestId('math-selector-0')).toBeInTheDocument()
+            })
+
+            it('renders math selector when MathAvailability.CalendarHeatmapOnly', () => {
+                const { logic } = setup()
+                renderRow(logic, { mathAvailability: MathAvailability.CalendarHeatmapOnly })
+                expect(screen.getByTestId('math-selector-0')).toBeInTheDocument()
+            })
+
             it('renders property selector when MathAvailability.BoxPlotOnly', () => {
                 const { logic } = setup()
                 renderRow(logic, { mathAvailability: MathAvailability.BoxPlotOnly })
@@ -389,14 +399,29 @@ describe('ActionFilterRow', () => {
             const { logic, setFilters } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, hideDeleteBtn: false, singleFilter: false })
             await userEvent.click(screen.getByTitle('Delete graph series'))
-            expect(setFilters).toHaveBeenCalled()
+            // Deleting the first event (order 0) leaves only 1 event + 1 action, re-ordered
+            expect(setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    events: [expect.objectContaining({ id: '$pageview' })],
+                    actions: [expect.objectContaining({ id: '9' })],
+                })
+            )
+            // The remaining event list should have exactly 1 entry (down from 2)
+            const call = setFilters.mock.calls[0][0]
+            expect(call.events).toHaveLength(1)
         })
 
         it('dispatches duplicateFilter on duplicate click', async () => {
             const { logic, setFilters } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, hideDuplicate: false, singleFilter: false })
             await userEvent.click(screen.getByTitle('Duplicate graph series'))
-            expect(setFilters).toHaveBeenCalled()
+            expect(setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({ id: '$pageview', order: 0 }),
+                    ]),
+                })
+            )
         })
 
         it('dispatches selectFilter and calls onRenameClick on rename', async () => {
@@ -411,7 +436,13 @@ describe('ActionFilterRow', () => {
             const { logic, setFilters } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, showCombine: true, singleFilter: false })
             await userEvent.click(screen.getByTitle('Count multiple events as a single event'))
-            expect(setFilters).toHaveBeenCalled()
+            expect(setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({ id: '$pageview' }),
+                    ]),
+                })
+            )
         })
 
         it('toggles property filter visibility on filter button click', async () => {
@@ -422,10 +453,9 @@ describe('ActionFilterRow', () => {
 
             await userEvent.click(screen.getByTitle('Show filters'))
 
-            // Re-render to reflect logic state change
-            cleanup()
-            renderRow(logic, { ...INLINE_CONTEXT, hideFilter: false })
-            expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
+            await waitFor(() => {
+                expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
+            })
         })
     })
 
@@ -660,9 +690,7 @@ describe('ActionFilterRow', () => {
             const popoverButton = screen.getByTestId('trend-element-subject-0')
             expect(popoverButton).toHaveAttribute('aria-disabled', 'true')
         })
-    })
 
-    describe('math selector disabled in read-only mode', () => {
         it('disables math selector when readOnly is true', () => {
             const { logic } = setup()
             renderRow(logic, { readOnly: true, mathAvailability: MathAvailability.All })
