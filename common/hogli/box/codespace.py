@@ -196,10 +196,8 @@ def open_in_vscode(name: str) -> NoReturn:
 
 def run_remote_command(name: str, command: str) -> None:
     """Execute a shell command inside a running codespace via SSH."""
-    # gh cs ssh tunnel may not load full login profile; ensure /usr/local/bin is on PATH
-    wrapped = f"export PATH=/usr/local/bin:$PATH && {command}"
     result = subprocess.run(
-        ["gh", "codespace", "ssh", "-c", name, "--", "bash", "-lc", wrapped],
+        ["gh", "codespace", "ssh", "-c", name, "--", "bash", "-lc", command],
         env=_gh_env(),
         check=False,
     )
