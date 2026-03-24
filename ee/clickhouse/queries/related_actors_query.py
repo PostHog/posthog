@@ -4,8 +4,6 @@ from typing import Optional, Union
 
 from django.utils.timezone import now
 
-import posthoganalytics
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
@@ -52,6 +50,7 @@ class RelatedActorsQuery:
         group_type_indexes = list(
             GroupTypeMapping.objects.filter(project_id=self.team.project_id)
             .exclude(group_type_index=self.group_type_index)
+            .order_by("group_type_index")
             .values_list("group_type_index", flat=True)
         )
 
@@ -64,46 +63,14 @@ class RelatedActorsQuery:
                 results.extend(self._query_related_groups_control(index))
         return results
 
-    def _is_test_variant(self) -> bool:
-        flag_result = posthoganalytics.get_feature_flag(
-            "optimized-related-people-query",
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization.id), "project": str(self.team.uuid)},
-        )
-        return flag_result == "test"  # type: ignore[comparison-overlap]
-
     def _query_related_people(self) -> list[SerializedPerson]:
         if not self.is_aggregating_by_groups:
             return []
-
-        if self._is_test_variant():
-            tag_queries(name="optimized-related-people-test")
-            person_ids = self._query_related_people_optimized()
-        else:
-            tag_queries(name="optimized-related-people-control")
-            person_ids = self._query_related_people_control()
-
+        tag_queries(name="related-people")
+        person_ids = self._query_related_people_ids()
         return get_serialized_people(self.team, person_ids)
 
-    def _query_related_people_control(self) -> list:
-        # :KLUDGE: We need to fetch distinct_id + person properties to be able to link to user properly.
-        return self._take_first(
-            # nosemgrep: clickhouse-injection-taint - internal SQL fragments, values parameterized
-            sync_execute(
-                f"""
-            SELECT DISTINCT {self.DISTINCT_ID_TABLE_ALIAS}.person_id
-            FROM events e
-            {self._distinct_ids_join}
-            WHERE team_id = %(team_id)s
-              AND timestamp > %(after)s
-              AND timestamp < %(before)s
-              AND {self._filter_clause}
-            """,
-                self._params,
-            )
-        )
-
-    def _query_related_people_optimized(self) -> list:
+    def _query_related_people_ids(self) -> list:
         return self._take_first(
             # nosemgrep: clickhouse-injection-taint - internal SQL fragments, values parameterized
             sync_execute(

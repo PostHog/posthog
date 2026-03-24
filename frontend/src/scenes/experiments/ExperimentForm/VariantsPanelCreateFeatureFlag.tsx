@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconBalance, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
@@ -12,6 +13,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { alphabet, formatPercentage } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
@@ -86,6 +88,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     disabled = false,
     layout = 'horizontal',
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
     const variants = experiment.parameters?.feature_flag_variants || [
@@ -94,7 +97,9 @@ export const VariantsPanelCreateFeatureFlag = ({
     ]
 
     const ensureExperienceContinuity =
-        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
+        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ??
+        currentTeam?.flags_persistence_default ??
+        false
 
     const rolloutPercentage =
         experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage ?? 100
