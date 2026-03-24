@@ -4,8 +4,6 @@ from typing import Optional
 
 from temporalio.exceptions import ActivityError, ApplicationError
 
-from posthog.slo.types import SloOutcome
-
 
 class ExportErrorDetails(typing.NamedTuple):
     exception_class: str | None = None
@@ -46,26 +44,7 @@ class ExportAssetResult:
     exported_asset_id: int
     success: bool
     error: Optional[ExportError] = None
-
-
-@dataclasses.dataclass
-class EmitDeliveryOutcomeInput:
-    subscription_id: int
-    team_id: int
-    distinct_id: str
-    outcome: SloOutcome
-    duration_ms: Optional[float] = None
-    assets_with_content: int = 0
-    total_assets: int = 0
-    errors: list[ExportError] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass
-class EmitExportOutcomeInput:
-    exported_asset_id: int
-    team_id: int
-    distinct_id: str
-    outcome: SloOutcome
+    insight_id: Optional[int] = None
     duration_ms: Optional[float] = None
     export_format: str = ""
-    error: Optional[ExportError] = None
+    attempts: int = 1
