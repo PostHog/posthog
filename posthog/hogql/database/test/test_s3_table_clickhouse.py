@@ -57,6 +57,7 @@ class TestS3ParquetTimezoneConversion(ClickhouseTestMixin, BaseTest):
     """
 
     url: str
+    schema: str
 
     @classmethod
     def setUpClass(cls):
