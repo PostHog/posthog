@@ -1730,11 +1730,19 @@ class TestResolver(BaseTest):
             expr = self._select("SELECT * FROM (SELECT 1, 'a') AS v(id, name, extra)")
             resolve_types(expr, self.context, dialect="clickhouse")
 
-    def test_alias_shadowing_table_field_property_access(self):
-        with self.assertRaises(QueryError) as ctx:
-            expr = self._select(
-                "SELECT argMin(properties, timestamp) as properties FROM events WHERE properties.foo = 'bar'"
-            )
+    @parameterized.expand(
+        [
+            (
+                "select_alias_shadows_properties",
+                "SELECT argMin(properties, timestamp) as properties FROM events WHERE properties.foo = 'bar'",
+            ),
+            (
+                "select_alias_shadows_deeper_chain",
+                "SELECT argMin(properties, timestamp) as properties FROM events WHERE properties.a.b = 1",
+            ),
+        ]
+    )
+    def test_alias_shadowing_table_field_property_access(self, _name, query):
+        expr = self._select(query)
+        with self.assertRaisesRegex(QueryError, "Cannot access property.*renaming the alias"):
             resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertIn("Cannot access property", str(ctx.exception))
-        self.assertIn("renaming the alias", str(ctx.exception))
