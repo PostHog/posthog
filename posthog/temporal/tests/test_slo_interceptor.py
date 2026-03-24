@@ -56,16 +56,15 @@ class UntrackedWorkflow:
         return "ok"
 
 
-def _make_slo_config(**overrides) -> SloConfig:
-    defaults = {
-        "operation": SloOperation.EXPORT,
-        "area": SloArea.ANALYTIC_PLATFORM,
-        "team_id": 1,
-        "resource_id": "42",
-        "distinct_id": "user-123",
-    }
-    defaults.update(overrides)
-    return SloConfig(**defaults)
+def _make_slo_config(start_properties: dict | None = None) -> SloConfig:
+    return SloConfig(
+        operation=SloOperation.EXPORT,
+        area=SloArea.ANALYTIC_PLATFORM,
+        team_id=1,
+        resource_id="42",
+        distinct_id="user-123",
+        start_properties=start_properties or {},
+    )
 
 
 pytestmark = [pytest.mark.asyncio]

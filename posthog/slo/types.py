@@ -49,7 +49,7 @@ class SloConfig:
     Workflows opt into SLO tracking by adding ``slo: SloConfig | None = None``
     to their input dataclass. The SLO interceptor reads this at workflow start.
 
-    ``started_extra`` and ``completion_context`` must be JSON-serializable
+    ``start_properties`` and ``completion_properties`` must be JSON-serializable
     (they cross the Temporal serialization boundary as part of the workflow input).
     """
 
