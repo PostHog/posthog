@@ -1,5 +1,21 @@
 import { KafkaProducerWrapper, MessageKey, MessageWithoutTopic } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
+import {
+    ingestionOutputsBatchSize,
+    ingestionOutputsErrors,
+    ingestionOutputsLatency,
+    ingestionOutputsMessageValueBytes,
+} from './metrics'
+
+// Buffer.byteLength is O(n) for strings but O(1) for Buffers.
+// Most callers pass Buffers, so this is cheap in practice.
+// TODO: refactor message type to only accept Buffers, then simplify to value.length.
+function messageValueBytes(value: string | Buffer | null): number {
+    if (value === null) {
+        return 0
+    }
+    return typeof value === 'string' ? Buffer.byteLength(value) : value.length
+}
 
 /** A resolved output: the Kafka topic and the producer to write to it. */
 export interface IngestionOutput {
@@ -28,7 +44,17 @@ export class IngestionOutputs<O extends string> {
     async produce(output: O, message: Omit<MessageWithoutTopic, 'key'> & { key: MessageKey }): Promise<void> {
         const { topic, producer } = this.outputs[output]
         const value = typeof message.value === 'string' ? Buffer.from(message.value) : message.value
-        return producer.produce({ ...message, topic, value })
+        ingestionOutputsMessageValueBytes.observe({ output }, messageValueBytes(message.value))
+        ingestionOutputsBatchSize.observe({ output, method: 'produce' }, 1)
+        const end = ingestionOutputsLatency.startTimer({ output, method: 'produce' })
+        try {
+            return await producer.produce({ ...message, topic, value })
+        } catch (error) {
+            ingestionOutputsErrors.inc({ output, method: 'produce' })
+            throw error
+        } finally {
+            end()
+        }
     }
 
     /**
@@ -41,7 +67,19 @@ export class IngestionOutputs<O extends string> {
      */
     async queueMessages(output: O, messages: MessageWithoutTopic[]): Promise<void> {
         const { topic, producer } = this.outputs[output]
-        return producer.queueMessages({ topic, messages })
+        for (const m of messages) {
+            ingestionOutputsMessageValueBytes.observe({ output }, messageValueBytes(m.value))
+        }
+        ingestionOutputsBatchSize.observe({ output, method: 'queueMessages' }, messages.length)
+        const end = ingestionOutputsLatency.startTimer({ output, method: 'queueMessages' })
+        try {
+            return await producer.queueMessages({ topic, messages })
+        } catch (error) {
+            ingestionOutputsErrors.inc({ output, method: 'queueMessages' })
+            throw error
+        } finally {
+            end()
+        }
     }
 
     /**
