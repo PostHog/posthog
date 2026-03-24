@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { signupLogic } from './signupLogic'
 
@@ -52,11 +54,13 @@ interface TurnstileChallengeProps {
 
 export function TurnstileChallenge({ siteKey }: TurnstileChallengeProps): JSX.Element {
     const { setTurnstileToken } = useActions(signupLogic)
-    const { turnstileToken } = useValues(signupLogic)
+    const { turnstileToken, signupPanelEmail } = useValues(signupLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const containerRef = useRef<HTMLDivElement>(null)
     const widgetIdRef = useRef<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
+    const [failureCount, setFailureCount] = useState(0)
 
     const onSuccess = useCallback(
         (token: string) => {
@@ -85,9 +89,11 @@ export function TurnstileChallenge({ siteKey }: TurnstileChallengeProps): JSX.El
                     sitekey: siteKey,
                     callback: onSuccess,
                     'error-callback': () => {
+                        setFailureCount((c) => c + 1)
                         setError('Verification failed.')
                     },
                     'expired-callback': () => {
+                        setFailureCount((c) => c + 1)
                         setError('Verification expired.')
                     },
                     theme: 'auto',
@@ -123,9 +129,29 @@ export function TurnstileChallenge({ siteKey }: TurnstileChallengeProps): JSX.El
             {loading && <Spinner className="text-xl" />}
             <div ref={containerRef} />
             {error && (
-                <LemonButton type="secondary" size="small" onClick={handleRetry}>
-                    Try again
-                </LemonButton>
+                <>
+                    <LemonButton type="secondary" size="small" onClick={handleRetry}>
+                        Try again
+                    </LemonButton>
+                    {failureCount >= 2 && (
+                        <p className="text-sm text-secondary">
+                            Having trouble signing up?{' '}
+                            <Link
+                                data-attr="turnstile-error-contact-support"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    openSupportForm({
+                                        kind: 'support',
+                                        target_area: 'login',
+                                        email: signupPanelEmail.email,
+                                    })
+                                }}
+                            >
+                                Need help?
+                            </Link>
+                        </p>
+                    )}
+                </>
             )}
         </div>
     )
