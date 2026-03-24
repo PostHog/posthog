@@ -322,6 +322,45 @@ class EnterpriseExperimentsViewSet(
         archived_experiment = service.archive_experiment(experiment, request=request)
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Pause a running experiment.
+
+        Deactivates the linked feature flag so it is no longer returned by the
+        /decide endpoint. Users fall back to the application default (typically
+        the control experience), and no new exposure events are recorded (i.e.
+        $feature_flag_called is not fired).
+        Returns 400 if the experiment is not running or is already paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        paused_experiment = service.pause_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(paused_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Resume a paused experiment.
+
+        Reactivates the linked feature flag so it is returned by /decide again.
+        Users are re-bucketed deterministically into the same variants they had
+        before the pause, and exposure tracking resumes.
+        Returns 400 if the experiment is not running or is not paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        resumed_experiment = service.resume_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
