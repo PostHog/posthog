@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any
 
 from posthog.test.base import BaseTest
 
@@ -25,7 +26,7 @@ from products.experiments.backend.models.experiment import ExperimentHoldout
 
 
 def _experiment_like_resource(**overrides):
-    base = {
+    base: dict[str, Any] = {
         "filters": {},
         "parameters": {},
         "metrics": [],
