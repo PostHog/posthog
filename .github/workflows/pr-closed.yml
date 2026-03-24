@@ -21,6 +21,35 @@ jobs:
             pr_number: '${{ github.event.pull_request.number }}'
         secrets: inherit
 
+    disable-canary-flags:
+        name: Disable feature flags canary
+        if: contains(github.event.pull_request.labels.*.name, 'canary-flags')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+
+            - name: Dispatch canary disable to charts repo
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              with:
+                  github-token: ${{ steps.deployer.outputs.token }}
+                  script: |
+                      await github.rest.repos.createDispatchEvent({
+                          owner: 'PostHog',
+                          repo: 'charts',
+                          event_type: 'disable-canary-flags',
+                          client_payload: {
+                              pr_number: process.env.PR_NUMBER
+                          }
+                      });
+
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-24.04

@@ -4,7 +4,7 @@ import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -55,6 +55,7 @@ from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
 from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -1461,6 +1462,11 @@ class HedgeboxMatrix(Matrix):
             except Exception as err:
                 capture_exception(err)
 
+        try:
+            self._upsert_demo_extended_person_properties_table(team, user, credential)
+        except Exception as err:
+            capture_exception(err)
+
     def _demo_data_warehouse_table_specs(self) -> tuple[DemoDataWarehouseTableSpec, ...]:
         return (
             DemoDataWarehouseTableSpec(
@@ -1530,6 +1536,121 @@ class HedgeboxMatrix(Matrix):
         )
         return [table_spec.row_builder(event, row_id) for row_id, event in enumerate(matching_events, start=1)]
 
+    @staticmethod
+    def _demo_extended_person_properties_columns() -> dict[str, str]:
+        return {
+            "id": "Int64",
+            "email": "String",
+            "hedgebox_user_id": "String",
+            "company_name": "String",
+            "industry": "String",
+            "account_kind": "String",
+            "current_plan": "String",
+            "team_size": "Int64",
+            "file_count": "Int64",
+            "used_mb": "Float64",
+            "allocation_used_fraction": "Float64",
+            "monthly_bill_usd": "Float64",
+            "lifecycle_stage": "String",
+            "onboarding_variant": "String",
+            "file_engagement_variant": "String",
+            "watches_marius_tech_tips": "Bool",
+            "is_invitable": "Bool",
+        }
+
+    def _collect_demo_extended_person_rows(self) -> list[tuple[Any, ...]]:
+        if not self.is_complete:
+            raise ValueError("Demo data warehouse tables require a completed simulation.")
+
+        rows: list[tuple[Any, ...]] = []
+        people = cast(list[HedgeboxPerson], self.people)
+
+        for person in sorted(people, key=lambda current_person: current_person.in_product_id):
+            if not hasattr(person, "properties_at_now"):
+                person.take_snapshot_at_now()
+
+            email = person.properties_at_now.get("email")
+            if not email:
+                continue
+
+            account = person.account
+            team_size = len(account.team_members) if account else 0
+            file_count = len(account.files) if account else 0
+
+            if file_count >= 5:
+                lifecycle_stage = "power_user"
+            elif file_count > 0:
+                lifecycle_stage = "activated"
+            else:
+                lifecycle_stage = "signed_up"
+
+            rows.append(
+                (
+                    len(rows) + 1,
+                    str(email),
+                    person.in_product_id,
+                    person.cluster.company.name if person.cluster.company else person.name,
+                    str(person.cluster.company.industry) if person.cluster.company else "consumer",
+                    "business" if person.cluster.company else "personal",
+                    str(account.plan) if account else "",
+                    team_size,
+                    file_count,
+                    float(account.current_used_mb) if account else 0.0,
+                    float(account.allocation_used_fraction) if account else 0.0,
+                    float(account.current_monthly_bill_usd) if account else 0.0,
+                    lifecycle_stage,
+                    person.onboarding_variant,
+                    person.file_engagement_variant,
+                    person.watches_marius_tech_tips,
+                    person.is_invitable,
+                )
+            )
+
+        return rows
+
+    def _upsert_demo_extended_person_properties_table(self, team: "Team", user: "User", credential) -> None:
+        table_name = "extended_properties"
+        rows = self._collect_demo_extended_person_rows()
+        self._upsert_demo_data_warehouse_table_contents(
+            team=team,
+            user=user,
+            credential=credential,
+            table_name=table_name,
+            columns=self._demo_extended_person_properties_columns(),
+            rows=rows,
+        )
+        self._upsert_demo_extended_person_properties_join(team, table_name)
+
+    @staticmethod
+    def _upsert_demo_extended_person_properties_join(team: "Team", table_name: str) -> None:
+        existing_join = (
+            DataWarehouseJoin.objects.filter(
+                team=team,
+                source_table_name="persons",
+                source_table_key="properties.email",
+                joining_table_name=table_name,
+                joining_table_key="email",
+                field_name=table_name,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if existing_join:
+            existing_join.deleted = False
+            existing_join.deleted_at = None
+            existing_join.save()
+            return
+
+        DataWarehouseJoin.objects.create(
+            team=team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="email",
+            field_name=table_name,
+        )
+
     def _upsert_demo_data_warehouse_table(
         self,
         team: "Team",
@@ -1538,19 +1659,38 @@ class HedgeboxMatrix(Matrix):
         table_spec: DemoDataWarehouseTableSpec,
         rows: list[tuple[Any, ...]],
     ) -> None:
-        s3_prefix = f"data-warehouse/demo_{table_spec.name}/team_{team.pk}"
-        object_key = f"{s3_prefix}/{table_spec.name}.csv"
-        object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(table_spec.columns.keys())))
+        self._upsert_demo_data_warehouse_table_contents(
+            team=team,
+            user=user,
+            credential=credential,
+            table_name=table_spec.name,
+            columns=table_spec.columns,
+            rows=rows,
+        )
+
+    def _upsert_demo_data_warehouse_table_contents(
+        self,
+        team: "Team",
+        user: "User",
+        credential,
+        table_name: str,
+        columns: dict[str, str],
+        rows: list[tuple[Any, ...]],
+    ) -> None:
+        s3_prefix = f"data-warehouse/demo_{table_name}/team_{team.pk}"
+        object_key = f"{s3_prefix}/{table_name}.csv"
+        object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(columns.keys())))
 
         url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
-        existing_table = DataWarehouseTable.objects.filter(team=team, name=table_spec.name).first()
+        existing_table = DataWarehouseTable.objects.filter(team=team, name=table_name).first()
         if existing_table:
             if existing_table.external_data_source is not None:
                 return
             existing_table.format = DataWarehouseTable.TableFormat.CSVWithNames
             existing_table.url_pattern = url_pattern
             existing_table.credential = credential
-            existing_table.columns = table_spec.columns
+            existing_table.columns = columns
+            existing_table.options = {**(existing_table.options or {}), "csv_allow_double_quotes": True}
             existing_table.deleted = False
             existing_table.deleted_at = None
             if existing_table.created_by_id is None:
@@ -1560,11 +1700,12 @@ class HedgeboxMatrix(Matrix):
 
         DataWarehouseTable.objects.create(
             team=team,
-            name=table_spec.name,
+            name=table_name,
             format=DataWarehouseTable.TableFormat.CSVWithNames,
             url_pattern=url_pattern,
             credential=credential,
-            columns=table_spec.columns,
+            columns=columns,
+            options={"csv_allow_double_quotes": True},
             created_by=user,
         )
 

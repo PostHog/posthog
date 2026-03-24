@@ -84,6 +84,21 @@ class TraversingVisitor(Visitor[None]):
         for val in node.unpivot_values:
             self.visit(val)
 
+    def visit_pivot_expr(self, node: ast.PivotExpr):
+        self.visit(node.table)
+        for agg in node.aggregates:
+            self.visit(agg)
+        for col in node.columns:
+            self.visit(col)
+        if node.group_by:
+            for expr in node.group_by:
+                self.visit(expr)
+
+    def visit_pivot_column(self, node: ast.PivotColumn):
+        self.visit(node.column)
+        for val in node.values:
+            self.visit(val)
+
     def visit_between_expr(self, node: ast.BetweenExpr):
         self.visit(node.expr)
         self.visit(node.low)
@@ -158,6 +173,11 @@ class TraversingVisitor(Visitor[None]):
         if node.within_group:
             for expr in node.within_group:
                 self.visit(expr)
+        if node.order_by:
+            for expr in node.order_by:
+                self.visit(expr)
+        if node.filter_expr:
+            self.visit(node.filter_expr)
 
     def visit_expr_call(self, node: ast.ExprCall):
         self.visit(node.expr)
@@ -555,6 +575,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
             columns=[self.visit(col) for col in node.columns],
+            include_nulls=node.include_nulls,
         )
 
     def visit_unpivot_column(self, node: ast.UnpivotColumn):
@@ -565,6 +586,26 @@ class CloningVisitor(Visitor[Any]):
             value_columns=self.visit(node.value_columns),
             name_columns=self.visit(node.name_columns),
             unpivot_values=[self.visit(val) for val in node.unpivot_values],
+        )
+
+    def visit_pivot_expr(self, node: ast.PivotExpr):
+        return ast.PivotExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            table=self.visit(node.table),
+            aggregates=[self.visit(agg) for agg in node.aggregates],
+            columns=[self.visit(col) for col in node.columns],
+            group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
+        )
+
+    def visit_pivot_column(self, node: ast.PivotColumn):
+        return ast.PivotColumn(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            column=self.visit(node.column),
+            values=[self.visit(val) for val in node.values],
         )
 
     def visit_between_expr(self, node: ast.BetweenExpr):
@@ -732,6 +773,8 @@ class CloningVisitor(Visitor[Any]):
             params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
             within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by is not None else None,
+            filter_expr=self.visit(node.filter_expr) if node.filter_expr is not None else None,
         )
 
     def visit_expr_call(self, node: ast.ExprCall):
