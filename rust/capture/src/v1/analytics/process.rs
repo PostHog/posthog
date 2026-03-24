@@ -6,6 +6,7 @@ use uuid::Uuid;
 use super::response::Response;
 use super::types::{CaptureV1Batch, CaptureV1Event, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
+use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::router;
 use crate::v1::context::Context;
 use crate::v1::sinks::Destination;
@@ -35,6 +36,10 @@ pub async fn process_batch(
             &mut events,
         )
         .await;
+    }
+
+    if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
+        apply_token_distinct_id_limits(limiter, &context.api_token, &mut events).await;
     }
 
     unimplemented!()
@@ -173,6 +178,28 @@ async fn apply_restrictions(
 
         if applied.skip_person_processing() {
             event.skip_person_processing = true;
+        }
+    }
+}
+
+const CAPTURE_V1_EVENTS_RATE_LIMITED: &str = "capture_v1_events_rate_limited";
+
+async fn apply_token_distinct_id_limits(
+    limiter: &GlobalRateLimiter,
+    token: &str,
+    events: &mut [WrappedEvent],
+) {
+    for event in events.iter_mut() {
+        if event.status_code != 200 {
+            continue;
+        }
+        let cache_key =
+            GlobalRateLimitKey::TokenDistinctId(token, &event.event.distinct_id).to_cache_key();
+        if limiter.is_limited(&cache_key, 1).await.is_some() {
+            event.status_code = 429;
+            event.destination = Destination::Drop;
+            metrics::counter!(CAPTURE_V1_EVENTS_RATE_LIMITED, "reason" => "token_distinct_id")
+                .increment(1);
         }
     }
 }
@@ -652,5 +679,151 @@ mod tests {
 
         assert_eq!(events[0].status_code, 200);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+
+    // --- apply_token_distinct_id_limits ---
+
+    use async_trait::async_trait;
+    use limiters::global_rate_limiter::{
+        EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiterTrait,
+    };
+    use std::collections::HashSet;
+
+    struct MockLimiter {
+        limited_keys: HashSet<String>,
+    }
+
+    impl MockLimiter {
+        fn new(limited_keys: HashSet<String>) -> Self {
+            Self { limited_keys }
+        }
+    }
+
+    #[async_trait]
+    impl CommonGlobalRateLimiterTrait for MockLimiter {
+        async fn check_limit(
+            &self,
+            key: &str,
+            _count: u64,
+            _timestamp: Option<DateTime<Utc>>,
+        ) -> EvalResult {
+            if self.limited_keys.contains(key) {
+                EvalResult::Limited(GlobalRateLimitResponse {
+                    key: key.to_string(),
+                    current_count: 100.0,
+                    threshold: 10,
+                    window_interval: StdDuration::from_secs(60),
+                    sync_interval: StdDuration::from_secs(15),
+                    is_custom_limited: false,
+                })
+            } else {
+                EvalResult::Allowed
+            }
+        }
+
+        async fn check_custom_limit(
+            &self,
+            _key: &str,
+            _count: u64,
+            _timestamp: Option<DateTime<Utc>>,
+        ) -> EvalResult {
+            EvalResult::NotApplicable
+        }
+
+        fn is_custom_key(&self, _key: &str) -> bool {
+            false
+        }
+
+        fn shutdown(&mut self) {}
+    }
+
+    fn mock_limiter(limited_keys: Vec<&str>) -> GlobalRateLimiter {
+        let keys: HashSet<String> = limited_keys.into_iter().map(String::from).collect();
+        GlobalRateLimiter::new_with(MockLimiter::new(keys))
+    }
+
+    #[tokio::test]
+    async fn td_limits_under_limit_all_pass() {
+        let limiter = mock_limiter(vec![]);
+        let mut events = vec![
+            wrapped_event(0, "$pageview", "user-1"),
+            wrapped_event(1, "$identify", "user-2"),
+        ];
+
+        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert_eq!(events[1].status_code, 200);
+        assert_eq!(events[1].destination, Destination::AnalyticsMain);
+    }
+
+    #[tokio::test]
+    async fn td_limits_one_distinct_id_over_limit() {
+        let limiter = mock_limiter(vec!["phc_tok:user-2"]);
+        let mut events = vec![
+            wrapped_event(0, "$pageview", "user-1"),
+            wrapped_event(1, "$identify", "user-2"),
+        ];
+
+        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert_eq!(events[1].status_code, 429);
+        assert_eq!(events[1].destination, Destination::Drop);
+    }
+
+    #[tokio::test]
+    async fn td_limits_skips_already_invalid_events() {
+        let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let mut events = vec![malformed_wrapped_event(0)];
+
+        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+
+        assert_eq!(events[0].status_code, 400);
+        assert_eq!(events[0].destination, Destination::default());
+    }
+
+    #[tokio::test]
+    async fn td_limits_multiple_events_same_distinct_id_all_limited() {
+        let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let mut events = vec![
+            wrapped_event(0, "$pageview", "user-1"),
+            wrapped_event(1, "$identify", "user-1"),
+            wrapped_event(2, "$click", "user-1"),
+        ];
+
+        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+
+        for (i, event) in events.iter().enumerate() {
+            assert_eq!(event.status_code, 429, "event {i} should be 429");
+            assert_eq!(
+                event.destination,
+                Destination::Drop,
+                "event {i} should be Drop"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn td_limits_mixed_valid_and_pre_dropped_events() {
+        let limiter = mock_limiter(vec!["phc_tok:user-2"]);
+        let mut events = vec![
+            wrapped_event(0, "$pageview", "user-1"),
+            wrapped_event(1, "$identify", "user-2"),
+        ];
+        // Simulate event 0 already dropped by restrictions
+        events[0].status_code = 400;
+        events[0].destination = Destination::Drop;
+
+        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+
+        // Event 0 untouched (was already 400)
+        assert_eq!(events[0].status_code, 400);
+        assert_eq!(events[0].destination, Destination::Drop);
+        // Event 1 rate-limited
+        assert_eq!(events[1].status_code, 429);
+        assert_eq!(events[1].destination, Destination::Drop);
     }
 }

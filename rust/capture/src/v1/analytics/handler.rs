@@ -7,6 +7,7 @@ use super::header::*;
 use super::query::Query;
 use super::response::Response;
 use super::types::CaptureV1Batch;
+use crate::global_rate_limiter::GlobalRateLimitKey;
 use crate::v1::context::Context;
 use crate::{log_stat_error, router, v1};
 
@@ -55,6 +56,21 @@ pub async fn handle_request(
         log_stat_error!(err, ctx = &context);
         err
     })?;
+
+    if let Some(ref limiter) = state.global_rate_limiter_token {
+        let cache_key = GlobalRateLimitKey::Token(&context.api_token).to_cache_key();
+        if let Some(limited) = limiter
+            .is_limited(&cache_key, batch.batch.len() as u64)
+            .await
+        {
+            let err = v1::Error::RateLimited(format!(
+                "token rate limit exceeded (count={}, threshold={})",
+                limited.current_count as u64, limited.threshold
+            ));
+            log_stat_error!(err, ctx = &context);
+            return Err(err);
+        }
+    }
 
     if batch.batch.is_empty() {
         let err = v1::Error::EmptyBatch;
