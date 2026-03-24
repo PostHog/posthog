@@ -1189,9 +1189,11 @@ class GoogleCloudServiceAccountIntegration:
         token_uri: str | None = None,
         created_by: User | None = None,
     ) -> Integration:
-        # Do not allow the same project_id in multiple organizations
-        same_service_account_integrations = Integration.objects.select_related("team__organization").filter(
-            kind="google-cloud-service-account", config__service_account_email=service_account_email
+        # Do not allow multiple organizations that want to impersonate the same service account
+        same_service_account_integrations = (
+            Integration.objects.select_related("team__organization")
+            .filter(kind="google-cloud-service-account", config__service_account_email=service_account_email)
+            .exclude(sensitive_config__has_key="private_key")
         )
         for integration in same_service_account_integrations:
             if str(integration.team.organization.id) != str(organization_id):
