@@ -3658,6 +3658,128 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(archive_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def _create_running_experiment(self, name: str = "Running Test", flag_key: str = "running-flag") -> dict:
+        """Helper: create an experiment and launch it via the API."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": name,
+                "feature_flag_key": flag_key,
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        return launch_response.json()
+
+    def test_pause_experiment_endpoint(self):
+        data = self._create_running_experiment(name="Pause Endpoint", flag_key="pause-endpoint-flag")
+        experiment_id = data["id"]
+
+        # Flag should be active after launch
+        flag = FeatureFlag.objects.get(key="pause-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
+
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(pause_response.json()["status"], "running")
+        self.assertFalse(pause_response.json()["feature_flag"]["active"])
+
+        # Verify flag is now inactive
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+
+    def test_resume_experiment_endpoint(self):
+        data = self._create_running_experiment(name="Resume Endpoint", flag_key="resume-endpoint-flag")
+        experiment_id = data["id"]
+
+        # Pause first
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_200_OK)
+
+        # Resume
+        resume_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/resume/",
+        )
+        self.assertEqual(resume_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(resume_response.json()["status"], "running")
+        self.assertTrue(resume_response.json()["feature_flag"]["active"])
+
+        flag = FeatureFlag.objects.get(key="resume-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
+
+    def test_pause_experiment_already_paused_returns_400(self):
+        data = self._create_running_experiment(name="Double Pause", flag_key="double-pause-flag")
+        experiment_id = data["id"]
+
+        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/")
+
+        second_pause = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(second_pause.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_resume_experiment_not_paused_returns_400(self):
+        data = self._create_running_experiment(name="Resume Not Paused", flag_key="resume-not-paused-flag")
+        experiment_id = data["id"]
+
+        resume_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/resume/",
+        )
+        self.assertEqual(resume_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pause_draft_experiment_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Pause Draft",
+                "feature_flag_key": "pause-draft-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pause_ended_experiment_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Pause Ended",
+                "feature_flag_key": "pause-ended-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):

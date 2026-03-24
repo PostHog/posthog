@@ -15213,6 +15213,11 @@ export namespace Schemas {
     export interface GitHubBranchesResponse {
       /** List of branch names */
       branches: string[];
+      /**
+       * The default branch of the repository
+       * @nullable
+       */
+      default_branch?: string | null;
     }
 
     export interface GitHubRepo {
