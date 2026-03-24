@@ -429,9 +429,11 @@ mod frame_error_serde {
     where
         S: Serializer,
     {
+        // skip_serializing_if = "Option::is_none" guarantees value is Some here,
+        // but we match exhaustively to satisfy the type checker.
         match value {
             Some(err) => serializer.serialize_str(&err.to_string()),
-            None => serializer.serialize_none(),
+            None => unreachable!("skip_serializing_if = Option::is_none prevents None reaching here"),
         }
     }
 }
