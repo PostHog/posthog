@@ -320,6 +320,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "shopify_store_id",
             # temporal
             "namespace",
+            # convex
+            "deploy_url",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
