@@ -50,18 +50,16 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: E
                         data-attr={'editor-filter-group-collapse-' + slugify(title)}
                         className="rounded-b-none"
                     >
-                        <div className="flex items-center gap-2 font-semibold text-xs uppercase tracking-wide">
+                        <div className="flex items-center gap-2 font-semibold text-[13px]">
                             <span>{title}</span>
                             {!isRowExpanded && collapsedSummary && (
-                                <span className="text-xs font-normal normal-case tracking-normal text-secondary">
-                                    {collapsedSummary}
-                                </span>
+                                <span className="text-xs font-normal text-secondary">{collapsedSummary}</span>
                             )}
                         </div>
                     </LemonButton>
                 ) : (
                     <div className="px-3 py-2 flex items-center justify-between">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-secondary">{title}</span>
+                        <span className="text-[13px] font-semibold text-secondary">{title}</span>
                         {HeaderExtra && <HeaderExtra insightProps={insightProps} />}
                     </div>
                 )}

@@ -341,7 +341,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     : null,
                 {
                     key: 'properties',
-                    label: 'Filters',
+                    label: editorPanelsEnabled ? undefined : 'Filters',
                     component: GlobalAndOrFilters as (props: EditorFilterProps) => JSX.Element | null,
                 },
             ]),
