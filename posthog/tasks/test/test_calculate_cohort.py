@@ -865,7 +865,9 @@ class TestCohortCalculationTasks(APIBaseTest):
             ),
         ]
     )
-    def test_safe_save_cohort_state_passes_update_fields(self, _name, processing_error, expected_update_fields) -> None:
+    def test_safe_save_cohort_state_passes_update_fields(
+        self, _name: str, processing_error: Exception | None, expected_update_fields: list[str]
+    ) -> None:
         cohort = Cohort.objects.create(
             team_id=self.team.pk,
             name="test_cohort",
