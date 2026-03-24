@@ -1,29 +1,28 @@
-import json
-import zlib
-import base64
-import hashlib
 from dataclasses import asdict
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
-from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 import structlog
-from cryptography.fernet import Fernet
+from cryptography.fernet import InvalidToken
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.utils_cors import KNOWN_ORIGINS
 
+from ee.api.vercel.types import VercelUserClaims
+from ee.api.vercel.vercel_crypto import decrypt_payload, encrypt_payload, mark_token_used
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import SSOParams, VercelIntegration
 
 SSO_CLAIMS_TOKEN_TTL = 300
+SSO_SALT = "vercel_sso"
 
 logger = structlog.get_logger(__name__)
 
@@ -65,20 +64,13 @@ class VercelSSOSerializer(DataclassSerializer[SSOParams]):
             raise serializers.ValidationError("Invalid URL format")
 
 
-def _get_fernet() -> Fernet:
-    key = base64.urlsafe_b64encode(hashlib.sha256(settings.VERCEL_CLIENT_INTEGRATION_SECRET.encode()).digest())
-    return Fernet(key)
-
-
 def _encrypt_claims(claims: Any) -> str:
     data = asdict(claims) if hasattr(claims, "__dataclass_fields__") else claims.__dict__
-    payload = zlib.compress(json.dumps(data).encode())
-    return _get_fernet().encrypt(payload).decode()
+    return encrypt_payload(data, salt=SSO_SALT, jti=True)
 
 
 def _decrypt_claims(token: str) -> dict:
-    decrypted = _get_fernet().decrypt(token.encode(), ttl=SSO_CLAIMS_TOKEN_TTL)
-    return json.loads(zlib.decompress(decrypted))
+    return decrypt_payload(token, salt=SSO_SALT, ttl=SSO_CLAIMS_TOKEN_TTL)
 
 
 class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewsets.GenericViewSet):
@@ -130,22 +122,29 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
         if claims_token:
             try:
                 claims_data = _decrypt_claims(claims_token)
-                from ee.api.vercel.types import VercelUserClaims
-
-                claims = VercelUserClaims(**claims_data)
-                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
-                logger.info(
-                    "Restored SSO claims from cross-region token",
-                    installation_id=claims.installation_id,
-                    integration="vercel",
-                )
+                jti = claims_data.pop("jti", None)
+                if jti and not mark_token_used(jti, ttl=SSO_CLAIMS_TOKEN_TTL):
+                    logger.warning("Replay of cross-region SSO claims token", jti=jti, integration="vercel")
+                else:
+                    claims = VercelUserClaims(**claims_data)
+                    VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
+                    logger.info(
+                        "Restored SSO claims from cross-region token",
+                        installation_id=claims.installation_id,
+                        integration="vercel",
+                    )
+            except InvalidToken:
+                logger.warning("Invalid or expired cross-region SSO claims token", integration="vercel")
             except Exception as e:
+                capture_exception(e)
                 logger.warning("Failed to decrypt cross-region SSO claims token", error=str(e), integration="vercel")
 
         if not params.resource_id and self.current_region == "us" and not self.is_dev_env:
-            from ee.api.vercel.types import VercelUserClaims
+            try:
+                existing_claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
+            except Exception:
+                existing_claims = None
 
-            existing_claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
             if isinstance(existing_claims, VercelUserClaims) and self._should_redirect_to_eu(
                 None, installation_id=existing_claims.installation_id
             ):
