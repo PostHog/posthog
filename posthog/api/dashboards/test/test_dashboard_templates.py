@@ -144,6 +144,34 @@ class TestDashboardTemplates(APIBaseTest):
         assert duplicate_response.status_code == status.HTTP_201_CREATED, duplicate_response
         assert DashboardTemplate.objects_including_soft_deleted.count() == 4  # including 2 default ones
 
+    def test_is_featured_for_team_and_persists_when_scope_changes_to_team(self) -> None:
+        team_featured = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "is_featured": True},
+        )
+        assert team_featured.status_code == status.HTTP_201_CREATED, team_featured
+        assert team_featured.json()["is_featured"] is True
+        assert team_featured.json()["scope"] == "team"
+
+        global_featured = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {
+                **variable_template,
+                "template_name": "Featured global template",
+                "scope": "global",
+                "is_featured": True,
+            },
+        )
+        assert global_featured.status_code == status.HTTP_201_CREATED, global_featured
+        template_id = global_featured.json()["id"]
+
+        patch = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{template_id}",
+            {"scope": "team"},
+        )
+        assert patch.status_code == status.HTTP_200_OK, patch
+        assert patch.json()["is_featured"] is True
+
     def test_staff_can_make_dashboard_template_public(self) -> None:
         assert self.team.pk is not None
         response = self.client.post(
@@ -446,6 +474,10 @@ class TestDashboardTemplates(APIBaseTest):
                     "description": "The tags of the dashboard template",
                     "type": "array",
                     "items": {"type": "string"},
+                },
+                "is_featured": {
+                    "description": "Whether this template is manually marked as featured in the UI",
+                    "type": "boolean",
                 },
             },
         }
