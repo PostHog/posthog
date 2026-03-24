@@ -44,6 +44,7 @@ import {
     CohortType,
     DashboardMode,
     DashboardTile,
+    DashboardWidgetType,
     DashboardType,
     EntityType,
     Experiment,
@@ -469,6 +470,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insight: Partial<QueryBasedInsightModel> | null,
             dashboardId: number | null
         ) => ({ insight, dashboardId }),
+        reportCopiedDashboardTileToDashboard: (
+            fromDashboardId: number,
+            toDashboardId: number,
+            tileType: DashboardWidgetType
+        ) => ({ fromDashboardId, toDashboardId, tileType }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
@@ -1376,6 +1382,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('removed insight from dashboard', {
                 insight: sanitizeInsight(insight),
                 dashboard_id: dashboardId,
+            })
+        },
+        reportCopiedDashboardTileToDashboard: async ({ fromDashboardId, toDashboardId, tileType }) => {
+            posthog.capture('dashboard widget copied to other dashboard', {
+                from_dashboard_id: fromDashboardId,
+                to_dashboard_id: toDashboardId,
+                tile_type: tileType,
             })
         },
         reportInsightsTableCalcToggled: async (payload) => {

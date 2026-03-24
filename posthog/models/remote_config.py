@@ -515,8 +515,9 @@ def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
 
 
 @receiver(post_save, sender=HogFunction)
-def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
-    if instance.enabled and instance.type in ("site_destination", "site_app"):
+@receiver(post_delete, sender=HogFunction)
+def site_function_changed(sender, instance: "HogFunction", **kwargs):
+    if instance.type in ("site_destination", "site_app"):
         transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

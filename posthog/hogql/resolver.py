@@ -15,7 +15,7 @@ from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQue
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -1607,6 +1607,7 @@ class Resolver(CloningVisitor):
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
+        resolved_chain: list[str] = [str(node.chain[0])]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
@@ -1622,10 +1623,16 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            # TODO: This will never return None, it always raises an exception
-            # once it finds the unsupported field/type
-            # There's no reason to have the `if loop_type is None` check here
-            loop_type = loop_type.get_child(str(next_chain), self.context)
+            try:
+                loop_type = loop_type.get_child(str(next_chain), self.context)
+            except NotImplementedError:
+                raise QueryError(
+                    f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
+                    f"This can happen when a column alias shadows a table field. Try renaming the alias."
+                )
+            resolved_chain.append(str(next_chain))
+            # Note: get_child currently always raises rather than returning None,
+            # but this guard is kept for safety in case that contract changes.
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type

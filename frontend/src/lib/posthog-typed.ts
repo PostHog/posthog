@@ -665,6 +665,7 @@ interface EventSchemas {
     'dashboard subscription updated': Record<string, any>
     'dashboard updated': Record<string, any>
     'dashboard whitelabel toggled': Record<string, any>
+    'dashboard widget copied to other dashboard': Record<string, any>
     'data_attributes team setting updated': Record<string, any>
     'data pipelines notice clicked': Record<string, any>
     'data pipelines notice dismissed': Record<string, any>

@@ -597,11 +597,14 @@ describe('the feature flag release conditions logic', () => {
             )
         })
 
-        it('accepts valid rollout percentages', () => {
+        it.each([
+            ['integer boundary values', 0, 50, 100],
+            ['decimal sub-1% values', 0.01, 0.15, 33.33],
+        ])('accepts valid rollout percentages (%s)', (_label, a, b, c) => {
             const filters = generateFeatureFlagFilters([
-                { properties: [], rollout_percentage: 0, variant: null, sort_key: 'A' },
-                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'B' },
-                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+                { properties: [], rollout_percentage: a, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: b, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: c, variant: null, sort_key: 'C' },
             ])
             logic.actions.setFilters(filters)
 
