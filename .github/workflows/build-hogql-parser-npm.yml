@@ -33,7 +33,6 @@ jobs:
               id: changed-files
               uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
               with:
-                  since_last_remote_commit: true
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
@@ -49,11 +48,21 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   COMMITTED_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
-                  FORK_MESSAGE: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || '' }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
-                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) has changed since last push, but its version stayed the same at $COMMITTED_VERSION. 👀\nMake sure to resolve this in \`common/hogql_parser/package.json\` before merging!$FORK_MESSAGE"
-                  gh pr comment "$PR_NUMBER" --body "$message_body"
+                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) changed in this PR, but its version stayed the same at $COMMITTED_VERSION. 👀"
+                  message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/package.json\` before merging!"
+                  if [[ "$IS_FORK" == 'true' ]]; then
+                    message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
+                  fi
+                  # Post once, then edit in place on subsequent pushes
+                  existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser.*npm.*version stayed the same")) | .id' | tail -1)
+                  if [[ -n "$existing" ]]; then
+                    gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                  else
+                    gh pr comment "$PR_NUMBER" --body "$message_body"
+                  fi
 
     build-wasm:
         name: Build WASM
