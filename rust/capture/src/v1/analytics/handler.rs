@@ -6,6 +6,7 @@ use axum_client_ip::InsecureClientIp;
 use super::header::*;
 use super::query::Query;
 use super::response::Response;
+use super::types::CaptureV1Batch;
 use crate::v1::context::Context;
 use crate::{log_stat_error, router, v1};
 
@@ -31,7 +32,7 @@ pub async fn handle_request(
     .await
     .map_err(|err| log_and_return_body_error(err, &context, &ip, &query, &path))?;
 
-    let _payload = v1::util::decompress_payload(
+    let payload = v1::util::decompress_payload(
         context.content_encoding.as_deref(),
         raw_bytes,
         state.event_payload_size_limit,
@@ -39,6 +40,26 @@ pub async fn handle_request(
     )
     .await
     .map_err(|err| log_and_return_body_error(err, &context, &ip, &query, &path))?;
+
+    let batch: CaptureV1Batch = serde_json::from_slice(&payload).map_err(|e| {
+        log_and_return_body_error(
+            v1::Error::RequestParsingError(e.to_string()),
+            &context,
+            &ip,
+            &query,
+            &path,
+        )
+    })?;
+
+    if batch.batch.is_empty() {
+        return Err(log_and_return_body_error(
+            v1::Error::EmptyBatch,
+            &context,
+            &ip,
+            &query,
+            &path,
+        ));
+    }
 
     unimplemented!()
 }

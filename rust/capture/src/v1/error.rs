@@ -61,6 +61,8 @@ pub enum Error {
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
     RequestParsingError(String),
+    #[error("request body is empty")]
+    EmptyBody,
     #[error("request batch is empty")]
     EmptyBatch,
     #[error("event submitted without an event name")]
@@ -120,6 +122,7 @@ impl Error {
             | Self::InvalidHeaderValue(_)
             | Self::RequestDecodingError(_)
             | Self::RequestParsingError(_)
+            | Self::EmptyBody
             | Self::EmptyBatch
             | Self::MissingEventName
             | Self::MissingDistinctId
@@ -148,6 +151,7 @@ impl Error {
             Self::InvalidHeaderValue(_) => "invalid_header_value",
             Self::RequestDecodingError(_) => "request_decoding_error",
             Self::RequestParsingError(_) => "request_parsing_error",
+            Self::EmptyBody => "empty_body",
             Self::EmptyBatch => "empty_batch",
             Self::MissingEventName => "missing_event_name",
             Self::MissingDistinctId => "missing_distinct_id",
@@ -175,6 +179,7 @@ impl Error {
             | Self::InvalidHeaderValue(_)
             | Self::RequestDecodingError(_)
             | Self::RequestParsingError(_)
+            | Self::EmptyBody
             | Self::EmptyBatch
             | Self::MissingEventName
             | Self::MissingDistinctId
@@ -217,6 +222,7 @@ impl Error {
             | Self::InvalidHeaderValue(_)
             | Self::RequestDecodingError(_)
             | Self::RequestParsingError(_)
+            | Self::EmptyBody
             | Self::EmptyBatch
             | Self::MissingEventName
             | Self::MissingDistinctId

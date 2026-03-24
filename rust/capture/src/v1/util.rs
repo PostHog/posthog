@@ -58,7 +58,11 @@ pub async fn extract_body_with_timeout(
         }
     }
 
-    Ok(buf.freeze())
+    let bytes = buf.freeze();
+    if bytes.is_empty() {
+        return Err(Error::EmptyBody);
+    }
+    Ok(bytes)
 }
 
 /// Decompress a payload using the specified Content-Encoding.
@@ -202,8 +206,7 @@ mod tests {
     async fn extract_body_empty() {
         let body = Body::empty();
         let result = extract_body_with_timeout(body, 1024, None, TEST_CHUNK_SIZE_KB, "/test").await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(matches!(result, Err(Error::EmptyBody)));
     }
 
     // --- decompression tests ---
