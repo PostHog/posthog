@@ -64,10 +64,11 @@ class SdkOutdatedCheck(HealthCheck):
             for lib_name, entries in team_data.items():
                 if lib_name not in github_data or not entries:
                     continue
-                latest_version = github_data[lib_name]["latestVersion"]
+                sdk_github_data = github_data[lib_name]
+                latest_version = sdk_github_data["latestVersion"]
+                release_dates = sdk_github_data.get("releaseDates", {})
 
                 current_version = entries[0].get("lib_version")
-                last_seen = entries[0].get("max_timestamp")
 
                 if current_version and current_version != latest_version:
                     issues[team_id].append(
@@ -75,9 +76,17 @@ class SdkOutdatedCheck(HealthCheck):
                             severity=HealthIssue.Severity.WARNING,
                             payload={
                                 "sdk_name": lib_name,
-                                "current_version": current_version,
                                 "latest_version": latest_version,
-                                "last_seen_at": last_seen,
+                                "usage": [
+                                    {
+                                        "lib_version": entry["lib_version"],
+                                        "count": entry.get("count", 0),
+                                        "max_timestamp": entry["max_timestamp"],
+                                        "release_date": release_dates.get(entry["lib_version"]),
+                                        "is_latest": entry["lib_version"] == latest_version,
+                                    }
+                                    for entry in entries
+                                ],
                             },
                             hash_keys=["sdk_name"],
                         )

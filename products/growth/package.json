@@ -1,6 +1,6 @@
 {
     "name": "@posthog/products-growth",
     "scripts": {
-        "backend:test": "echo 'No backend tests'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     }
 }
