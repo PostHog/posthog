@@ -19,3 +19,13 @@ DAGSTER_UI_PORT: int = int(os.getenv("DAGSTER_UI_PORT", 3030))
 DAGSTER_AI_EVALS_S3_BUCKET: str = os.getenv("DAGSTER_AI_EVALS_S3_BUCKET", "ai-evals")
 
 DAGSTER_FAVICONS_S3_BUCKET: str = os.getenv("DAGSTER_FAVICONS_S3_BUCKET", "posthog")
+
+# Part breaker settings
+PART_BREAKER_MAX_PART_SIZE_GIB: int = int(os.getenv("PART_BREAKER_MAX_PART_SIZE_GIB", "300"))
+PART_BREAKER_MIN_PARTITION_AGE_MONTHS: int = int(os.getenv("PART_BREAKER_MIN_PARTITION_AGE_MONTHS", "3"))
+PART_BREAKER_MAX_PARTITIONS_PER_RUN: int = int(os.getenv("PART_BREAKER_MAX_PARTITIONS_PER_RUN", "1"))
+PART_BREAKER_COUNT_TOLERANCE: float = float(os.getenv("PART_BREAKER_COUNT_TOLERANCE", "0.05"))
+PART_BREAKER_SCHEDULE: str = os.getenv("PART_BREAKER_SCHEDULE", "0 2 * * 6")  # Saturdays at 2am UTC
+PART_BREAKER_ELIGIBLE_TABLES: list[str] = [
+    t.strip() for t in os.getenv("PART_BREAKER_ELIGIBLE_TABLES", "").split(",") if t.strip()
+]
