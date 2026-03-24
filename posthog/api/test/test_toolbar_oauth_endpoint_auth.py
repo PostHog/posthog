@@ -308,18 +308,20 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
         assert "*" not in settings.TOOLBAR_OAUTH_SCOPES, "Toolbar should use specific scopes, not wildcard"
 
 
-class TestToolbarOAuthCorsPreflight(APIBaseTest):
+class TestOAuthCorsPreflightMiddleware(APIBaseTest):
     """The toolbar runs in the customer's page and uses window.fetch.
     Customer code may monkey-patch fetch to inject custom headers
     (e.g. x-app-version). The CORS preflight must echo back whatever
     headers the browser requests so the actual request isn't blocked."""
 
-    TOOLBAR_CORS_PATHS = [
-        ("oauth_token", "/oauth/token/"),
-        ("toolbar_oauth_check", "/toolbar_oauth/check"),
+    OAUTH_CORS_PATHS = [
+        ("oauth_token_slash", "/oauth/token/"),
+        ("oauth_token_no_slash", "/oauth/token"),
+        ("toolbar_oauth_check_no_slash", "/toolbar_oauth/check"),
+        ("toolbar_oauth_check_slash", "/toolbar_oauth/check/"),
     ]
 
-    @parameterized.expand(TOOLBAR_CORS_PATHS)
+    @parameterized.expand(OAUTH_CORS_PATHS)
     def test_preflight_echoes_back_custom_headers(self, _label, path):
         response = self.client.options(
             path,
@@ -332,23 +334,32 @@ class TestToolbarOAuthCorsPreflight(APIBaseTest):
         assert "x-app-version" in response["Access-Control-Allow-Headers"]
         assert "x-custom-header" in response["Access-Control-Allow-Headers"]
         assert response["Access-Control-Max-Age"] == "86400"
-        # Toolbar uses Bearer tokens, not cookies — no credentials header
+        # Uses Bearer tokens, not cookies — no credentials header
         assert not response.has_header("Access-Control-Allow-Credentials")
 
-    @parameterized.expand(TOOLBAR_CORS_PATHS)
-    def test_non_preflight_requests_pass_through(self, _label, path):
+    @parameterized.expand(OAUTH_CORS_PATHS)
+    def test_non_preflight_get_passes_through(self, _label, path):
         response = self.client.get(path)
         assert not response.has_header("Access-Control-Allow-Headers")
 
-    @parameterized.expand(TOOLBAR_CORS_PATHS)
-    def test_preflight_without_origin_uses_wildcard(self, _label, path):
+    @parameterized.expand(OAUTH_CORS_PATHS)
+    def test_non_preflight_post_passes_through(self, _label, path):
+        response = self.client.post(
+            path,
+            HTTP_ORIGIN="https://www.example.com",
+        )
+        # POST should not be intercepted — it flows through to django-cors-headers
+        assert not response.has_header("Access-Control-Max-Age")
+
+    @parameterized.expand(OAUTH_CORS_PATHS)
+    def test_preflight_without_origin_passes_through(self, _label, path):
         response = self.client.options(
             path,
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
         )
-        assert response.status_code == 200
-        assert response["Access-Control-Allow-Origin"] == "*"
+        # OPTIONS without Origin is not a CORS preflight — should not be intercepted
+        assert not response.has_header("Access-Control-Max-Age")
 
     def test_preflight_to_unrelated_path_not_intercepted(self):
         response = self.client.options(
