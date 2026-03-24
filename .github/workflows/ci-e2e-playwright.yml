@@ -775,6 +775,8 @@ jobs:
               env:
                   BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
               run: |
+                  git config user.name "PostHog Bot"
+                  git config user.email "hey@posthog.com"
                   git add playwright/snapshots.yml
                   git commit -m "chore(visual-review): update playwright baseline"
                   git push origin HEAD:"$BRANCH_NAME" --quiet

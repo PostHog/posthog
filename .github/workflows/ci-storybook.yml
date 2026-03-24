@@ -675,6 +675,8 @@ jobs:
               env:
                   BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
               run: |
+                  git config user.name "PostHog Bot"
+                  git config user.email "hey@posthog.com"
                   git add frontend/snapshots.yml
                   git commit -m "chore(visual-review): update storybook baseline"
                   git push origin HEAD:"$BRANCH_NAME" --quiet
