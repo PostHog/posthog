@@ -2028,14 +2028,7 @@
                 "series": {
                     "description": "Event or action to analyze. Lifecycle insights only support a single series.",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AssistantLifecycleEventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/AssistantLifecycleActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AssistantLifecycleSeriesNode"
                     },
                     "maxLength": 1,
                     "type": "array"
@@ -2043,6 +2036,16 @@
             },
             "required": ["kind", "series"],
             "type": "object"
+        },
+        "AssistantLifecycleSeriesNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantLifecycleEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantLifecycleActionsNode"
+                }
+            ]
         },
         "AssistantMessage": {
             "additionalProperties": false,

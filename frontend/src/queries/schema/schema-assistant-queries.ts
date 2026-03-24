@@ -1042,6 +1042,8 @@ export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
 export interface AssistantLifecycleEventsNode
     extends Pick<EventsNode, 'kind' | 'event' | 'name' | 'custom_name'>, AssistantSeriesProperties {}
 
+export type AssistantLifecycleSeriesNode = AssistantLifecycleEventsNode | AssistantLifecycleActionsNode
+
 /**
  * Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations.
  * You must provide the action ID in the `id` field and the name in the `name` field.
@@ -1095,7 +1097,7 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
      * Event or action to analyze. Lifecycle insights only support a single series.
      * @maxLength 1
      */
-    series: (AssistantLifecycleEventsNode | AssistantLifecycleActionsNode)[]
+    series: AssistantLifecycleSeriesNode[]
 
     /**
      * Properties specific to the lifecycle insight
