@@ -231,6 +231,48 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_pattern_returns_false_for_both_regex_and_not_regex() {
+        use crate::properties::property_matching::match_property;
+
+        let props = HashMap::from([("email".to_string(), serde_json::json!("user@example.com"))]);
+
+        let mut regex_filter = PropertyFilter {
+            key: "email".to_string(),
+            value: Some(serde_json::json!("?*")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+        };
+        regex_filter.prepare_regex();
+        assert!(matches!(
+            regex_filter.compiled_regex,
+            Some(CompiledRegex::InvalidPattern)
+        ));
+        assert_eq!(match_property(&regex_filter, &props, false), Ok(false));
+
+        let mut not_regex_filter = PropertyFilter {
+            key: "email".to_string(),
+            value: Some(serde_json::json!("?*")),
+            operator: Some(OperatorType::NotRegex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+        };
+        not_regex_filter.prepare_regex();
+        assert!(matches!(
+            not_regex_filter.compiled_regex,
+            Some(CompiledRegex::InvalidPattern)
+        ));
+        // InvalidPattern returns Ok(false) for NotRegex too — matches existing
+        // on-the-fly behavior where a failed compilation returns Ok(false)
+        // regardless of operator.
+        assert_eq!(match_property(&not_regex_filter, &props, false), Ok(false));
+    }
+
+    #[test]
     fn test_precompiled_regex_matches_same_as_on_the_fly() {
         use crate::properties::property_matching::match_property;
 
