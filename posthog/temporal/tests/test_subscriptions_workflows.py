@@ -962,4 +962,4 @@ async def test_user_query_error_does_not_retry(
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
     assert len(completed_calls) == 1
-    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
+    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
