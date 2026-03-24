@@ -1904,6 +1904,7 @@
                 },
                 "kind": {
                     "const": "ActionsNode",
+                    "description": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
                     "type": "string"
                 },
                 "name": {
@@ -1932,6 +1933,7 @@
                 },
                 "kind": {
                     "const": "EventsNode",
+                    "description": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
                     "type": "string"
                 },
                 "name": {
