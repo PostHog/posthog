@@ -2,10 +2,29 @@ import dagster
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.ops import get_all_team_ids_op
-from posthog.exceptions_capture import capture_exception
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortKind, get_or_create_internal_test_users_cohort
+from posthog.models.cohort.cohort import INTERNAL_TEST_USERS_COHORT_NAME, CohortKind
 from posthog.models.team import Team
+
+# Standard filter: matches people with $internal_or_test_user set to true
+_INTERNAL_TEST_USERS_FILTERS: dict = {
+    "properties": {
+        "type": "OR",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$internal_or_test_user",
+                        "type": "person",
+                        "value": [True],
+                        "operator": "exact",
+                    }
+                ],
+            }
+        ],
+    }
+}
 
 
 @dagster.op
@@ -23,45 +42,44 @@ def create_internal_test_users_cohorts_op(
         ).values_list("team_id", flat=True)
     )
 
-    # Bulk-fetch teams that need a cohort to avoid N+1 queries
-    teams_needing_cohort = {
-        team.id: team for team in Team.objects.filter(id__in=[tid for tid in team_ids if tid not in teams_with_cohort])
-    }
+    # Bulk-fetch only teams that need a cohort
+    teams_needing_cohort = list(Team.objects.filter(id__in=[tid for tid in team_ids if tid not in teams_with_cohort]))
 
-    created = 0
-    skipped = len(teams_with_cohort)
-    failed = 0
+    not_found = len(team_ids) - len(teams_with_cohort) - len(teams_needing_cohort)
+    if not_found > 0:
+        context.log.warning(f"{not_found} team IDs not found in the database, skipping")
 
-    for team_id in team_ids:
-        if team_id in teams_with_cohort:
-            continue
+    # Bulk-create all cohorts in a single INSERT.
+    # There is no unique constraint on (team_id, kind), so there's a small TOCTOU
+    # window where a user could create the cohort via the UI between our check above
+    # and this insert. That's acceptable for a one-off backfill: the worst case is a
+    # duplicate cohort row which is harmless (the UI always queries with .first()).
+    cohorts_to_create = [
+        Cohort(
+            team=team,
+            name=INTERNAL_TEST_USERS_COHORT_NAME,
+            description="People who are internal team members or test users. Used for filtering out internal traffic from analytics.",
+            is_static=False,
+            kind=CohortKind.INTERNAL_TEST_USERS,
+            filters=_INTERNAL_TEST_USERS_FILTERS,
+        )
+        for team in teams_needing_cohort
+    ]
 
-        team = teams_needing_cohort.get(team_id)
-        if team is None:
-            context.log.warning(f"Team {team_id} not found, skipping")
-            skipped += 1
-            continue
+    created_cohorts = Cohort.objects.bulk_create(cohorts_to_create)
+    created = len(created_cohorts)
+    skipped = len(teams_with_cohort) + not_found
 
-        try:
-            get_or_create_internal_test_users_cohort(team)
-            created += 1
-            context.log.info(f"Created internal/test users cohort for team {team_id}")
-        except Exception as e:
-            context.log.exception(f"Failed to create cohort for team {team_id}")
-            capture_exception(e, {"team_id": team_id})
-            failed += 1
-
-    context.log.info(f"Batch complete: {created} created, {skipped} skipped, {failed} failed")
+    context.log.info(f"Batch complete: {created} created, {skipped} skipped")
     context.add_output_metadata(
         {
             "batch_size": dagster.MetadataValue.int(len(team_ids)),
             "created": dagster.MetadataValue.int(created),
             "skipped": dagster.MetadataValue.int(skipped),
-            "failed": dagster.MetadataValue.int(failed),
         }
     )
 
-    return {"created": created, "skipped": skipped, "failed": failed}
+    return {"created": created, "skipped": skipped}
 
 
 @dagster.op
@@ -72,20 +90,15 @@ def aggregate_cohort_results_op(
     """Aggregate results from all batches."""
     total_created = sum(r["created"] for r in results)
     total_skipped = sum(r["skipped"] for r in results)
-    total_failed = sum(r["failed"] for r in results)
 
-    context.log.info(f"Completed: {total_created} created, {total_skipped} skipped, {total_failed} failed")
+    context.log.info(f"Completed: {total_created} created, {total_skipped} skipped")
 
     context.add_output_metadata(
         {
             "total_created": dagster.MetadataValue.int(total_created),
             "total_skipped": dagster.MetadataValue.int(total_skipped),
-            "total_failed": dagster.MetadataValue.int(total_failed),
         }
     )
-
-    if total_failed > 0:
-        raise Exception(f"Failed to create internal/test users cohort for {total_failed} teams")
 
 
 @dagster.job(
