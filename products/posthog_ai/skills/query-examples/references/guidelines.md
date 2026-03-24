@@ -57,7 +57,6 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Data Warehouse](references/models-data-warehouse.md)
 - [Error Tracking](references/models-error-tracking.md)
 - [Flags & Experiments](references/models-flags-experiments.md)
-- [Groups](references/models-groups.md)
 - [Notebooks](references/models-notebooks.md)
 - [Surveys](references/models-surveys.md)
 - [SQL Variables](references/models-variables.md)
@@ -69,7 +68,6 @@ Experiment | 1:1 | FeatureFlag | `feature_flag_id`
 Experiment | N:1 | Cohort | `exposure_cohort_id`
 Survey | N:1 | FeatureFlag | `linked_flag_id`, `targeting_flag_id`
 Survey | N:1 | Insight | `linked_insight_id`
-Group | N:1 | GroupTypeMapping | `group_type_index` (logical)
 Cohort | M:N | Person | via `cohortpeople`
 Person | 1:N | PersonDistinctId | `person_id`
 

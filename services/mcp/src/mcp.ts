@@ -4,7 +4,7 @@ import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
-import { ApiClient } from '@/api/client'
+import { ApiClient, type GroupType } from '@/api/client'
 import { AnalyticsEvent, generateId, getPostHogClient } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
@@ -57,6 +57,8 @@ export class MCP extends McpAgent<Env> {
         clientName: undefined,
         aiConsentGiven: undefined,
         aiConsentFetchedAt: undefined,
+        groupTypes: undefined,
+        groupTypesFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -413,16 +415,28 @@ export class MCP extends McpAgent<Env> {
 
     async init(): Promise<void> {
         const { features, version, organizationId, projectId, readOnly } = this.requestProperties
-        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        let instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
 
-        // Pre-seed cache with org/project IDs from headers/query params
+        // Pre-seed cache and fetch group types in parallel
+        const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
         if (projectId) {
             await this.cache.set('projectId', projectId)
         }
+
+        // Resolve group types (started above in parallel with cache seeding)
+        const groupTypes = await groupTypesPromise
+        if (groupTypes && groupTypes.length > 0) {
+            const lines = groupTypes.map(
+                (gt) =>
+                    `- Index ${gt.group_type_index}: "${gt.group_type}"${gt.name_singular ? ` (${gt.name_singular})` : ''}`
+            )
+            instructions += `\n\n### Group type mapping\n\nThis project has the following group types. Use the index when setting \`group_type_index\`, \`aggregation_group_type_index\`, \`breakdown_group_type_index\`, or \`math_group_type_index\`.\n\n${lines.join('\n')}\n`
+        }
+
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
@@ -460,5 +474,38 @@ export class MCP extends McpAgent<Env> {
             const typedTool = tool as Tool<z.ZodObject>
             this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
         }
+    }
+
+    private async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
+        const GROUP_TYPES_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+        try {
+            const cached = await this.cache.get('groupTypes')
+            const fetchedAt = await this.cache.get('groupTypesFetchedAt')
+            const isStale = !fetchedAt || Date.now() - fetchedAt > GROUP_TYPES_TTL_MS
+
+            if (cached !== undefined && !isStale) {
+                return cached
+            }
+
+            if (cached !== undefined) {
+                // Stale — revalidate in background, return cached immediately
+                this.fetchAndCacheGroupTypes(projectId).catch(() => {})
+                return cached
+            }
+
+            // No cache — fetch synchronously
+            return await this.fetchAndCacheGroupTypes(projectId)
+        } catch {
+            return undefined
+        }
+    }
+
+    private async fetchAndCacheGroupTypes(projectId: string): Promise<GroupType[]> {
+        const api = await this.api()
+        const groupTypes = await api.getGroupTypes(projectId)
+        await this.cache.set('groupTypes', groupTypes)
+        await this.cache.set('groupTypesFetchedAt', Date.now())
+        return groupTypes
     }
 }

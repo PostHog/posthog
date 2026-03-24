@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { ApiClient } from '@/api/client'
+import type { ApiClient, GroupType } from '@/api/client'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
@@ -22,6 +22,8 @@ export type State = {
     clientName: string | undefined
     aiConsentGiven: boolean | undefined
     aiConsentFetchedAt: number | undefined
+    groupTypes: GroupType[] | undefined
+    groupTypesFetchedAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState>
 
 export type Env = {
