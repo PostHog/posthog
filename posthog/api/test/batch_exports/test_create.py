@@ -1049,28 +1049,8 @@ def databricks_integration(team, user):
     )
 
 
-@pytest.fixture
-def enable_databricks(team):
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
-    ) as feature_enabled:
-        yield
-        feature_enabled.assert_any_call(
-            "databricks-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-
 def test_creating_databricks_batch_export_using_integration(
-    client: HttpClient, temporal, organization, team, user, databricks_integration, enable_databricks
+    client: HttpClient, temporal, organization, team, user, databricks_integration
 ):
     """Test that we can create a Databricks batch export using an integration.
 
@@ -1113,40 +1093,6 @@ def test_creating_databricks_batch_export_using_integration(
     assert schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
     assert isinstance(schedule.schedule.action, ScheduleActionStartWorkflow)
     assert schedule.schedule.action.workflow == "databricks-export"
-
-
-def test_creating_databricks_batch_export_fails_if_feature_flag_is_not_enabled(
-    client: HttpClient, temporal, organization, team, user, databricks_integration
-):
-    """Test that creating a Databricks batch export fails if the feature flag is not enabled."""
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-        "integration": databricks_integration.id,
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    assert "The Databricks destination is not enabled for this team." in response.json()["detail"]
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_missing(
