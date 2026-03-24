@@ -737,9 +737,36 @@ jobs:
                     echo "Screenshot changes detected in patches"
                   fi
 
-            # UPDATE mode: commit the changes
+            # Visual Review: submit snapshots and auto-approve baseline
+            - name: Install VR CLI deps
+              run: cd products/visual_review/cli && npm ci
+
+            - name: Submit to Visual Review
+              continue-on-error: true
+              run: |
+                  npx tsx products/visual_review/cli/src/index.ts submit \
+                    --dir playwright/__snapshots__/ \
+                    --type playwright \
+                    --baseline playwright/snapshots.yml \
+                    --auto-approve \
+                    --token ${{ secrets.VR_API_TOKEN }} \
+                    --branch ${{ github.event.pull_request.head.ref }} \
+                    --commit ${{ github.event.pull_request.head.sha }} \
+                    --pr ${{ github.event.pull_request.number }}
+
+            - name: Check baseline changes
+              id: check-baseline
+              run: |
+                  if git diff --quiet playwright/snapshots.yml; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    git add playwright/snapshots.yml
+                  fi
+
+            # UPDATE mode: commit the changes (screenshots + baseline in one commit)
             - name: Commit screenshot changes
-              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
+              if: (steps.check-screenshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: playwright
