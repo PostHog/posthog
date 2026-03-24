@@ -760,6 +760,7 @@ jobs:
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR"
 
+            # Stage baseline if updated by VR submit — included in the screenshot commit
             - name: Check baseline changes
               id: check-baseline
               run: |
@@ -767,23 +768,12 @@ jobs:
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "has-changes=true" >> $GITHUB_OUTPUT
+                    git add playwright/snapshots.yml
                   fi
 
-            # Commit baseline separately — commit-snapshots only looks at the screenshot directory
-            - name: Commit baseline changes
-              if: steps.check-baseline.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
-              env:
-                  BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
-              run: |
-                  git config user.name "PostHog Bot"
-                  git config user.email "hey@posthog.com"
-                  git add playwright/snapshots.yml
-                  git commit -m "chore(visual-review): update playwright baseline"
-                  git push origin HEAD:"$BRANCH_NAME" --quiet
-
-            # UPDATE mode: commit the screenshot PNG changes
+            # UPDATE mode: commit PNGs + baseline together
             - name: Commit screenshot changes
-              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
+              if: (steps.check-screenshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: playwright
