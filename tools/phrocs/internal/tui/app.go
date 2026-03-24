@@ -2,6 +2,7 @@ package tui
 
 import (
 	"log"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -21,6 +22,31 @@ const (
 	focusOutput
 	focusContainers
 )
+
+type SortMode int
+
+const (
+	SortName SortMode = iota
+	SortCPU
+	SortRAM
+	SortStatus
+	sortModeCount // sentinel for cycling
+)
+
+func (s SortMode) String() string {
+	switch s {
+	case SortName:
+		return "name"
+	case SortCPU:
+		return "CPU"
+	case SortRAM:
+		return "RAM"
+	case SortStatus:
+		return "status"
+	default:
+		return "name"
+	}
+}
 
 type Model struct {
 	mgr *process.Manager
@@ -46,6 +72,7 @@ type Model struct {
 	services       []*process.Process
 	servicesCursor int
 	servicesOffset int
+	sortMode       SortMode
 
 	// Docker container sidebar (visible when docker-compose proc is selected)
 	containers         []docker.DockerContainer
@@ -165,12 +192,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case process.StatusMsg:
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
+		// Capture the active name before re-fetching so sortServices
+		// can restore the cursor to the same process.
+		activeName := ""
+		if p := m.activeProc(); p != nil {
+			activeName = p.Name
+		}
 		// Re-fetch the process slice so status icons refresh on next render
 		m.services = m.mgr.Procs()
-		if m.servicesCursor >= len(m.services) {
-			m.servicesCursor = max(0, len(m.services)-1)
+		// Restore cursor to the same process in the new (unsorted) slice
+		m.servicesCursor = 0
+		for i, p := range m.services {
+			if p.Name == activeName {
+				m.servicesCursor = i
+				break
+			}
 		}
-		m.ensureSidebarCursorVisible()
+		m.sortServices()
 
 	// Container-related messages only relevant in docker mode
 	case docker.ContainerListMsg:
@@ -411,4 +449,70 @@ func (m Model) buildContent() string {
 		return ""
 	}
 	return strings.Join(p.Lines(), "\n")
+}
+
+// statusSortOrder returns a numeric rank for sorting by status.
+// Running/pending processes sort first, done last.
+func statusSortOrder(s process.Status) int {
+	switch s {
+	case process.StatusRunning:
+		return 0
+	case process.StatusPending:
+		return 1
+	case process.StatusCrashed:
+		return 2
+	case process.StatusStopped:
+		return 3
+	case process.StatusDone:
+		return 4
+	default:
+		return 5
+	}
+}
+
+// sortServices re-sorts m.services by the current sortMode, preserving
+// the cursor on the same process.
+func (m *Model) sortServices() {
+	if len(m.services) == 0 {
+		return
+	}
+	activeName := ""
+	if m.servicesCursor < len(m.services) {
+		activeName = m.services[m.servicesCursor].Name
+	}
+
+	sort.SliceStable(m.services, func(i, j int) bool {
+		a, b := m.services[i], m.services[j]
+
+		switch m.sortMode {
+		case SortCPU:
+			return a.CPUPercent() > b.CPUPercent()
+		case SortRAM:
+			return a.MemRSSMB() > b.MemRSSMB()
+		case SortStatus:
+			sa, sb := statusSortOrder(a.Status()), statusSortOrder(b.Status())
+			if sa != sb {
+				return sa < sb
+			}
+			return a.Name < b.Name
+		default:
+			// Always place info at the top of the list
+			if a.Name == "info" {
+				return true
+			}
+			if b.Name == "info" {
+				return false
+			}
+			return a.Name < b.Name
+		}
+	})
+
+	// Restore cursor to the same process
+	for i, p := range m.services {
+		if p.Name == activeName {
+			m.servicesCursor = i
+			break
+		}
+	}
+	m.ensureSidebarCursorVisible()
 }

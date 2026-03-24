@@ -304,6 +304,11 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.applyCopyStyle()
 		m.dbg("copy mode: enter at line %d", m.copyCursor)
 
+	case key.Matches(msg, m.keys.Sort):
+		m.sortMode = (m.sortMode + 1) % SortMode(sortModeCount)
+		m.sortServices()
+		m.dbg("sort: %s", m.sortMode)
+
 	case key.Matches(msg, m.keys.Info):
 		m.infoMode = true
 		m.refreshInfoContent()
