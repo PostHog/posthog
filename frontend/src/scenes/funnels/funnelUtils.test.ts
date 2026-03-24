@@ -6,16 +6,23 @@ import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
+    FunnelStep,
+    FunnelStepReference,
+    FunnelStepWithNestedBreakdown,
 } from '~/types'
 
 import {
+    aggregateBreakdownResult,
     EMPTY_BREAKDOWN_VALUES,
     getBreakdownStepValues,
     getClampedFunnelStepRange,
     getIncompleteConversionWindowStartDate,
+    getLastFilledStep,
     getMeanAndStandardDeviation,
+    getReferenceStep,
     getVisibilityKey,
     parseDisplayNameForCorrelation,
+    stepsWithConversionMetrics,
 } from './funnelUtils'
 
 describe('getMeanAndStandardDeviation', () => {
@@ -296,5 +303,401 @@ describe('parseEventAndProperty', () => {
             first_value: 'library',
             second_value: '1.2',
         })
+    })
+})
+
+// Helpers for building minimal FunnelStep fixtures
+const makeStep = (overrides: Partial<FunnelStep> & { count: number; order: number }): FunnelStep => ({
+    action_id: 'step',
+    name: `Step ${overrides.order}`,
+    type: 'events',
+    average_conversion_time: null,
+    median_conversion_time: null,
+    people: [],
+    converted_people_url: '',
+    dropped_people_url: '',
+    breakdown: overrides.breakdown ?? 'all',
+    breakdown_value: overrides.breakdown_value ?? 'all',
+    ...overrides,
+})
+
+describe('aggregateBreakdownResult', () => {
+    it('returns empty array for empty results', () => {
+        expect(aggregateBreakdownResult([])).toEqual([])
+    })
+
+    it('single breakdown series returns steps with nested_breakdown populated', () => {
+        const series: FunnelStep[][] = [
+            [
+                makeStep({ count: 100, order: 0, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                makeStep({ count: 50, order: 1, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+            ],
+        ]
+        const result = aggregateBreakdownResult(series, 'browser')
+
+        expect(result).toHaveLength(2)
+        expect(result[0].count).toBe(100)
+        expect(result[1].count).toBe(50)
+        expect(result[0].breakdown).toBe('browser')
+        expect(result[0].nested_breakdown).toHaveLength(1)
+        expect(result[0].nested_breakdown![0].breakdown_value).toBe('Chrome')
+    })
+
+    it('multiple breakdown series sums counts and orders by first step count descending', () => {
+        const series: FunnelStep[][] = [
+            [
+                makeStep({ count: 30, order: 0, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+                makeStep({ count: 10, order: 1, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+            ],
+            [
+                makeStep({ count: 70, order: 0, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                makeStep({ count: 40, order: 1, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+            ],
+        ]
+        const result = aggregateBreakdownResult(series, 'browser')
+
+        expect(result[0].count).toBe(100) // 30 + 70
+        expect(result[1].count).toBe(50) // 10 + 40
+        // nested_breakdown ordered by first step count descending: Chrome (70) before Firefox (30)
+        expect(result[0].nested_breakdown![0].breakdown_value).toBe('Chrome')
+        expect(result[0].nested_breakdown![1].breakdown_value).toBe('Firefox')
+    })
+
+    describe('average_conversion_time weighted average', () => {
+        it.each([
+            {
+                scenario: 'all null → result is null',
+                series: [
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                        makeStep({
+                            count: 30,
+                            order: 1,
+                            breakdown: 'A',
+                            breakdown_value: 'A',
+                            average_conversion_time: null,
+                        }),
+                    ],
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'B', breakdown_value: 'B' }),
+                        makeStep({
+                            count: 20,
+                            order: 1,
+                            breakdown: 'B',
+                            breakdown_value: 'B',
+                            average_conversion_time: null,
+                        }),
+                    ],
+                ],
+                expectedTime: null,
+            },
+            {
+                scenario: 'mix of null and non-null → only non-null contribute',
+                series: [
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                        makeStep({
+                            count: 40,
+                            order: 1,
+                            breakdown: 'A',
+                            breakdown_value: 'A',
+                            average_conversion_time: 10,
+                        }),
+                    ],
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'B', breakdown_value: 'B' }),
+                        makeStep({
+                            count: 20,
+                            order: 1,
+                            breakdown: 'B',
+                            breakdown_value: 'B',
+                            average_conversion_time: null,
+                        }),
+                    ],
+                ],
+                // Only A contributes: (10*40) / 40 = 10
+                expectedTime: 10,
+            },
+            {
+                scenario: 'all non-null with different counts → weighted calculation',
+                series: [
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                        makeStep({
+                            count: 30,
+                            order: 1,
+                            breakdown: 'A',
+                            breakdown_value: 'A',
+                            average_conversion_time: 60,
+                        }),
+                    ],
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'B', breakdown_value: 'B' }),
+                        makeStep({
+                            count: 70,
+                            order: 1,
+                            breakdown: 'B',
+                            breakdown_value: 'B',
+                            average_conversion_time: 20,
+                        }),
+                    ],
+                ],
+                // (60*30 + 20*70) / (30+70) = (1800 + 1400) / 100 = 32
+                expectedTime: 32,
+            },
+        ])('$scenario', ({ series, expectedTime }) => {
+            const result = aggregateBreakdownResult(series, 'browser')
+            // Step 0 has no conversion time to aggregate meaningfully; check step 1
+            expect(result[1].average_conversion_time).toBe(expectedTime)
+        })
+    })
+
+    it('median_conversion_time is always null', () => {
+        const series: FunnelStep[][] = [
+            [
+                makeStep({ count: 100, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                makeStep({
+                    count: 50,
+                    order: 1,
+                    breakdown: 'A',
+                    breakdown_value: 'A',
+                    median_conversion_time: 15,
+                }),
+            ],
+        ]
+        const result = aggregateBreakdownResult(series, 'browser')
+        expect(result[1].median_conversion_time).toBeNull()
+    })
+})
+
+describe('stepsWithConversionMetrics', () => {
+    const makeNestedStep = (
+        overrides: Partial<FunnelStepWithNestedBreakdown> & { count: number; order: number }
+    ): FunnelStepWithNestedBreakdown => ({
+        ...makeStep(overrides),
+        ...overrides,
+    })
+
+    it('basic 3-step funnel with FunnelStepReference.total', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 60, order: 1 }),
+            makeNestedStep({ count: 30, order: 2 }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        expect(result[0].conversionRates.fromBasisStep).toBe(1) // 100/100
+        expect(result[1].conversionRates.fromBasisStep).toBe(0.6) // 60/100 (total)
+        expect(result[2].conversionRates.fromBasisStep).toBe(0.3) // 30/100 (total)
+        expect(result[1].conversionRates.total).toBe(0.6)
+        expect(result[2].conversionRates.total).toBe(0.3)
+    })
+
+    it('basic 3-step funnel with FunnelStepReference.previous', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 60, order: 1 }),
+            makeNestedStep({ count: 30, order: 2 }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.previous)
+
+        expect(result[0].conversionRates.fromBasisStep).toBe(1) // first step always total
+        expect(result[1].conversionRates.fromBasisStep).toBe(0.6) // 60/100 (fromPrevious)
+        expect(result[2].conversionRates.fromBasisStep).toBe(0.5) // 30/60 (fromPrevious)
+        expect(result[1].conversionRates.fromPrevious).toBe(0.6)
+        expect(result[2].conversionRates.fromPrevious).toBe(0.5)
+    })
+
+    it('zero count at step 0 (empty funnel) → total is 0, not NaN', () => {
+        const steps = [makeNestedStep({ count: 0, order: 0 }), makeNestedStep({ count: 0, order: 1 })]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        expect(result[0].conversionRates.total).toBe(0)
+        expect(result[1].conversionRates.total).toBe(0)
+        expect(Number.isNaN(result[0].conversionRates.total)).toBe(false)
+        expect(Number.isNaN(result[1].conversionRates.total)).toBe(false)
+    })
+
+    it('zero count at intermediate step → fromPrevious is 0 for next step', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 0, order: 1 }),
+            makeNestedStep({ count: 0, order: 2 }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.previous)
+
+        expect(result[2].conversionRates.fromPrevious).toBe(0)
+    })
+
+    it('with optionalSteps — droppedOffFromPrevious references last non-optional step', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 80, order: 1 }),
+            makeNestedStep({ count: 50, order: 2 }), // optional (1-indexed: 3)
+            makeNestedStep({ count: 40, order: 3 }),
+        ]
+        // optionalSteps is 1-indexed, so step index 2 = optional step 3
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.previous, [3])
+
+        // Step 3 (index 3) should use step 1 (index 1, last non-optional) as previous, not step 2 (optional)
+        expect(result[3].droppedOffFromPrevious).toBe(80 - 40) // 80 (step 1) - 40 (step 3)
+        expect(result[3].conversionRates.fromPrevious).toBe(40 / 80)
+    })
+
+    it('with nested_breakdown — computes per-breakdown conversion rates', () => {
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 200,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({ count: 120, order: 0, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                    makeStep({ count: 80, order: 0, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+                ],
+            }),
+            makeNestedStep({
+                count: 100,
+                order: 1,
+                nested_breakdown: [
+                    makeStep({ count: 90, order: 1, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                    makeStep({ count: 10, order: 1, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Chrome: 90/120 total
+        expect(result[1].nested_breakdown![0].conversionRates.total).toBe(90 / 120)
+        expect(result[1].nested_breakdown![0].conversionRates.fromPrevious).toBe(90 / 120)
+        // Firefox: 10/80 total
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(10 / 80)
+    })
+
+    it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
+        // Create 5 breakdowns where one is an outlier
+        const breakdownCounts = [
+            { step0: 100, step1: 50 }, // 50% conversion
+            { step0: 100, step1: 48 }, // 48%
+            { step0: 100, step1: 52 }, // 52%
+            { step0: 100, step1: 49 }, // 49%
+            { step0: 100, step1: 5 }, // 5% — outlier
+        ]
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 500,
+                order: 0,
+                nested_breakdown: breakdownCounts.map((b, i) =>
+                    makeStep({
+                        count: b.step0,
+                        order: 0,
+                        breakdown: `bd${i}`,
+                        breakdown_value: `bd${i}`,
+                    })
+                ),
+            }),
+            makeNestedStep({
+                count: 204,
+                order: 1,
+                nested_breakdown: breakdownCounts.map((b, i) =>
+                    makeStep({
+                        count: b.step1,
+                        order: 1,
+                        breakdown: `bd${i}`,
+                        breakdown_value: `bd${i}`,
+                    })
+                ),
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // The outlier breakdown (index 4, 5% conversion) should be flagged as significant
+        expect(result[1].nested_breakdown![4].significant!.total).toBe(true)
+        // Normal breakdowns should not be significant
+        expect(result[1].nested_breakdown![0].significant!.total).toBe(false)
+    })
+
+    it('droppedOffFromPrevious is never negative', () => {
+        const steps = [
+            makeNestedStep({ count: 50, order: 0 }),
+            makeNestedStep({ count: 100, order: 1 }), // count > previous (can happen with sampling)
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        expect(result[1].droppedOffFromPrevious).toBe(0) // Math.max(50 - 100, 0)
+    })
+})
+
+describe('getReferenceStep', () => {
+    const steps = ['a', 'b', 'c']
+
+    it.each([
+        { scenario: 'index=0 → returns steps[0]', index: 0, ref: FunnelStepReference.total, expected: 'a' },
+        {
+            scenario: 'index=undefined → returns steps[0]',
+            index: undefined,
+            ref: FunnelStepReference.total,
+            expected: 'a',
+        },
+        {
+            scenario: 'previous with index=2 → returns steps[1]',
+            index: 2,
+            ref: FunnelStepReference.previous,
+            expected: 'b',
+        },
+        {
+            scenario: 'previous with index=1 → returns steps[0]',
+            index: 1,
+            ref: FunnelStepReference.previous,
+            expected: 'a',
+        },
+        { scenario: 'total with index=2 → returns steps[0]', index: 2, ref: FunnelStepReference.total, expected: 'a' },
+    ])('$scenario', ({ index, ref, expected }) => {
+        expect(getReferenceStep(steps, ref, index)).toBe(expected)
+    })
+})
+
+describe('getLastFilledStep', () => {
+    it.each([
+        {
+            scenario: 'all steps have count > 0 → returns step at index',
+            steps: [
+                makeStep({ count: 10, order: 0 }),
+                makeStep({ count: 5, order: 1 }),
+                makeStep({ count: 3, order: 2 }),
+            ],
+            index: 1,
+            expectedOrder: 1,
+        },
+        {
+            scenario: 'all steps have count > 0, no index → returns last step',
+            steps: [
+                makeStep({ count: 10, order: 0 }),
+                makeStep({ count: 5, order: 1 }),
+                makeStep({ count: 3, order: 2 }),
+            ],
+            index: undefined,
+            expectedOrder: 2,
+        },
+        {
+            scenario: 'last step has count: 0 → returns last step with count > 0',
+            steps: [
+                makeStep({ count: 10, order: 0 }),
+                makeStep({ count: 5, order: 1 }),
+                makeStep({ count: 0, order: 2 }),
+            ],
+            index: undefined,
+            expectedOrder: 1,
+        },
+        {
+            scenario: 'all steps have count: 0 → returns steps[0]',
+            steps: [
+                makeStep({ count: 0, order: 0 }),
+                makeStep({ count: 0, order: 1 }),
+                makeStep({ count: 0, order: 2 }),
+            ],
+            index: undefined,
+            expectedOrder: 0,
+        },
+    ])('$scenario', ({ steps, index, expectedOrder }) => {
+        expect(getLastFilledStep(steps, index).order).toBe(expectedOrder)
     })
 })

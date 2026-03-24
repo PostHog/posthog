@@ -73,21 +73,34 @@ class PostgresPrinter(HogQLPrinter):
                 f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
             )
 
+        if node.order_by:
+            # ORDER BY in function calls is only supported for passthrough functions.
+            func_name = node.name.lower()
+            if (
+                func_name not in POSTGRES_PASSTHROUGH_FUNCTIONS
+                and func_name not in POSTGRES_FUNCTION_HANDLERS_LOWER
+                and func_name not in POSTGRES_FUNCTION_RENAMES_LOWER
+            ):
+                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
+        order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
 
         func_name = node.name.lower()
 
         handler = POSTGRES_FUNCTION_HANDLERS_LOWER.get(func_name)
         if handler is not None:
+            if node.order_by:
+                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
             return handler(args)
 
         pg_name = POSTGRES_FUNCTION_RENAMES_LOWER.get(func_name)
         if pg_name is not None:
-            return f"{pg_name}({', '.join(args)})"
+            return f"{pg_name}({', '.join(args)}{order_by_part})"
 
         if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
-            return f"{func_name}({', '.join(args)})"
+            return f"{func_name}({', '.join(args)}{order_by_part})"
 
         if func_name in self._connection_supported_functions:
             return f"{node.name}({', '.join(args)})"

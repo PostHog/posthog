@@ -29,7 +29,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     file: 'SampleApp.kt',
                                     code: dedent`
                                         val config = PostHogAndroidConfig(
-                                            apiKey = POSTHOG_API_KEY,
+                                            apiKey = POSTHOG_PROJECT_TOKEN,
                                             host = POSTHOG_HOST
                                         ).apply {
                                             captureScreenViews = true

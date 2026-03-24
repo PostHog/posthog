@@ -1,1 +1,1 @@
-1065_alter_insight_saved
+1066_alter_insight_saved

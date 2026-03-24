@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1064_migrate_messaging_models"),
-    ]
+    dependencies = [("posthog", "1065_add_cohort_kind")]
 
     operations = [
         migrations.AlterField(

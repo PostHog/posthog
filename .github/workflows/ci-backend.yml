@@ -119,7 +119,7 @@ jobs:
                         - bin/wait-for-docker
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
-                        - docker/clickhouse
+                        - 'docker/clickhouse/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover diffs backend:test vs backend:contract-check
@@ -147,9 +147,9 @@ jobs:
                         - bin/wait-for-docker
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
-                        - docker/clickhouse
+                        - 'docker/clickhouse/**'
                       migrations:
-                        - docker/clickhouse
+                        - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure

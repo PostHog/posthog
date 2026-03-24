@@ -442,6 +442,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
+        reportDashboardInsightLegendToggled: (
+            dashboardId: number | undefined,
+            insightId: number,
+            source: DashboardEventSource
+        ) => ({ dashboardId, insightId, source }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -1300,6 +1305,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardInsightValuesOnSeriesToggled: async ({ dashboardId, insightId, source }) => {
             posthog.capture('dashboard insight values on series toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                source,
+            })
+        },
+        reportDashboardInsightLegendToggled: async ({ dashboardId, insightId, source }) => {
+            posthog.capture('dashboard insight legend toggled', {
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 source,
