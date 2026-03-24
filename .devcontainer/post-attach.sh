@@ -7,6 +7,7 @@ set -euo pipefail
 cd /workspaces/posthog
 
 COMPOSE_FILES="-f docker-compose.dev.yml -f docker-compose.codespace.yml -f docker-compose.profiles.yml"
+# shellcheck disable=SC2086
 if ! docker compose $COMPOSE_FILES ps --status running --quiet 2>/dev/null | head -1 | grep -q .; then
     echo "Restarting Docker infrastructure..."
     uv run bin/hogli docker:services:up

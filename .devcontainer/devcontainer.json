@@ -19,7 +19,7 @@
     "updateContentCommand": ".devcontainer/update-content.sh",
     "postCreateCommand": ".devcontainer/post-create.sh",
     "postAttachCommand": ".devcontainer/post-attach.sh",
-    "forwardPorts": [8010, 8000, 3000, 5432, 6379, 8123, 9092],
+    "forwardPorts": [8010, 8000, 8234, 3000, 5432, 6379, 8123, 9092],
     "portsAttributes": {
         "8010": {
             "label": "PostHog (proxy)",
@@ -27,6 +27,10 @@
         },
         "8000": {
             "label": "Django API",
+            "onAutoForward": "silent"
+        },
+        "8234": {
+            "label": "Vite dev server",
             "onAutoForward": "silent"
         },
         "3000": {
