@@ -658,6 +658,11 @@ export namespace Schemas {
       Dau: 'dau',
       UniqueGroup: 'unique_group',
       Hogql: 'hogql',
+      Median: 'median',
+      P75: 'p75',
+      P90: 'p90',
+      P95: 'p95',
+      P99: 'p99',
     } as const;
 
     export type CalendarHeatmapMathType = typeof CalendarHeatmapMathType[keyof typeof CalendarHeatmapMathType];
