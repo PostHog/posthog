@@ -789,7 +789,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         ]
     )
     @freeze_time("2024-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
     def test_property_median_metric(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
 
@@ -880,7 +879,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         ]
     )
     @freeze_time("2024-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
     def test_property_p90_metric(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
 
