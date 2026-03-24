@@ -5,6 +5,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
+from parameterized import parameterized
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -1213,72 +1214,31 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-    def test_activate_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/activate",
-            {"products": "all_products:"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_deactivate_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/deactivate",
-            {"products": "product_1"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_patch_permission_denied(self):
-        response = self.client.patch(
-            "/api/billing//",
-            {"custom_limits_usd": {}},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_subscription_switch_plan_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/subscription/switch-plan",
-            {"plan": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_portal_permission_denied(self):
-        response = self.client.get("/api/billing/portal")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_activate_trial_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/trials/activate",
-            {"product": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_cancel_trial_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/trials/cancel",
-            {"product": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_purchase_credits_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/credits/purchase",
-            {"amount": 100},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_claim_coupon_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/coupons/claim",
-            {"code": "TEST"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_startup_apply_permission_denied(self):
-        response = self.client.post(
-            "/api/billing/startups/apply",
-            {"organization_id": str(self.organization.id)},
-        )
+    @parameterized.expand(
+        [
+            ("activate", "post", "/api/billing/activate", {"products": "all_products:"}),
+            ("deactivate", "post", "/api/billing/deactivate", {"products": "product_1"}),
+            ("patch", "patch", "/api/billing//", {"custom_limits_usd": {}}),
+            ("subscription_switch_plan", "post", "/api/billing/subscription/switch-plan", {"plan": "test"}),
+            ("portal", "get", "/api/billing/portal", None),
+            ("activate_trial", "post", "/api/billing/trials/activate", {"product": "test"}),
+            ("cancel_trial", "post", "/api/billing/trials/cancel", {"product": "test"}),
+            ("purchase_credits", "post", "/api/billing/credits/purchase", {"amount": 100}),
+            ("claim_coupon", "post", "/api/billing/coupons/claim", {"code": "TEST"}),
+            ("startup_apply", "post", "/api/billing/startups/apply", "USE_ORG_ID"),
+        ]
+    )
+    def test_permission_denied(self, _name, method, url, data):
+        if data == "USE_ORG_ID":
+            data = {"organization_id": str(self.organization.id)}
+        client_method = getattr(self.client, method)
+        if data is not None:
+            kwargs = {"data": data}
+            if method == "patch":
+                kwargs["content_type"] = "application/json"
+            response = client_method(url, **kwargs)
+        else:
+            response = client_method(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("ee.api.billing.requests.get")
@@ -1293,12 +1253,12 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
 
     def test_get_invoices_still_accessible(self):
         response = self.client.get("/api/billing/get_invoices")
-        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND])
 
     def test_credits_overview_still_accessible(self):
         response = self.client.get("/api/billing/credits/overview")
-        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND])
 
     def test_coupons_overview_still_accessible(self):
         response = self.client.get("/api/billing/coupons/overview")
-        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND])

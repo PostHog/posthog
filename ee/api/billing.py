@@ -431,7 +431,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="startups/apply",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated],
     )
     def apply_startup_program(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         user = self.request.user
@@ -445,6 +445,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         organization = Organization.objects.get(id=organization_id)
         if not organization:
             raise ValidationError({"organization_id": "Organization not found."})
+
+        if not OrganizationMembership.objects.filter(
+            user=user, organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists():
+            raise PermissionDenied("You need to be an organization admin or owner to apply for the startup program")
 
         billing_manager = self.get_billing_manager()
 
