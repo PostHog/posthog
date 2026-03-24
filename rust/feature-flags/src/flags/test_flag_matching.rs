@@ -1501,6 +1501,146 @@ mod tests {
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
+    /// Verifies that interleaved filter types within a single condition (e.g., a Person
+    /// property filter followed by a Flag filter) are evaluated correctly in Vec order.
+    #[tokio::test]
+    async fn test_is_condition_match_interleaved_filter_types() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        // Dependent flag id used in the flag-value filter
+        let dependent_flag_id = 42;
+
+        let flag = create_test_flag(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Interleaved: Person filter, then Flag filter, then another Person filter.
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![
+                PropertyFilter {
+                    key: "email".to_string(),
+                    value: Some(json!("test@example.com")),
+                    operator: Some(OperatorType::Exact),
+                    prop_type: PropertyType::Person,
+                    group_type_index: None,
+                    negation: None,
+                },
+                PropertyFilter {
+                    key: dependent_flag_id.to_string(),
+                    value: Some(json!(true)),
+                    operator: Some(OperatorType::FlagEvaluatesTo),
+                    prop_type: PropertyType::Flag,
+                    group_type_index: None,
+                    negation: None,
+                },
+                PropertyFilter {
+                    key: "age".to_string(),
+                    value: Some(json!(25)),
+                    operator: Some(OperatorType::Gte),
+                    prop_type: PropertyType::Person,
+                    group_type_index: None,
+                    negation: None,
+                },
+            ]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut person_properties = HashMap::new();
+        person_properties.insert("email".to_string(), json!("test@example.com"));
+        person_properties.insert("age".to_string(), json!(30));
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .flag_evaluation_state
+            .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
+
+        // All filters match: should pass
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &person_properties, None, &None)
+            .unwrap();
+        assert!(is_match);
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+
+        // Now make the person property filter (first in Vec) fail.
+        // The loop should short-circuit on the first filter without evaluating the flag filter.
+        let mut mismatched_properties = HashMap::new();
+        mismatched_properties.insert("email".to_string(), json!("other@example.com"));
+        mismatched_properties.insert("age".to_string(), json!(30));
+
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher2
+            .flag_evaluation_state
+            .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
+
+        let (is_match, reason) = matcher2
+            .is_condition_match(&flag, &condition, &mismatched_properties, None, &None)
+            .unwrap();
+        assert!(!is_match);
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+
+        // Make the flag-value filter (middle of Vec) fail while person filters match.
+        let mut matcher3 = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        matcher3
+            .flag_evaluation_state
+            .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(false));
+
+        let (is_match, reason) = matcher3
+            .is_condition_match(&flag, &condition, &person_properties, None, &None)
+            .unwrap();
+        assert!(!is_match);
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
         FeatureFlag {
             id: 1,
