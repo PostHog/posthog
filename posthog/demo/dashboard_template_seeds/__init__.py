@@ -15,16 +15,12 @@ from typing import Any
 _SEED_JSON_DIR = Path(__file__).resolve().parent
 
 
-def _load_json_seed_templates() -> list[dict[str, Any]]:
+def load_dashboard_template_seeds() -> list[dict[str, Any]]:
+    """Every ``*.json`` in this directory (sorted by filename)."""
     out: list[dict[str, Any]] = []
     for path in sorted(_SEED_JSON_DIR.glob("*.json")):
         out.append(json.loads(path.read_text()))
     return out
-
-
-def iter_dashboard_template_seeds() -> list[dict[str, Any]]:
-    """Every ``*.json`` in this directory (sorted by filename)."""
-    return _load_json_seed_templates()
 
 
 def seed_dev_dashboard_templates() -> list[str]:
@@ -32,9 +28,10 @@ def seed_dev_dashboard_templates() -> list[str]:
     from posthog.models.dashboard_templates import DashboardTemplate
 
     created: list[str] = []
-    for payload in iter_dashboard_template_seeds():
+    for payload in load_dashboard_template_seeds():
         name = payload["template_name"]
-        assert name is not None
+        if name is None:
+            raise ValueError(f"Dashboard template seed has a null 'template_name': {payload}")
         exists = DashboardTemplate.objects.filter(team_id__isnull=True, template_name=name).exists()
         if exists:
             continue

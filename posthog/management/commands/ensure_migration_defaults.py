@@ -6,7 +6,7 @@ from typing import Any
 from django.apps import apps
 from django.core.management.base import BaseCommand
 
-from posthog.demo.dashboard_template_seeds import iter_dashboard_template_seeds, seed_dev_dashboard_templates
+from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.data_color_theme import DataColorTheme
 
@@ -39,15 +39,8 @@ class Command(BaseCommand):
             create_feature_flag_template(apps, None)
             created_items.append("Dashboard template: Flagged Feature Usage")
 
-        expected_dev_templates = {p["template_name"] for p in iter_dashboard_template_seeds()}
-        have_dev_templates = set(
-            DashboardTemplate.objects.filter(
-                team_id__isnull=True, template_name__in=expected_dev_templates
-            ).values_list("template_name", flat=True)
-        )
-        if expected_dev_templates - have_dev_templates:
-            for name in seed_dev_dashboard_templates():
-                created_items.append(f"Dashboard template: {name}")
+        for name in seed_dev_dashboard_templates():
+            created_items.append(f"Dashboard template: {name}")
 
         if created_items:
             self.stdout.write("Created defaults:\n- " + "\n- ".join(created_items))
