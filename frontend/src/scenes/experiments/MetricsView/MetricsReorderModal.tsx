@@ -99,7 +99,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
     const closeModal = isSecondary ? closeSecondaryMetricsReorderModal : closePrimaryMetricsReorderModal
 
     const { experiment, getOrderedMetricsWithResults } = useValues(experimentLogic)
-    const { updateExperiment, loadExperiment } = useActions(experimentLogic)
+    const { updateExperiment } = useActions(experimentLogic)
 
     const [orderedUuids, setOrderedUuids] = useState<string[]>([])
     const [removedUuids, setRemovedUuids] = useState<Set<string>>(new Set())
@@ -215,7 +215,6 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
         }
 
         await updateExperiment(updatePayload)
-        loadExperiment({ triggeredBy: 'config_change' })
 
         closeModal()
     }
@@ -249,11 +248,16 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
                         {displayMetrics.map((metric, index) => {
                             const uuid = metric.uuid || (metric as any).query?.uuid
                             const isRemoved = removedUuids.has(uuid)
+                            const effectiveIndex =
+                                displayMetrics.slice(0, index + 1).filter((m) => {
+                                    const id = m.uuid || (m as any).query?.uuid
+                                    return !removedUuids.has(id)
+                                }).length - 1
                             return (
                                 <MetricItem
                                     key={uuid}
                                     metric={metric}
-                                    order={index}
+                                    order={isRemoved ? index : effectiveIndex}
                                     isRemoved={isRemoved}
                                     canRemove={canRemoveMore}
                                     onRemove={() => setRemovedUuids((prev) => new Set([...prev, uuid]))}
