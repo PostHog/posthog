@@ -1375,10 +1375,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
-                dashboard_id: payload.dashboard_id,
-                template_id: payload.template_id,
-                template_name: payload.template_name,
-                template_variable_count: payload.template_variable_count,
+                ...payload,
             })
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
