@@ -139,12 +139,21 @@ def convex_source(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any | None,
 ) -> SourceResponse:
+    def _normalize_timestamps(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for row in batch:
+            creation_time = row.get("_creationTime")
+            if isinstance(creation_time, (int, float)) and creation_time > 1e12:
+                row["_creationTime"] = creation_time / 1000
+        return batch
+
     def items_generator():
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             cursor = int(db_incremental_field_last_value)
-            yield from document_deltas(deploy_url, deploy_key, table_name, cursor)
+            for batch in document_deltas(deploy_url, deploy_key, table_name, cursor):
+                yield _normalize_timestamps(batch)
         else:
-            yield from list_snapshot(deploy_url, deploy_key, table_name)
+            for batch in list_snapshot(deploy_url, deploy_key, table_name):
+                yield _normalize_timestamps(batch)
 
     return SourceResponse(
         name=table_name,
