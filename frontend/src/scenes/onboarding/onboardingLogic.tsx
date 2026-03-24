@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -17,6 +18,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
+import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 import { availableOnboardingProducts } from './utils'
 
 /** Interface for onboarding step components that have a static stepKey property */
@@ -96,7 +98,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             sidePanelStateLogic,
             ['modalMode'],
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
         ],
         actions: [
             billingLogic,
@@ -107,6 +109,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['openSidePanel'],
             globalSetupLogic,
             ['openGlobalSetup'],
+            postOnboardingModalLogic,
+            ['openPostOnboardingModal'],
         ],
     })),
     actions({
@@ -125,8 +129,15 @@ export const onboardingLogic = kea<onboardingLogicType>([
         resetStepKey: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
         skipOnboarding: true,
+        setAwaitingPostOnboardingModal: (awaiting: boolean) => ({ awaiting }),
     }),
     reducers(() => ({
+        isAwaitingPostOnboardingModal: [
+            false,
+            {
+                setAwaitingPostOnboardingModal: (_, { awaiting }) => awaiting,
+            },
+        ],
         productKey: [
             null as ProductKey | null,
             {
@@ -316,6 +327,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 eventUsageLogic.actions.reportOnboardingCompleted(productKey)
                 props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
+                // Signal that the next updateCurrentTeamSuccess should show the modal
+                actions.setAwaitingPostOnboardingModal(true)
                 teamLogic.actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,
@@ -329,7 +342,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
         },
         updateCurrentTeamSuccess: () => {
-            actions.openGlobalSetup()
+            if (values.isAwaitingPostOnboardingModal) {
+                actions.setAwaitingPostOnboardingModal(false)
+                // Experiment branch: variant shows modal, control shows Quick Start
+                const isVariant =
+                    values.receivedFeatureFlags &&
+                    values.featureFlags[FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT] === 'test'
+
+                if (isVariant) {
+                    actions.openPostOnboardingModal(values.productKey)
+                } else {
+                    actions.openPostOnboardingModal(values.productKey)
+                    // TODO: restore control path before shipping
+                    // actions.openGlobalSetup()
+                }
+            } else {
+                actions.openGlobalSetup()
+            }
         },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {
