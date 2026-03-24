@@ -375,6 +375,41 @@ def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person
     )
 
 
+def _fetch_person_by_id_via_personhog(team_id: int, person_id: int) -> Optional[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_person_to_model
+    from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest, GetPersonRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_person(GetPersonRequest(team_id=team_id, person_id=person_id))
+
+    if not resp.person or not resp.person.id:
+        return None
+
+    if resp.person.team_id != team_id:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_person_by_id", client_name=get_client_name()).inc()
+        logger.warning("personhog_team_mismatch", operation="get_person_by_id", team_id=team_id)
+        return None
+
+    did_resp = client.get_distinct_ids_for_person(
+        GetDistinctIdsForPersonRequest(team_id=team_id, person_id=resp.person.id)
+    )
+
+    return proto_person_to_model(resp.person, distinct_ids=[d.distinct_id for d in did_resp.distinct_ids])
+
+
+def get_person_by_id(team_id: int, person_id: int) -> Optional[Person]:
+    return _personhog_routed(
+        "get_person_by_id",
+        lambda: _fetch_person_by_id_via_personhog(team_id, person_id),
+        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id, pk=person_id).first(),
+        team_id=team_id,
+    )
+
+
 def _fetch_person_by_uuid_via_personhog(team_id: int, uuid: str) -> Optional[Person]:
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.converters import proto_person_to_model
