@@ -178,7 +178,7 @@ export function ViewModeActions(): JSX.Element {
                             size="small"
                             icon={<IconPlusSmall />}
                         >
-                            Add...
+                            Add
                         </LemonButton>
                     </LemonMenu>
                 </AccessControlAction>

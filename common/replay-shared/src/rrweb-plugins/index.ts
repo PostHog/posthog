@@ -1,5 +1,3 @@
-import Hls from 'hls.js'
-
 import { ReplayPlugin, playerConfig } from '@posthog/rrweb'
 
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
@@ -84,29 +82,38 @@ export const HLSPlayerPlugin: ReplayPlugin = {
             const hlsSrc = videoEl.getAttribute('hls-src')
 
             if (videoEl && hlsSrc) {
-                if (Hls.isSupported()) {
-                    const hls = new Hls()
-                    hls.loadSource(hlsSrc)
-                    hls.attachMedia(videoEl)
+                void import('hls.js')
+                    .then(({ default: Hls }) => {
+                        if (Hls.isSupported()) {
+                            const hls = new Hls()
+                            hls.loadSource(hlsSrc)
+                            hls.attachMedia(videoEl)
 
-                    hls.on(Hls.Events.ERROR, (_, data) => {
-                        if (data.fatal) {
-                            switch (data.type) {
-                                case Hls.ErrorTypes.NETWORK_ERROR:
-                                    hls.startLoad()
-                                    break
-                                case Hls.ErrorTypes.MEDIA_ERROR:
-                                    hls.recoverMediaError()
-                                    break
-                                default:
-                                    hls.destroy()
-                                    break
-                            }
+                            hls.on(Hls.Events.ERROR, (_, data) => {
+                                if (data.fatal) {
+                                    switch (data.type) {
+                                        case Hls.ErrorTypes.NETWORK_ERROR:
+                                            hls.startLoad()
+                                            break
+                                        case Hls.ErrorTypes.MEDIA_ERROR:
+                                            hls.recoverMediaError()
+                                            break
+                                        default:
+                                            hls.destroy()
+                                            break
+                                    }
+                                }
+                            })
+                        } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+                            videoEl.src = hlsSrc
                         }
                     })
-                } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-                    videoEl.src = hlsSrc
-                }
+                    .catch(() => {
+                        // Chunk load failure — fall back to native HLS if the browser supports it
+                        if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+                            videoEl.src = hlsSrc
+                        }
+                    })
             }
         }
     },
