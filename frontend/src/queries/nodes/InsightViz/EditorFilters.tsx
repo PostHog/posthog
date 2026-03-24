@@ -68,6 +68,7 @@ import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
+import { TrendsFormulaToggle } from './TrendsFormulaToggle'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 
@@ -79,7 +80,9 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS')
+    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
+    const editorPanelsEnabled = true
+    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -222,11 +225,20 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Series',
+            ...(editorPanelsEnabled &&
+            isTrends &&
+            display !== ChartDisplayType.CalendarHeatmap &&
+            display !== ChartDisplayType.BoxPlot
+                ? { headerExtra: TrendsFormulaToggle }
+                : {}),
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
                     label:
-                        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
+                        !editorPanelsEnabled &&
+                        isTrends &&
+                        display !== ChartDisplayType.CalendarHeatmap &&
+                        display !== ChartDisplayType.BoxPlot
                             ? TrendsSeriesLabel
                             : undefined,
                     component: TrendsSeries,
@@ -522,17 +534,19 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     >
                         <div
                             className={clsx(
-                                '@container/editor bg-surface-primary',
-                                editorPanelsEnabled ? 'flex flex-col gap-4' : 'flex flex-row flex-wrap gap-8',
-                                { 'p-4 rounded border': !embedded }
+                                '@container/editor',
+                                editorPanelsEnabled
+                                    ? 'flex flex-col gap-2'
+                                    : 'flex flex-row flex-wrap gap-8 bg-surface-primary',
+                                { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
                             )}
                         >
                             {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
                                 <div
                                     key={title}
                                     className={clsx(
-                                        'flex flex-col gap-4 max-w-full',
-                                        !editorPanelsEnabled && 'grow shrink basis-[28rem]'
+                                        'flex flex-col max-w-full',
+                                        editorPanelsEnabled ? 'gap-2' : 'gap-4 grow shrink basis-[28rem]'
                                     )}
                                 >
                                     {editorFilterGroups.map((editorFilterGroup) => (
@@ -541,6 +555,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                             editorFilterGroup={editorFilterGroup}
                                             insightProps={insightProps}
                                             query={query}
+                                            asTile={editorPanelsEnabled}
                                         />
                                     ))}
                                 </div>

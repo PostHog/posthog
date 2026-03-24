@@ -95,7 +95,9 @@ export function InsightViz({
 
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS')
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS')
+    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
+    const editorPanelsEnabled = true
+    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
     const isRetention = isRetentionQuery(query.source)
 
     const showIfFull = !!query.full

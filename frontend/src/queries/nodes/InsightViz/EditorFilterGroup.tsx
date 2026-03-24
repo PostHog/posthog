@@ -14,10 +14,11 @@ export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
     insightProps: InsightLogicProps
     query: InsightQueryNode
+    asTile?: boolean
 }
 
-export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
-    const { title, defaultExpanded, editorFilters, collapsedSummary } = editorFilterGroup
+export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: EditorFilterGroupProps): JSX.Element {
+    const { title, defaultExpanded, editorFilters, collapsedSummary, headerExtra: HeaderExtra } = editorFilterGroup
     const hasContent = !!collapsedSummary
     const [isRowExpanded, setIsRowExpanded] = useState(() => {
         // Snapshots will display all editor filter groups by default
@@ -36,6 +37,61 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
 
     // If defaultExpanded is not set, the group is not expandable
     const isExpandable = defaultExpanded != undefined
+
+    if (asTile) {
+        return (
+            <div className="border rounded bg-surface-primary">
+                {isExpandable ? (
+                    <LemonButton
+                        fullWidth
+                        onClick={() => setIsRowExpanded(!isRowExpanded)}
+                        sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
+                        title={isRowExpanded ? 'Show less' : 'Show more'}
+                        data-attr={'editor-filter-group-collapse-' + slugify(title)}
+                        className="rounded-b-none"
+                    >
+                        <div className="flex items-center gap-2 font-semibold text-xs uppercase tracking-wide">
+                            <span>{title}</span>
+                            {!isRowExpanded && collapsedSummary && (
+                                <span className="text-xs font-normal normal-case tracking-normal text-secondary">
+                                    {collapsedSummary}
+                                </span>
+                            )}
+                        </div>
+                    </LemonButton>
+                ) : (
+                    <div className="px-3 py-2 flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-secondary">{title}</span>
+                        {HeaderExtra && <HeaderExtra insightProps={insightProps} />}
+                    </div>
+                )}
+                {isRowExpanded && (
+                    <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
+                        {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
+                            if (Component && Component.name === 'component') {
+                                throw new Error(
+                                    `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
+                                )
+                            }
+                            return (
+                                <Fragment key={key}>
+                                    <LemonField.Pure
+                                        label={
+                                            typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label
+                                        }
+                                        info={tooltip}
+                                        showOptional={showOptional}
+                                    >
+                                        {Component ? <Component insightProps={insightProps} /> : null}
+                                    </LemonField.Pure>
+                                </Fragment>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+        )
+    }
 
     return (
         <div>
