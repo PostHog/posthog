@@ -76,7 +76,6 @@ interface SortableVariantHeaderProps {
     alphabet: string[]
     moveVariantUp: (index: number) => void
     moveVariantDown: (index: number) => void
-    removeVariant: (index: number) => void
 }
 
 function SortableVariantHeader({
@@ -86,7 +85,6 @@ function SortableVariantHeader({
     alphabet,
     moveVariantUp,
     moveVariantDown,
-    removeVariant,
 }: SortableVariantHeaderProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
         id: variant.key || `variant-${index}`,
@@ -139,17 +137,6 @@ function SortableVariantHeader({
                     onMouseUp={(e) => {
                         e.currentTarget.style.cursor = 'grab'
                     }}
-                />
-                <LemonButton
-                    size="xsmall"
-                    status="danger"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        removeVariant(index)
-                    }}
-                    disabled={variants.length <= 1}
-                    tooltip="Delete variant"
-                    icon={<IconTrash />}
                 />
             </div>
         </div>
@@ -796,7 +783,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 alphabet={alphabet}
                                                                 moveVariantUp={moveVariantUp}
                                                                 moveVariantDown={moveVariantDown}
-                                                                removeVariant={removeVariant}
                                                             />
                                                         ),
                                                         content: (
