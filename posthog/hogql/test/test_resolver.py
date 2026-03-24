@@ -1729,3 +1729,12 @@ class TestResolver(BaseTest):
         with self.assertRaises(QueryError):
             expr = self._select("SELECT * FROM (SELECT 1, 'a') AS v(id, name, extra)")
             resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_alias_shadowing_table_field_property_access(self):
+        with self.assertRaises(QueryError) as ctx:
+            expr = self._select(
+                "SELECT argMin(properties, timestamp) as properties FROM events WHERE properties.foo = 'bar'"
+            )
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertIn("Cannot access property", str(ctx.exception))
+        self.assertIn("renaming the alias", str(ctx.exception))
