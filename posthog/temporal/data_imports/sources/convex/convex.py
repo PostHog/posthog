@@ -204,6 +204,6 @@ def convex_source(
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_keys=["_creationTime"],
     )
