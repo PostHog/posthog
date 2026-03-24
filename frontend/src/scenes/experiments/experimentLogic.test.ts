@@ -846,7 +846,7 @@ describe('experimentLogic', () => {
             const pausedExperiment = {
                 ...experiment,
                 feature_flag: { ...experiment.feature_flag, active: false },
-            }
+            } as Experiment
             const resumedResponse = {
                 ...experiment,
                 feature_flag: { ...experiment.feature_flag, active: true },
