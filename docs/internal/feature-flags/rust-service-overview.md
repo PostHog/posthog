@@ -285,7 +285,7 @@ See [Behavioral cohorts](#behavioral-cohorts) for cohort membership cache settin
 
 ## Cache invalidation
 
-The Rust service caches auth token metadata in a dedicated flags Redis under the key pattern `posthog:auth_token:{token_hash}`. Entries are populated lazily by the Rust service on first use and invalidated by Django signal handlers when individual tokens change.
+The Rust service caches auth token metadata in the flags Redis (dedicated when configured, otherwise shared) under the key pattern `posthog:auth_token:{token_hash}`. Entries are populated lazily by the Rust service on first use and invalidated by Django signal handlers when individual tokens change.
 
 For bulk invalidation of all cached tokens associated with a team, use the `invalidate_flags_auth_cache` management command. This forces the Rust service to re-validate against Postgres on the next request. It does **not** revoke any tokens.
 
