@@ -336,6 +336,41 @@ mod tests {
     }
 
     #[test]
+    fn test_realtime_cohort_filtering_mirrors_flag_matching() {
+        // Verifies that filtering cohorts by `uses_realtime_membership()` correctly
+        // selects only Realtime/Behavioral cohorts with a backfill timestamp, which
+        // is the same filter applied in flag_matching::prepare_flag_evaluation_data.
+        let backfill_ts = Some(Utc::now());
+
+        let make_cohort = |id: i32, cohort_type: Option<CohortType>, ts: Option<DateTime<Utc>>| {
+            let mut c = create_test_cohort(None, None, serde_json::json!({}));
+            c.id = id;
+            c.cohort_type = cohort_type;
+            c.last_backfill_person_properties_at = ts;
+            c
+        };
+
+        let cohorts = vec![
+            make_cohort(1, Some(CohortType::Static), None),
+            make_cohort(2, Some(CohortType::PersonProperty), backfill_ts),
+            make_cohort(3, Some(CohortType::Realtime), None),          // no backfill
+            make_cohort(4, Some(CohortType::Realtime), backfill_ts),   // should be selected
+            make_cohort(5, Some(CohortType::Behavioral), None),        // no backfill
+            make_cohort(6, Some(CohortType::Behavioral), backfill_ts), // should be selected
+            make_cohort(7, Some(CohortType::Analytical), backfill_ts),
+            make_cohort(8, None, backfill_ts),
+        ];
+
+        let realtime_ids: Vec<i32> = cohorts
+            .iter()
+            .filter(|c| c.uses_realtime_membership())
+            .map(|c| c.id)
+            .collect();
+
+        assert_eq!(realtime_ids, vec![4, 6]);
+    }
+
+    #[test]
     fn test_estimate_json_size_minimal_allocation() {
         // This test verifies the function works correctly. The "minimal allocation" property
         // is structural (only numbers allocate via to_string()) rather than something we can directly test.
