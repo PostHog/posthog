@@ -31,7 +31,6 @@ const MOCK_MULTIVARIATE_FLAG: FeatureFlagType = {
     deleted: false,
     created_at: '2023-01-01T00:00:00Z',
     created_by: null,
-    is_simple_flag: false,
     rollout_percentage: null,
     can_edit: true,
     tags: [],

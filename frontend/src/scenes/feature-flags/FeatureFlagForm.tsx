@@ -6,6 +6,7 @@ import {
     DragOverlay,
     DragStartEvent,
     PointerSensor,
+    UniqueIdentifier,
     useSensor,
     useSensors,
 } from '@dnd-kit/core'
@@ -62,7 +63,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime } from '~/types'
+import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -236,7 +237,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     // Drag and drop functionality
-    const [activeId, setActiveId] = useState<string | null>(null)
+    const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: {
@@ -268,13 +269,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         if (!activeId) {
             return null
         }
-        const index = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === activeId)
+        const index = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
         return index !== -1 ? variants[index] : null
     }
 
     // Calculate active variant index for drag overlay
     const activeVariantIndex = activeId
-        ? variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === activeId)
+        ? variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
         : -1
 
     // Calculate expand/collapse button state
