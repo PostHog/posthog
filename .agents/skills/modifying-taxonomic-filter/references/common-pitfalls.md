@@ -117,9 +117,10 @@ won't catch bugs in search filtering:
 
 ```tsx
 // BAD: always returns the same results regardless of search
-'/api/projects/:team_id/event_definitions': mockEventDefinitions
+'/api/projects/:team/event_definitions': mockEventDefinitions
 
 // GOOD: filters based on search parameter
+'/api/projects/:team/event_definitions': (req) => {
 '/api/projects/:team_id/event_definitions': (req) => {
     const search = req.url.searchParams.get('search')
     const filtered = search
