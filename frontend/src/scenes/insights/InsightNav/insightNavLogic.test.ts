@@ -299,13 +299,15 @@ describe('insightNavLogic', () => {
                 })
 
                 await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery({
+                    const trendsQueryWithoutGlobalFilters: InsightVizNode = {
                         ...trendsQueryWithGlobalFilters,
                         source: {
                             ...trendsQueryWithGlobalFilters.source,
                             properties: undefined,
                         },
-                    })
+                    }
+
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithoutGlobalFilters)
                 }).toMatchValues({
                     queryPropertyCache: expect.not.objectContaining({
                         properties: expect.anything(),
