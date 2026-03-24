@@ -75,4 +75,4 @@ minimumReleaseAgeExclude:
     - oxfmt@0.35.0
     - '@oxfmt/*'
     - bloommx@1.0.3
-    - kea-typegen@3.6.2-leakfix.2
+    - kea-typegen
