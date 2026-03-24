@@ -36,7 +36,7 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
     snapshot: int | None = None
 
     while True:
-        params: dict[str, Any] = {"table_name": table_name, "format": "json"}
+        params: dict[str, Any] = {"tableName": table_name, "format": "json"}
         if cursor is not None:
             params["cursor"] = cursor
         if snapshot is not None:
