@@ -213,7 +213,7 @@ describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
 
             await waitFor(() => {
                 expect(screen.getByRole('button', { name: /expand all variants/i })).toBeInTheDocument()
-                expect(screen.getByRole('button', { name: /collapse all variants/i })).toBeInTheDocument()
+                expect(screen.queryByRole('button', { name: /collapse all variants/i })).not.toBeInTheDocument()
             })
 
             // Start collapsed
