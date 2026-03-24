@@ -28,7 +28,7 @@ class TrackedWorkflow:
     @temporalio.workflow.run
     async def run(self, inputs: TrackedWorkflowInput) -> str:
         if inputs.slo:
-            inputs.slo.completion_context["extra_key"] = "extra_value"
+            inputs.slo.completion_properties["extra_key"] = "extra_value"
         return "ok"
 
 
@@ -45,7 +45,7 @@ class TrackedBusinessFailureWorkflow:
     async def run(self, inputs: TrackedWorkflowInput) -> str:
         if inputs.slo:
             inputs.slo.outcome = SloOutcome.FAILURE
-            inputs.slo.completion_context["reason"] = "business logic"
+            inputs.slo.completion_properties["reason"] = "business logic"
         return "ok"
 
 
@@ -86,7 +86,7 @@ async def test_interceptor_emits_started_and_completed_on_success(mock_analytics
                 TrackedWorkflow.run,
                 TrackedWorkflowInput(
                     value="test",
-                    slo=_make_slo_config(started_extra={"source": "web"}),
+                    slo=_make_slo_config(start_properties={"source": "web"}),
                 ),
                 id="test-success",
                 task_queue="test-slo",

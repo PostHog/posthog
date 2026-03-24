@@ -58,6 +58,6 @@ class SloConfig:
     team_id: int
     resource_id: str
     distinct_id: str
-    started_extra: dict = dataclasses.field(default_factory=dict)
-    completion_context: dict = dataclasses.field(default_factory=dict)
+    start_properties: dict = dataclasses.field(default_factory=dict)
+    completion_properties: dict = dataclasses.field(default_factory=dict)
     outcome: Optional[SloOutcome] = None

@@ -303,7 +303,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 team_id=team.id,
                 resource_id=str(instance.id),
                 distinct_id=distinct_id,
-                started_extra={
+                start_properties={
                     "export_format": instance.export_format,
                     "source": source,
                 },

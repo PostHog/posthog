@@ -2,7 +2,6 @@ import json
 import asyncio
 import datetime as dt
 import traceback
-import dataclasses
 
 import temporalio.common
 import temporalio.workflow
@@ -266,7 +265,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             # Enrich SLO completion context
             if inputs.slo:
-                inputs.slo.completion_context.update(
+                inputs.slo.completion_properties.update(
                     {
                         "assets_with_content": assets_with_content,
                         "total_assets": total_assets,
@@ -292,19 +291,16 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ProcessSubscriptionWorkflowInputs) -> None:
-        child_inputs = dataclasses.replace(
-            inputs,
-            slo=SloConfig(
-                operation=SloOperation.SUBSCRIPTION_DELIVERY,
-                area=SloArea.ANALYTIC_PLATFORM,
-                team_id=inputs.team_id,
-                resource_id=str(inputs.subscription_id),
-                distinct_id=inputs.distinct_id,
-            ),
+        inputs.slo = SloConfig(
+            operation=SloOperation.SUBSCRIPTION_DELIVERY,
+            area=SloArea.ANALYTIC_PLATFORM,
+            team_id=inputs.team_id,
+            resource_id=str(inputs.subscription_id),
+            distinct_id=inputs.distinct_id,
         )
         await temporalio.workflow.execute_child_workflow(
             ProcessSubscriptionWorkflow.run,
-            child_inputs,
+            inputs,
             id=f"process-subscription-change-{inputs.subscription_id}",
             parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             execution_timeout=dt.timedelta(hours=2),

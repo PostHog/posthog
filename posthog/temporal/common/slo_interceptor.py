@@ -20,6 +20,10 @@ class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
         if slo is None:
             return await self.next.execute_workflow(input)
 
+        # Guard against duplicate events during Temporal workflow replay. When a
+        # worker crashes and recovers, Temporal re-executes the workflow from the
+        # beginning to rebuild state — without this guard, every replay would
+        # re-emit SLO events and double-count Prometheus metrics.
         if not workflow.unsafe.is_replaying():
             with workflow.unsafe.sandbox_unrestricted():
                 emit_slo_started(
@@ -30,7 +34,7 @@ class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
                         team_id=slo.team_id,
                         resource_id=slo.resource_id,
                     ),
-                    extra_properties=slo.started_extra or None,
+                    extra_properties=slo.start_properties or None,
                 )
 
         start_time = workflow.time()
@@ -56,7 +60,7 @@ class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
                             resource_id=slo.resource_id,
                             duration_ms=duration_ms,
                         ),
-                        extra_properties=slo.completion_context or None,
+                        extra_properties=slo.completion_properties or None,
                     )
 
 

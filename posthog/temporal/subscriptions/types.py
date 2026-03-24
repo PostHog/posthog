@@ -8,8 +8,6 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 @dataclasses.dataclass
 class SubscriptionInfo:
-    """Lightweight subscription metadata returned by fetch_due_subscriptions_activity."""
-
     subscription_id: int
     team_id: int
     distinct_id: str
