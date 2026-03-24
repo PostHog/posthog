@@ -17,10 +17,16 @@ export interface EditorFilterGroupProps {
 }
 
 export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
-    const { title, defaultExpanded, editorFilters } = editorFilterGroup
+    const { title, defaultExpanded, editorFilters, collapsedSummary } = editorFilterGroup
+    const hasContent = !!collapsedSummary
     const [isRowExpanded, setIsRowExpanded] = useState(() => {
         // Snapshots will display all editor filter groups by default
         if (inStorybook() || inStorybookTestRunner()) {
+            return true
+        }
+
+        // Auto-expand when there's configured content, even if defaultExpanded is false
+        if (defaultExpanded === false && hasContent) {
             return true
         }
 
@@ -41,8 +47,11 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                     title={isRowExpanded ? 'Show less' : 'Show more'}
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
                 >
-                    <div className="flex items-center deprecated-space-x-2 font-semibold">
+                    <div className="flex items-center gap-2 font-semibold">
                         <span>{title}</span>
+                        {!isRowExpanded && collapsedSummary && (
+                            <span className="text-xs font-normal text-secondary">{collapsedSummary}</span>
+                        )}
                     </div>
                 </LemonButton>
             )}

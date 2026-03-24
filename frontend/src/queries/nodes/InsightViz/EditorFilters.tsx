@@ -51,12 +51,14 @@ import {
 } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     AvailableFeature,
     ChartDisplayType,
     EditorFilterProps,
     InsightEditorFilter,
     InsightEditorFilterGroup,
     PathType,
+    PropertyGroupFilter,
 } from '~/types'
 
 import { Breakdown } from './Breakdown'
@@ -92,6 +94,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         querySource,
         shouldShowSessionAnalysisWarning,
         hasFormula,
+        breakdownFilter,
+        properties,
     } = useValues(insightVizDataLogic(insightProps))
 
     const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
@@ -143,6 +147,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
                 display || ChartDisplayType.ActionsLineGraph
             ))
+
+    // Compute summaries for collapsible sections (used when editorPanelsEnabled)
+    const filterCount = editorPanelsEnabled ? countPropertyFilters(properties) : 0
+    const filtersSummary = filterCount > 0 ? pluralize(filterCount, 'filter') : null
+    const breakdownSummary = editorPanelsEnabled ? getBreakdownSummary(breakdownFilter) : null
+    const exclusionCount = editorPanelsEnabled && isPaths ? (pathsFilter?.excludeEvents?.length ?? 0) : 0
+    const exclusionsSummary = exclusionCount > 0 ? pluralize(exclusionCount, 'exclusion') : null
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -246,6 +257,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const rightEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'Filters',
+            ...(editorPanelsEnabled ? { defaultExpanded: false, collapsedSummary: filtersSummary } : {}),
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
@@ -312,6 +324,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Breakdown',
+            ...(editorPanelsEnabled ? { defaultExpanded: false, collapsedSummary: breakdownSummary } : {}),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
@@ -378,6 +391,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Exclusions',
+            ...(editorPanelsEnabled ? { defaultExpanded: false, collapsedSummary: exclusionsSummary } : {}),
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-exclusions',
@@ -574,4 +588,36 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
 function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
     return a.filter((e): e is InsightEditorFilter => !!e)
+}
+
+function countPropertyFilters(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined | null): number {
+    if (!properties) {
+        return 0
+    }
+    if (Array.isArray(properties)) {
+        return properties.length
+    }
+    // PropertyGroupFilter — count across all groups
+    return properties.values.reduce((count, group) => count + (group.values?.length ?? 0), 0)
+}
+
+function getBreakdownSummary(
+    breakdownFilter: {
+        breakdown?: string | number | (string | number)[] | null
+        breakdowns?: { property?: string }[]
+    } | null
+): string | null {
+    if (!breakdownFilter) {
+        return null
+    }
+    const breakdowns = breakdownFilter.breakdowns
+    if (breakdowns?.length) {
+        const names = breakdowns.map((b) => b.property).filter(Boolean)
+        return names.length > 0 ? names.join(', ') : null
+    }
+    if (breakdownFilter.breakdown) {
+        const bd = breakdownFilter.breakdown
+        return Array.isArray(bd) ? bd.join(', ') : String(bd)
+    }
+    return null
 }
