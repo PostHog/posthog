@@ -1994,6 +1994,17 @@
         "AssistantLifecycleQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/AssistantDateRangeFilter",
                     "description": "Date range for the query"
