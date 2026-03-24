@@ -37,9 +37,8 @@ const MOCK_HOG_FUNCTION = {
         is_email_verified: true,
     },
     updated_at: '2024-01-15T00:00:00Z',
-    configuration: {
-        batch_export_id: MOCK_BATCH_EXPORT_ID,
-    },
+    configuration: {},
+    batch_export_id: MOCK_BATCH_EXPORT_ID,
 }
 
 const MOCK_BATCH_EXPORT = {
