@@ -391,8 +391,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.PasswordResetComplete]: { onlyUnauthenticated: true },
     [Scene.PasswordReset]: { onlyUnauthenticated: true },
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
-    [Scene.VercelConnect]: { allowUnauthenticated: true, name: 'Connect to Vercel' },
-    [Scene.VercelLinkError]: { name: 'Vercel account mismatch' },
+    [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
+    [Scene.VercelLinkError]: { layout: 'plain', name: 'Vercel account mismatch' },
     [Scene.Person]: {
         projectBased: true,
         name: 'People',
