@@ -24,6 +24,7 @@ const AssistantEventMultipleBreakdownFilterType = z.enum([
     'event_metadata',
     'session',
     'hogql',
+    'data_warehouse_person_property',
     'revenue_analytics',
 ])
 
