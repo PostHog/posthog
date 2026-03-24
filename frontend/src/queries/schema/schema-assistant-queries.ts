@@ -1036,18 +1036,11 @@ export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
     pathsFilter: AssistantPathsFilter
 }
 
-/**
- * Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.
- */
 export interface AssistantLifecycleEventsNode
     extends Pick<EventsNode, 'kind' | 'event' | 'name' | 'custom_name'>, AssistantSeriesProperties {}
 
 export type AssistantLifecycleSeriesNode = AssistantLifecycleEventsNode | AssistantLifecycleActionsNode
 
-/**
- * Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations.
- * You must provide the action ID in the `id` field and the name in the `name` field.
- */
 export interface AssistantLifecycleActionsNode
     extends Pick<ActionsNode, 'kind' | 'id' | 'custom_name'>, AssistantSeriesProperties {
     /**
