@@ -337,6 +337,18 @@ class TestPrinter(BaseTest):
             "LIMIT 50000",
         )
 
+    def test_ignore_nulls_prints(self):
+        self.assertEqual(
+            self._select("SELECT event IGNORE NULLS FROM events"),
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+
+    def test_select_set_order_by_prints(self):
+        self.assertEqual(
+            self._select("select 1 union all select 2 order by 1"),
+            "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000",
+        )
+
     def test_intersect_and_union_parens(self):
         expr = parse_select("""select 1 as id intersect (select 2 as id union all select 3 as id)""")
         response = to_printed_hogql(expr, self.team)
@@ -1542,6 +1554,10 @@ class TestPrinter(BaseTest):
             f"SELECT 1, a FROM events INNER ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_select_positional_join(self):
+        result = self._select("select 1 from events positional join groups")
+        self.assertIn("POSITIONAL JOIN", result)
+
     def test_select_where(self):
         self.assertEqual(
             self._select("select 1 from events where 1 == 1"),
@@ -1551,6 +1567,16 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select 1 from events where 1 == 2"),
             f"SELECT 1 FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_function_filter_prints(self):
+        result = self._select("select sum(event) filter (where event = 'a') from events")
+        self.assertIn("FILTER (WHERE", result)
+
+    def test_with_clause_before_parens_select_set_prints(self):
+        self.assertEqual(
+            self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
+            "WITH cte AS (SELECT 1 AS a) SELECT cte.a AS a FROM cte LIMIT 50000 UNION ALL SELECT cte.a AS a FROM cte LIMIT 50000",
         )
 
         self.assertEqual(
@@ -4454,6 +4480,28 @@ class TestPostgresPrinter(BaseTest):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
 
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a', 'b')) LIMIT 50000",
+            ),
+            (
+                "multiple_columns",
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
+            ),
+            (
+                "join",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a')) LIMIT 50000",
+            ),
+        ]
+    )
+    def test_pivot_prints(self, _name: str, query: str, expected: str):
+        self.assertEqual(self._select(query), expected)
+
     def test_limit_percent_basic(self):
         printed = self._select("SELECT 1 FROM events LIMIT 10 %")
         self.assertIn("LIMIT 10 %", printed)
@@ -4488,6 +4536,18 @@ class TestPostgresPrinter(BaseTest):
     def test_try_cast(self, expr: str, expected: str):
         printed = self._select(f"SELECT {expr}")
         self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            (
+                "sum_desc",
+                "SELECT sum(event ORDER BY timestamp DESC) FROM events",
+                "SELECT sum(events.event ORDER BY events.timestamp DESC) FROM events LIMIT 50000",
+            ),
+        ]
+    )
+    def test_function_call_order_by_prints(self, _name: str, query: str, expected: str):
+        self.assertEqual(self._select(query), expected)
 
     @parameterized.expand(
         [
@@ -4917,6 +4977,12 @@ class TestPostgresPrinter(BaseTest):
             "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event, events.uuid)) LIMIT 50000",
         )
 
+    def test_unpivot_prints_include_nulls(self):
+        result = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
+        )
+        self.assertIn("UNPIVOT INCLUDE NULLS", result)
+
     def test_unpivot_prints_with_where_group_order(self):
         result = self._select(
             "SELECT field_name, count() FROM events UNPIVOT (field_value FOR field_name IN (event)) "
@@ -4926,6 +4992,15 @@ class TestPostgresPrinter(BaseTest):
         self.assertIn("WHERE", result)
         self.assertIn("GROUP BY", result)
         self.assertIn("ORDER BY", result)
+
+    def test_unpivot_join_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+                "UNPIVOT (field_value FOR field_name IN (events.event))"
+            ),
+            "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+        )
 
     def test_unpivot_clickhouse_raises_error(self):
         from posthog.hogql.errors import QueryError

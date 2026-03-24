@@ -47,14 +47,14 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add your PostHog API key and host to your environment variables:</Markdown>
+                    <Markdown>Add your PostHog project token and host to your environment variables:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_token>
+                                    VITE_PUBLIC_POSTHOG_PROJECT_TOKEN=<ph_project_token>
                                     VITE_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
@@ -91,7 +91,7 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
 
                                     createRoot(document.getElementById('root')).render(
                                       <StrictMode>
-                                        <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
+                                        <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN} options={options}>
                                           <App />
                                         </PostHogProvider>
                                       </StrictMode>

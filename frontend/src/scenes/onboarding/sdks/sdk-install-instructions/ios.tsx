@@ -54,10 +54,10 @@ import UIKit
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        let POSTHOG_API_KEY = "${currentTeam?.api_token}"
+        let POSTHOG_PROJECT_TOKEN = "${currentTeam?.api_token}"
         let POSTHOG_HOST = "${apiHostOrigin()}"
 
-        let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+        let config = PostHogConfig(apiKey: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
         ${configSection}
         PostHogSDK.shared.setup(config)
 
