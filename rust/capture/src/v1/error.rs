@@ -192,7 +192,7 @@ impl Error {
         }
     }
 
-    fn stat_error(&self) {
+    pub(crate) fn stat_error(&self) {
         let tags = [("error", self.tag()), ("level", self.level_tag())];
         counter!(ERROR_METRIC_KEY, &tags).increment(1);
     }

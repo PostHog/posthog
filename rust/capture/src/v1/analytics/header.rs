@@ -13,3 +13,10 @@ pub const WWW_AUTHENTICATE_INVALID: HeaderValue =
 
 // Custom header names
 pub const POSTHOG_REQUEST_ID: &str = "PostHog-Request-Id";
+pub const POSTHOG_API_TOKEN: &str = "PostHog-Api-Token";
+pub const POSTHOG_SDK_INFO: &str = "PostHog-Sdk-Info";
+pub const POSTHOG_ATTEMPT: &str = "PostHog-Attempt";
+pub const POSTHOG_CLIENT_TIMESTAMP: &str = "PostHog-Client-Timestamp";
+
+// Valid content encodings
+pub const SUPPORTED_ENCODINGS: &[&str] = &["gzip", "deflate", "br", "zstd"];
