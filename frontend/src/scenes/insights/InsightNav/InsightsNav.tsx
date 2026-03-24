@@ -29,10 +29,14 @@ export function InsightsNav(): JSX.Element {
                         size="small"
                         value={activeView}
                         onChange={(newKey) => setActiveView(newKey)}
-                        options={tabs.map(({ label, type }) => ({
-                            value: type,
-                            label,
-                        }))}
+                        options={tabs.map(({ label, type }) => {
+                            const Icon = INSIGHT_TYPES_METADATA[type]?.icon
+                            return {
+                                value: type,
+                                label,
+                                icon: Icon ? <Icon /> : undefined,
+                            }
+                        })}
                         dropdownMatchSelectWidth={false}
                     />
                 </div>
