@@ -136,6 +136,7 @@ services:
             start_period: 10s
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
+            - ./products:/products:ro
 
     redis7:
         image: redis:7.2-alpine

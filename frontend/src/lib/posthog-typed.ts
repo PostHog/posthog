@@ -1237,7 +1237,6 @@ interface EventSchemas {
     "EWjjW6Pc')) OR 407=(SELECT 407 FROM PG_SLEEP(15))--": Record<string, any>
     'exceeded max page limit loading toolbar element stats pages': Record<string, any>
     EXLwcYuf: Record<string, any>
-    'experiment archived': Record<string, any>
     'experimentation call prompt action': Record<string, any>
     'experiment completed': Record<string, any>
     'experiment created': Record<string, any>

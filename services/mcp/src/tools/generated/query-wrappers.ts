@@ -189,7 +189,145 @@ const AssistantGroupPropertyFilter = z.union([
     }),
 ])
 
-const AssistantPropertyFilter = z.union([AssistantGenericPropertyFilter, AssistantGroupPropertyFilter])
+const AssistantCohortPropertyFilter = z.object({
+    key: z.literal('id').default('id'),
+    operator: z.literal('in').default('in'),
+    type: z
+        .literal('cohort')
+        .describe(
+            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`'
+        )
+        .default('cohort'),
+    value: integer.describe('The cohort ID to filter by.'),
+})
+
+const AssistantElementPropertyFilter = z.union([
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
+            '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z
+            .string()
+            .describe(
+                'Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.'
+            ),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantNumericValuePropertyFilterOperator,
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z.coerce.number(),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantArrayPropertyFilterOperator.describe(
+            '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z
+            .array(z.string())
+            .describe(
+                'Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".'
+            ),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantDateTimePropertyFilterOperator,
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+        value: z.string().describe('Value must be a date in ISO 8601 format.'),
+    }),
+    z.object({
+        key: z
+            .enum(['tag_name', 'text', 'href', 'selector'])
+            .describe(
+                'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
+            ),
+        operator: AssistantSetPropertyFilterOperator.describe(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+        ),
+        type: z
+            .literal('element')
+            .describe(
+                'Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`'
+            )
+            .default('element'),
+    }),
+])
+
+const AssistantHogQLPropertyFilter = z.object({
+    key: z
+        .string()
+        .describe(
+            "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`"
+        ),
+    type: z
+        .literal('hogql')
+        .describe(
+            "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters."
+        )
+        .default('hogql'),
+})
+
+const AssistantFlagPropertyFilter = z.object({
+    key: z.string().describe('The feature flag key.'),
+    operator: z.literal('flag_evaluates_to').default('flag_evaluates_to'),
+    type: z
+        .literal('flag')
+        .describe(
+            'Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }`\n- Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }`'
+        )
+        .default('flag'),
+    value: z
+        .union([z.coerce.boolean(), z.string()])
+        .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
+})
+
+const AssistantPropertyFilter = z.union([
+    AssistantGenericPropertyFilter,
+    AssistantGroupPropertyFilter,
+    AssistantCohortPropertyFilter,
+    AssistantElementPropertyFilter,
+    AssistantHogQLPropertyFilter,
+    AssistantFlagPropertyFilter,
+])
 
 const BaseMathType = z.enum([
     'total',
@@ -251,6 +389,12 @@ const AssistantTrendsEventsNode = z.object({
     kind: z.literal('EventsNode').default('EventsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
@@ -266,6 +410,12 @@ const AssistantTrendsActionsNode = z.object({
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
@@ -284,6 +434,11 @@ const AggregationAxisFormat = z.enum([
     'currency',
     'short',
 ])
+
+const TrendsFormulaNode = z.object({
+    custom_name: z.string().describe('Optional user-defined name for the formula').optional(),
+    formula: z.string(),
+})
 
 const AssistantTrendsFilter = z.object({
     aggregationAxisFormat: AggregationAxisFormat.describe(
@@ -331,15 +486,26 @@ const AssistantTrendsFilter = z.object({
         )
         .default('ActionsLineGraph')
         .optional(),
-    formulas: z
-        .array(z.string())
+    formulaNodes: z
+        .array(TrendsFormulaNode)
         .describe(
-            'If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
+            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
         )
         .optional(),
+    showAlertThresholdLines: z.coerce
+        .boolean()
+        .describe('Whether to show alert threshold lines on the chart.')
+        .default(false)
+        .optional(),
+    showLabelsOnSeries: z.coerce.boolean().describe('Whether to show labels on each series.').default(false).optional(),
     showLegend: z.coerce
         .boolean()
         .describe('Whether to show the legend describing series and breakdowns.')
+        .default(false)
+        .optional(),
+    showMultipleYAxes: z.coerce
+        .boolean()
+        .describe('Whether to show multiple y-axes for different series.')
         .default(false)
         .optional(),
     showPercentStackView: z.coerce
@@ -352,10 +518,12 @@ const AssistantTrendsFilter = z.object({
         .describe('Whether to show a value on each data point.')
         .default(false)
         .optional(),
+    smoothingIntervals: integer.describe('Smoothing intervals for the trend line.').default(1).optional(),
     yAxisScaleType: z.enum(['log10', 'linear']).describe('Whether to scale the y-axis.').default('linear').optional(),
 })
 
 const AssistantTrendsQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
     breakdownFilter: AssistantTrendsBreakdownFilter.describe(
         'Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question. When using breakdowns, you must:\n- **Identify the property group** and name for each breakdown.\n- **Provide the property name** for each breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using breakdowns:\n- page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.'
     ).optional(),
@@ -393,6 +561,8 @@ const AssistantFunnelsBreakdownFilter = z.object({
     ).default('event'),
 })
 
+const BreakdownAttributionType = z.enum(['first_touch', 'last_touch', 'all_events', 'step'])
+
 const AssistantFunnelsExclusionEventsNode = z.object({
     event: z.string(),
     funnelFromStep: integer,
@@ -416,6 +586,18 @@ const AssistantFunnelsFilter = z.object({
         .int()
         .describe(
             'Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.'
+        )
+        .optional(),
+    breakdownAttributionType: BreakdownAttributionType.describe(
+        'Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.'
+    )
+        .default('first_touch')
+        .optional(),
+    breakdownAttributionValue: z.coerce
+        .number()
+        .int()
+        .describe(
+            'When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.'
         )
         .optional(),
     exclusions: z
@@ -534,6 +716,20 @@ const AssistantRetentionActionsNode = z.object({
 const AssistantRetentionEntity = z.union([AssistantRetentionEventsNode, AssistantRetentionActionsNode])
 
 const AssistantRetentionFilter = z.object({
+    aggregationProperty: z
+        .string()
+        .describe('The event or person property to aggregate when aggregationType is sum or avg.')
+        .optional(),
+    aggregationPropertyType: z
+        .enum(['event', 'person'])
+        .describe('The type of property to aggregate on (event or person). Defaults to event.')
+        .default('event')
+        .optional(),
+    aggregationType: z
+        .enum(['count', 'sum', 'avg'])
+        .describe('The aggregation type to use for retention.')
+        .default('count')
+        .optional(),
     cumulative: z.coerce
         .boolean()
         .describe(
@@ -546,7 +742,14 @@ const AssistantRetentionFilter = z.object({
             'Whether an additional series should be shown, showing the mean conversion for each period across cohorts.'
         )
         .optional(),
+    minimumOccurrences: integer
+        .describe('Minimum number of times an event must occur to count towards retention.')
+        .optional(),
     period: RetentionPeriod.describe('Retention period, the interval to track cohorts by.').default('Day').optional(),
+    retentionCustomBrackets: z
+        .array(z.coerce.number())
+        .describe('Custom brackets for retention calculations.')
+        .optional(),
     retentionReference: z
         .enum(['total', 'previous'])
         .describe('Whether retention is with regard to initial cohort size, or that of the previous period.')
@@ -558,15 +761,20 @@ const AssistantRetentionFilter = z.object({
     targetEntity: AssistantRetentionEntity.describe(
         'Activation event (event putting the actor into the initial cohort).'
     ),
+    timeWindowMode: z
+        .enum(['strict_calendar_dates', '24_hour_windows'])
+        .describe('The time window mode to use for retention calculations.')
+        .optional(),
     totalIntervals: integer
         .describe(
-            'How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).'
+            'How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort).'
         )
-        .default(11)
+        .default(8)
         .optional(),
 })
 
 const AssistantRetentionQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()

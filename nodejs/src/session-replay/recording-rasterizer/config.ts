@@ -19,7 +19,7 @@ export const config = {
     metricsPort: parseInt(process.env.METRICS_PORT || '6740', 10),
 
     // Encryption
-    secretKey: process.env.DJANGO_SECRET_KEY,
+    secretKey: process.env.SECRET_KEY,
 
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
@@ -27,7 +27,7 @@ export const config = {
 
     // Recording API
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6738',
-    recordingApiSecret: process.env.RECORDING_API_SECRET || '',
+    recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
 
     // Player
     siteUrl: process.env.SITE_URL || 'http://localhost:8000',
