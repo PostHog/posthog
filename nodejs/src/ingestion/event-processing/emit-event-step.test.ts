@@ -3,12 +3,15 @@ import { Message } from 'node-rdkafka'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { EVENTS_OUTPUT, EventOutput } from '../analytics/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { isOkResult } from '../pipelines/results'
 import {
     EmitEventStepConfig,
@@ -17,7 +20,6 @@ import {
     productTrackHeader,
     serializeEvent,
 } from './emit-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from './ingestion-outputs'
 
 // Mock the utils module
 jest.mock('../../worker/ingestion/utils', () => ({
@@ -51,8 +53,8 @@ const mockIngestionLagGauge = jest.mocked(ingestionLagGauge)
 const mockIngestionLagHistogram = jest.mocked(ingestionLagHistogram)
 
 describe('emit-event-step', () => {
+    let mockOutputs: jest.Mocked<IngestionOutputs<EventOutput>>
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
-    let outputs: IngestionOutputs<EventOutput>
     let config: EmitEventStepConfig<EventOutput>
     let mockProcessedEvent: ProcessedEvent
     let mockHeaders: EventHeaders
@@ -63,21 +65,12 @@ describe('emit-event-step', () => {
         mockMessage = createTestMessage()
         jest.clearAllMocks()
 
-        mockKafkaProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
-            flush: jest.fn().mockResolvedValue(undefined),
-            disconnect: jest.fn().mockResolvedValue(undefined),
-        } as any
-
-        outputs = new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: 'clickhouse_events_json',
-                producer: mockKafkaProducer,
-            },
-        })
+        mockOutputs = createMockIngestionOutputs<EventOutput>()
+        mockKafkaProducer = {} as any
 
         config = {
-            outputs,
+            outputs: mockOutputs,
+            kafkaProducer: mockKafkaProducer,
             groupId: 'test-group-id',
         }
 
@@ -122,8 +115,7 @@ describe('emit-event-step', () => {
                     expect(result.value).toBeUndefined()
                 }
                 expect(result.sideEffects).toHaveLength(1)
-                expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                    topic: 'clickhouse_events_json',
+                expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
                     headers: { productTrack: 'general' },
@@ -139,7 +131,7 @@ describe('emit-event-step', () => {
 
         it('should handle MessageSizeTooLarge error and capture ingestion warning', async () => {
             const messageSizeTooLargeError = new MessageSizeTooLarge('Message too large', new Error('Kafka error'))
-            mockKafkaProducer.produce.mockRejectedValue(messageSizeTooLargeError)
+            mockOutputs.produce.mockRejectedValue(messageSizeTooLargeError)
 
             const step = createEmitEventStep(config)
             const input = createInput()
@@ -165,7 +157,7 @@ describe('emit-event-step', () => {
 
         it('should re-throw non-MessageSizeTooLarge errors', async () => {
             const genericError = new Error('Generic Kafka error')
-            mockKafkaProducer.produce.mockRejectedValue(genericError)
+            mockOutputs.produce.mockRejectedValue(genericError)
 
             const step = createEmitEventStep(config)
             const input = createInput()
@@ -190,8 +182,7 @@ describe('emit-event-step', () => {
 
                 await step(input)
 
-                expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                    topic: 'clickhouse_events_json',
+                expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
                     headers: { productTrack: 'general' },
@@ -201,25 +192,6 @@ describe('emit-event-step', () => {
             }
         })
 
-        it('should use the correct topic from outputs', async () => {
-            const customOutputs = new IngestionOutputs({
-                [EVENTS_OUTPUT]: {
-                    topic: 'custom_topic',
-                    producer: mockKafkaProducer,
-                },
-            })
-            const step = createEmitEventStep({ outputs: customOutputs, groupId: 'test-group-id' })
-            const input = createInput()
-
-            await step(input)
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    topic: 'custom_topic',
-                })
-            )
-        })
-
         it('should handle events with different UUIDs correctly', async () => {
             const step = createEmitEventStep(config)
             const eventWithDifferentUuid = { ...mockProcessedEvent, uuid: 'different-uuid' }
@@ -227,7 +199,8 @@ describe('emit-event-step', () => {
 
             await step(input)
 
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                EVENTS_OUTPUT,
                 expect.objectContaining({
                     key: 'different-uuid',
                 })
@@ -251,7 +224,7 @@ describe('emit-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             expect(result.sideEffects).toHaveLength(2)
-            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
+            expect(mockOutputs.produce).toHaveBeenCalledTimes(2)
         })
 
         describe('metrics tracking', () => {
@@ -268,12 +241,12 @@ describe('emit-event-step', () => {
                 await result.sideEffects[0]
 
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
-                expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(1)
+                expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
             })
 
             it('should not increment metric when Kafka produce fails', async () => {
                 const kafkaError = new Error('Kafka connection failed')
-                mockKafkaProducer.produce.mockRejectedValue(kafkaError)
+                mockOutputs.produce.mockRejectedValue(kafkaError)
 
                 const step = createEmitEventStep(config)
                 const input = createInput()
@@ -303,7 +276,7 @@ describe('emit-event-step', () => {
 
                 // Metric should be incremented twice, once for each successful emit
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(2)
-                expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
+                expect(mockOutputs.produce).toHaveBeenCalledTimes(2)
             })
         })
 
@@ -314,7 +287,8 @@ describe('emit-event-step', () => {
 
             await step(input)
 
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                EVENTS_OUTPUT,
                 expect.objectContaining({
                     headers: { productTrack: 'llma' },
                 })

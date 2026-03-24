@@ -2,15 +2,17 @@ import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { createProcessAiEventStep } from '../ai/pipelines/steps/process-ai-event-step'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createDisablePersonProcessingWithFakePersonStep } from '../event-processing/disable-person-processing-with-fake-person-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { EVENTS_OUTPUT, EventOutput } from './outputs'
 
 export interface TestingAiEventSubpipelineInput {
     message: Message
@@ -21,6 +23,7 @@ export interface TestingAiEventSubpipelineInput {
 
 export interface TestingAiEventSubpipelineConfig {
     outputs: IngestionOutputs<EventOutput>
+    kafkaProducer: KafkaProducerWrapper
     groupId: string
 }
 
@@ -28,7 +31,7 @@ export function createTestingAiEventSubpipeline<TInput extends TestingAiEventSub
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingAiEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { outputs, groupId } = config
+    const { outputs, kafkaProducer, groupId } = config
 
     // Compared to ai-event-subpipeline.ts:
     // CHANGED: createNormalizeProcessPersonFlagStep → createDisablePersonProcessingWithFakePersonStep
@@ -44,5 +47,5 @@ export function createTestingAiEventSubpipeline<TInput extends TestingAiEventSub
         .pipe(createProcessAiEventStep())
         .pipe(createPrepareEventStep())
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
-        .pipe(createEmitEventStep({ outputs, groupId }))
+        .pipe(createEmitEventStep({ outputs, kafkaProducer, groupId }))
 }
