@@ -125,17 +125,18 @@ def get_or_create_artifact(
 ) -> tuple[Artifact, bool]:
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
+        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     return Artifact.objects.get_or_create(
         repo_id=repo_id,
         content_hash=content_hash,
+        team_id=team_id,
         defaults={
             "storage_path": storage_path,
             "width": width,
             "height": height,
             "size_bytes": size_bytes,
-            "team_id": team_id,
         },
     )
 
@@ -181,17 +182,18 @@ def write_artifact_bytes(
 
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
+        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     artifact, _ = Artifact.objects.get_or_create(
         repo_id=repo_id,
         content_hash=content_hash,
+        team_id=team_id,
         defaults={
             "storage_path": storage_path,
             "width": width,
             "height": height,
             "size_bytes": len(content),
-            "team_id": team_id,
         },
     )
     return artifact
@@ -331,7 +333,7 @@ def create_run(
     if superseded_ids:
         from django.db.models import F
 
-        Run.objects.filter(id__in=superseded_ids).update(superseded_by=F("id"))
+        Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
 
     run = Run.objects.create(
         repo=repo,
@@ -346,7 +348,7 @@ def create_run(
 
     # Fix up the sentinel pointers to reference the actual new run
     if superseded_ids:
-        Run.objects.filter(id__in=superseded_ids).update(superseded_by=run)
+        Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
     all_hashes: set[str] = set()
     # Store width/height from manifest for later artifact creation
@@ -1042,8 +1044,12 @@ def update_snapshot_diff(
     diff_artifact: Artifact,
     diff_percentage: float,
     diff_pixel_count: int,
+    team_id: int | None = None,
 ) -> RunSnapshot:
-    snapshot = RunSnapshot.objects.select_related("run").get(id=snapshot_id)
+    qs = RunSnapshot.objects.select_related("run")
+    if team_id is not None:
+        qs = qs.filter(team_id=team_id)
+    snapshot = qs.get(id=snapshot_id)
     if diff_artifact.repo_id != snapshot.run.repo_id:
         raise ValueError(
             f"Cross-repo artifact reference: artifact repo {diff_artifact.repo_id} "
