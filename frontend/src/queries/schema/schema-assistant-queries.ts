@@ -1,4 +1,11 @@
-import { BreakdownType, ChartDisplayType, FunnelMathType, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BreakdownType,
+    ChartDisplayType,
+    FunnelMathType,
+    IntervalType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import {
     ActionsNode,
@@ -816,6 +823,8 @@ export interface AssistantStickinessActionsNode extends Omit<
     name: string
 }
 
+export type AssistantStickinessNode = AssistantStickinessEventsNode | AssistantStickinessActionsNode
+
 export interface AssistantStickinessFilter {
     /**
      * Visualization type for the stickiness chart.
@@ -858,7 +867,7 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
      * and actions. When the `math` field is omitted on a series, it defaults to counting
      * unique persons.
      */
-    series: (AssistantStickinessEventsNode | AssistantStickinessActionsNode)[]
+    series: AssistantStickinessNode[]
 
     /**
      * Properties specific to the stickiness insight

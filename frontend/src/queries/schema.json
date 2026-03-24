@@ -2377,6 +2377,16 @@
             },
             "type": "object"
         },
+        "AssistantStickinessNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantStickinessEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantStickinessActionsNode"
+                }
+            ]
+        },
         "AssistantStickinessQuery": {
             "additionalProperties": false,
             "properties": {
@@ -2428,14 +2438,7 @@
                 "series": {
                     "description": "Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions. When the `math` field is omitted on a series, it defaults to counting unique persons.",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AssistantStickinessEventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/AssistantStickinessActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AssistantStickinessNode"
                     },
                     "type": "array"
                 },
