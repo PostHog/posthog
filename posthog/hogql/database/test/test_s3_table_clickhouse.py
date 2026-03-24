@@ -90,9 +90,9 @@ class TestS3ParquetTimezoneConversion(ClickhouseTestMixin, BaseTest):
         for row in rows:
             assert row[1] is not None, f"toTimeZone returned NULL for id={row[0]}"
 
-    def test_toTimeZone_returns_null_when_same_expression_in_where(self):
+    def test_toTimeZone_returns_value_when_same_expression_in_where(self):
         """When toTimeZone(col, 'TZ') appears in both SELECT and WHERE on an S3 source,
-        the SELECT result becomes NULL. This is the core ClickHouse bug."""
+        the SELECT result should not become NULL."""
         rows = _s3_query(
             self.url,
             self.schema,
