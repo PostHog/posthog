@@ -965,4 +965,246 @@ describe('insightLogic', () => {
             await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
     })
+
+    describe('hasOverrides', () => {
+        it('is false when no overrides are present', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                },
+                filtersOverride: null,
+                variablesOverride: null,
+            })
+            logic.mount()
+
+            expect(logic.values.hasOverrides).toBe(false)
+        })
+
+        it('is true when filtersOverride has a date_from', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                },
+                filtersOverride: { date_from: '-7d' },
+            })
+            logic.mount()
+
+            expect(logic.values.hasOverrides).toBe(true)
+        })
+
+        it('is true when variablesOverride is non-empty', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                },
+                variablesOverride: {
+                    var1: { code_name: 'var1', variableId: '123', value: 'x' },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.hasOverrides).toBe(true)
+        })
+
+        it('is false when filtersOverride is an empty object', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                },
+                filtersOverride: {},
+            })
+            logic.mount()
+
+            expect(logic.values.hasOverrides).toBe(false)
+        })
+
+        it('is true when tileFiltersOverride has a date_from', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                },
+                tileFiltersOverride: { date_from: '-30d' },
+            })
+            logic.mount()
+
+            expect(logic.values.hasOverrides).toBe(true)
+        })
+    })
+
+    describe('editingDisabledReason', () => {
+        it('returns reason when hasOverrides is true', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                },
+                filtersOverride: { date_from: '-7d' },
+            })
+            logic.mount()
+
+            expect(logic.values.editingDisabledReason).toBe('Discard overrides to edit the insight.')
+        })
+
+        it('returns null when hasOverrides is false', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                },
+                filtersOverride: null,
+            })
+            logic.mount()
+
+            expect(logic.values.editingDisabledReason).toBeNull()
+        })
+    })
+
+    describe('canEditInsight', () => {
+        it('is true with overrides and editor access level', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                    user_access_level: AccessControlLevel.Editor,
+                },
+                filtersOverride: { date_from: '-7d' },
+            })
+            logic.mount()
+
+            expect(logic.values.canEditInsight).toBe(true)
+        })
+
+        it('is true without overrides and editor access level', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                    user_access_level: AccessControlLevel.Editor,
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.canEditInsight).toBe(true)
+        })
+
+        it('is false with viewer access level', () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                    user_access_level: AccessControlLevel.Viewer,
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.canEditInsight).toBe(false)
+        })
+    })
+
+    describe('setInsightMetadataSuccess on savedInsight', () => {
+        it('syncs name, description, and tags to savedInsight after metadata save', async () => {
+            const insightProps: InsightLogicProps = {
+                dashboardItemId: Insight43,
+                cachedInsight: {
+                    ...partialInsight43,
+                    query: queryFromFilters(API_FILTERS),
+                    name: 'Original 43',
+                    description: 'Original description',
+                    tags: [],
+                },
+            }
+
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                savedInsight: partial({ name: 'Original 43', description: 'Original description', tags: [] }),
+                insightChanged: false,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsightMetadataLocal({
+                    name: 'Foobar 43',
+                    description: 'Lorem ipsum.',
+                    tags: ['good'],
+                })
+            }).toMatchValues({
+                insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+                savedInsight: partial({ name: 'Original 43', description: 'Original description', tags: [] }),
+                insightChanged: true,
+            })
+
+            // The PATCH mock for id=43 returns name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good']
+            await expectLogic(logic, () => {
+                logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
+            })
+                .toDispatchActions(['setInsightMetadataSuccess'])
+                .toMatchValues({
+                    savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+                    insightChanged: false,
+                })
+        })
+
+        it('syncs favorited to savedInsight on metadata save', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/insights/:id': async (req) => {
+                        const payload = await req.json()
+                        return [
+                            200,
+                            {
+                                ...partialInsight43,
+                                name: 'Foobar 43',
+                                description: 'Lorem ipsum.',
+                                tags: ['good'],
+                                ...payload,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            const insightProps: InsightLogicProps = {
+                dashboardItemId: Insight43,
+                cachedInsight: {
+                    ...partialInsight43,
+                    query: queryFromFilters(API_FILTERS),
+                    name: 'Foobar 43',
+                    description: 'Lorem ipsum.',
+                    tags: ['good'],
+                    favorited: false,
+                },
+            }
+
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                savedInsight: partial({ favorited: false }),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsightMetadata({ favorited: true })
+            })
+                .toDispatchActions(['setInsightMetadataSuccess'])
+                .toMatchValues({
+                    savedInsight: partial({ favorited: true }),
+                })
+        })
+    })
 })
