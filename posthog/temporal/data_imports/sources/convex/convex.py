@@ -167,6 +167,14 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
         return False, str(e)
 
 
+def _normalize_timestamps(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for row in batch:
+        creation_time = row.get("_creationTime")
+        if isinstance(creation_time, (int, float)) and creation_time > 1e12:
+            row["_creationTime"] = int(creation_time / 1000)
+    return batch
+
+
 def convex_source(
     deploy_url: str,
     deploy_key: str,
@@ -177,13 +185,6 @@ def convex_source(
     db_incremental_field_last_value: Any | None,
 ) -> SourceResponse:
     clean_url = validate_deploy_url(deploy_url)
-
-    def _normalize_timestamps(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        for row in batch:
-            creation_time = row.get("_creationTime")
-            if isinstance(creation_time, (int, float)) and creation_time > 1e12:
-                row["_creationTime"] = int(creation_time / 1000)
-        return batch
 
     def items_generator():
         if should_use_incremental_field and db_incremental_field_last_value is not None:
