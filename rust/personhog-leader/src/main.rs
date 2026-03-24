@@ -9,7 +9,6 @@ use lifecycle::{ComponentOptions, Manager};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
-use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -129,17 +128,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(handler),
     );
 
-    let cancel = CancellationToken::new();
-    let shutdown_fut = coordination_handle.shutdown_signal();
-    let cancel_on_shutdown = cancel.clone();
-    tokio::spawn(async move {
-        shutdown_fut.await;
-        cancel_on_shutdown.cancel();
-    });
-
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
-        if let Err(e) = pod.run(cancel).await {
+        if let Err(e) = pod.run(coordination_handle.shutdown_token()).await {
             coordination_handle.signal_failure(format!("Coordination error: {e}"));
         }
     });

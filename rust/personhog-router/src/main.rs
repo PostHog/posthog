@@ -15,7 +15,6 @@ use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
-use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -33,7 +32,7 @@ common_alloc::used!();
 /// clears the cached gRPC client for the old owner so the next request
 /// reconnects to the new leader pod.
 struct RouterCutoverHandler {
-    leader_backend_slot: Arc<tokio::sync::OnceCell<Arc<LeaderBackend>>>,
+    leader_backend: Arc<LeaderBackend>,
 }
 
 #[async_trait::async_trait]
@@ -50,9 +49,7 @@ impl CutoverHandler for RouterCutoverHandler {
             new_owner,
             "executing cutover: clearing cached client for old owner"
         );
-        if let Some(backend) = self.leader_backend_slot.get() {
-            backend.clear_client_cache(old_owner);
-        }
+        self.leader_backend.clear_client_cache(old_owner);
         Ok(())
     }
 }
@@ -191,26 +188,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to read total_partitions from etcd");
         tracing::info!(num_partitions, "loaded partition count from etcd");
 
-        // Build the coordination routing table first, then wire the shared
-        // table handle into the LeaderBackend so both see the same mapping.
+        // Build the routing table and leader backend, sharing the same
+        // partition-to-pod mapping so both see consistent state.
         let routing_table_config = RoutingTableConfig {
             router_name: config.pod_name.clone(),
             lease_ttl: config.lease_ttl,
             heartbeat_interval: config.heartbeat_interval(),
         };
 
-        let leader_backend_slot: Arc<tokio::sync::OnceCell<Arc<LeaderBackend>>> =
-            Arc::new(tokio::sync::OnceCell::new());
-
-        let cutover_handler = RouterCutoverHandler {
-            leader_backend_slot: Arc::clone(&leader_backend_slot),
-        };
-
-        let coordination_routing_table = RoutingTable::new(
-            Arc::clone(&store),
-            routing_table_config,
-            Arc::new(cutover_handler),
-        );
+        let coordination_routing_table =
+            RoutingTable::new(Arc::clone(&store), routing_table_config);
 
         let shared_table = coordination_routing_table.table_handle();
         let leader_port = config.leader_port;
@@ -222,27 +209,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.retry_config(),
         ));
 
-        if leader_backend_slot
-            .set(Arc::clone(&leader_backend))
-            .is_err()
-        {
-            panic!("leader_backend_slot already set");
-        }
+        let cutover_handler: Arc<dyn CutoverHandler> = Arc::new(RouterCutoverHandler {
+            leader_backend: Arc::clone(&leader_backend),
+        });
 
         // Start coordination (etcd registration + routing table watches)
         let coordination_handle =
             coordination_handle.expect("coordination handle must be registered in leader mode");
-        let cancel = CancellationToken::new();
-        let shutdown_fut = coordination_handle.shutdown_signal();
-        let cancel_on_shutdown = cancel.clone();
-        tokio::spawn(async move {
-            shutdown_fut.await;
-            cancel_on_shutdown.cancel();
-        });
 
         tokio::spawn(async move {
             let _guard = coordination_handle.process_scope();
-            if let Err(e) = coordination_routing_table.run(cancel).await {
+            if let Err(e) = coordination_routing_table
+                .run(coordination_handle.shutdown_token(), cutover_handler)
+                .await
+            {
                 coordination_handle.signal_failure(format!("Coordination error: {e}"));
             }
         });
