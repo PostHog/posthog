@@ -404,37 +404,6 @@ hogli start --tracing
 
 Jaeger will be available at [http://localhost:16686](http://localhost:16686).
 
-
-## Extra: Using AI assistants with your local dev environment
-
-Phrocs (the process manager) includes an MCP (Model Context Protocol) server that lets AI coding assistants query your local dev environment. This is useful for debugging issues with AI tools like Claude Desktop, Cursor, Windsurf, or other MCP-compatible assistants.
-
-### Setup
-
-The repository includes a `.mcp.json` configuration file in the repo root that registers the phrocs MCP server. To use it:
-
-1. Ensure your AI tool supports MCP and can read `.mcp.json` configuration files
-2. Open the PostHog repository in your AI tool
-3. The phrocs MCP server is available automatically when `hogli start` is running
-
-### Available tools
-
-The MCP server provides two tools:
-
-- **get_process_status** – Returns process status including PID, running state, readiness, and real-time metrics (CPU, memory, threads)
-- **get_process_logs** – Retrieves recent log lines from a process's in-memory buffer, with optional grep filtering
-
-### Example usage
-
-Ask your AI assistant questions like:
-
-- "What processes are currently running?"
-- "Show me the recent logs from the backend process"
-- "Is the frontend process ready?"
-- "Search the worker logs for error messages"
-
-The AI assistant uses the MCP tools to query phrocs directly and provide you with the relevant information.
-
 #### Production usage
 
 We send our PostHog Cloud emails via Customer.io using their HTTP API. If Customer.io is not configured but SMTP is, it will fall back to SMTP. We do this so we can continue to support SMTP emails for self-hosted instances.
@@ -473,6 +442,36 @@ When creating a new email, there are a few steps to take. It's important to add 
    message.add_recipient(email=target_email)
    message.send()
    ```
+
+## Extra: Using AI assistants with your local dev environment
+
+Phrocs (the process manager) includes an MCP (Model Context Protocol) server that lets AI coding assistants query your local dev environment. This is useful for debugging issues with AI tools like Claude Desktop, Cursor, Windsurf, or other MCP-compatible assistants.
+
+### Setup
+
+The repository includes a `.mcp.json` configuration file in the repo root that registers the phrocs MCP server. To use it:
+
+1. Ensure your AI tool supports MCP and can read `.mcp.json` configuration files
+2. Open the PostHog repository in your AI tool
+3. The phrocs MCP server is available automatically when `hogli start` is running
+
+### Available tools
+
+The MCP server provides two tools:
+
+- **get_process_status** – Returns process status including PID, running state, readiness, and real-time metrics (CPU, memory, threads)
+- **get_process_logs** – Retrieves recent log lines from a process's in-memory buffer, with optional grep filtering
+
+### Example usage
+
+Ask your AI assistant questions like:
+
+- "What processes are currently running?"
+- "Show me the recent logs from the backend process"
+- "Is the frontend process ready?"
+- "Search the worker logs for error messages"
+
+The AI assistant uses the MCP tools to query phrocs directly and provide you with the relevant information.
 
 ## Extra: Developing paid features (PostHog employees only)
 
