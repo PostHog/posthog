@@ -178,11 +178,13 @@ pub async fn fetch_and_filter(
         );
     }
 
-    Ok(FeatureFlagList {
+    let mut flag_list = FeatureFlagList {
         flags,
         filtered_out_flag_ids,
         evaluation_metadata,
-    })
+    };
+    flag_list.prepare_regexes();
+    Ok(flag_list)
 }
 
 /// Returns flag IDs that should be excluded when only survey flags are requested.

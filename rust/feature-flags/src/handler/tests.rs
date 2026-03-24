@@ -195,6 +195,7 @@ async fn test_evaluate_feature_flags() {
                     prop_type: PropertyType::Person,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 }]),
                 rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                 variant: None,
@@ -301,6 +302,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                     prop_type: PropertyType::Cohort,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 }]),
                 rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                 variant: None,
@@ -1006,6 +1008,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
                     prop_type: PropertyType::Group,
                     group_type_index: Some(0),
                     negation: None,
+                    compiled_regex: None,
                 }]),
                 rollout_percentage: Some(100.0),
                 variant: None,
