@@ -23,13 +23,16 @@ Set up before each test. The filter fetches event definitions, property definiti
 ```tsx
 useMocks({
   get: {
-    '/api/projects/:team_id/event_definitions': mockEventDefinitions,
-    '/api/projects/:team_id/property_definitions': mockPropertyDefinitions,
-    '/api/projects/:team_id/actions': { results: mockActions, count: mockActions.length },
-    '/api/projects/:team_id/persons/properties': mockPersonProperties,
+    // Event and property definitions live under /api/projects/:team/...
+    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+    '/api/projects/:team/actions': mockGetActions,
+    // Person properties are fetched from /api/environments/:team/...
+    '/api/environments/:team/persons/properties': mockGetPersonsProperties,
   },
   post: {
-    '/api/projects/:team_id/query': { results: [] },
+    // Queries are posted to the environments endpoint
+    '/api/environments/:team/query': [200, { results: [] }],
   },
 })
 ```
