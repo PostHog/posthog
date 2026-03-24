@@ -205,12 +205,14 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     <LemonButton
                         type="secondary"
                         onClick={resetColumnConfigToDefaults}
+                        // Intentionally checks draft vs defaults (not vs committed state like hasChanges),
+                        // so this stays enabled when the committed config is non-default
                         disabledReason={
                             draftPinnedColumns.length === 0 &&
                             !draftOrderBy &&
                             hiddenColumns.length === 0 &&
                             draftSelect.length === sortedColumns.length
-                                ? 'No changes to revert'
+                                ? 'Already at defaults'
                                 : undefined
                         }
                     >
