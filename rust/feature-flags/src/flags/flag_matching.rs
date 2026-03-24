@@ -23,11 +23,11 @@ use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_cano
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
-    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_DB_PROPERTIES_FETCH_TIME,
-    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_COHORT_SOURCE_COUNTER,
+    FLAG_DB_PROPERTIES_FETCH_TIME, FLAG_EVALUATE_ALL_CONDITIONS_TIME,
+    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED,
+    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
+    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
@@ -1815,14 +1815,21 @@ impl FeatureFlagMatcher {
         // ALL cohorts for the team.
         let cohorts = match self.preloaded_cohorts.take() {
             Some(preloaded) => {
-                tracing::debug!(
-                    "Using {} preloaded cohorts for team {}",
-                    preloaded.len(),
-                    self.team_id,
+                inc(
+                    FLAG_COHORT_SOURCE_COUNTER,
+                    &[("source".to_string(), "preloaded".to_string())],
+                    1,
                 );
                 preloaded
             }
-            None => self.cohort_cache.get_cohorts(self.team_id).await?,
+            None => {
+                inc(
+                    FLAG_COHORT_SOURCE_COUNTER,
+                    &[("source".to_string(), "cache_manager".to_string())],
+                    1,
+                );
+                self.cohort_cache.get_cohorts(self.team_id).await?
+            }
         };
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
