@@ -14,17 +14,23 @@ const MOCK_HOG_FUNCTION = {
     id: MOCK_HOG_FUNCTION_ID,
     type: 'destination',
     kind: null,
-    name: 'Export to S3',
-    description: 'Export events to an S3 bucket',
+    name: 'HTTP Webhook',
+    description: 'Sends a webhook templated by the incoming event data',
     enabled: true,
     deleted: false,
-    hog: '',
+    hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});",
     bytecode: [],
-    inputs_schema: [],
-    inputs: {},
+    inputs_schema: [
+        { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+        { key: 'method', type: 'choice', label: 'Method', secret: false, required: false, default: 'POST' },
+    ],
+    inputs: {
+        url: { value: 'https://example.com/webhook' },
+        method: { value: 'POST' },
+    },
     filters: {},
     icon_url: null,
-    template: null,
+    template: { id: 'template-webhook', name: 'HTTP Webhook' },
     status: { state: 0, ratings: [], states: [] },
     created_at: '2024-01-01T00:00:00Z',
     created_by: {
@@ -44,17 +50,13 @@ const MOCK_HOG_FUNCTION = {
 const MOCK_BATCH_EXPORT = {
     id: MOCK_BATCH_EXPORT_ID,
     team_id: 1,
-    name: 'S3 Export',
+    name: 'HTTP Webhook',
     destination: {
-        type: 'S3',
-        config: {
-            bucket_name: 'my-bucket',
-            region: 'us-east-1',
-            prefix: 'posthog/',
-        },
+        type: 'Workflows',
+        config: { hog_function_id: MOCK_HOG_FUNCTION_ID },
     },
-    interval: 'hour',
-    paused: false,
+    interval: 'day',
+    paused: true,
     created_at: '2024-01-01T00:00:00Z',
     last_updated_at: '2024-01-15T00:00:00Z',
     start_at: null,
@@ -106,8 +108,7 @@ const commonMocks = {
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: { results: [], next: null },
     },
     post: {
-        // hogFunctionBackfillsLogic calls enableBackfills on mount before the config has loaded,
-        // so this endpoint must be mocked even though the hog function already has a batch_export_id
+        // Fallback in case enableBackfills is triggered (e.g. for hog functions without batch_export_id)
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_ID}/enable_backfills/`]: {
             batch_export_id: MOCK_BATCH_EXPORT_ID,
         },
