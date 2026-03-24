@@ -81,8 +81,6 @@ export function InsightDisplayConfig(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
 
     const showCompare =
         (isTrends &&
@@ -301,13 +299,13 @@ export function InsightDisplayConfig(): JSX.Element {
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
-                {!editorPanelsEnabled && !isRetention && (
+                {!isRetention && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                     </ConfigFilter>
                 )}
 
-                {!editorPanelsEnabled && showInterval && (
+                {showInterval && (
                     <ConfigFilter>
                         <IntervalFilter />
                     </ConfigFilter>
@@ -332,7 +330,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {!editorPanelsEnabled && showCompare && (
+                {showCompare && (
                     <ConfigFilter>
                         <CompareFilter
                             compareFilter={compareFilter}
