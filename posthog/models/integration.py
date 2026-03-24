@@ -1193,6 +1193,7 @@ class GoogleCloudServiceAccountIntegration:
         same_service_account_integrations = (
             Integration.objects.select_related("team__organization")
             .filter(kind="google-cloud-service-account", config__service_account_email=service_account_email)
+            # If private key is present, then we are not impersonating
             .exclude(sensitive_config__has_key="private_key")
         )
         for integration in same_service_account_integrations:
