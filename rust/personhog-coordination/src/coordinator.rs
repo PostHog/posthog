@@ -120,6 +120,10 @@ impl Coordinator {
     }
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
+        // Reconcile any handoffs that already have full ack quorum.
+        // This handles acks that arrived before this coordinator took leadership.
+        self.reconcile_pending_handoffs().await?;
+
         // Compute initial assignments for any pods that are already registered
         self.handle_pod_change().await?;
 
@@ -300,6 +304,29 @@ impl Coordinator {
                     tracing::warn!(partition, "handoff already deleted, ignoring duplicate ack");
                 }
                 Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check all in-flight handoffs for completed ack quorum. Completes any
+    /// handoffs where all routers have already acked, which can happen when the
+    /// coordinator restarts or a new leader is elected after acks were written.
+    async fn reconcile_pending_handoffs(&self) -> Result<()> {
+        let handoffs = self.store.list_handoffs().await?;
+        if handoffs.is_empty() {
+            return Ok(());
+        }
+
+        tracing::info!(
+            count = handoffs.len(),
+            "reconciling existing handoffs on startup"
+        );
+
+        for handoff in &handoffs {
+            if handoff.phase == HandoffPhase::Ready {
+                Self::check_ack_completion(&self.store, handoff.partition).await?;
             }
         }
 
