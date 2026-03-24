@@ -7,7 +7,7 @@ from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 from structlog import get_logger
 
-from posthog.models.cohort.cohort import Cohort
+from posthog.models.cohort.cohort import Cohort, is_cohort_recalculation_only_save
 from posthog.models.team.team import Team
 
 logger = get_logger(__name__)
@@ -153,6 +153,8 @@ def cohort_changed(sender, instance, **kwargs):
     """
     Clear and rebuild dependency caches when cohort changes.
     """
+    if is_cohort_recalculation_only_save(kwargs):
+        return
 
     transaction.on_commit(lambda: _on_cohort_changed(instance))
 
