@@ -247,7 +247,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     try {
                         const notification = JSON.parse(event.data) as InAppNotification
                         actions.notificationReceived(notification)
-                        if (notification.priority === 'urgent') {
+                        if (notification.priority === 'critical') {
                             const iconMap: Record<string, JSX.Element> = {
                                 comment_mention: <IconComment className="size-5 text-primary shrink-0" />,
                                 alert_firing: <IconWarning className="size-5 text-warning shrink-0" />,
