@@ -31,13 +31,15 @@ export const TaxonomicBreakdownPopover = ({
     const { insightProps } = useValues(insightLogic)
     const { allEventNames, query } = useValues(insightVizDataLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { includeSessions } = useValues(taxonomicBreakdownFilterLogic)
+    const { includeSessions, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
 
     const { currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
-    if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
+    if (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
+        taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
+    } else if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,

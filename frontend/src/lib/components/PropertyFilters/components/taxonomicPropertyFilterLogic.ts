@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import {
     createDefaultPropertyFilter,
     isAnyPropertyfilter,
@@ -17,6 +18,7 @@ import {
     isQuickFilterItem,
     quickFilterToPropertyFilter,
 } from 'lib/components/TaxonomicFilter/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -92,7 +94,21 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        openDropdown: () => {
+            const existingFilter = props.filters[props.filterIndex]
+            if (!existingFilter || !isValidPropertyFilter(existingFilter)) {
+                if (eventUsageLogic.isMounted()) {
+                    eventUsageLogic.actions.reportTaxonomicFilterAddFilterClicked(props.eventNames?.[0])
+                }
+            }
+        },
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item }) => {
+            if (item?._recentContext?.propertyFilter) {
+                props.setFilter(props.filterIndex, item._recentContext.propertyFilter)
+                actions.closeDropdown()
+                return
+            }
+
             if (isQuickFilterItem(item)) {
                 props.setFilter(props.filterIndex, quickFilterToPropertyFilter(item))
                 actions.closeDropdown()

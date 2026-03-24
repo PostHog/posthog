@@ -57,18 +57,22 @@ const SurveysAstroInstructionsWrapper = withOnboardingDocsWrapper({
 const SurveysAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysAngularInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Angular',
 })
 const SurveysVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysVueInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Vue',
 })
 const SurveysNuxtInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysNuxtInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Nuxt',
 })
 const SurveysRemixInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysRemixInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 
 // Website builders
@@ -89,6 +93,7 @@ const SurveysWebflowInstructionsWrapper = withOnboardingDocsWrapper({
 const SurveysIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysIOSInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Swift',
 })
 const SurveysFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysFlutterInstallation,

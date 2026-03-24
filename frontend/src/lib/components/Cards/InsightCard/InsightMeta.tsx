@@ -49,9 +49,11 @@ import {
     DashboardTile,
     ExporterFormat,
     InsightColor,
+    InsightLogicProps,
     QueryBasedInsightModel,
 } from '~/types'
 
+import { DashboardInsightActions } from './DashboardInsightActions'
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
 import { InsightMoveToDashboardMenu } from './InsightMoveToDashboardMenu'
@@ -117,10 +119,20 @@ export function InsightMeta({
     onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
-    const { insightProps, insightFeedback } = useValues(insightLogic)
-    const { setInsightFeedback } = useActions(insightLogic)
-    const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
-    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
+    const insightLogicProps: InsightLogicProps = {
+        dashboardItemId: insight.short_id,
+        dashboardId,
+        cachedInsight: insight,
+        filtersOverride: filtersOverride ?? null,
+        variablesOverride: variablesOverride ?? null,
+        tileFiltersOverride: tile?.filters_overrides ?? null,
+    }
+    const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
+        insightLogic(insightLogicProps)
+    )
+    const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
+    const { exportContext, insightData } = useValues(insightDataLogic(insightLogicProps))
+    const { samplingFactor } = useValues(insightVizDataLogic(insightLogicProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
@@ -130,6 +142,10 @@ export function InsightMeta({
         placement === DashboardPlacement.Dashboard ||
         placement === DashboardPlacement.ProjectHomepage ||
         placement === DashboardPlacement.Public
+    const isDashboardCardPlacement =
+        placement === DashboardPlacement.Dashboard ||
+        placement === DashboardPlacement.Public ||
+        placement === DashboardPlacement.Builtin
 
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
@@ -156,6 +172,8 @@ export function InsightMeta({
                   AccessControlLevel.Editor
               )
             : true
+    const canToggleDisplayLabels = isDashboardCardPlacement && canEditInsight && canToggleDisplayLabelsForInsight
+    const canToggleLegend = isDashboardCardPlacement && canEditInsight && canToggleLegendForInsight
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
@@ -361,11 +379,18 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
+                    <DashboardInsightActions
+                        insight={insight}
+                        insightLogicProps={insightLogicProps}
+                        dashboardId={dashboardId}
+                        canToggleDisplayLabels={canToggleDisplayLabels}
+                        canToggleLegend={canToggleLegend}
+                    />
 
                     {/* Dashboard related */}
                     {canEditDashboard && (
                         <>
-                            <LemonDivider />
+                            {!canToggleDisplayLabels && !canToggleLegend && <LemonDivider />}
                             {showCompactTile && toggleShowDescription && !!insight.description && (
                                 <LemonButton onClick={toggleShowDescription} fullWidth>
                                     {tile?.show_description === false ? 'Show description' : 'Hide description'}
@@ -463,7 +488,7 @@ export function InsightMeta({
                                     {
                                         export_format: ExporterFormat.PNG,
                                         insight: insight.id,
-                                        dashboard: insightProps.dashboardId,
+                                        dashboard: insightLogicProps.dashboardId,
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,

@@ -28,7 +28,7 @@ export type ErrorTrackingConsumerConfig = {
 
 export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerConfig {
     return {
-        ERROR_TRACKING_CONSUMER_GROUP_ID: 'ingestion-error-tracking',
+        ERROR_TRACKING_CONSUMER_GROUP_ID: 'ingestion-errortracking',
         ERROR_TRACKING_CONSUMER_CONSUME_TOPIC: KAFKA_ERROR_TRACKING_INGESTION,
         ERROR_TRACKING_CONSUMER_DLQ_TOPIC: KAFKA_ERROR_TRACKING_INGESTION_DLQ,
         ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC: KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW,

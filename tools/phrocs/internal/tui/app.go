@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/docker"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
@@ -54,6 +55,17 @@ type Model struct {
 	containerLogStream *docker.ContainerLogStream
 	composeArgs        docker.ComposeArgs
 
+	// Info mode: replaces the output viewport with process stats
+	infoMode bool
+
+	// Hedgehog mode: animated hedgehog walks across the output pane
+	hedgehogMode  bool
+	hedgehogX     int
+	hedgehogY     int // vertical offset from ground (positive = up)
+	hedgehogVelY  int // vertical velocity (positive = upward, decreases each tick)
+	hedgehogDir   int // +1 right, -1 left
+	hedgehogFrame int
+
 	keys     keyMap
 	help     help.Model
 	spinner  spinner.Model
@@ -64,13 +76,15 @@ type Model struct {
 	ready  bool
 
 	mouseScrollSpeed int
+	hideHelp         bool // hide_keymap_window from config
+	procListWidth    int  // proc_list_width from config (0 = use default)
 
 	// Writes go to /tmp/phrocs-debug.log
 	log *log.Logger
 }
 
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.)
-func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
+func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
 	return Model{
@@ -80,7 +94,9 @@ func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
 		servicesOffset:   0,
 		focusedPane:      focusServices,
 		viewportAtBottom: true,
-		mouseScrollSpeed: mouseScrollSpeed,
+		mouseScrollSpeed: cfg.MouseScrollSpeed,
+		hideHelp:         cfg.HideKeymapWindow,
+		procListWidth:    cfg.ProcListWidth,
 		keys:             keys,
 		help:             help.New(),
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
@@ -124,13 +140,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
+		// Refresh info panel on each spinner tick to keep uptime current
+		if m.infoMode {
+			m.refreshInfoContent()
+		}
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
 		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
 			// In docker mode the viewport shows the status table or container logs,
 			// not the process's combined output
-			if m.isDockerMode() {
+			if m.isDockerMode() || m.infoMode {
 				break
 			}
 			m.viewport.SetContent(m.buildContent())
@@ -138,10 +158,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
 			}
-			// Incrementally update search matches to avoid rescanning the full
-			// scrollback on every new line — O(M) per line instead of O(N).
 			if m.searchQuery != "" {
-				m.updateSearchForNewLine(msg)
+				m.recomputeSearch()
 			}
 		}
 
@@ -191,15 +209,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case hedgehogTickMsg:
+		if m.hedgehogMode {
+			m.advanceHedgehog()
+			cmds = append(cmds, hedgehogTick())
+		}
+
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
+		var handled bool
 		if m.searchMode {
-			return m.handleSearchKey(msg, cmds)
+			m, cmds, handled = m.handleSearchKey(msg, cmds)
+		} else if m.copyMode {
+			m, cmds, handled = m.handleCopyKey(msg, cmds)
+		} else if m.infoMode {
+			m, cmds, handled = m.handleInfoKey(msg, cmds)
+		} else if m.hedgehogMode {
+			m, cmds, handled = m.handleHedgehogKey(msg, cmds)
 		}
-		if m.copyMode {
-			return m.handleCopyKey(msg, cmds)
+		if !handled {
+			return m.handleNormalKey(msg, cmds)
 		}
-		return m.handleNormalKey(msg, cmds)
 
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg, cmds)
@@ -260,18 +290,33 @@ func (m Model) activeProc() *process.Process {
 	return m.services[m.servicesCursor]
 }
 
+// Returns the configured proc_list_width, or the default.
+func (m Model) effectiveSidebarWidth() int {
+	if m.procListWidth > 0 {
+		return m.procListWidth
+	}
+	return sidebarWidth
+}
+
+func (m Model) footerHeight() int {
+	if m.hideHelp {
+		return 1
+	}
+	if m.showHelp {
+		return footerHeightFull
+	}
+	return footerHeightShort
+}
+
 // Recalculates viewport/sidebar dimensions whenever the terminal resizes
 // or the footer height changes
 func (m Model) applySize() Model {
-	fh := footerHeightShort
-	if m.showHelp {
-		fh = footerHeightFull
-	}
+	fh := m.footerHeight()
 	contentH := max(m.height-headerHeight-fh, 1)
 	// In copy mode the sidebar is hidden, so the viewport fills the full width.
 	// The PTY width is always the sidebar-adjusted value so processes don't
 	// receive a spurious resize when the user enters or exits copy mode
-	ptyW := m.width - sidebarWidth
+	ptyW := m.width - m.effectiveSidebarWidth()
 	if m.isDockerMode() && !m.isFullScreen() {
 		ptyW -= containerSidebarWidth
 	}
@@ -337,11 +382,15 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
+		m.keys.LazyDocker.SetEnabled(true)
+		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
 		cmds = append(cmds, docker.FetchContainerList(m.composeArgs), docker.PollContainersTick())
 	} else {
 		m.focusedPane = focusServices
 		m.containers = nil
+		m.keys.LazyDocker.SetEnabled(false)
+		m.keys.ProcViewer.SetEnabled(true)
 		m.viewport.SetContent(m.buildContent())
 	}
 

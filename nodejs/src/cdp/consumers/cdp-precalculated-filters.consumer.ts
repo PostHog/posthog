@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
+import { v4 as uuidv4 } from 'uuid'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import {
@@ -42,7 +43,6 @@ export type PreCalculatedEvent = {
 }
 
 export type ProducedEvent = {
-    key: string
     payload: PreCalculatedEvent
 }
 
@@ -76,7 +76,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         try {
             const messages = events.map((event) => ({
                 value: JSON.stringify(event.payload),
-                key: event.key,
             }))
 
             await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, messages })
@@ -96,9 +95,10 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         }
 
         try {
+            // Use random UUIDs as keys to ensure proper partition distribution
             const messages = events.map((event) => ({
                 value: JSON.stringify(event.payload),
-                key: event.key,
+                key: uuidv4(),
             }))
 
             await this.kafkaProducer.queueMessages({
@@ -244,7 +244,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                             // Only publish if event matches the filter (don't publish non-matches)
                             if (matches) {
                                 const preCalculatedEvent: ProducedEvent = {
-                                    key: filterGlobals.distinct_id,
                                     payload: {
                                         uuid: filterGlobals.uuid,
                                         team_id: clickHouseEvent.team_id,
@@ -279,7 +278,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                                 // CRITICAL: Always emit - both matches AND non-matches
                                 // Person properties are mutable state, need to track changes
                                 const personPropertyEvent: ProducedPersonPropertiesEvent = {
-                                    key: clickHouseEvent.distinct_id,
                                     payload: {
                                         distinct_id: clickHouseEvent.distinct_id,
                                         person_id: clickHouseEvent.person_id!,

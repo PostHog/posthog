@@ -1329,7 +1329,7 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -1347,7 +1347,7 @@ describe('IngestionConsumer', () => {
                 const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
                 expect(logMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
@@ -1360,7 +1360,7 @@ describe('IngestionConsumer', () => {
                         },
                     },
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
@@ -1394,7 +1394,7 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -1412,7 +1412,7 @@ describe('IngestionConsumer', () => {
                 const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
                 expect(logMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
@@ -1425,7 +1425,7 @@ describe('IngestionConsumer', () => {
                         },
                     },
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),

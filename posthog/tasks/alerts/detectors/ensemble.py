@@ -35,15 +35,34 @@ class EnsembleDetector(BaseDetector):
         if self.operator == "and":
             is_anomaly = all(r.is_anomaly for r in results)
             score = min((r.score for r in results if r.score is not None), default=None)
+            # AND: use intersection of triggered indices
+            triggered_sets = [set(r.triggered_indices) for r in results if r.triggered_indices]
+            triggered = sorted(set.intersection(*triggered_sets)) if triggered_sets else []
         else:
             is_anomaly = any(r.is_anomaly for r in results)
             score = max((r.score for r in results if r.score is not None), default=None)
+            # OR: use union of triggered indices
+            triggered_sets = [set(r.triggered_indices) for r in results if r.triggered_indices]
+            triggered = sorted(set.union(*triggered_sets)) if triggered_sets else []
+
+        # Combine all_scores: element-wise min (AND) or max (OR) across sub-detectors
+        all_score_arrays = [r.all_scores for r in results if r.all_scores]
+        if all_score_arrays:
+            max_len = max(len(s) for s in all_score_arrays)
+            padded = [s + [None] * (max_len - len(s)) for s in all_score_arrays]
+            combine = min if self.operator == "and" else max
+            combined_scores: list[float | None] = []
+            for i in range(max_len):
+                vals = [s[i] for s in padded if s[i] is not None]
+                combined_scores.append(combine(vals) if vals else None)  # type: ignore[type-var]
+        else:
+            combined_scores = []
 
         return DetectionResult(
             is_anomaly=is_anomaly,
             score=score,
-            triggered_indices=results[-1].triggered_indices if is_anomaly else [],
-            all_scores=results[-1].all_scores,
+            triggered_indices=triggered,
+            all_scores=combined_scores,
             metadata={
                 "operator": self.operator,
                 "sub_results": [
@@ -65,8 +84,18 @@ class EnsembleDetector(BaseDetector):
             triggered_sets = [set(r.triggered_indices) for r in results]
             triggered = sorted(set.union(*triggered_sets)) if triggered_sets else []
 
-        # Use scores from first detector for the combined view
-        scores = results[0].all_scores if results else []
+        # Combine scores across sub-detectors: min for AND, max for OR
+        combine = min if self.operator == "and" else max
+        all_score_lists = [r.all_scores for r in results if r.all_scores]
+        if all_score_lists:
+            max_len = max(len(s) for s in all_score_lists)
+            padded = [s + [None] * (max_len - len(s)) for s in all_score_lists]
+            scores: list[float | None] = []
+            for i in range(max_len):
+                vals = [s[i] for s in padded if s[i] is not None]
+                scores.append(combine(vals) if vals else None)  # type: ignore[type-var]
+        else:
+            scores = []
 
         return DetectionResult(
             is_anomaly=len(triggered) > 0,
@@ -76,7 +105,11 @@ class EnsembleDetector(BaseDetector):
             metadata={
                 "operator": self.operator,
                 "sub_results": [
-                    {"type": cfg.get("type"), "triggered_count": len(r.triggered_indices)}
+                    {
+                        "type": cfg.get("type"),
+                        "triggered_count": len(r.triggered_indices),
+                        "all_scores": r.all_scores,
+                    }
                     for cfg, r in zip(self.config.get("detectors", []), results)
                 ],
             },

@@ -47,7 +47,6 @@ Supported endpoints:
 - `responses`
 
 Required scopes:
-- `accounts:read`
 - `forms:read`
 - `responses:read`
 

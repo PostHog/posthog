@@ -114,6 +114,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         handleTextViewFallback: true,
         copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
+        setTraceReviewPanelExpanded: (isExpanded: boolean) => ({ isExpanded }),
         loadCommentCount: true,
         setViewMode: (viewMode: TraceViewMode) => ({ viewMode }),
         loadNeighbors: (traceId: string, timestamp: string) => ({ traceId, timestamp }),
@@ -233,6 +234,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     ...state,
                     [eventType]: !(state[eventType] ?? true),
                 }),
+            },
+        ],
+        isTraceReviewPanelExpanded: [
+            false as boolean,
+            persistConfig,
+            {
+                setTraceReviewPanelExpanded: (_, { isExpanded }) => isExpanded,
             },
         ],
     }),

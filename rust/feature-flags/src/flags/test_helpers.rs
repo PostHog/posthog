@@ -153,6 +153,7 @@ pub async fn update_flags_in_hypercache(
 ) -> Result<(), FlagError> {
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.flags.clone(),
+        evaluation_metadata: flags.evaluation_metadata.clone(),
     };
 
     // Match Django's format: JSON string -> Pickle

@@ -11,6 +11,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -129,7 +130,7 @@ export async function deletePlaylist(
     await deleteWithUndo({
         object: playlist,
         idField: 'short_id',
-        endpoint: `projects/@current/session_recording_playlists`,
+        endpoint: `projects/${teamLogic.values.currentProjectId}/session_recording_playlists`,
         callback: (undo) => {
             if (undo) {
                 refreshTreeItem('session_recording_playlist', playlist.short_id)

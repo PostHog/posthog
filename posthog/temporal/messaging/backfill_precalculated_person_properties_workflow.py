@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import temporalio.activity
 import temporalio.workflow
+import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -16,6 +17,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.filter_storage import get_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
 
@@ -119,15 +122,6 @@ def get_person_properties_backfill_failure_metric():
 
 
 @dataclasses.dataclass
-class PersonPropertyFilter:
-    """Person property filter to evaluate."""
-
-    condition_hash: str
-    bytecode: list[Any]  # HogQL bytecode
-    cohort_ids: list[int]  # Cohorts that use this condition
-
-
-@dataclasses.dataclass
 class CohortFilters:
     """Filters for a specific cohort."""
 
@@ -140,16 +134,11 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     """Inputs for the precalculated person properties backfill workflow."""
 
     team_id: int
-    filters: list[PersonPropertyFilter]  # Deduplicated filters with cohort mappings
+    filter_storage_key: str  # Redis key containing the filters
     cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
     offset: int = 0
     limit: int | None = None  # Total persons to process (None = all)
-
-    @property
-    def total_filters(self) -> int:
-        """Total number of unique filters."""
-        return len(self.filters)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -157,7 +146,7 @@ class BackfillPrecalculatedPersonPropertiesInputs:
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_ids),
             "cohort_ids": self.cohort_ids,
-            "filter_count": self.total_filters,
+            "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
             "offset": self.offset,
             "limit": self.limit,
@@ -178,12 +167,23 @@ async def backfill_precalculated_person_properties_activity(
     """
     bind_contextvars()
     cohort_ids = inputs.cohort_ids
-    total_filters = inputs.total_filters
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
+
+    # Load filters from Redis storage without blocking the event loop
+    filters = await asyncio.to_thread(get_filters, inputs.filter_storage_key)
+    if filters is None:
+        raise temporalio.exceptions.ApplicationError(
+            f"Filters not found in storage for key: {inputs.filter_storage_key}. "
+            "The Redis payload may have expired; please re-store the filters and restart the workflow.",
+            type="MissingFilters",
+            non_retryable=True,
+        )
+
+    logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
 
     logger.info(
         f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
-        f"processing {total_filters} total filters across {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
+        f"processing {len(filters)} total filters across {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
     )
 
     async with Heartbeater(
@@ -279,7 +279,7 @@ async def backfill_precalculated_person_properties_activity(
                         }
 
                         # Evaluate each filter once per person and send results to all cohorts that use it
-                        for filter_obj in inputs.filters:
+                        for filter_obj in filters:
                             try:
                                 result = await asyncio.to_thread(
                                     execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
@@ -402,10 +402,9 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         """Run the workflow to backfill precalculated person properties."""
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
-        total_filters = inputs.total_filters
         workflow_logger.info(
             f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids} "
-            f"(team {inputs.team_id}) with {total_filters} total filters"
+            f"(team {inputs.team_id})"
         )
 
         # Process the batch of persons

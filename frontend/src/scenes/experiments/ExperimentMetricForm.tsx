@@ -4,6 +4,7 @@ import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -129,6 +130,8 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+
+    const isExperimentFunnelDWHSupport = useFeatureFlag('EXPERIMENT_FUNNEL_DWH_SUPPORT')
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -364,11 +367,17 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        // Data warehouse is not supported for funnel metrics - enforced at schema level
-                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
-                            (type) => type !== 'data_warehouse'
-                        )}
+                        actionsTaxonomicGroupTypes={
+                            isExperimentFunnelDWHSupport
+                                ? commonActionFilterProps.actionsTaxonomicGroupTypes
+                                : commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                                      (type) => type !== 'data_warehouse'
+                                  )
+                        }
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+                        dataWarehousePopoverFields={
+                            isExperimentFunnelDWHSupport ? dataWarehousePopoverFields : undefined
+                        }
                     />
                 )}
 

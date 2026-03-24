@@ -76,7 +76,8 @@ export class DashboardPage {
     }
 
     async addTextCard(text: string): Promise<void> {
-        const addTextTileButton = this.page.getByTestId('add-text-tile-to-dashboard')
+        await this.page.getByTestId('dashboard-add-tile').click()
+        const addTextTileButton = this.page.getByTestId('dashboard-add-text-tile')
         await expect(addTextTileButton).toBeVisible()
         await addTextTileButton.click()
 

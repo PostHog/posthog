@@ -86,7 +86,9 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "last_refresh": None,
             "is_cached": False,
             "insight": None,
+            "button_tile": None,
             "show_description": None,
+            "transparent_background": None,
         }
 
     @staticmethod
@@ -270,6 +272,28 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["code"], "max_length")
         self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
         self.assertEqual(response_data["attr"], "text__body")
+
+    def test_can_create_text_tile_with_transparent_background(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, dashboard_json = self.dashboard_api.create_text_tile(
+            dashboard_id, text="hello", extra_data={"transparent_background": True}
+        )
+
+        tile = dashboard_json["tiles"][0]
+        assert tile["transparent_background"] is True
+
+    def test_can_update_text_tile_transparent_background(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello")
+
+        tile = dashboard_json["tiles"][0]
+        assert tile["transparent_background"] is None
+
+        tile["transparent_background"] = True
+        _, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, tile)
+
+        assert dashboard_json["tiles"][0]["transparent_background"] is True
 
     @freeze_time("2022-04-01 12:45")
     @override_settings(IN_UNIT_TESTING=True)

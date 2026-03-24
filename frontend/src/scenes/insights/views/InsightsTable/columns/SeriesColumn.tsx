@@ -16,6 +16,7 @@ type SeriesColumnItemProps = {
     handleEditClick: (item: IndexedTrendResult) => void
     hasMultipleSeries: boolean
     hasBreakdown: boolean
+    hideCompare?: boolean
 }
 
 export function SeriesColumnItem({
@@ -26,6 +27,7 @@ export function SeriesColumnItem({
     handleEditClick,
     hasMultipleSeries,
     hasBreakdown,
+    hideCompare,
 }: SeriesColumnItemProps): JSX.Element {
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
@@ -44,7 +46,7 @@ export function SeriesColumnItem({
                         'font-medium': !hasBreakdown,
                     })}
                     pillMaxWidth={165}
-                    compareValue={item.compare ? formatCompareLabel(item) : undefined}
+                    compareValue={item.compare && !hideCompare ? formatCompareLabel(item) : undefined}
                     onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                 />
             </div>

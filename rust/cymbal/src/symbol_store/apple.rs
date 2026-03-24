@@ -9,11 +9,11 @@ use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
 use zip::ZipArchive;
 
-use posthog_symbol_data::{read_symbol_data, AppleDsym};
+use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
 
 use crate::{
     error::{AppleError, ResolveError},
-    symbol_store::{Fetcher, Parser},
+    symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
 /// Manifest format for source files bundled in the dSYM ZIP under `__source/`
@@ -30,6 +30,14 @@ pub struct ParsedAppleSymbols {
     /// Source file contents indexed by DWARF absolute path.
     /// None if the bundle doesn't contain source files.
     sources: Option<HashMap<String, String>>,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
+}
+
+impl Countable for ParsedAppleSymbols {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
+    }
 }
 
 pub struct AppleProvider {}
@@ -57,16 +65,23 @@ impl Parser for AppleProvider {
     async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
         // Try to unwrap symbol_data container first (new format),
         // fall back to raw ZIP for backward compatibility with existing uploads
-        let zip_data = match read_symbol_data::<AppleDsym>(source.clone()) {
-            Ok(dsym) => dsym.data,
-            Err(_) => source,
-        };
-        ParsedAppleSymbols::from_dsym_zip(zip_data)
+        let (zip_data, decompressed_bytes) =
+            match read_symbol_data_with_byte_count::<AppleDsym>(source.clone()) {
+                Ok((dsym, bytes)) => (dsym.data, bytes),
+                Err(_) => {
+                    let len = source.len();
+                    (source, len)
+                }
+            };
+        ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)
     }
 }
 
 impl ParsedAppleSymbols {
-    pub fn from_dsym_zip(zip_data: Vec<u8>) -> Result<Self, ResolveError> {
+    pub fn from_dsym_zip(
+        zip_data: Vec<u8>,
+        decompressed_bytes: usize,
+    ) -> Result<Self, ResolveError> {
         let cursor = Cursor::new(zip_data);
         let mut archive =
             ZipArchive::new(cursor).map_err(|e| AppleError::ParseError(e.to_string()))?;
@@ -81,6 +96,7 @@ impl ParsedAppleSymbols {
         Ok(Self {
             symcache_data,
             sources,
+            decompressed_bytes,
         })
     }
 

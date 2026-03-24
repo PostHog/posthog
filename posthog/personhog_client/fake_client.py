@@ -221,15 +221,23 @@ class FakePersonHogClient:
     ) -> person_pb2.GetDistinctIdsForPersonResponse:
         self.calls.append(_Call("get_distinct_ids_for_person", request))
         dids = self._distinct_ids.get((request.team_id, request.person_id), [])
+        limit = request.limit if request.HasField("limit") and request.limit > 0 else None
+        if limit is not None:
+            dids = dids[:limit]
         return person_pb2.GetDistinctIdsForPersonResponse(distinct_ids=dids)
 
     def get_distinct_ids_for_persons(
         self, request: person_pb2.GetDistinctIdsForPersonsRequest
     ) -> person_pb2.GetDistinctIdsForPersonsResponse:
         self.calls.append(_Call("get_distinct_ids_for_persons", request))
+        limit = (
+            request.limit_per_person if request.HasField("limit_per_person") and request.limit_per_person > 0 else None
+        )
         results = []
         for pid in request.person_ids:
             dids = self._distinct_ids.get((request.team_id, pid), [])
+            if limit is not None:
+                dids = dids[:limit]
             results.append(person_pb2.PersonDistinctIds(person_id=pid, distinct_ids=dids))
         return person_pb2.GetDistinctIdsForPersonsResponse(person_distinct_ids=results)
 

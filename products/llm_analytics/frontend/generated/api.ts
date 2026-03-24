@@ -22,6 +22,7 @@ import type {
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
     LLMPromptApi,
+    LLMPromptDuplicateApi,
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
@@ -1233,6 +1234,24 @@ export const llmPromptsNameArchiveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMPromptApi),
+    })
+}
+
+export const getLlmPromptsNameDuplicateCreateUrl = (projectId: string, promptName: string) => {
+    return `/api/environments/${projectId}/llm_prompts/name/${promptName}/duplicate/`
+}
+
+export const llmPromptsNameDuplicateCreate = async (
+    projectId: string,
+    promptName: string,
+    lLMPromptDuplicateApi: LLMPromptDuplicateApi,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsNameDuplicateCreateUrl(projectId, promptName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMPromptDuplicateApi),
     })
 }
 

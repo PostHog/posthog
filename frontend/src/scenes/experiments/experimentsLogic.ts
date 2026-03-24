@@ -117,6 +117,7 @@ export function isSingleVariantShipped(experiment: Experiment): boolean {
 
     return (
         !!filters &&
+        experiment.feature_flag?.active !== false &&
         Array.isArray(filters.groups?.[0]?.properties) &&
         filters.groups?.[0]?.properties?.length === 0 &&
         filters.groups?.[0]?.rollout_percentage === 100 &&
@@ -298,7 +299,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 archiveExperiment: async (id: number) => {
-                    await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
                     lemonToast.info('Experiment archived')
                     return {
                         ...values.experiments,

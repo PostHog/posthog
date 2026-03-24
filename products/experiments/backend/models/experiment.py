@@ -145,6 +145,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def is_draft(self):
         return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.DRAFT
 
+    @property
+    def is_running(self):
+        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.RUNNING
+
+    @property
+    def is_stopped(self):
+        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.STOPPED
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)
@@ -166,11 +174,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
 
 def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:
-    """Return both legacy `holdout_groups` and new `holdout` fields for a feature flag's filters."""
+    """Return the `holdout` field for a feature flag's filters."""
     if not holdout_id or not filters:
-        return {"holdout_groups": None, "holdout": None}
+        return {"holdout": None}
     return {
-        "holdout_groups": filters,
         "holdout": {"id": holdout_id, "exclusion_percentage": filters[0]["rollout_percentage"]},
     }
 
