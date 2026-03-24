@@ -76,9 +76,6 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             ),
         )
 
-    def get_default_properties(self, schema_name: str) -> list[str] | None:
-        return list(DEFAULT_PROPS.get(schema_name, []))
-
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",

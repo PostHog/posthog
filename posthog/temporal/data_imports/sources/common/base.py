@@ -98,10 +98,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
 
-    def get_default_properties(self, schema_name: str) -> list[str] | None:
-        """Return default property names for a schema. None means this source doesn't support property selection."""
-        return None
-
 
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
