@@ -64,4 +64,11 @@ class SpikeGPTMatrix(Matrix):
                 }
             ],
         )
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        # Create the standard internal/test users cohort (same as non-demo teams get)
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=user.email)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"},
+            {"key": "id", "type": "cohort", "value": real_users_cohort.pk},
+        ]
