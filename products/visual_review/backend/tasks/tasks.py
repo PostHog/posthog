@@ -123,6 +123,7 @@ def _diff_snapshot(snapshot) -> None:
         content=result.diff_image,
         width=result.width,
         height=result.height,
+        team_id=snapshot.team_id,
     )
 
     logic.update_snapshot_diff(

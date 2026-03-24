@@ -73,6 +73,8 @@ class Artifact(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
+    # Denormalized from repo.team_id for direct team scoping.
+    team_id = models.BigIntegerField(db_index=True)
 
     content_hash = models.CharField(max_length=128, db_index=True)
     storage_path = models.CharField(max_length=1024)
@@ -101,6 +103,8 @@ class Run(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
+    # Denormalized from repo.team_id for direct team scoping.
+    team_id = models.BigIntegerField(db_index=True)
 
     status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
     run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType], default=RunType.OTHER)
@@ -165,6 +169,8 @@ class RunSnapshot(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
+    # Denormalized from run.team_id for direct team scoping.
+    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
 

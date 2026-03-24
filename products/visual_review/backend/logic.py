@@ -121,7 +121,12 @@ def get_or_create_artifact(
     width: int | None = None,
     height: int | None = None,
     size_bytes: int | None = None,
+    team_id: int | None = None,
 ) -> tuple[Artifact, bool]:
+    # Resolve team_id from the repo when not provided by the caller.
+    if team_id is None:
+        team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
+
     return Artifact.objects.get_or_create(
         repo_id=repo_id,
         content_hash=content_hash,
@@ -130,6 +135,7 @@ def get_or_create_artifact(
             "width": width,
             "height": height,
             "size_bytes": size_bytes,
+            "team_id": team_id,
         },
     )
 
@@ -164,6 +170,7 @@ def write_artifact_bytes(
     content: bytes,
     width: int | None = None,
     height: int | None = None,
+    team_id: int | None = None,
 ) -> Artifact:
     """
     Write artifact content to storage and create DB record.
@@ -171,6 +178,10 @@ def write_artifact_bytes(
     """
     storage = ArtifactStorage(str(repo_id))
     storage_path = storage.write(content_hash, content)
+
+    # Resolve team_id from the repo when not provided by the caller.
+    if team_id is None:
+        team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     artifact, _ = Artifact.objects.get_or_create(
         repo_id=repo_id,
@@ -180,6 +191,7 @@ def write_artifact_bytes(
             "width": width,
             "height": height,
             "size_bytes": len(content),
+            "team_id": team_id,
         },
     )
     return artifact
@@ -204,14 +216,14 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 
 
 def list_runs_for_team(team_id: int, review_state: str | None = None) -> db_models.QuerySet[Run]:
-    qs = Run.objects.filter(repo__team_id=team_id).select_related("repo").order_by("-created_at")
+    qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
     if review_state and review_state in REVIEW_STATE_FILTERS:
         qs = qs.filter(REVIEW_STATE_FILTERS[review_state])
     return qs
 
 
 def get_review_state_counts(team_id: int) -> dict[str, int]:
-    qs = Run.objects.filter(repo__team_id=team_id)
+    qs = Run.objects.filter(team_id=team_id)
     return qs.aggregate(
         needs_review=Count("id", filter=REVIEW_STATE_FILTERS["needs_review"]),
         clean=Count("id", filter=REVIEW_STATE_FILTERS["clean"]),
@@ -224,7 +236,7 @@ def get_run(run_id: UUID, team_id: int | None = None) -> Run:
     try:
         qs = Run.objects.select_related("repo")
         if team_id is not None:
-            qs = qs.filter(repo__team_id=team_id)
+            qs = qs.filter(team_id=team_id)
         return qs.get(id=run_id)
     except Run.DoesNotExist as e:
         raise RunNotFoundError(f"Run {run_id} not found") from e
@@ -238,7 +250,7 @@ def get_run_with_snapshots(run_id: UUID, team_id: int | None = None) -> Run:
             "snapshots__diff_artifact",
         )
         if team_id is not None:
-            qs = qs.filter(repo__team_id=team_id)
+            qs = qs.filter(team_id=team_id)
         return qs.get(id=run_id)
     except Run.DoesNotExist as e:
         raise RunNotFoundError(f"Run {run_id} not found") from e
@@ -323,6 +335,7 @@ def create_run(
 
     run = Run.objects.create(
         repo=repo,
+        team_id=repo.team_id,
         run_type=run_type,
         commit_sha=commit_sha,
         branch=branch,
@@ -367,6 +380,7 @@ def create_run(
 
         RunSnapshot.objects.create(
             run=run,
+            team_id=repo.team_id,
             identifier=identifier,
             current_hash=current_hash,
             baseline_hash=baseline_hash or "",
@@ -496,6 +510,7 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
             storage_path=storage_path,
             width=metadata.get("width"),
             height=metadata.get("height"),
+            team_id=run.team_id,
         )
 
         if created:
