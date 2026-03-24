@@ -69,12 +69,16 @@ pub enum Error {
     InvalidBatch(String),
     #[error("event submitted without an event name")]
     MissingEventName,
+    #[error("event name exceeds maximum length")]
+    EventNameTooLong,
     #[error("event submitted without a distinct_id")]
     MissingDistinctId,
+    #[error("distinct_id exceeds maximum size")]
+    DistinctIdTooLarge,
     #[error("event submitted without a uuid")]
     MissingEventUuid,
     #[error("event submitted with invalid timestamp")]
-    InvalidTimestamp,
+    InvalidEventTimestamp,
 
     // 401 - authentication_error
     #[error("request is missing an API token")]
@@ -128,9 +132,11 @@ impl Error {
             | Self::EmptyBatch
             | Self::InvalidBatch(_)
             | Self::MissingEventName
+            | Self::EventNameTooLong
             | Self::MissingDistinctId
+            | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
-            | Self::InvalidTimestamp
+            | Self::InvalidEventTimestamp
             | Self::RequestTimeout
             | Self::BodyReadTimeout(_) => "validation_error",
 
@@ -158,9 +164,11 @@ impl Error {
             Self::EmptyBatch => "empty_batch",
             Self::InvalidBatch(_) => "invalid_batch",
             Self::MissingEventName => "missing_event_name",
+            Self::EventNameTooLong => "event_name_too_long",
             Self::MissingDistinctId => "missing_distinct_id",
+            Self::DistinctIdTooLarge => "distinct_id_too_large",
             Self::MissingEventUuid => "missing_event_uuid",
-            Self::InvalidTimestamp => "invalid_timestamp",
+            Self::InvalidEventTimestamp => "invalid_event_timestamp",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
             Self::MissingApiToken => "missing_api_token",
@@ -187,9 +195,11 @@ impl Error {
             | Self::EmptyBatch
             | Self::InvalidBatch(_)
             | Self::MissingEventName
+            | Self::EventNameTooLong
             | Self::MissingDistinctId
+            | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
-            | Self::InvalidTimestamp
+            | Self::InvalidEventTimestamp
             | Self::RequestTimeout
             | Self::MissingApiToken
             | Self::InvalidApiToken(_)
@@ -231,9 +241,11 @@ impl Error {
             | Self::EmptyBatch
             | Self::InvalidBatch(_)
             | Self::MissingEventName
+            | Self::EventNameTooLong
             | Self::MissingDistinctId
+            | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
-            | Self::InvalidTimestamp => StatusCode::BAD_REQUEST,
+            | Self::InvalidEventTimestamp => StatusCode::BAD_REQUEST,
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
@@ -328,6 +340,7 @@ macro_rules! log_stat_error {
                 sdk_info = %ctx.sdk_info,
                 attempt = ctx.attempt,
                 client_timestamp = %ctx.client_timestamp,
+                server_received_at = %ctx.server_received_at,
                 user_agent = %ctx.user_agent,
                 content_type = %ctx.content_type,
                 content_encoding = ?ctx.content_encoding,
@@ -344,6 +357,7 @@ macro_rules! log_stat_error {
                 sdk_info = %ctx.sdk_info,
                 attempt = ctx.attempt,
                 client_timestamp = %ctx.client_timestamp,
+                server_received_at = %ctx.server_received_at,
                 user_agent = %ctx.user_agent,
                 content_type = %ctx.content_type,
                 content_encoding = ?ctx.content_encoding,

@@ -36,6 +36,7 @@ pub struct Context {
     pub query: Query,
     pub method: Method,
     pub path: String,
+    pub server_received_at: DateTime<Utc>,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -49,6 +50,11 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Error> 
 }
 
 impl Context {
+    pub fn clock_skew(&self) -> chrono::Duration {
+        self.client_timestamp
+            .signed_duration_since(self.server_received_at)
+    }
+
     pub fn new(
         headers: &HeaderMap,
         ip: &InsecureClientIp,
@@ -156,6 +162,7 @@ impl Context {
             query: query.0.clone(),
             method,
             path: path.to_string(),
+            server_received_at: Utc::now(),
         })
     }
 }

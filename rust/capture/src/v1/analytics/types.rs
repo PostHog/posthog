@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -17,6 +18,17 @@ pub struct CaptureV1Event {
     pub timestamp: String,
     #[serde(default)]
     pub properties: HashMap<String, Value>,
+}
+
+#[derive(Debug)]
+pub struct WrappedEvent {
+    pub event: CaptureV1Event,
+    // skew-adjusted timestamp, None if event is malformed
+    pub timestamp: Option<DateTime<Utc>>,
+    // 0-indexed ordinal into the submitted batch
+    pub ordinal: usize,
+    // 200 for success, 400 for invalid event, 500 for server error
+    pub status_code: u16,
 }
 
 #[cfg(test)]
