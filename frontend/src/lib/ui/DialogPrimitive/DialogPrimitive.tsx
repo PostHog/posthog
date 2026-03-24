@@ -14,14 +14,15 @@ function DialogPrimitive({
     open,
     onOpenChange,
     className,
+    ...rest
 }: {
     children: React.ReactNode
     open: boolean
     onOpenChange: (open: boolean, eventDetails?: Dialog.Root.ChangeEventDetails) => void
     className?: string
-}): JSX.Element {
+} & Dialog.Root.Props): JSX.Element {
     return (
-        <Dialog.Root open={open} onOpenChange={(open, event) => onOpenChange(open, event)}>
+        <Dialog.Root open={open} onOpenChange={(nextOpen, event) => onOpenChange(nextOpen, event)} {...rest}>
             <Dialog.Portal>
                 <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
                 <Dialog.Popup
