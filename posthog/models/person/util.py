@@ -2,7 +2,7 @@ import json
 import datetime
 from collections.abc import Callable
 from contextlib import ExitStack
-from typing import Optional, TypeVar, Union
+from typing import Optional, TypeVar, Union, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -321,7 +321,7 @@ def get_persons_by_distinct_ids(
             for person in persons:
                 person.distinct_ids_cache = person.distinct_ids_cache[:distinct_id_limit]
 
-        return persons
+        return cast(list[Person], persons)
 
     return _personhog_routed(
         operation,
