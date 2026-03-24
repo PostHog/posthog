@@ -1,66 +1,72 @@
-"""Tests for cohort API endpoints that route person lookups through personhog.
+"""Tests that validate_person_uuids_exist produces identical results
+via the ORM and personhog paths."""
 
-Verifies that validate_person_uuids_exist is correctly called and consumed
-in the CohortSerializer._handle_static and CohortViewSet.add_persons paths.
-"""
+from posthog.test.base import BaseTest
 
-from unittest.mock import patch
+from parameterized import parameterized_class
 
-from django.test import SimpleTestCase
-
-from posthog.personhog_client.fake_client import fake_personhog_client
-
-UUID_A = "550e8400-e29b-41d4-a716-446655440000"
-UUID_B = "550e8400-e29b-41d4-a716-446655440001"
-UUID_C = "550e8400-e29b-41d4-a716-446655440002"
+from posthog.models.person import Person
+from posthog.models.person.util import validate_person_uuids_exist
+from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 
-class TestValidatePersonUuidsExistPersonhog(SimpleTestCase):
-    def test_returns_matching_uuids_via_personhog(self):
-        from posthog.models.person.util import validate_person_uuids_exist
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestValidatePersonUuidsExist(PersonhogTestMixin, BaseTest):
+    def _create_person_with_uuid(self, *, team, uuid, distinct_ids):
+        """Create a person in the DB (and fake client when personhog is active)."""
+        person = Person.objects.create(team=team, uuid=uuid, distinct_ids=distinct_ids)
+        if self._fake_client is not None:
+            self._fake_client.add_person(
+                team_id=team.pk,
+                person_id=person.pk,
+                uuid=str(person.uuid),
+                distinct_ids=distinct_ids,
+            )
+        return person
 
-        with fake_personhog_client() as fake:
-            fake.add_person(team_id=1, person_id=10, uuid=UUID_A, distinct_ids=["d1"])
-            fake.add_person(team_id=1, person_id=20, uuid=UUID_B, distinct_ids=["d2"])
+    def test_returns_matching_uuids(self):
+        uuid_a = "550e8400-e29b-41d4-a716-446655440000"
+        uuid_b = "550e8400-e29b-41d4-a716-446655440001"
+        uuid_c = "550e8400-e29b-41d4-a716-446655440002"
 
-            result = validate_person_uuids_exist(1, [UUID_A, UUID_B, UUID_C])
+        self._create_person_with_uuid(team=self.team, uuid=uuid_a, distinct_ids=["d1"])
+        self._create_person_with_uuid(team=self.team, uuid=uuid_b, distinct_ids=["d2"])
 
-            assert set(result) == {UUID_A, UUID_B}
-            fake.assert_called("get_persons_by_uuids")
+        result = validate_person_uuids_exist(self.team.pk, [uuid_a, uuid_b, uuid_c])
+
+        assert set(result) == {uuid_a, uuid_b}
+        self._assert_personhog_called("get_persons_by_uuids")
 
     def test_filters_cross_team_results(self):
-        from posthog.models.person.util import validate_person_uuids_exist
+        uuid_a = "550e8400-e29b-41d4-a716-446655440000"
+        uuid_b = "550e8400-e29b-41d4-a716-446655440001"
 
-        with fake_personhog_client() as fake:
-            fake.add_person(team_id=1, person_id=10, uuid=UUID_A, distinct_ids=["d1"])
-            fake.add_person(team_id=99, person_id=20, uuid=UUID_B, distinct_ids=["d2"])
+        other_team = self.organization.teams.create(name="Other Team")
 
-            result = validate_person_uuids_exist(1, [UUID_A, UUID_B])
+        self._create_person_with_uuid(team=self.team, uuid=uuid_a, distinct_ids=["d1"])
+        self._create_person_with_uuid(team=other_team, uuid=uuid_b, distinct_ids=["d2"])
 
-            assert result == [UUID_A]
+        result = validate_person_uuids_exist(self.team.pk, [uuid_a, uuid_b])
+
+        assert result == [uuid_a]
 
     def test_returns_empty_for_no_matches(self):
-        from posthog.models.person.util import validate_person_uuids_exist
+        uuid_missing = "550e8400-e29b-41d4-a716-446655440000"
 
-        with fake_personhog_client() as fake:
-            result = validate_person_uuids_exist(1, [UUID_A])
+        result = validate_person_uuids_exist(self.team.pk, [uuid_missing])
 
-            assert result == []
-            fake.assert_called("get_persons_by_uuids")
+        assert result == []
+        self._assert_personhog_called("get_persons_by_uuids")
 
-    @patch("posthog.models.cohort.cohort.Cohort.insert_users_list_by_uuid")
-    def test_cohort_add_persons_consumes_personhog_uuids(self, mock_insert):
-        """Verify that validate_person_uuids_exist output flows correctly
-        into insert_users_list_by_uuid when called from the cohort add_persons path."""
-        from posthog.models.person.util import validate_person_uuids_exist
+    def test_output_is_list_of_uuid_strings(self):
+        uuid_a = "550e8400-e29b-41d4-a716-446655440000"
+        uuid_b = "550e8400-e29b-41d4-a716-446655440001"
 
-        with fake_personhog_client() as fake:
-            fake.add_person(team_id=1, person_id=10, uuid=UUID_A, distinct_ids=["d1"])
-            fake.add_person(team_id=1, person_id=20, uuid=UUID_B, distinct_ids=["d2"])
+        self._create_person_with_uuid(team=self.team, uuid=uuid_a, distinct_ids=["d1"])
+        self._create_person_with_uuid(team=self.team, uuid=uuid_b, distinct_ids=["d2"])
 
-            uuids = validate_person_uuids_exist(1, [UUID_A, UUID_B])
+        uuids = validate_person_uuids_exist(self.team.pk, [uuid_a, uuid_b])
 
-            # Simulate what add_persons does after validation
-            assert len(uuids) > 0
-            assert all(isinstance(u, str) for u in uuids)
-            fake.assert_called("get_persons_by_uuids")
+        assert len(uuids) > 0
+        assert all(isinstance(u, str) for u in uuids)
+        self._assert_personhog_called("get_persons_by_uuids")
