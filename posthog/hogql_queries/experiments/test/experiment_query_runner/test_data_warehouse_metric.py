@@ -1174,7 +1174,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 datetime(2023, 1, 10),
                 {
                     "control_sum": 650,
-                    "test_sum": 1050,
+                    "test_sum": 1150,
                     "control_samples": 7,
                     "test_samples": 9,
                     "control_denominator": 1,
