@@ -21,18 +21,20 @@ def _build_retry_session() -> requests.Session:
     return session
 
 
-def _get_client_credentials_token() -> tuple[str, str]:
+def _get_client_credentials_token(session: requests.Session | None = None) -> tuple[str, str]:
     """Exchange OAuth client credentials for an access token.
 
     Returns (access_token, instance_url) from the Salesforce token endpoint.
     """
-    response = requests.post(
+    _session = session or requests.Session()
+    response = _session.post(
         f"https://{settings.SALESFORCE_INTERNAL_DOMAIN}/services/oauth2/token",
         data={
             "grant_type": "client_credentials",
             "client_id": settings.SALESFORCE_INTERNAL_CONSUMER_KEY,
             "client_secret": settings.SALESFORCE_INTERNAL_CONSUMER_SECRET,
         },
+        timeout=30,
     )
     response.raise_for_status()
     payload = response.json()
@@ -49,7 +51,7 @@ def get_salesforce_client() -> Salesforce:
     session = _build_retry_session()
 
     if settings.SALESFORCE_INTERNAL_CONSUMER_KEY and settings.SALESFORCE_INTERNAL_CONSUMER_SECRET:
-        access_token, instance_url = _get_client_credentials_token()
+        access_token, instance_url = _get_client_credentials_token(session)
         return Salesforce(session_id=access_token, instance_url=instance_url, session=session)
 
     if settings.SALESFORCE_USERNAME and settings.SALESFORCE_PASSWORD and settings.SALESFORCE_SECURITY_TOKEN:

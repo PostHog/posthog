@@ -20,6 +20,14 @@ def _mock_token_response():
     return response
 
 
+def _mock_retry_session(token_response=None):
+    """Build a mock session that returns the given token response on post()."""
+    session = MagicMock(spec=requests.Session)
+    if token_response is not None:
+        session.post.return_value = token_response
+    return session
+
+
 class TestGetSalesforceClient:
     @override_settings(
         SALESFORCE_INTERNAL_CONSUMER_KEY="test-consumer-key",
@@ -27,14 +35,15 @@ class TestGetSalesforceClient:
         SALESFORCE_INTERNAL_DOMAIN="test.my.salesforce.com",
     )
     @patch("ee.billing.salesforce_enrichment.salesforce_client.Salesforce")
-    @patch("ee.billing.salesforce_enrichment.salesforce_client.requests.post")
-    def test_uses_oauth_when_client_credentials_set(self, mock_post, mock_sf):
-        mock_post.return_value = _mock_token_response()
+    @patch("ee.billing.salesforce_enrichment.salesforce_client._build_retry_session")
+    def test_uses_oauth_when_client_credentials_set(self, mock_build_session, mock_sf):
+        mock_session = _mock_retry_session(_mock_token_response())
+        mock_build_session.return_value = mock_session
 
         get_salesforce_client()
 
-        mock_post.assert_called_once()
-        call_data = mock_post.call_args[1]["data"]
+        mock_session.post.assert_called_once()
+        call_data = mock_session.post.call_args[1]["data"]
         assert call_data["grant_type"] == "client_credentials"
         assert call_data["client_id"] == "test-consumer-key"
         assert call_data["client_secret"] == "test-consumer-secret"
@@ -43,7 +52,7 @@ class TestGetSalesforceClient:
         sf_kwargs = mock_sf.call_args[1]
         assert sf_kwargs["session_id"] == "oauth-access-token-xyz"
         assert sf_kwargs["instance_url"] == "https://test.my.salesforce.com"
-        assert mock_post.call_args[0][0] == "https://test.my.salesforce.com/services/oauth2/token"
+        assert mock_session.post.call_args[0][0] == "https://test.my.salesforce.com/services/oauth2/token"
 
     @override_settings(
         SALESFORCE_INTERNAL_CONSUMER_KEY="",
@@ -72,13 +81,14 @@ class TestGetSalesforceClient:
         SALESFORCE_SECURITY_TOKEN="token456",
     )
     @patch("ee.billing.salesforce_enrichment.salesforce_client.Salesforce")
-    @patch("ee.billing.salesforce_enrichment.salesforce_client.requests.post")
-    def test_prefers_oauth_when_both_credentials_set(self, mock_post, mock_sf):
-        mock_post.return_value = _mock_token_response()
+    @patch("ee.billing.salesforce_enrichment.salesforce_client._build_retry_session")
+    def test_prefers_oauth_when_both_credentials_set(self, mock_build_session, mock_sf):
+        mock_session = _mock_retry_session(_mock_token_response())
+        mock_build_session.return_value = mock_session
 
         get_salesforce_client()
 
-        mock_post.assert_called_once()
+        mock_session.post.assert_called_once()
         sf_kwargs = mock_sf.call_args[1]
         assert "session_id" in sf_kwargs
         assert "password" not in sf_kwargs
@@ -100,12 +110,13 @@ class TestGetSalesforceClient:
         SALESFORCE_INTERNAL_DOMAIN="test.my.salesforce.com",
     )
     @patch("ee.billing.salesforce_enrichment.salesforce_client.Salesforce")
-    @patch("ee.billing.salesforce_enrichment.salesforce_client.requests.post")
-    def test_raises_on_token_exchange_failure(self, mock_post, mock_sf):
+    @patch("ee.billing.salesforce_enrichment.salesforce_client._build_retry_session")
+    def test_raises_on_token_exchange_failure(self, mock_build_session, mock_sf):
         response = MagicMock(spec=requests.Response)
         response.status_code = 401
         response.raise_for_status.side_effect = requests.HTTPError("401 Unauthorized", response=response)
-        mock_post.return_value = response
+        mock_session = _mock_retry_session(response)
+        mock_build_session.return_value = mock_session
 
         with pytest.raises(requests.HTTPError):
             get_salesforce_client()
