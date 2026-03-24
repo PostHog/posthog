@@ -156,16 +156,13 @@ describe('ActionFilterRow', () => {
         })
 
         describe('series indicators', () => {
-            it('shows alpha series indicator when showSeriesIndicator is true', () => {
+            it.each([
+                ['alpha', 'A'],
+                ['numeric', '1'],
+            ] as const)('shows %s series indicator', (type, expectedText) => {
                 const { logic } = setup()
-                renderRow(logic, { showSeriesIndicator: true, seriesIndicatorType: 'alpha' })
-                expect(screen.getByText('A')).toBeInTheDocument()
-            })
-
-            it('shows numeric series indicator', () => {
-                const { logic } = setup()
-                renderRow(logic, { showSeriesIndicator: true, seriesIndicatorType: 'numeric' })
-                expect(screen.getByText('1')).toBeInTheDocument()
+                renderRow(logic, { showSeriesIndicator: true, seriesIndicatorType: type })
+                expect(screen.getByText(expectedText)).toBeInTheDocument()
             })
 
             it('does not show series indicator section when showSeriesIndicator is false', () => {
@@ -195,22 +192,14 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByTitle('Delete graph series')).toBeInTheDocument()
             })
 
-            it('hides rename when hideRename is true', () => {
+            it.each([
+                ['hideRename', 'Rename graph series'],
+                ['hideDuplicate', 'Duplicate graph series'],
+                ['hideDeleteBtn', 'Delete graph series'],
+            ])('hides button when %s is true', (prop, title) => {
                 const { logic } = setup()
-                renderRow(logic, { ...INLINE_CONTEXT, hideRename: true })
-                expect(screen.queryByTitle('Rename graph series')).not.toBeInTheDocument()
-            })
-
-            it('hides duplicate when hideDuplicate is true', () => {
-                const { logic } = setup()
-                renderRow(logic, { ...INLINE_CONTEXT, hideDuplicate: true })
-                expect(screen.queryByTitle('Duplicate graph series')).not.toBeInTheDocument()
-            })
-
-            it('hides delete when hideDeleteBtn is true', () => {
-                const { logic } = setup()
-                renderRow(logic, { ...INLINE_CONTEXT, hideDeleteBtn: true })
-                expect(screen.queryByTitle('Delete graph series')).not.toBeInTheDocument()
+                renderRow(logic, { ...INLINE_CONTEXT, [prop]: true })
+                expect(screen.queryByTitle(title)).not.toBeInTheDocument()
             })
 
             it('hides duplicate and delete when singleFilter is true', () => {
