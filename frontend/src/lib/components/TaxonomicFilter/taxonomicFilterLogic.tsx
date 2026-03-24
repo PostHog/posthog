@@ -1124,7 +1124,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.SuggestedFilters,
                         isLocalOnly: true,
-                        options: [],
+                        options: eventNames.includes('$autocapture')
+                            ? (['text', 'selector'] as const).map((name) => ({
+                                  name,
+                                  group: TaxonomicFilterGroupType.Elements,
+                              }))
+                            : [],
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
@@ -1158,8 +1163,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames],
+            (groupTypes, taxonomicGroups, eventNames): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
@@ -1199,6 +1204,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     TaxonomicFilterGroupType.PageviewUrls,
                     TaxonomicFilterGroupType.Screens,
                     TaxonomicFilterGroupType.EmailAddresses,
+                    ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
                 ]
 
                 const toInsert: TaxonomicFilterGroupType[] = []
@@ -1517,26 +1523,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         setSearchQuery: async ({ searchQuery }, breakpoint) => {
-            const { activeTaxonomicGroup, infiniteListCounts, taxonomicGroupTypes } = values
+            const { activeTaxonomicGroup, infiniteListCounts } = values
 
-            const hasSuggestedFilters = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)
-
-            if (!hasSuggestedFilters) {
-                // does replay have 0 results
-                // if you have a render function, and replay does, then infiniteListCounts will always be 1 or more 🤷
-                const shouldTabRightBecauseReplay =
-                    activeTaxonomicGroup &&
-                    activeTaxonomicGroup.type === TaxonomicFilterGroupType.Replay &&
-                    infiniteListCounts[activeTaxonomicGroup.type] === 1
-                // or is this a Taxonomic group with a local data source, zero results after searching.
-                const shouldOtherwiseTabRight =
-                    activeTaxonomicGroup &&
-                    activeTaxonomicGroup.type !== TaxonomicFilterGroupType.RecentFilters &&
-                    !activeTaxonomicGroup.endpoint &&
-                    infiniteListCounts[activeTaxonomicGroup.type] === 0
-                if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
-                    actions.tabRight()
-                }
+            // does replay have 0 results
+            // if you have a render function, and replay does, then infiniteListCounts will always be 1 or more 🤷
+            const shouldTabRightBecauseReplay =
+                activeTaxonomicGroup &&
+                activeTaxonomicGroup.type === TaxonomicFilterGroupType.Replay &&
+                infiniteListCounts[activeTaxonomicGroup.type] === 1
+            // or is this a Taxonomic group with a local data source, zero results after searching.
+            const shouldOtherwiseTabRight =
+                activeTaxonomicGroup &&
+                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.SuggestedFilters &&
+                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.RecentFilters &&
+                !activeTaxonomicGroup.endpoint &&
+                infiniteListCounts[activeTaxonomicGroup.type] === 0
+            if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
+                actions.tabRight()
             }
 
             await breakpoint(500)
@@ -1550,11 +1553,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
 
         infiniteListResultsReceived: ({ groupType, results }) => {
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
-            const hasSuggestedFilters = values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)
 
             if (
                 activeTabHasNoResults &&
-                !hasSuggestedFilters &&
+                values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters &&
                 values.activeTab !== TaxonomicFilterGroupType.RecentFilters
             ) {
                 actions.tabRight()

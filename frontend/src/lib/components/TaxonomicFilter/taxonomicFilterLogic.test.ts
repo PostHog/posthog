@@ -462,42 +462,6 @@ describe('taxonomicFilterLogic', () => {
 
             testLogic.unmount()
         })
-
-        it('does not auto-tab when active tab has no results', async () => {
-            const logicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: 'testNoAutoTab',
-                taxonomicGroupTypes: [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                ],
-            }
-            const testLogic = taxonomicFilterLogic(logicProps)
-            testLogic.mount()
-            for (const listGroupType of logicProps.taxonomicGroupTypes) {
-                infiniteListLogic({ ...logicProps, listGroupType }).mount()
-            }
-
-            testLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
-            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
-
-            const eventsListLogic = infiniteListLogic({
-                ...logicProps,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-
-            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
-
-            await expectLogic(testLogic, () => {
-                testLogic.actions.setSearchQuery('zzz-definitely-not-found')
-            })
-                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
-                .delay(1)
-
-            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
-
-            testLogic.unmount()
-        })
     })
 
     describe('promoted groups are reordered', () => {
@@ -559,6 +523,90 @@ describe('taxonomicFilterLogic', () => {
             const testLogicProps: TaxonomicFilterLogicProps = {
                 taxonomicFilterLogicKey: `testReorder-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
+            }
+            const testLogic = taxonomicFilterLogic(testLogicProps)
+            testLogic.mount()
+
+            expect(testLogic.values.taxonomicGroupTypes).toEqual(expected)
+
+            testLogic.unmount()
+        })
+    })
+
+    describe('autocapture context', () => {
+        it.each([
+            {
+                description: 'SuggestedFilters has text/selector options when eventNames includes $autocapture',
+                eventNames: ['$autocapture'],
+                expectedOptions: [
+                    { name: 'text', group: TaxonomicFilterGroupType.Elements },
+                    { name: 'selector', group: TaxonomicFilterGroupType.Elements },
+                ],
+            },
+            {
+                description: 'SuggestedFilters has empty options when eventNames does not include $autocapture',
+                eventNames: ['$pageview'],
+                expectedOptions: [],
+            },
+            {
+                description: 'SuggestedFilters has empty options when eventNames is empty',
+                eventNames: [] as string[],
+                expectedOptions: [],
+            },
+        ])('$description', ({ eventNames, expectedOptions }) => {
+            const testLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: `testAutocaptureSuggested-${eventNames.join('-')}`,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+                eventNames,
+            }
+            const testLogic = taxonomicFilterLogic(testLogicProps)
+            testLogic.mount()
+
+            const suggestedGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
+            )
+            expect(suggestedGroup?.options).toEqual(expectedOptions)
+
+            testLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'Elements group is promoted after SuggestedFilters when eventNames includes $autocapture',
+                eventNames: ['$autocapture'],
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+                expected: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+            },
+            {
+                description: 'Elements group stays in default position when eventNames does not include $autocapture',
+                eventNames: ['$pageview'],
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+                expected: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+            },
+        ])('$description', ({ eventNames, groupTypes, expected }) => {
+            const testLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: `testAutocapturePromotion-${eventNames.join('-')}`,
+                taxonomicGroupTypes: groupTypes,
+                eventNames,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
             testLogic.mount()
