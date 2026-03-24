@@ -25,7 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { CohortType, EventDefinition, GroupTypeIndex } from '~/types'
+import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
@@ -484,8 +484,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     return null
                 },
+                (_, props: InfiniteListLogicProps) => props.listGroupType,
+                (_, props: InfiniteListLogicProps) => props.showNumericalPropsOnly,
             ],
-            (rawLocalItems: (EventDefinition | CohortType)[]) => rawLocalItems,
+            (
+                rawLocalItems: (EventDefinition | CohortType)[],
+                listGroupType: TaxonomicFilterGroupType,
+                showNumericalPropsOnly: boolean
+            ) => {
+                if (
+                    showNumericalPropsOnly &&
+                    listGroupType === TaxonomicFilterGroupType.DataWarehousePersonProperties
+                ) {
+                    return (rawLocalItems || []).filter(
+                        (item) => 'property_type' in item && item.property_type === PropertyType.Numeric
+                    )
+                }
+
+                return rawLocalItems
+            },
         ],
         fuse: [
             (s) => [s.rawLocalItems, s.taxonomicGroups, s.group],
