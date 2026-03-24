@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
@@ -16,6 +16,7 @@ const fakeChain = {
     toggleBold: () => fakeChain,
     toggleItalic: () => fakeChain,
     toggleUnderline: () => fakeChain,
+    toggleStrike: () => fakeChain,
     toggleCode: () => fakeChain,
     toggleCodeBlock: () => fakeChain,
     toggleBlockquote: () => fakeChain,
@@ -51,7 +52,9 @@ const fakeEditor = {
     getAttributes: jest.fn(() => ({})),
     on: jest.fn(),
     off: jest.fn(),
-    view: {
+    isDestroyed: false,
+    isInitialized: true,
+    editorView: {
         dom: document.createElement('div'),
     },
 }
@@ -76,6 +79,8 @@ describe('RichMarkdownEditor', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        fakeEditor.editorView.dom = document.createElement('div')
+        fakeEditor.chain = () => fakeChain
     })
 
     afterEach(() => {
@@ -96,6 +101,44 @@ describe('RichMarkdownEditor', () => {
         const counter = screen.getByText('9/5 characters (limit reached)')
         expect(counter).toBeInTheDocument()
         expect(counter).toHaveClass('text-danger')
+    })
+
+    it('exposes strikethrough in the write toolbar', () => {
+        render(
+            <RichMarkdownEditor
+                value=""
+                extensions={[]}
+                markdownToDoc={() => ({ type: 'doc', content: [] })}
+                docToMarkdown={() => ''}
+            />
+        )
+
+        expect(screen.getByRole('button', { name: 'Strikethrough' })).toBeInTheDocument()
+    })
+
+    it('invokes toggleStrike when Strikethrough toolbar button is clicked', () => {
+        const run = jest.fn(() => true)
+        const toggleStrike = jest.fn(() => ({ run }))
+        fakeEditor.chain = () =>
+            ({
+                focus: () => ({
+                    toggleStrike,
+                }),
+            }) as unknown as typeof fakeChain
+
+        render(
+            <RichMarkdownEditor
+                value=""
+                extensions={[]}
+                markdownToDoc={() => ({ type: 'doc', content: [] })}
+                docToMarkdown={() => ''}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Strikethrough' }))
+
+        expect(toggleStrike).toHaveBeenCalled()
+        expect(run).toHaveBeenCalled()
     })
 
     it('renders custom preview output when preview tab selected', () => {
@@ -163,7 +206,7 @@ describe('RichMarkdownEditor', () => {
         )
 
         const editorDom = container.querySelector('[data-attr="rich-markdown-editor-area"]') as HTMLDivElement
-        fakeEditor.view.dom = editorDom
+        Object.assign(fakeEditor.editorView, { dom: editorDom })
 
         rerender(
             <form data-attr="editor-form">
@@ -180,5 +223,21 @@ describe('RichMarkdownEditor', () => {
         fireEvent.submit(container.querySelector('form') as HTMLFormElement)
 
         expect(onChange).toHaveBeenCalledWith('latest resized markdown')
+    })
+
+    it('calls focus when autoFocus is true and editor dom is available', async () => {
+        render(
+            <RichMarkdownEditor
+                value=""
+                autoFocus
+                extensions={[]}
+                markdownToDoc={() => ({ type: 'doc', content: [] })}
+                docToMarkdown={() => ''}
+            />
+        )
+
+        await waitFor(() => {
+            expect(fakeEditor.commands.focus).toHaveBeenCalled()
+        })
     })
 })
