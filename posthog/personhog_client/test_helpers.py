@@ -41,6 +41,7 @@ class PersonhogTestMixin:
     """
 
     personhog: bool = False
+    _personhog_cm: Any = None
     _fake_client: FakePersonHogClient | None = None
 
     def setUp(self) -> None:
