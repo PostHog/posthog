@@ -19,9 +19,6 @@ from ee.tasks.subscriptions import (
     SLACK_USER_CONFIG_ERRORS,
     SUPPORTED_TARGET_TYPES,
     _capture_delivery_failed_event,
-    get_subscription_failure_metric,
-    get_subscription_queued_metric,
-    get_subscription_success_metric,
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
@@ -184,8 +181,6 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
         return
 
     if subscription.target_type == "email":
-        get_subscription_queued_metric("email", "temporal").add(1)
-
         emails = subscription.target_value.split(",")
         await LOGGER.ainfo(
             "deliver_subscription.sending_email",
@@ -208,10 +203,8 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     total_asset_count=inputs.total_insight_count,
                     send_async=False,
                 )
-                get_subscription_success_metric("email", "temporal").add(1)
                 success_count += 1
             except Exception as e:
-                get_subscription_failure_metric("email", "temporal").add(1)
                 _capture_delivery_failed_event(subscription, e)
                 LOGGER.error(
                     "deliver_subscription.email_failed",
@@ -237,8 +230,6 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
             raise last_error
 
     elif subscription.target_type == "slack":
-        get_subscription_queued_metric("slack", "temporal").add(1)
-
         try:
             integration = subscription.integration
             if integration is None:
@@ -273,13 +264,11 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
             )
 
             if delivery_result.is_complete_success:
-                get_subscription_success_metric("slack", "temporal").add(1)
                 await LOGGER.ainfo(
                     "deliver_subscription.slack_sent",
                     subscription_id=inputs.subscription_id,
                 )
             elif delivery_result.is_partial_failure:
-                get_subscription_failure_metric("slack", "temporal", failure_type="partial").add(1)
                 await LOGGER.awarning(
                     "deliver_subscription.slack_partial_failure",
                     subscription_id=inputs.subscription_id,
@@ -289,10 +278,6 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
 
         except Exception as e:
             is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
-
-            if not is_user_config_error:
-                get_subscription_failure_metric("slack", "temporal", failure_type="complete").add(1)
-
             _capture_delivery_failed_event(subscription, e)
             LOGGER.error(
                 "deliver_subscription.slack_failed",

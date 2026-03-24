@@ -34,8 +34,6 @@ from posthog.temporal.subscriptions.types import (
     ScheduleAllSubscriptionsWorkflowInputs,
 )
 
-from ee.tasks.subscriptions import get_subscription_failure_metric
-
 
 class ExportErrorDetails(typing.NamedTuple):
     """Failure metadata extracted from a Temporal activity exception.
@@ -244,14 +242,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             total_assets = len(outcome_assets)
             errors = [a.error for a in outcome_assets if a.error]
 
-            if assets_with_content < total_assets:
+            non_user_errors = [e for e in errors if not is_user_query_error_type(e.exception_class)]
+            if non_user_errors:
                 delivery_outcome = SloOutcome.FAILURE
-            # Only count system failures in the metric, not user query errors
-            system_failures = [e for e in errors if not is_user_query_error_type(e.exception_class)]
-            if system_failures:
-                get_subscription_failure_metric(
-                    prepare_result.target_type, "temporal", failure_type="asset_generation"
-                ).add(1)
 
             # Phase 3: Deliver — send all assets including failed ones (they show
             # a "failed to generate" placeholder in the email/Slack message)
