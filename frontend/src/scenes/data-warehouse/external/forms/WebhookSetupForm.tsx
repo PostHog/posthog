@@ -1,4 +1,4 @@
-import { LogicWrapper } from 'kea'
+import { BuiltLogic, LogicWrapper } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCopy, IconRefresh } from '@posthog/icons'
@@ -20,7 +20,7 @@ interface WebhookSetupFormProps {
     webhookCreating: boolean
     onCreateWebhook: () => void
     /** kea-forms logic and formKey for the manual webhook field inputs form */
-    formLogic?: LogicWrapper
+    formLogic?: LogicWrapper | BuiltLogic<any>
     formKey?: string
 }
 
