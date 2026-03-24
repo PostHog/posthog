@@ -642,6 +642,8 @@ def _duplicate_vertex(
                 target_pk=str(edge.target_primary_key),
             )
 
+    payload = visitor.adjust_duplicate_payload(payload, vertex, new_team)
+
     if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
         payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
 

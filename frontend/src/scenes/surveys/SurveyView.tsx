@@ -1,9 +1,18 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconArchive, IconGraph, IconLlmAnalytics, IconThumbsDown, IconThumbsUp, IconTrash } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCopy,
+    IconGraph,
+    IconLlmAnalytics,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -18,6 +27,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -94,6 +104,8 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { push } = useActions(router)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
@@ -139,6 +151,17 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     }
                                 }}
                             />
+                            {canCopyToProject && surveyId && (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={() => push(urls.resourceTransfer('Survey', surveyId))}
+                                    data-attr="survey-copy-to-project"
+                                    tooltip="Copy this survey to another project"
+                                >
+                                    <IconCopy />
+                                    Copy to another project
+                                </ButtonPrimitive>
+                            )}
                         </ScenePanelActionsSection>
                         <ScenePanelDivider />
                         {!survey.archived && (

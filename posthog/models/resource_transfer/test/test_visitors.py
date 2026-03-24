@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
+from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
 
 
 class TestExtractActionIds(BaseTest):
@@ -1025,3 +1026,44 @@ class TestCohortRewriteActionIdInFilters(BaseTest):
     )
     def test_rewrite_action_id_in_filters(self, _name: str, filters, old_pk, new_pk, expected) -> None:
         assert CohortVisitor._rewrite_action_id_in_filters(filters, old_pk, new_pk) == expected
+
+
+class TestSurveyVisitorConditionsCohorts(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "properties_with_cohort",
+                {"properties": [{"key": "id", "value": 7, "type": "cohort"}]},
+                {7},
+            ),
+            (
+                "no_properties",
+                {"url": "/pricing"},
+                set(),
+            ),
+            (
+                "empty_conditions",
+                None,
+                set(),
+            ),
+        ]
+    )
+    def test_extract_cohort_ids_from_conditions(self, _name: str, conditions, expected: set[int]) -> None:
+        assert SurveyVisitor._extract_cohort_ids_from_conditions(conditions) == expected
+
+    def test_rewrite_cohort_in_payload_updates_conditions_properties(self) -> None:
+        payload = {
+            "conditions": {
+                "properties": [{"key": "id", "value": 1, "type": "cohort"}],
+                "url": "/x",
+            }
+        }
+        result = SurveyVisitor._rewrite_cohort_in_payload(payload, 1, 2)
+        assert result["conditions"]["properties"][0]["value"] == 2
+        assert result["conditions"]["url"] == "/x"
+
+    def test_adjust_duplicate_payload_strips_linked_flag_variant(self) -> None:
+        payload = {"conditions": {"linkedFlagVariant": "control", "url": "/a"}}
+        adjusted = SurveyVisitor.adjust_duplicate_payload(payload, None, None)
+        assert "linkedFlagVariant" not in adjusted["conditions"]
+        assert adjusted["conditions"]["url"] == "/a"
