@@ -3,7 +3,16 @@ import { Form } from 'kea-forms'
 import { useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    Popover,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -431,9 +440,11 @@ const ShareButton = (): JSX.Element => {
 
 function FiltersPopover(): JSX.Element {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, conversionGoal, preAggregatedEnabled, productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, conversionGoal, preAggregatedEnabled, productTab, shouldFilterTestAccounts } =
+        useValues(webAnalyticsLogic)
 
-    const { setWebAnalyticsFilters, setConversionGoal } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setConversionGoal, setShouldFilterTestAccounts } =
+        useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Toggle filters shortcut
@@ -454,7 +465,8 @@ function FiltersPopover(): JSX.Element {
     const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false, cohortFilterEnabled)
     const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
-    const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)
+    const activeFilterCount =
+        rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0) + (shouldFilterTestAccounts ? 1 : 0)
 
     const filtersContent = (
         <div className="p-3 w-96 max-w-[90vw]">
@@ -475,6 +487,18 @@ function FiltersPopover(): JSX.Element {
                 <LemonDivider />
                 <div className="text-xs font-semibold text-muted uppercase mb-2">Device filters</div>
                 <WebAnalyticsDeviceToggle />
+
+                <LemonDivider />
+                <div>
+                    <div className="text-xs font-semibold text-muted uppercase mb-2">Test account filters</div>
+                    <LemonSwitch
+                        checked={shouldFilterTestAccounts}
+                        onChange={(checked) => setShouldFilterTestAccounts(checked)}
+                        label="Filter out internal and test users"
+                        fullWidth
+                        size="small"
+                    />
+                </div>
 
                 {showConversionGoal && (
                     <>
