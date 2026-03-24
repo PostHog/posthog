@@ -15,10 +15,8 @@ For revertible cloud deploys:
 1. Develop using the binary files at the top level of `user_scripts` (see section above), with schema defined in `docker/clickhouse/user_defined_function.xml`
 2. When ready to deploy, increment the version in `posthog/udf_versioner.py` and run it. This generates versioned binaries and `latest_user_defined_function.xml`
 3. Land a PR with the updated `user_scripts` folder (binaries + XML). **Do not** include the `UDF_VERSION` bump in this PR — that goes in a separate PR (step 5)
-4. Trigger the ["ClickHouse UDFs configuration"](https://github.com/PostHog/posthog-cloud-infra/actions/workflows/clickhouse-udfs.yml) workflow in the `posthog-cloud-infra` repo (click "Run workflow"). This deploys the binaries and XML config to ClickHouse across dev, eu, and us. The workflow pulls directly from the `posthog` repo's master branch, so no manual XML updates are needed in `posthog-cloud-infra`
-   - Verify that CH knows about the UDF by running `SELECT aggregate_funnel_vXX()`. An "invalid arguments" error means the function is registered. An "unknown function" error means the deploy hasn't taken effect yet
-   - Verify the UDF works by adapting the version in a CH query for a funnel insight
-5. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION` in `posthog/udf_versioner.py` to the new version. This switches the posthog query builder to use the new UDF
+4. The binaries should be automatically deployed to Clickhouse, you must verify this in metabase by running `SELECT aggregate_funnel_vXX()`. An "invalid arguments" error means the function is registered. An "unknown function" error means the deploy hasn't taken effect yet. **Make sure to do this for both EU and US**
+6. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION` in `posthog/udf_versioner.py` to the new version. This switches the posthog query builder to use the new UDF
 
 ## Design decisions
 
