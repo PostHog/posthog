@@ -83,6 +83,10 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
             )
         ]
 
+        if names is not None:
+            names_set = set(names)
+            tables = [t for t in tables if t in names_set]
+
         return [
             SourceSchema(
                 name=table_name,
