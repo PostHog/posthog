@@ -786,16 +786,17 @@ export type AssistantStickinessDisplayType =
  * intervals (1, 2, 3, ...) and the Y-axis shows the count of users.
  * When math is omitted, the default aggregation is by unique persons (person_id).
  */
-export interface AssistantStickinessEventsNode extends Omit<
+export interface AssistantStickinessEventsNode extends Pick<
     EventsNode,
-    | 'fixedProperties'
-    | 'properties'
-    | 'math_hogql'
-    | 'limit'
-    | 'groupBy'
-    | 'orderBy'
-    | 'response'
-    | 'math_property_revenue_currency'
+    | 'kind'
+    | 'event'
+    | 'name'
+    | 'custom_name'
+    | 'math'
+    | 'math_multiplier'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_group_type_index'
 > {
     properties?: AssistantPropertyFilter[]
 }
@@ -804,17 +805,16 @@ export interface AssistantStickinessEventsNode extends Omit<
  * Defines the action series for the stickiness insight. You must provide the action ID in the `id` field and the name in the `name` field.
  * When math is omitted, the default aggregation is by unique persons (person_id).
  */
-export interface AssistantStickinessActionsNode extends Omit<
+export interface AssistantStickinessActionsNode extends Pick<
     ActionsNode,
-    | 'fixedProperties'
-    | 'properties'
-    | 'math_hogql'
-    | 'limit'
-    | 'groupBy'
-    | 'orderBy'
-    | 'response'
-    | 'name'
-    | 'math_property_revenue_currency'
+    | 'kind'
+    | 'id'
+    | 'custom_name'
+    | 'math'
+    | 'math_multiplier'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_group_type_index'
 > {
     properties?: AssistantPropertyFilter[]
     /**

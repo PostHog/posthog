@@ -8420,7 +8420,6 @@ class AssistantStickinessActionsNode(BaseModel):
     math_property: str | None = None
     math_property_type: str | None = None
     name: str = Field(..., description="Action name from the plan.")
-    optionalInFunnel: bool | None = None
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -8444,7 +8443,6 @@ class AssistantStickinessActionsNode(BaseModel):
         ]
         | None
     ) = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantStickinessEventsNode(BaseModel):
@@ -8470,7 +8468,6 @@ class AssistantStickinessEventsNode(BaseModel):
     math_property: str | None = None
     math_property_type: str | None = None
     name: str | None = None
-    optionalInFunnel: bool | None = None
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -8494,7 +8491,6 @@ class AssistantStickinessEventsNode(BaseModel):
         ]
         | None
     ) = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantStickinessQuery(BaseModel):
