@@ -143,7 +143,7 @@ def convex_source(
         for row in batch:
             creation_time = row.get("_creationTime")
             if isinstance(creation_time, (int, float)) and creation_time > 1e12:
-                row["_creationTime"] = creation_time / 1000
+                row["_creationTime"] = int(creation_time / 1000)
         return batch
 
     def items_generator():
