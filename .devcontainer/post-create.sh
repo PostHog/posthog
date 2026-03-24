@@ -7,6 +7,9 @@ set -euo pipefail
 echo "=== PostHog devbox: post-create ==="
 cd /workspaces/posthog
 
+# Expose hogli on PATH via the venv (mirrors what flox does locally)
+ln -sf /workspaces/posthog/bin/hogli /workspaces/posthog/.venv/bin/hogli
+
 # Parse intents from Codespace secret (set by hogli box:start or manually)
 INTENTS="${POSTHOG_DEVBOX_INTENTS:-product_analytics}"
 echo "Intents: $INTENTS"

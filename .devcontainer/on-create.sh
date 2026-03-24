@@ -38,6 +38,9 @@ wait $PID_UV $PID_PNPM $PID_DOCKER $PID_GEOIP || {
     exit 1
 }
 
+# Expose hogli on PATH via the venv (mirrors what flox does locally)
+ln -sf /workspaces/posthog/bin/hogli /workspaces/posthog/.venv/bin/hogli
+
 # --- Pre-migrate (DB state cached in prebuild snapshot) ---
 
 echo "Starting core infrastructure for pre-migration..."
