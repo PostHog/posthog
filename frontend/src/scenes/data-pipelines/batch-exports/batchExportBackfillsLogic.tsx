@@ -11,7 +11,7 @@ import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
-import { batchExportConfigLogic } from './batchExportConfigLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
@@ -22,7 +22,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillsLogic', key]),
     connect((props: BatchExportBackfillsLogicProps) => ({
-        values: [teamLogic(), ['currentTeamId'], batchExportConfigLogic({ id: props.id }), ['batchExportConfig']],
+        values: [teamLogic(), ['currentTeamId'], batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
         actions: [
             batchExportBackfillModalLogic(props),
             ['submitBackfillFormSuccess', 'openBackfillModal', 'backfillCreated'],

@@ -21,7 +21,7 @@ import {
 } from '~/types'
 
 import type { batchExportConfigFormLogicType } from './batchExportConfigFormLogicType'
-import { batchExportConfigLogic } from './batchExportConfigLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 import { humanizeBatchExportName } from './utils'
 
 // Bucket naming rules (supports both S3 and GCS):
@@ -628,7 +628,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
 
 // Form logic for creating and editing batch export configurations.
 // Owns form state, validation, dirty-checking, test steps, and save/delete actions.
-// Reads the underlying config data from batchExportConfigLogic.
+// Reads the underlying config data from batchExportDataLogic.
 export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
     props({ id: null, service: null } as BatchExportConfigFormLogicProps),
     key(({ service, id }: BatchExportConfigFormLogicProps) => {
@@ -644,11 +644,11 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
             featureFlagLogic,
             ['featureFlags'],
-            batchExportConfigLogic({ id: props.id }),
+            batchExportDataLogic({ id: props.id }),
             ['batchExportConfig', 'batchExportConfigLoading'],
         ],
         actions: [
-            batchExportConfigLogic({ id: props.id }),
+            batchExportDataLogic({ id: props.id }),
             ['loadBatchExportConfig', 'loadBatchExportConfigSuccess', 'setBatchExportConfig'],
         ],
     })),

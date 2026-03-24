@@ -7,7 +7,7 @@ import {
     BatchExportBackfillsLogicProps,
     batchExportBackfillsLogic,
 } from 'scenes/data-pipelines/batch-exports/batchExportBackfillsLogic'
-import { batchExportConfigLogic } from 'scenes/data-pipelines/batch-exports/batchExportConfigLogic'
+import { batchExportDataLogic } from 'scenes/data-pipelines/batch-exports/batchExportDataLogic'
 
 import { hogFunctionBackfillsLogic } from './hogFunctionBackfillsLogic'
 
@@ -27,7 +27,7 @@ export function HogFunctionBackfills({ id }: BatchExportBackfillsLogicProps): JS
     }
 
     return (
-        <BindLogic logic={batchExportConfigLogic} props={{ id: configuration.batch_export_id! }}>
+        <BindLogic logic={batchExportDataLogic} props={{ id: configuration.batch_export_id! }}>
             <BindLogic logic={batchExportBackfillsLogic} props={{ id: configuration.batch_export_id! }}>
                 <BackfillsWithLoadingCheck batchExportId={configuration.batch_export_id!} />
             </BindLogic>

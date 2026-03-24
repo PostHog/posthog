@@ -10,7 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
-import { batchExportConfigLogic } from './batchExportConfigLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
 
 const DEFAULT_DATE_FROM = '-2d'
@@ -23,7 +23,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportRunsLogic', key]),
     connect((props: BatchExportRunsLogicProps) => ({
-        values: [batchExportConfigLogic({ id: props.id }), ['batchExportConfig']],
+        values: [batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
         actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
     })),
     actions({

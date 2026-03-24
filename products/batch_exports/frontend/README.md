@@ -7,25 +7,25 @@ The batch exports frontend code currently lives in `frontend/src/scenes/data-pip
 ### Logics
 
 ```text
-batchExportConfigLogic          Loads and caches a batch export's config from the API.
+batchExportDataLogic          Loads and caches a batch export's config from the API.
     │                           Lightweight, mountable independently (e.g. from hog function backfills).
     │
 batchExportConfigFormLogic      Form logic for creating/editing batch export configurations.
     ├── connects to             Owns form state, validation, dirty-checking, test steps, save/delete.
-    │   batchExportConfigLogic  Reads config data from batchExportConfigLogic.
+    │   batchExportDataLogic  Reads config data from batchExportDataLogic.
     │
 batchExportRunsLogic            Loads and manages batch export runs.
     ├── connects to             Grouping by date, retry, cancel, pagination.
-    │   batchExportConfigLogic
+    │   batchExportDataLogic
     │
 batchExportBackfillsLogic       Loads and manages batch export backfills.
     ├── connects to             Listing, cancellation, polling for row estimates.
-    │   batchExportConfigLogic
+    │   batchExportDataLogic
     │   batchExportBackfillModalLogic
     │
 batchExportBackfillModalLogic   Form logic for the backfill creation modal.
     ├── connects to             Date range selection, schedule display, submission.
-    │   batchExportConfigLogic
+    │   batchExportDataLogic
     │
 batchExportSceneLogic           Tab navigation and URL sync for the batch export scene.
                                 Defined inline in BatchExportScene.tsx.
@@ -48,7 +48,7 @@ batchExportSceneLogic           Tab navigation and URL sync for the batch export
 ### External consumers
 
 `HogFunctionBackfills` (in `scenes/hog-functions/backfills/`) renders the backfills tab
-for hog function destinations backed by a batch export. It mounts `batchExportConfigLogic`
+for hog function destinations backed by a batch export. It mounts `batchExportDataLogic`
 and `batchExportBackfillsLogic` via `BindLogic` — this works because these logics only
 depend on the lightweight config logic, not the heavyweight form logic.
 

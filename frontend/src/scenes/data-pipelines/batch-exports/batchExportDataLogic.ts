@@ -8,16 +8,16 @@ import api from 'lib/api'
 
 import { BatchExportConfiguration } from '~/types'
 
-import type { batchExportConfigLogicType } from './batchExportConfigLogicType'
+import type { batchExportDataLogicType } from './batchExportDataLogicType'
 
 export interface BatchExportConfigLogicProps {
     id: string | null
 }
 
-export const batchExportConfigLogic = kea<batchExportConfigLogicType>([
+export const batchExportDataLogic = kea<batchExportDataLogicType>([
     props({} as BatchExportConfigLogicProps),
     key(({ id }) => id ?? 'new'),
-    path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigLogic', key]),
+    path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportDataLogic', key]),
     loaders(({ props }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
