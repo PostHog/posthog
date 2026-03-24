@@ -1,0 +1,51 @@
+name: Dev Setup (Flox)
+
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths:
+            - '.flox/**'
+            - '.github/workflows/ci-dev-setup.yml'
+            - 'tools/phrocs/**'
+            - 'bin/start'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'pnpm-lock.yaml'
+            - 'package.json'
+
+permissions:
+    contents: read
+
+jobs:
+    flox-dev-setup:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+
+            - name: Install Flox
+              uses: flox/install-flox-action@v3
+
+            - name: Activate Flox environment
+              run: flox activate -- bash -c 'echo "Flox environment activated successfully"'
+
+            - name: Verify toolchain versions
+              run: |
+                  flox activate -- bash -c '
+                    echo "Go:     $(go version)"
+                    echo "Node:   $(node --(python --version 2>&1)"
+                    echo "Rust:   $version)"
+                    echo "Python: $(rustc --version)"
+                    echo "pnpm:   $(pnpm --version)"
+                    echo "uv:     $(uv --version)"
+                  '
+
+            - name: Build phrocs
+              run: flox activate -- bash -c 'cd tools/phrocs && make build'
+
+            - name: Verify phrocs runs
+              run: flox activate -- bash -c './tools/phrocs/dist/phrocs --version'
