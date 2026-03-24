@@ -1202,42 +1202,18 @@ class TestResolver(BaseTest):
         assert isinstance(selected.type, ast.CallType)
         assert selected.type.return_type.nullable is False
 
-    def test_to_nullable_forces_nullable_true(self):
-        # toNullable should always set nullable=True, even when the arg is non-nullable
-        node = self._select("SELECT toNullable('hello')")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-
-        [selected] = node.select
-        assert isinstance(selected.type, ast.CallType)
-        assert selected.type.return_type.nullable is True
-
-    def test_to_nullable_with_non_nullable_field(self):
-        node = self._select("SELECT toNullable(event) FROM events")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-
-        [selected] = node.select
-        assert isinstance(selected.type, ast.CallType)
-        assert selected.type.return_type.nullable is True
-
-    def test_or_null_suffix_forces_nullable_true(self):
-        # Functions ending in OrNull should always produce nullable return types
-        node = self._select("SELECT toUInt64OrNull('123')")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-
-        [selected] = node.select
-        assert isinstance(selected.type, ast.CallType)
-        assert selected.type.return_type.nullable is True
-
-    def test_or_null_suffix_with_datetime(self):
-        node = self._select("SELECT parseDateTimeBestEffortOrNull('2020-01-01')")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-
-        [selected] = node.select
-        assert isinstance(selected.type, ast.CallType)
-        assert selected.type.return_type.nullable is True
-
-    def test_nullif_forces_nullable_true(self):
-        node = self._select("SELECT nullIf(event, '') FROM events")
+    @pytest.mark.parametrize(
+        "expr,from_clause",
+        [
+            ("toNullable('hello')", ""),
+            ("toNullable(event)", "FROM events"),
+            ("toUInt64OrNull('123')", ""),
+            ("parseDateTimeBestEffortOrNull('2020-01-01')", ""),
+            ("nullIf(event, '')", "FROM events"),
+        ],
+    )
+    def test_nullable_functions_force_nullable_true(self, expr, from_clause):
+        node = self._select(f"SELECT {expr} {from_clause}".strip())
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         [selected] = node.select
