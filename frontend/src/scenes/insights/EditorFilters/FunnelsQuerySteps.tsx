@@ -12,6 +12,7 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -88,20 +89,11 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                     sortable
                     showNestedArrow
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.EventMetadata,
-                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.SessionProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                    ]}
+                    propertiesTaxonomicGroupTypes={getInsightPropertyFilterGroupTypes({
+                        groupsTaxonomicTypes,
+                        hasPageview,
+                        hasScreen,
+                    })}
                     addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                     actionsTaxonomicGroupTypes={[
                         TaxonomicFilterGroupType.Events,

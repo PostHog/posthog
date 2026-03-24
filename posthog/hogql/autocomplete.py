@@ -57,6 +57,48 @@ MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
 
+def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+    metadata = context.direct_postgres_connection_metadata
+    if metadata is None and context.database is not None:
+        metadata = getattr(context.database, "_direct_connection_metadata", None)
+
+    if not isinstance(metadata, dict):
+        return []
+
+    available_functions = metadata.get("available_functions")
+    if not isinstance(available_functions, list):
+        return []
+
+    return [function_name for function_name in available_functions if isinstance(function_name, str)]
+
+
+def get_available_functions(language: str, context: HogQLContext) -> list[str]:
+    if language == HogLanguage.HOG_QL or language == HogLanguage.HOG_QL_EXPR:
+        return sorted(set(ALL_EXPOSED_FUNCTION_NAMES) | set(get_connection_supported_functions(context)))
+
+    return ALL_HOG_FUNCTIONS
+
+
+def append_function_suggestions(
+    suggestions: list[AutocompleteCompletionItem], language: str, context: HogQLContext, prefix: str = ""
+) -> None:
+    available_functions = get_available_functions(language, context)
+    if prefix:
+        normalized_prefix = prefix.lower()
+        available_functions = [
+            function_name
+            for function_name in available_functions
+            if function_name.lower().startswith(normalized_prefix)
+        ]
+
+    extend_responses(
+        available_functions,
+        suggestions,
+        AutocompleteCompletionItemKind.FUNCTION,
+        insert_text=lambda key: f"{key}()",
+    )
+
+
 class GetNodeAtPositionTraverser(TraversingVisitor):
     start: int
     end: int
@@ -306,16 +348,7 @@ def append_table_field_to_response(
         insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
     )
 
-    if language == HogLanguage.HOG_QL or language == HogLanguage.HOG_QL_EXPR:
-        available_functions = ALL_EXPOSED_FUNCTION_NAMES
-    else:
-        available_functions = ALL_HOG_FUNCTIONS
-    extend_responses(
-        available_functions,
-        suggestions,
-        AutocompleteCompletionItemKind.FUNCTION,
-        insert_text=lambda key: f"{key}()",
-    )
+    append_function_suggestions(suggestions=suggestions, language=language, context=context)
 
 
 def extend_responses(
@@ -541,6 +574,14 @@ def get_hogql_autocomplete(
                 with timings.measure("select_field"):
                     table = get_table(context, nearest_select.select_from, ctes)
                     if table is None:
+                        if len(node.chain) == 1:
+                            prefix = "" if str(node.chain[0]) == MATCH_ANY_CHARACTER else str(node.chain[0])
+                            append_function_suggestions(
+                                suggestions=response.suggestions,
+                                language=query.language,
+                                context=context,
+                                prefix=prefix,
+                            )
                         continue
 
                     chain_len = len(node.chain)

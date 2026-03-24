@@ -10,7 +10,9 @@ from posthog.test.base import BaseTest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import FeatureFlag, Insight, Survey
+from posthog.models import FeatureFlag, Insight
+
+from products.surveys.backend.models import Survey
 
 from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
 

@@ -11,6 +11,7 @@ import {
     NodeKind,
     RetentionFilterLegacy,
     TrendsFilterLegacy,
+    TrendsFormulaNode,
 } from './schema-general'
 import { integer } from './type-utils'
 
@@ -149,7 +150,73 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
     group_type_index: integer
 }
 
-export type AssistantPropertyFilter = AssistantGenericPropertyFilter | AssistantGroupPropertyFilter
+export interface AssistantCohortPropertyFilter {
+    /**
+     * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
+     * Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     */
+    type: PropertyFilterType.Cohort
+    key: 'id'
+    /** The cohort ID to filter by. */
+    value: integer
+    /** @default in */
+    operator: PropertyOperator.In
+}
+
+export type AssistantElementPropertyFilter = AssistantBasePropertyFilter & {
+    /**
+     * Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`).
+     * Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`
+     */
+    type: PropertyFilterType.Element
+    /**
+     * The element property to filter on.
+     * `tag_name` — HTML tag (e.g., `button`, `a`, `input`).
+     * `text` — visible text content of the element.
+     * `href` — the `href` attribute for links.
+     * `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).
+     */
+    key: 'tag_name' | 'text' | 'href' | 'selector'
+}
+
+export interface AssistantHogQLPropertyFilter {
+    /**
+     * Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.
+     */
+    type: PropertyFilterType.HogQL
+    /**
+     * A HogQL boolean expression used as a filter condition.
+     *
+     * Examples:
+     * - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`
+     * - Filter with string matching: `properties.$current_url LIKE '%/pricing%'`
+     * - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`
+     */
+    key: string
+}
+
+export interface AssistantFlagPropertyFilter {
+    /**
+     * Filter events by feature flag state — only include events where a specific flag evaluated to a given value.
+     * Examples:
+     * - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }`
+     * - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }`
+     */
+    type: PropertyFilterType.Flag
+    /** The feature flag key. */
+    key: string
+    operator: PropertyOperator.FlagEvaluatesTo
+    /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+    value: boolean | string
+}
+
+export type AssistantPropertyFilter =
+    | AssistantGenericPropertyFilter
+    | AssistantGroupPropertyFilter
+    | AssistantCohortPropertyFilter
+    | AssistantElementPropertyFilter
+    | AssistantHogQLPropertyFilter
+    | AssistantFlagPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /**
@@ -175,6 +242,11 @@ export interface AssistantInsightsQueryBase {
      * Sampling rate from 0 to 1 where 1 is 100% of the data.
      */
     samplingFactor?: number | null
+
+    /**
+     * Groups aggregation
+     */
+    aggregation_group_type_index?: integer | null
 }
 
 /**
@@ -192,6 +264,19 @@ export interface AssistantTrendsEventsNode extends Omit<
     | 'math_property_revenue_currency'
 > {
     properties?: AssistantPropertyFilter[]
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
 }
 
 /**
@@ -214,6 +299,19 @@ export interface AssistantTrendsActionsNode extends Omit<
      * Action name from the plan.
      */
     name: string
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
 }
 
 export interface AssistantBaseMultipleBreakdownFilter {
@@ -262,7 +360,8 @@ export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 
 
 export interface AssistantTrendsFilter {
     /**
-     * If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
+     * Use custom formulas to perform mathematical operations like calculating percentages or metrics.
+     * Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
      * When using a formula, you must:
      * - Identify and specify **all** events and actions needed to solve the formula.
      * - Carefully review the list of available events and actions to find appropriate entities for each part of the formula.
@@ -270,7 +369,13 @@ export interface AssistantTrendsFilter {
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
      */
-    formulas?: string[]
+    formulaNodes?: TrendsFormulaNode[]
+
+    /**
+     * Smoothing intervals for the trend line.
+     * @default 1
+     */
+    smoothingIntervals?: integer
 
     /**
      * Visualization type. Available values:
@@ -337,6 +442,24 @@ export interface AssistantTrendsFilter {
      * @default linear
      */
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+
+    /**
+     * Whether to show alert threshold lines on the chart.
+     * @default false
+     */
+    showAlertThresholdLines?: boolean
+
+    /**
+     * Whether to show labels on each series.
+     * @default false
+     */
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+
+    /**
+     * Whether to show multiple y-axes for different series.
+     * @default false
+     */
+    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
@@ -482,6 +605,20 @@ export interface AssistantFunnelsFilter {
      * @default null
      */
     funnelAggregateByHogQL?: 'properties.$session_id' | null
+    /**
+     * Controls how the breakdown value is attributed to a specific step.
+     * `first_touch` - the breakdown value is the first property value found in the entire funnel.
+     * `last_touch` - the breakdown value is the last property value found in the entire funnel.
+     * `all_events` - the breakdown value must be present in all steps of the funnel.
+     * `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.
+     * @default first_touch
+     */
+    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    /**
+     * When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.
+     * @asType integer
+     */
+    breakdownAttributionValue?: integer
 }
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
@@ -576,10 +713,12 @@ export interface AssistantRetentionFilter {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /**
-     * How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).
-     * @default 11
+     * How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort).
+     * @default 8
      */
     totalIntervals?: integer
+    /** Minimum number of times an event must occur to count towards retention. */
+    minimumOccurrences?: integer
     /** Retention event (event marking the user coming back). */
     returningEntity: AssistantRetentionEntity
     /** Activation event (event putting the actor into the initial cohort). */
@@ -596,6 +735,24 @@ export interface AssistantRetentionFilter {
      * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.
      */
     cumulative?: RetentionFilterLegacy['cumulative']
+    /**
+     * The time window mode to use for retention calculations.
+     */
+    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+    /** Custom brackets for retention calculations. */
+    retentionCustomBrackets?: number[]
+    /**
+     * The aggregation type to use for retention.
+     * @default count
+     */
+    aggregationType?: 'count' | 'sum' | 'avg'
+    /** The event or person property to aggregate when aggregationType is sum or avg. */
+    aggregationProperty?: string
+    /**
+     * The type of property to aggregate on (event or person). Defaults to event.
+     * @default event
+     */
+    aggregationPropertyType?: 'event' | 'person'
 }
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {

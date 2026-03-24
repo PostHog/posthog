@@ -36,6 +36,8 @@ jobs:
                         - 'common/hogvm/typescript/**'
                         - 'common/plugin_transpiler/**'
                         - 'common/esbuilder/**'
+                        - 'common/replay-shared/**'
+                        - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'

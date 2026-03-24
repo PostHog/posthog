@@ -70,6 +70,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         setPrompt: (prompt: string) => ({ prompt }),
         setPromptError: (error: string | null) => ({ error }),
         draftFromPrompt: true,
+        draftFromMetadataFix: (prompt: string) => ({ prompt }),
         draftFromPromptComplete: true,
         saveAsView: true,
         saveAsViewSuccess: (name: string) => ({ name }),
@@ -85,7 +86,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             null as string | null,
             { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
         ],
-        promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
+        promptLoading: [
+            false,
+            { draftFromPrompt: () => true, draftFromMetadataFix: () => true, draftFromPromptComplete: () => false },
+        ],
     })),
     selectors({
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
@@ -119,6 +123,27 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 const result = await api.get(
                     combineUrl(`api/projects/${values.currentProjectId}/query/draft_sql/`, {
                         prompt: values.prompt,
+                        current_query: values.queryInput,
+                    }).url
+                )
+                const { sql } = result
+                actions.setQueryInput(sql)
+            } catch (e) {
+                actions.setPromptError((e as { code: string; detail: string }).detail)
+            } finally {
+                actions.draftFromPromptComplete()
+            }
+        },
+        draftFromMetadataFix: async ({ prompt }) => {
+            if (!values.aiAvailable) {
+                throw new Error(
+                    'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
+                )
+            }
+            try {
+                const result = await api.get(
+                    combineUrl(`api/projects/@current/query/draft_sql/`, {
+                        prompt,
                         current_query: values.queryInput,
                     }).url
                 )

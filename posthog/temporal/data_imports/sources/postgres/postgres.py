@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import math
 import time
 import collections
@@ -36,6 +37,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 
 # Sources created after this date must use SSL/TLS connections
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
+IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class SSLRequiredError(Exception):
@@ -57,6 +59,48 @@ def _get_sslmode(require_ssl: bool) -> str:
         return "prefer"
 
     return "require" if require_ssl else "prefer"
+
+
+def _connect_to_postgres(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    require_ssl: bool = False,
+) -> psycopg.Connection:
+    sslmode = _get_sslmode(require_ssl)
+    try:
+        return psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+    except psycopg.OperationalError as e:
+        if require_ssl and "SSL" in str(e):
+            raise SSLRequiredError(
+                "SSL/TLS connection is required but your database does not support it. "
+                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+            ) from e
+        raise
+
+
+def _normalize_function_names(function_names: list[Any]) -> list[str]:
+    return sorted(
+        {
+            function_name.lower()
+            for function_name in function_names
+            if isinstance(function_name, str) and IDENTIFIER_FUNCTION_NAME_RE.fullmatch(function_name)
+        }
+    )
 
 
 def filter_postgres_incremental_fields(
@@ -85,27 +129,14 @@ def get_postgres_row_count(
     require_ssl: bool = False,
     names: list[str] | None = None,
 ) -> dict[str, int]:
-    sslmode = _get_sslmode(require_ssl)
-    try:
-        connection = psycopg.connect(
-            host=host,
-            port=port,
-            dbname=database,
-            user=user,
-            password=password,
-            sslmode=sslmode,
-            connect_timeout=15,
-            sslrootcert="/tmp/no.txt",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-        )
-    except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e):
-            raise SSLRequiredError(
-                "SSL/TLS connection is required but your database does not support it. "
-                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
-            ) from e
-        raise
+    connection = _connect_to_postgres(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+    )
 
     try:
         with connection.cursor() as cursor:
@@ -166,27 +197,14 @@ def get_schemas(
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
-    sslmode = _get_sslmode(require_ssl)
-    try:
-        connection = psycopg.connect(
-            host=host,
-            port=port,
-            dbname=database,
-            user=user,
-            password=password,
-            sslmode=sslmode,
-            connect_timeout=15,
-            sslrootcert="/tmp/no.txt",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-        )
-    except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e):
-            raise SSLRequiredError(
-                "SSL/TLS connection is required but your database does not support it. "
-                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
-            ) from e
-        raise
+    connection = _connect_to_postgres(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+    )
 
     with connection.cursor() as cursor:
         params: dict = {"schema": schema}
@@ -243,27 +261,14 @@ def get_foreign_keys(
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
 
-    sslmode = _get_sslmode(require_ssl)
-    try:
-        connection = psycopg.connect(
-            host=host,
-            port=port,
-            dbname=database,
-            user=user,
-            password=password,
-            sslmode=sslmode,
-            connect_timeout=15,
-            sslrootcert="/tmp/no.txt",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-        )
-    except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e):
-            raise SSLRequiredError(
-                "SSL/TLS connection is required but your database does not support it. "
-                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
-            ) from e
-        raise
+    connection = _connect_to_postgres(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+    )
 
     with connection.cursor() as cursor:
         params: dict = {"schema": schema}
@@ -303,6 +308,54 @@ def get_foreign_keys(
     connection.close()
 
     return foreign_keys_by_table
+
+
+def get_connection_metadata(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    port: int,
+    require_ssl: bool = False,
+) -> dict[str, Any]:
+    connection = _connect_to_postgres(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+    )
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_database(), version()")
+            row = cursor.fetchone()
+            current_database = str(row[0]) if row and row[0] is not None else database
+            version = str(row[1]) if row and row[1] is not None else ""
+            is_duckdb = "duckdb" in version.lower() or "duckgres" in version.lower()
+
+            function_source = "duckdb_functions" if is_duckdb else "pg_proc"
+            available_functions: list[str] = []
+
+            try:
+                if is_duckdb:
+                    cursor.execute("SELECT DISTINCT function_name FROM duckdb_functions()")
+                else:
+                    cursor.execute("SELECT DISTINCT proname FROM pg_proc WHERE pg_function_is_visible(oid)")
+                available_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
+            except Exception as error:
+                capture_exception(error)
+
+            return {
+                "database": current_database,
+                "version": version,
+                "engine": "duckdb" if is_duckdb else "postgres",
+                "function_source": function_source,
+                "available_functions": available_functions,
+            }
+    finally:
+        connection.close()
 
 
 class JsonAsStringLoader(Loader):

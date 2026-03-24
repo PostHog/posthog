@@ -213,6 +213,86 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn('(members.membership).tier AS "membership.tier"', sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
+    def test_generate_sql_for_direct_postgres_connection_metadata_function(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+            connection_metadata={"available_functions": ["date_bin"]},
+        )
+
+        DataWarehouseTable.objects.create(
+            name="without_team_id",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT date_bin(toIntervalHour(1), now(), now()) FROM without_team_id",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    def test_generate_sql_for_direct_postgres_custom_connection_metadata_function(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+            connection_metadata={"available_functions": ["icu_collate_nl"]},
+        )
+
+        DataWarehouseTable.objects.create(
+            name="without_team_id",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"name": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT icu_collate_nl(name, 'nl') FROM without_team_id",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("icu_collate_nl", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
     def test_direct_query_requires_selected_connection(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

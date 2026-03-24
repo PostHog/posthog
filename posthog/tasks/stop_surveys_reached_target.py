@@ -6,8 +6,9 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.models import Survey
 from posthog.models.utils import UUIDT
+
+from products.surveys.backend.models import Survey
 
 
 def _get_surveys_response_counts(

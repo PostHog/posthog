@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGear } from '@posthog/icons'
+import { IconBookmark, IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,6 +15,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { logsViewsListLogic } from 'products/logs/frontend/components/LogsViews/logsViewsListLogic'
+import { SavedViewsModal } from 'products/logs/frontend/components/LogsViews/SavedViewsModal'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
@@ -87,6 +89,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { tabId, activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const { openModal } = useActions(logsViewsListLogic({ id: tabId }))
 
     return (
         <>
@@ -95,8 +98,16 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
-                actions={<>{hasLogs && <LogsSceneFeedbackButton />}</>}
+                actions={
+                    <>
+                        {hasLogs && <LogsSceneFeedbackButton />}
+                        <LemonButton size="small" type="secondary" icon={<IconBookmark />} onClick={openModal}>
+                            Saved views
+                        </LemonButton>
+                    </>
+                }
             />
+            <SavedViewsModal id={tabId} />
             {teamHasLogsCheckFailed && (
                 <LemonBanner
                     type="info"

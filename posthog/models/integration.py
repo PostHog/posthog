@@ -1189,15 +1189,6 @@ class GoogleCloudServiceAccountIntegration:
         token_uri: str | None = None,
         created_by: User | None = None,
     ) -> Integration:
-        sensitive_config = {}
-
-        is_impersonated = True
-        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
-            sensitive_config["private_key"] = private_key
-            sensitive_config["private_key_id"] = private_key_id
-            sensitive_config["token_uri"] = token_uri
-            is_impersonated = False
-
         # Do not allow the same project_id in multiple organizations
         same_service_account_integrations = Integration.objects.select_related("team__organization").filter(
             kind="google-cloud-service-account", config__service_account_email=service_account_email
@@ -1205,6 +1196,15 @@ class GoogleCloudServiceAccountIntegration:
         for integration in same_service_account_integrations:
             if str(integration.team.organization.id) != str(organization_id):
                 raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
+
+        sensitive_config = {}
+        is_impersonated = True
+        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
+            sensitive_config["private_key"] = private_key
+            sensitive_config["private_key_id"] = private_key_id
+            sensitive_config["token_uri"] = token_uri
+
+            is_impersonated = False
 
         variant = "impersonated" if is_impersonated else "key-file"
 

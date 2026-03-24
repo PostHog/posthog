@@ -53,6 +53,7 @@ We will begin by wiring up **one product** to:
 Focus:
 
 - One product = one Turbo package with `backend:test`; isolated products also declare `backend:contract-check`
+- Non-isolated products must **not** declare `backend:contract-check` — `turbo-discover` uses this key to identify isolated products, and its presence causes selective testing to skip the full Django test suite
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially

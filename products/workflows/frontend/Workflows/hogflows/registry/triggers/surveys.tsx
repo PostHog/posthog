@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconMessage } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconMessage, IconPlusSmall } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
+import { truncate } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 import { urls } from 'scenes/urls'
 
-import { SurveyEventName } from '~/types'
+import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'
 
+import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
 import {
     type EventTriggerConfig,
     registerTriggerType,
@@ -48,7 +50,31 @@ function getCompletedResponsesOnly(config: EventTriggerConfig): boolean {
     return completedProp?.value === true
 }
 
-function buildProperties(surveyId: string | null | 'any', completedResponsesOnly: boolean): any[] {
+export function getSurveyResponsePropertyKeys(
+    survey: Survey
+): { key: string; buttonLabel: string; question: string }[] {
+    return survey.questions
+        .map((q, index) => {
+            if (q.type === SurveyQuestionType.Link) {
+                return null
+            }
+            const key = index === 0 ? '$survey_response' : `$survey_response_${index}`
+            return { key, buttonLabel: truncate(q.question, 40), question: q.question }
+        })
+        .filter(Boolean) as { key: string; buttonLabel: string; question: string }[]
+}
+
+const MANAGED_PROPERTY_KEYS = new Set(['$survey_id', '$survey_completed'])
+
+export function getUserProperties(config: EventTriggerConfig): any[] {
+    return (config.filters?.properties ?? []).filter((p: any) => !MANAGED_PROPERTY_KEYS.has(p.key))
+}
+
+export function buildProperties(
+    surveyId: string | null | 'any',
+    completedResponsesOnly: boolean,
+    userProperties: any[]
+): any[] {
     const properties: any[] = []
     if (surveyId === 'any') {
         properties.push({ key: '$survey_id', operator: 'is_set', type: 'event' })
@@ -58,7 +84,7 @@ function buildProperties(surveyId: string | null | 'any', completedResponsesOnly
     if (completedResponsesOnly) {
         properties.push({ key: '$survey_completed', value: true, operator: 'exact', type: 'event' })
     }
-    return properties
+    return [...properties, ...userProperties]
 }
 
 function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
@@ -76,7 +102,23 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
     const { loadMoreSurveys, setSearchTerm } = useActions(surveyTriggerLogic)
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
+    const userProperties = getUserProperties(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
+
+    const updateTriggerConfig = (
+        surveyId: string | null | 'any',
+        completedResponsesOnly: boolean,
+        newUserProperties: any[]
+    ): void => {
+        setWorkflowActionConfig(node.data.id, {
+            type: 'event',
+            filters: {
+                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                properties: buildProperties(surveyId, completedResponsesOnly, newUserProperties),
+                filter_test_accounts: filterTestAccounts,
+            },
+        })
+    }
 
     const selectedSurvey =
         selectedSurveyId && selectedSurveyId !== 'any' ? allSurveys.find((s) => s.id === selectedSurveyId) : null
@@ -194,14 +236,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                             return
                         }
                         setSearchTerm('')
-                        setWorkflowActionConfig(node.data.id, {
-                            type: 'event',
-                            filters: {
-                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                properties: buildProperties(surveyId, completedOnly),
-                                filter_test_accounts: filterTestAccounts,
-                            },
-                        })
+                        updateTriggerConfig(surveyId, completedOnly, userProperties)
                     }}
                     placeholder="Select a survey"
                 />
@@ -214,15 +249,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                 <LemonRadio
                     value={completedOnly ? 'completed' : 'any'}
                     onChange={(value) => {
-                        const newCompletedOnly = value === 'completed'
-                        setWorkflowActionConfig(node.data.id, {
-                            type: 'event',
-                            filters: {
-                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                properties: buildProperties(selectedSurveyId, newCompletedOnly),
-                                filter_test_accounts: filterTestAccounts,
-                            },
-                        })
+                        updateTriggerConfig(selectedSurveyId, value === 'completed', userProperties)
                     }}
                     options={[
                         {
@@ -279,6 +306,42 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
 
                 return null
             })()}
+
+            <LemonField.Pure label="Only trigger for specific answers">
+                <div className="flex flex-col gap-2">
+                    <HogFlowPropertyFilters
+                        filtersKey={`survey-trigger-${node.data.id}`}
+                        filters={{ properties: userProperties }}
+                        setFilters={(filters) => {
+                            updateTriggerConfig(selectedSurveyId, completedOnly, filters?.properties ?? [])
+                        }}
+                    />
+                    {selectedSurvey && selectedSurvey.questions.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                            <span className="text-xs text-muted">Add filter for a question:</span>
+                            <div className="flex flex-wrap gap-1">
+                                {getSurveyResponsePropertyKeys(selectedSurvey).map(({ key, buttonLabel, question }) => (
+                                    <LemonButton
+                                        key={key}
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconPlusSmall />}
+                                        tooltip={question}
+                                        onClick={() => {
+                                            updateTriggerConfig(selectedSurveyId, completedOnly, [
+                                                ...userProperties,
+                                                { key, type: 'event' },
+                                            ])
+                                        }}
+                                    >
+                                        {buttonLabel}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </LemonField.Pure>
 
             <TestAccountFilter
                 filters={{ filter_test_accounts: filterTestAccounts }}

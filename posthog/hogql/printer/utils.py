@@ -79,6 +79,8 @@ def prepare_ast_for_printing(
                 user=context.user,
                 timings=context.timings,
             )
+    if context.direct_postgres_connection_metadata is None and context.database is not None:
+        context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
