@@ -374,12 +374,12 @@ describe('ActionFilterRow', () => {
         })
 
         describe('action entity type', () => {
-            it('renders with resolved action name', () => {
+            it('renders with the action name', () => {
                 const { logic } = setup()
                 renderRow(logic, {
-                    filter: { ...DEFAULT_FILTER, id: '9', type: EntityTypes.ACTIONS },
+                    filter: { ...DEFAULT_FILTER, id: '9', name: 'Users signed up', type: EntityTypes.ACTIONS },
                 })
-                expect(document.querySelector('.ActionFilterRow')).toBeInTheDocument()
+                expect(document.querySelector('.ActionFilterRow')!.textContent).toContain('Users signed up')
             })
         })
     })
