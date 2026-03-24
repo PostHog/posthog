@@ -52,6 +52,8 @@ class TestS3ParquetTimezoneConversion(ClickhouseTestMixin, BaseTest):
 
     Documents a ClickHouse 25.12 bug where toTimeZone() returns NULL in SELECT
     when the same expression appears in the WHERE clause.
+
+    Issue: https://github.com/ClickHouse/ClickHouse/pull/90635
     """
 
     url: str
