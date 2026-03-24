@@ -89,6 +89,7 @@ procs:
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
             AWS_ACCESS_KEY_ID: 'object_storage_root_user'
             AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SECRET_KEY: '<randomly generated secret key>'
 
     dagster:
         shell: |-

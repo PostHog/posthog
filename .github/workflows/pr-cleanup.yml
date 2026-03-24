@@ -32,13 +32,14 @@ jobs:
     cleanup-hobby-preview:
         name: Cleanup hobby preview droplets
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         steps:
             - uses: actions/checkout@v6
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.10.12' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Cleanup specific PR droplet
               if: inputs.pr_number != ''
@@ -135,6 +136,7 @@ jobs:
     cleanup-cf-pages-playwright:
         name: Cleanup Cloudflare Pages playwright reports
         runs-on: ubuntu-24.04
+        timeout-minutes: 30
         steps:
             - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:

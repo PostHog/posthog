@@ -6,9 +6,6 @@ import uuid
 
 from django.db import models
 
-from posthog.models.team import Team
-from posthog.models.user import User
-
 from .facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 
 
@@ -21,7 +18,9 @@ class Repo(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
+    # References posthog.Team in the main database — no FK constraint because
+    # this model lives in a separate product database.
+    team_id = models.BigIntegerField(db_index=True)
 
     # GitHub identity: numeric ID is stable, full_name is for API calls + display
     repo_external_id = models.BigIntegerField()
@@ -41,7 +40,7 @@ class Repo(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "repo_external_id"], name="unique_repo_per_team"),
+            models.UniqueConstraint(fields=["team_id", "repo_external_id"], name="unique_repo_per_team"),
         ]
 
     def __str__(self) -> str:
@@ -114,7 +113,8 @@ class Run(models.Model):
     # Approval
     approved = models.BooleanField(default=False)
     approved_at = models.DateTimeField(null=True, blank=True)
-    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # References posthog.User in the main database — plain integer, no FK.
+    approved_by_id = models.BigIntegerField(null=True, blank=True)
 
     # Summary (populated after diff processing)
     total_snapshots = models.PositiveIntegerField(default=0)
@@ -208,7 +208,8 @@ class RunSnapshot(models.Model):
         default=ReviewState.PENDING,
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
-    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # References posthog.User in the main database — plain integer, no FK.
+    reviewed_by_id = models.BigIntegerField(null=True, blank=True)
     review_comment = models.TextField(blank=True)  # For rejection reasons or notes
     # Hash that was approved (specific to approval action)
     approved_hash = models.CharField(max_length=128, blank=True)

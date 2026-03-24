@@ -184,9 +184,9 @@ class TestExperimentService(APIBaseTest):
         metrics = [
             {
                 "kind": "ExperimentMetric",
-                "metric_type": "count",
+                "metric_type": "mean",
                 "uuid": "uuid-1",
-                "event": "$pageview",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
             },
         ]
 
@@ -219,8 +219,18 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         metrics = [
-            {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "aaa", "event": "$pageview"},
-            {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "bbb", "event": "$pageleave"},
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "aaa",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "bbb",
+                "source": {"kind": "EventsNode", "event": "$pageleave"},
+            },
         ]
 
         experiment = service.create_experiment(
@@ -236,7 +246,12 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         metrics_secondary = [
-            {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sec-1", "event": "$pageview"},
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sec-1",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         ]
 
         experiment = service.create_experiment(
@@ -421,12 +436,22 @@ class TestExperimentService(APIBaseTest):
         saved_metric_primary = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="Primary Saved Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "saved-primary", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "saved-primary",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         saved_metric_secondary = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="Secondary Saved Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "saved-secondary", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "saved-secondary",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
 
         primary_metric_uuid = "inline-primary"
@@ -454,14 +479,19 @@ class TestExperimentService(APIBaseTest):
                 "minimum_detectable_effect": 20,
             },
             metrics=[
-                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": primary_metric_uuid, "event": "$pageview"}
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": primary_metric_uuid,
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                }
             ],
             metrics_secondary=[
                 {
                     "kind": "ExperimentMetric",
-                    "metric_type": "count",
+                    "metric_type": "mean",
                     "uuid": secondary_metric_uuid,
-                    "event": "$pageleave",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
                 }
             ],
             secondary_metrics=secondary_metrics,
@@ -608,7 +638,14 @@ class TestExperimentService(APIBaseTest):
         return service.create_experiment(
             name=name,
             feature_flag_key=flag_key,
-            metrics=[{"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m1",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                }
+            ],
             primary_metrics_ordered_uuids=["m1"],
         )
 
@@ -671,7 +708,14 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Launch Test",
             feature_flag_key="launch-test-flag",
-            metrics=[{"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m1",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                }
+            ],
             primary_metrics_ordered_uuids=["m1"],
         )
         assert experiment.is_draft
@@ -788,8 +832,18 @@ class TestExperimentService(APIBaseTest):
             name="Remove Test",
             feature_flag_key="remove-test",
             metrics=[
-                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
-                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m1",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m2",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
+                },
             ],
             primary_metrics_ordered_uuids=["m1", "m2"],
         )
@@ -798,7 +852,12 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "metrics": [
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m1",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
                 ],
             },
         )
@@ -972,7 +1031,8 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"holdout": holdout})
 
         experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["holdout_groups"] == holdout.filters
+        assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
+        assert "holdout_groups" not in experiment.feature_flag.filters
 
     # ------------------------------------------------------------------
     # Duplicate experiment
@@ -1079,7 +1139,12 @@ class TestExperimentService(APIBaseTest):
     # Launch experiment
     # ------------------------------------------------------------------
 
-    _DEFAULT_METRIC = {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}
+    _DEFAULT_METRIC = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "uuid": "m1",
+        "source": {"kind": "EventsNode", "event": "$pageview"},
+    }
 
     def _create_launchable_experiment(
         self,
@@ -1090,6 +1155,18 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+
+    def _create_ended_experiment(
+        self,
+        name: str = "Ended",
+        feature_flag_key: str = "ended-flag",
+        **kwargs: Any,
+    ) -> Experiment:
+        experiment = self._create_launchable_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+        service = self._service()
+        service.launch_experiment(experiment)
+        service.update_experiment(experiment, {"end_date": timezone.now()})
+        return experiment
 
     def test_launch_experiment_success(self):
         experiment = self._create_launchable_experiment(name="Launch Test", feature_flag_key="launch-new-flag")
@@ -1260,6 +1337,46 @@ class TestExperimentService(APIBaseTest):
             self._service().launch_experiment(experiment)
 
         assert "at least 2 variants" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Archive
+    # ------------------------------------------------------------------
+
+    def test_archive_experiment_success(self):
+        experiment = self._create_ended_experiment(name="Archive Test", feature_flag_key="archive-flag")
+
+        archived = self._service().archive_experiment(experiment)
+
+        assert archived.archived is True
+        assert archived.status == Experiment.Status.STOPPED
+
+    def test_archive_experiment_already_archived_raises(self):
+        experiment = self._create_ended_experiment(name="Already Archived", feature_flag_key="already-archived-flag")
+        service = self._service()
+        service.archive_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.archive_experiment(experiment)
+
+        assert "already archived" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("draft", True),
+            ("running", False),
+        ]
+    )
+    def test_archive_experiment_not_ended_raises(self, _name: str, is_draft: bool):
+        service = self._service()
+        experiment = self._create_launchable_experiment(
+            name=f"Archive {_name}", feature_flag_key=f"archive-{_name}-flag"
+        )
+        if not is_draft:
+            service.launch_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.archive_experiment(experiment)
+        assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Exposure cohort

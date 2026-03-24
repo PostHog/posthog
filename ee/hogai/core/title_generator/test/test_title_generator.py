@@ -8,6 +8,7 @@ from posthog.schema import HumanMessage
 from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import ConversationTitleAction
 from ee.models.assistant import Conversation
 
 
@@ -101,6 +102,50 @@ class TestTitleGenerator(BaseTest):
         # Refresh from DB to ensure we get latest value
         self.conversation.refresh_from_db()
         self.assertIsNone(self.conversation.title)
+
+    def test_emits_conversation_title_action_to_stream_writer(self):
+        written = []
+        mock_writer = Mock(side_effect=lambda action: written.append(action))
+
+        with (
+            patch(
+                "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
+                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Stream Title")]),
+            ),
+            patch("ee.hogai.core.title_generator.nodes.get_stream_writer", return_value=mock_writer),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="Test Message")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+
+        self.assertEqual(len(written), 1)
+        action = written[0]
+        self.assertIsInstance(action, ConversationTitleAction)
+        self.assertEqual(action.title, "Stream Title")
+
+    def test_does_not_raise_when_stream_writer_unavailable(self):
+        with (
+            patch(
+                "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
+                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Some Title")]),
+            ),
+            patch(
+                "ee.hogai.core.title_generator.nodes.get_stream_writer",
+                side_effect=RuntimeError("Not in streaming context"),
+            ),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            # Should not raise
+            result = node.run(
+                AssistantState(messages=[HumanMessage(content="Test Message")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+
+        self.assertIsNone(result)
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Some Title")
 
     def test_handles_json_content_without_error(self):
         """Test that title generation works when user message contains JSON with curly braces."""

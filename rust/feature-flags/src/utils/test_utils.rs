@@ -2,7 +2,12 @@ use crate::{
     api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
+    flags::{
+        flag_group_type_mapping::{
+            GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
+        },
+        flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
+    },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     team::team_models::Team,
 };
@@ -161,17 +166,18 @@ pub async fn setup_hypercache_reader(
     )
 }
 
-/// Create a HyperCacheReader for tests using a mock Redis client (synchronous).
-/// Uses a dummy S3 client that always returns NotFound.
-/// This is useful for tests that need to control Redis behavior via MockRedisClient.
-/// Returns Arc<HyperCacheReader> to match the production pattern.
+/// Create a HyperCacheReader with a mock Redis client and a dummy S3 client
+/// that always returns NotFound. Parameterized for reuse across different
+/// HyperCache namespaces (feature_flags, team_metadata, etc.).
 #[cfg(test)]
-pub fn setup_hypercache_reader_with_mock_redis(
+fn setup_mock_hypercache_reader(
     redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    namespace: &str,
+    object_name: &str,
+    token_based: bool,
 ) -> Arc<HyperCacheReader> {
     use common_s3::{S3Client, S3Error};
 
-    // Create a simple S3 client that always returns NotFound
     struct DummyS3Client;
 
     #[async_trait]
@@ -181,18 +187,27 @@ pub fn setup_hypercache_reader_with_mock_redis(
         }
     }
 
-    let config = HyperCacheConfig::new(
-        "feature_flags".to_string(),
-        "flags.json".to_string(),
+    let mut config = HyperCacheConfig::new(
+        namespace.to_string(),
+        object_name.to_string(),
         "us-east-1".to_string(),
         "posthog".to_string(),
     );
+    config.token_based = token_based;
     let s3_client: Arc<dyn S3Client + Send + Sync> = Arc::new(DummyS3Client);
     Arc::new(HyperCacheReader::new_with_s3_client(
         redis_client,
         s3_client,
         config,
     ))
+}
+
+/// Create a feature_flags HyperCacheReader with a mock Redis client.
+#[cfg(test)]
+pub fn setup_hypercache_reader_with_mock_redis(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    setup_mock_hypercache_reader(redis_client, "feature_flags", "flags.json", false)
 }
 
 /// Create a HyperCacheReader for team_metadata using the provided Redis client.
@@ -213,6 +228,14 @@ pub async fn setup_team_hypercache_reader(
             .await
             .expect("Failed to create team HyperCacheReader"),
     )
+}
+
+/// Create a team_metadata HyperCacheReader with a mock Redis client.
+#[cfg(test)]
+pub fn setup_team_hypercache_reader_with_mock_redis(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    setup_mock_hypercache_reader(redis_client, "team_metadata", "full_metadata.json", true)
 }
 
 /// Create a HyperCacheReader for remote config (array/config.json).
@@ -1263,7 +1286,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        let secure_value = crate::api::auth::hash_key_value(&api_key_value);
+        let secure_value = crate::api::auth::hash_token_value(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 
@@ -1318,7 +1341,7 @@ impl TestContext {
         let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        let secure_value = crate::api::auth::hash_key_value(&raw_key);
+        let secure_value = crate::api::auth::hash_token_value(&raw_key);
         let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
@@ -1551,4 +1574,75 @@ impl TestContext {
         .await?;
         Ok(())
     }
+}
+
+pub struct MockGroupTypeFetcher {
+    pub mapping: GroupTypeMapping,
+}
+
+#[async_trait]
+impl GroupTypeMappingFetcher for MockGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        Ok(self.mapping.clone())
+    }
+}
+
+pub fn mock_group_type_cache(
+    types_to_indexes: std::collections::HashMap<String, i32>,
+) -> Arc<GroupTypeCacheManager> {
+    let fetcher = MockGroupTypeFetcher {
+        mapping: GroupTypeMapping::new(types_to_indexes),
+    };
+    Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
+}
+
+/// Delete a single auth token cache entry from Redis.
+///
+/// Both secret API tokens and personal API keys share the same cache namespace
+/// (`posthog:auth_token:{sha256_hash}`). This helper hashes the raw token/key
+/// value and deletes the corresponding Redis key.
+///
+/// NOTE: Rust's in-memory negative cache is not cleared — tests going from
+/// invalid → valid state need a fresh server or must wait for the negative
+/// cache TTL to expire.
+async fn invalidate_auth_cache_entry(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    raw_value: &str,
+) -> Result<(), Error> {
+    let token_hash = crate::api::auth::hash_token_value(raw_value);
+    let cache_key = format!("{}{}", crate::api::auth::TOKEN_CACHE_PREFIX, token_hash);
+    redis_client
+        .del(cache_key)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to delete auth cache key: {e}"))?;
+    Ok(())
+}
+
+/// Simulate Django signal-based auth cache invalidation for a secret API token.
+///
+/// In production, rotating or deleting a team's secret token fires a Django signal
+/// that deletes the token's Redis cache entry via a Celery task. Tests that modify
+/// secret tokens directly bypass those signals, so they must call this helper to
+/// keep the auth cache consistent.
+pub async fn invalidate_secret_token_auth_cache(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    token_value: &str,
+) -> Result<(), Error> {
+    invalidate_auth_cache_entry(redis_client, token_value).await
+}
+
+/// Simulate Django signal-based auth cache invalidation for a personal API key.
+///
+/// In production, removing a user from an organization fires a Django signal that
+/// asynchronously deletes the token's Redis cache entry via Celery. Tests that
+/// modify org membership directly bypass those signals, so they must call this
+/// helper to keep the auth cache consistent.
+pub async fn invalidate_personal_api_key_auth_cache(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    key_value: &str,
+) -> Result<(), Error> {
+    invalidate_auth_cache_entry(redis_client, key_value).await
 }

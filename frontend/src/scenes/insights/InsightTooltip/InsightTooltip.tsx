@@ -259,11 +259,20 @@ export function InsightTooltip({
         title: <span className="whitespace-nowrap">{rightTitle ?? undefined}</span>,
         align: 'right',
         render: function renderDatum(_, datum) {
-            return renderDatumToTableCell(
-                datum.action?.math_property,
-                datum.count,
-                formatPropertyValueForDisplay,
-                renderCount
+            return (
+                <div>
+                    {renderDatumToTableCell(
+                        datum.action?.math_property,
+                        datum.count,
+                        formatPropertyValueForDisplay,
+                        renderCount
+                    )}
+                    {datum.anomalyScore != null && (
+                        <span className="ml-1 text-xs font-semibold text-danger whitespace-nowrap">
+                            Anomaly: {Math.round(datum.anomalyScore * 100)}%
+                        </span>
+                    )}
+                </div>
             )
         },
     })

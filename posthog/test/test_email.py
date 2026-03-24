@@ -10,8 +10,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
-from posthog.models import MessagingRecord, Organization, Person, Team, User
+from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.messaging import MessagingRecord
 
 
 class TestEmail(BaseTest):

@@ -27,6 +27,8 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     moreButtonOverlay?: MoreProps['overlay']
     /** Called when the user mousedowns on the card body (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
+    showEditingControls?: boolean
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -73,6 +75,7 @@ function TextCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        showEditingControls,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -83,11 +86,18 @@ function TextCardInternal(
         throw new Error('TextCard requires text')
     }
 
-    const shouldHideMoreButton = placement === DashboardPlacement.Public
+    const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
+
+    const isTransparent = textTile.transparent_background
 
     return (
         <div
-            className={clsx('TextCard bg-surface-primary border rounded flex flex-col', className)}
+            className={clsx(
+                'TextCard rounded flex flex-col',
+                !isTransparent && 'bg-surface-primary border',
+                isTransparent && showResizeHandles && 'border border-dashed border-border',
+                className
+            )}
             data-attr="text-card"
             {...divProps}
             ref={ref}
@@ -102,7 +112,7 @@ function TextCardInternal(
                 className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
                 onMouseDown={onDragHandleMouseDown}
             >
-                <TextContent text={text.body} className="p-4 pr-14" />
+                <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
             </div>
 
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (

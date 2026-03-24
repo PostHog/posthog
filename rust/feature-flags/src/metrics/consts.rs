@@ -1,3 +1,10 @@
+// Group type cache metrics
+pub const GROUP_TYPE_CACHE_HIT_COUNTER: &str = "flags_group_type_cache_hit_total";
+pub const GROUP_TYPE_CACHE_MISS_COUNTER: &str = "flags_group_type_cache_miss_total";
+pub const GROUP_TYPE_CACHE_ENTRIES_GAUGE: &str = "flags_group_type_cache_entries";
+pub const DB_GROUP_TYPE_READS_COUNTER: &str = "flags_db_group_type_reads_total";
+pub const DB_GROUP_TYPE_ERRORS_COUNTER: &str = "flags_db_group_type_errors_total";
+
 // Flag evaluation counters
 pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
@@ -6,6 +13,7 @@ pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
 pub const TEAM_NEGATIVE_CACHE_HIT_COUNTER: &str = "flags_team_negative_cache_hit_total";
+pub const PG_TEAM_FALLBACK_SKIPPED_COUNTER: &str = "flags_pg_team_fallback_skipped_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";

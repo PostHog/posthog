@@ -56,6 +56,15 @@ impl LeaderBackend {
         }
     }
 
+    /// Remove cached gRPC client for a pod so the next request reconnects.
+    /// Called during partition handoff cutover to drop the connection to the
+    /// old leader pod.
+    pub fn clear_client_cache(&self, pod_name: &str) {
+        if let Some(address) = (self.address_resolver)(pod_name) {
+            self.clients.remove(&address);
+        }
+    }
+
     /// Compute the Kafka partition for a person using murmur2.
     /// The key is `team_id:person_id`, matching the Kafka topic key.
     fn partition_for_person(&self, team_id: i64, person_id: i64) -> u32 {

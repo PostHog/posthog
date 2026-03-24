@@ -394,7 +394,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
-    reviews: 'Manage reusable scorers for upcoming human reviews.',
+    reviews: 'Organize pending traces into queues and manage the scoring setup for human reviews.',
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',

@@ -425,6 +425,12 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
+    pub group_type_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
+    pub group_type_cache_max_entries: u64,
+
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -605,8 +611,22 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
     pub team_negative_cache_capacity: u64,
 
-    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
+
+    // TTL for the Redis-backed per-token auth cache (positive hits).
+    // Starts at 5 minutes as a conservative default; increase once invalidation
+    // signals are proven reliable in production.
+    #[envconfig(from = "AUTH_TOKEN_CACHE_TTL_SECONDS", default = "300")]
+    pub auth_token_cache_ttl_seconds: u64,
+
+    // When true, skip the PostgreSQL fallback for team token lookups.
+    // HyperCache (Redis/S3) is treated as the source of truth — a cache
+    // miss means the token is invalid. Transient errors (Redis/S3 timeouts)
+    // bypass the fallback entirely and are not negative-cached.
+    // Gated for safe rollout.
+    #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
+    pub skip_pg_team_fallback: FlexBool,
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
@@ -771,6 +791,8 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
+            group_type_cache_ttl_seconds: 300,
+            group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
@@ -811,8 +833,10 @@ impl Config {
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
-            team_negative_cache_ttl_seconds: 300,
+            team_negative_cache_ttl_seconds: 30,
+            skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
+            auth_token_cache_ttl_seconds: 300,
         }
     }
 

@@ -83,6 +83,7 @@ jobs:
     dagster:
         name: Dagster tests
         needs: [changes]
+        timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
@@ -123,7 +124,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.10.12' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -203,6 +204,7 @@ jobs:
         needs: [dagster]
         name: Dagster Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome

@@ -3,7 +3,7 @@
 """
 Validate uv configuration for local development and CI.
 
-Performs three checks:
+Performs four checks:
 1. Verify the uv version from pyproject.toml can download the required Python
    (critical for local development and CI)
 2. Verify all CI workflow version pins match pyproject.toml
@@ -11,6 +11,7 @@ Performs three checks:
    job to resolve the required-version range, exhausting the installation
    token rate limit under concurrent load.
 3. Verify flox manifest uv version is compatible with pyproject.toml
+4. Verify the Codespaces Dockerfile mounts a pinned uv image matching pyproject.toml
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
@@ -62,6 +63,48 @@ def get_uv_version_from_pyproject() -> str | None:
 
     match = re.search(r"(\d+\.\d+\.\d+)", required_version)
     return match.group(1) if match else None
+
+
+def _extract_uv_tag(text: str) -> str | None:
+    """Extract a semver uv image tag from a Dockerfile snippet.
+
+    Matches both:
+      --mount=from=ghcr.io/astral-sh/uv:<tag>   (devcontainer bind-mount style)
+      FROM ghcr.io/astral-sh/uv:<tag>            (multi-stage FROM style)
+    Returns the tag, or None if absent or not a semver (e.g. 'latest').
+    """
+    m = re.search(r"ghcr\.io/astral-sh/uv:([^\s,@]+)", text)
+    if not m:
+        return None
+    tag = m.group(1)
+    return tag if re.match(r"^\d+\.\d+\.\d+$", tag) else None
+
+
+def get_uv_versions_from_dockerfiles() -> dict[str, str | None]:
+    """Scan all Dockerfiles in the repo for ghcr.io/astral-sh/uv image references.
+
+    Returns a dict mapping relative Dockerfile path to the pinned version string,
+    or None if the image is referenced but unpinned (e.g. :latest or no tag).
+    Only files that actually reference the uv image are included.
+    """
+    root = Path(__file__).parent.parent
+    results: dict[str, str | None] = {}
+
+    # Collect all Dockerfile* files at root and one level deep in services/
+    candidates: list[Path] = []
+    candidates.extend(root.glob("Dockerfile*"))
+    candidates.extend(root.glob(".devcontainer/Dockerfile*"))
+    candidates.extend(root.glob("services/*/Dockerfile*"))
+
+    for df in sorted(candidates):
+        if not df.is_file():
+            continue
+        content = df.read_text()
+        if "ghcr.io/astral-sh/uv" not in content:
+            continue
+        results[str(df.relative_to(root))] = _extract_uv_tag(content)
+
+    return results
 
 
 def get_uv_version_from_flox() -> str | None:
@@ -273,8 +316,37 @@ def main() -> int:
     print("=" * 60)
     print()
 
+    # Check 4: Dockerfile uv image pins
+    print("Check 4: Dockerfile uv image pins")
+    print("-" * 60)
+
+    dockerfile_versions = get_uv_versions_from_dockerfiles()
+    if not dockerfile_versions:
+        print("⚠ Skipped: No Dockerfiles reference ghcr.io/astral-sh/uv")
+        dockerfile_pinned = True
+    else:
+        dockerfile_pinned = True
+        for df_path, df_tag in sorted(dockerfile_versions.items()):
+            if df_tag is None:
+                print(f"✗ {df_path}: ghcr.io/astral-sh/uv is not pinned to a version")
+                print(f"  Pin to: ghcr.io/astral-sh/uv:{uv_version or '<version>'}")
+                print("  See: https://github.com/astral-sh/uv/releases")
+                dockerfile_pinned = False
+            elif uv_version and df_tag != uv_version:
+                print(f"✗ {df_path}: pins uv to {df_tag}, expected {uv_version} (from pyproject.toml)")
+                print(f"  Update to: ghcr.io/astral-sh/uv:{uv_version}")
+                dockerfile_pinned = False
+            else:
+                print(f"✓ {df_path}: uv pin {df_tag} matches pyproject.toml")
+        if dockerfile_pinned:
+            print(f"  All {len(dockerfile_versions)} Dockerfile(s) pinned correctly")
+
+    print()
+    print("=" * 60)
+    print()
+
     # Summary
-    if uv_compatible and pins_ok and flox_aligned:
+    if uv_compatible and pins_ok and flox_aligned and dockerfile_pinned:
         print("✓ All checks passed")
         return 0
     else:
@@ -285,6 +357,8 @@ def main() -> int:
             failures.append("workflow uv version pins missing or mismatched")
         if not flox_aligned:
             failures.append("flox uv version diverges from pyproject.toml")
+        if not dockerfile_pinned:
+            failures.append("Dockerfile uv image pin missing or mismatched")
         print(f"✗ Failed: {'; '.join(failures)}")
         return 1
 

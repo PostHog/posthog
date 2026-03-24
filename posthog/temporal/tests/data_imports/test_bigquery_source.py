@@ -362,9 +362,9 @@ def test_bigquery_source_full_refresh_table(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -427,9 +427,9 @@ def test_bigquery_source_full_refresh_view(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -495,9 +495,9 @@ def test_bigquery_source_incremental_integer(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -515,7 +515,7 @@ def test_bigquery_source_incremental_integer(
     assert all(value in values for value in ["a", "b"])
 
     schema = ExternalDataSchema.objects.get(name=bigquery_table_integer.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == 1
+    assert schema.incremental_field_last_value == 1
 
     job = bigquery_client.query(
         f"INSERT INTO {bigquery_table_integer.dataset_id}.{bigquery_table_integer.table_id} ({bigquery_table_primary_key}, incremental, value) VALUES ('third', 2, 'c')"
@@ -542,9 +542,9 @@ def test_bigquery_source_incremental_integer(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -562,7 +562,7 @@ def test_bigquery_source_incremental_integer(
     assert all(value in values for value in ["a", "b", "c"])
 
     schema = ExternalDataSchema.objects.get(name=bigquery_table_integer.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == 2
+    assert schema.incremental_field_last_value == 2
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
@@ -613,9 +613,9 @@ def test_bigquery_source_incremental_timestamp(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -633,7 +633,7 @@ def test_bigquery_source_incremental_timestamp(
     assert all(value in values for value in ["a", "b"])
 
     schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-02T00:00:00"
+    assert schema.incremental_field_last_value == "2025-01-02T00:00:00"
 
     now = dt.datetime(2025, 1, 3, tzinfo=dt.UTC)
     job = bigquery_client.query(
@@ -661,9 +661,9 @@ def test_bigquery_source_incremental_timestamp(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -684,7 +684,7 @@ def test_bigquery_source_incremental_timestamp(
     assert all(value in values for value in ["a", "b", "c"])
 
     schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-03T00:00:00"
+    assert schema.incremental_field_last_value == "2025-01-03T00:00:00"
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
@@ -736,9 +736,9 @@ def test_bigquery_source_incremental_custom_primary_key(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -756,7 +756,7 @@ def test_bigquery_source_incremental_custom_primary_key(
     assert all(value in values for value in ["a", "b"])
 
     schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-02T00:00:00"
+    assert schema.incremental_field_last_value == "2025-01-02T00:00:00"
 
     now = dt.datetime(2025, 1, 3, tzinfo=dt.UTC)
     job = bigquery_client.query(
@@ -784,9 +784,9 @@ def test_bigquery_source_incremental_custom_primary_key(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -807,4 +807,4 @@ def test_bigquery_source_incremental_custom_primary_key(
     assert all(value in values for value in ["a", "b", "c"])
 
     schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-03T00:00:00"
+    assert schema.incremental_field_last_value == "2025-01-03T00:00:00"

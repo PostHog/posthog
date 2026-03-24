@@ -466,6 +466,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "organization": str(self.organization.id),
                 "project": str(self.team.uuid),
             },
+            send_feature_flags=False,
         )
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(

@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 personhog-proto = { path = "../personhog-proto" }
 personhog-coordination = { path = "../personhog-coordination" }
+assignment-coordination = { path = "../common/assignment-coordination" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 lifecycle = { path = "../common/lifecycle" }
@@ -24,8 +25,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-assignment-coordination = { path = "../common/assignment-coordination" }
-personhog-coordination = { path = "../personhog-coordination" }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"
 tokio-util = { workspace = true }
