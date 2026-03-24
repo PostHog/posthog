@@ -36,15 +36,7 @@ export class IngestionOutputs<O extends string> {
         const { topic, producer } = this.outputs[output]
         ingestionOutputsMessageValueBytes.observe({ output }, message.value?.length ?? 0)
         ingestionOutputsBatchSize.observe({ output, method: 'produce' }, 1)
-        const end = ingestionOutputsLatency.startTimer({ output, method: 'produce' })
-        try {
-            return await producer.produce({ ...message, topic })
-        } catch (error) {
-            ingestionOutputsErrors.inc({ output, method: 'produce' })
-            throw error
-        } finally {
-            end()
-        }
+        return this.withMetrics(output, 'produce', () => producer.produce({ ...message, topic }))
     }
 
     /**
@@ -61,11 +53,15 @@ export class IngestionOutputs<O extends string> {
             ingestionOutputsMessageValueBytes.observe({ output }, m.value?.length ?? 0)
         }
         ingestionOutputsBatchSize.observe({ output, method: 'queueMessages' }, messages.length)
-        const end = ingestionOutputsLatency.startTimer({ output, method: 'queueMessages' })
+        return this.withMetrics(output, 'queueMessages', () => producer.queueMessages({ topic, messages }))
+    }
+
+    private async withMetrics<T>(output: O, method: string, fn: () => Promise<T>): Promise<T> {
+        const end = ingestionOutputsLatency.startTimer({ output, method })
         try {
-            return await producer.queueMessages({ topic, messages })
+            return await fn()
         } catch (error) {
-            ingestionOutputsErrors.inc({ output, method: 'queueMessages' })
+            ingestionOutputsErrors.inc({ output, method })
             throw error
         } finally {
             end()
