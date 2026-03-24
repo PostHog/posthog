@@ -379,8 +379,19 @@ def verify_team_flags(
             "db_data": db_data,
         }
 
+    # Check if evaluation_metadata is present in cached data.
+    # Entries written before evaluation_metadata was added won't have it,
+    # and the Rust service needs it for flag dependency evaluation.
+    if not cached_data or "evaluation_metadata" not in cached_data:
+        return {
+            "status": "mismatch",
+            "issue": "MISSING_EVALUATION_METADATA",
+            "details": "Cache entry missing evaluation_metadata",
+            "db_data": db_data,
+        }
+
     # Extract cached flags
-    cached_flags = cached_data.get("flags", []) if cached_data else []
+    cached_flags = cached_data.get("flags", [])
 
     # Compare flags by ID
     db_flags_by_id = {flag["id"]: flag for flag in db_flags}

@@ -1,14 +1,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
+use personhog_coordination::error::Result as CoordResult;
+use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
-use personhog_router::backend::ReplicaBackend;
-use personhog_router::config::Config;
+use personhog_router::backend::{LeaderBackend, ReplicaBackend};
+use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tonic::transport::Server;
@@ -19,6 +23,36 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 common_alloc::used!();
+
+/// Cutover handler for the router. When a partition handoff reaches the Ready
+/// phase, the routing table calls this to perform the traffic switch.
+///
+/// The `LeaderBackend` already reads from the shared routing table which is
+/// updated by the `RoutingTable`'s assignment watch. The cutover handler
+/// clears the cached gRPC client for the old owner so the next request
+/// reconnects to the new leader pod.
+struct RouterCutoverHandler {
+    leader_backend: Arc<LeaderBackend>,
+}
+
+#[async_trait::async_trait]
+impl CutoverHandler for RouterCutoverHandler {
+    async fn execute_cutover(
+        &self,
+        partition: u32,
+        old_owner: &str,
+        new_owner: &str,
+    ) -> CoordResult<()> {
+        tracing::info!(
+            partition,
+            old_owner,
+            new_owner,
+            "executing cutover: clearing cached client for old owner"
+        );
+        self.leader_backend.clear_client_cache(old_owner);
+        Ok(())
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     tracing::info!("Starting personhog-router service");
+    tracing::info!("Router mode: {}", config.router_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
@@ -63,6 +98,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "metrics-server",
         ComponentOptions::new().is_observability(true),
     );
+
+    // Only register coordination component in leader mode
+    let coordination_handle = if config.router_mode == RouterMode::Leader {
+        Some(manager.register(
+            "coordination",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+        ))
+    } else {
+        None
+    };
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -119,13 +164,81 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .expect("Failed to create replica backend");
 
-    // Create the router with the replica backend
-    let router = PersonHogRouter::new(Arc::new(replica_backend));
+    // Build the router — in leader mode, also wire up etcd coordination
+    // and the leader backend for person writes / strong reads.
+    let router = if config.router_mode == RouterMode::Leader {
+        tracing::info!("Leader mode: connecting to etcd");
+        tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
+        tracing::info!("etcd prefix: {}", config.etcd_prefix);
+        tracing::info!("Router name: {}", config.pod_name);
+
+        let etcd_config = StoreConfig {
+            endpoints: config.etcd_endpoint_list(),
+            prefix: config.etcd_prefix.clone(),
+        };
+        let etcd_store = EtcdStore::connect(etcd_config)
+            .await
+            .expect("Failed to connect to etcd");
+        let store = Arc::new(PersonhogStore::new(etcd_store));
+
+        // Read total_partitions from etcd (set by kafka-assigner)
+        let num_partitions = store
+            .get_total_partitions()
+            .await
+            .expect("Failed to read total_partitions from etcd");
+        tracing::info!(num_partitions, "loaded partition count from etcd");
+
+        // Build the routing table and leader backend, sharing the same
+        // partition-to-pod mapping so both see consistent state.
+        let routing_table_config = RoutingTableConfig {
+            router_name: config.pod_name.clone(),
+            lease_ttl: config.lease_ttl,
+            heartbeat_interval: config.heartbeat_interval(),
+        };
+
+        let coordination_routing_table =
+            RoutingTable::new(Arc::clone(&store), routing_table_config);
+
+        let shared_table = coordination_routing_table.table_handle();
+        let leader_port = config.leader_port;
+        let leader_backend = Arc::new(LeaderBackend::new(
+            shared_table,
+            Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
+            num_partitions,
+            config.backend_timeout(),
+            config.retry_config(),
+        ));
+
+        let cutover_handler: Arc<dyn CutoverHandler> = Arc::new(RouterCutoverHandler {
+            leader_backend: Arc::clone(&leader_backend),
+        });
+
+        // Start coordination (etcd registration + routing table watches)
+        let coordination_handle =
+            coordination_handle.expect("coordination handle must be registered in leader mode");
+
+        tokio::spawn(async move {
+            let _guard = coordination_handle.process_scope();
+            if let Err(e) = coordination_routing_table
+                .run(coordination_handle.shutdown_token(), cutover_handler)
+                .await
+            {
+                coordination_handle.signal_failure(format!("Coordination error: {e}"));
+            }
+        });
+
+        PersonHogRouter::new(Arc::new(replica_backend)).with_leader(leader_backend)
+    } else {
+        tracing::info!("Replica mode: leader routing disabled");
+        PersonHogRouter::new(Arc::new(replica_backend))
+    };
+
     let service = PersonHogRouterService::new(Arc::new(router));
+
+    // gRPC server
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
-
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {

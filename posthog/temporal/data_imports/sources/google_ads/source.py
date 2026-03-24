@@ -78,8 +78,10 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                description=endpoint_config.description,
+                should_sync_default=endpoint_config.should_sync_default,
             )
-            for endpoint in google_ads_schemas.keys()
+            for endpoint, endpoint_config in google_ads_schemas.items()
         ]
 
         if names is not None:

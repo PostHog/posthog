@@ -64,7 +64,8 @@ impl Parser for AppleProvider {
 
     async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
         // Try to unwrap symbol_data container first (new format),
-        // fall back to raw ZIP for backward compatibility with existing uploads
+        // fall back to raw ZIP for backward compatibility with existing uploads.
+        // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
         let (zip_data, decompressed_bytes) =
             match read_symbol_data_with_byte_count::<AppleDsym>(source.clone()) {
                 Ok((dsym, bytes)) => (dsym.data, bytes),
@@ -142,6 +143,16 @@ impl ParsedAppleSymbols {
     fn extract_dwarf_from_zip(
         archive: &mut ZipArchive<Cursor<Vec<u8>>>,
     ) -> Result<Vec<u8>, ResolveError> {
+        // New format: single DWARF binary stored as "dwarf" at root level
+        if let Ok(mut file) = archive.by_name("dwarf") {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)
+                .map_err(|e| AppleError::ParseError(e.to_string()))?;
+            return Ok(data);
+        }
+
+        // Old format: full dSYM bundle with Contents/Resources/DWARF/<name>
+        // TODO(2026-09-24): Remove this fallback once all old uploads have expired.
         for i in 0..archive.len() {
             let mut file = archive
                 .by_index(i)

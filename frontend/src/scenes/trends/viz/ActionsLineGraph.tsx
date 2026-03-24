@@ -1,4 +1,4 @@
-import { DeepPartial } from 'chart.js/dist/types/utils'
+import { type DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 
 import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
