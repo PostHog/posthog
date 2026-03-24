@@ -70,6 +70,7 @@ js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev 
 [workspace.dependencies]
 anyhow = "1.0"
 assert-json-diff = "2.0.2"
+async-compression = { version = "0.4", features = ["tokio", "gzip", "deflate", "brotli", "zstd"] }
 async-trait = "0.1.74"
 axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"

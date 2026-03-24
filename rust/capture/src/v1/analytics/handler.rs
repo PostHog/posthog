@@ -21,12 +21,21 @@ pub async fn handle_request(
     let context = Context::new(&headers)
         .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &path))?;
 
-    let _bytes = v1::util::extract_body_with_timeout(
+    let raw_bytes = v1::util::extract_body_with_timeout(
         body,
         state.event_payload_size_limit,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
         path.as_str(),
+    )
+    .await
+    .map_err(|err| log_and_return_body_error(err, &context, &ip, &query, &path))?;
+
+    let _payload = v1::util::decompress_payload(
+        context.content_encoding.as_deref(),
+        raw_bytes,
+        state.event_payload_size_limit,
+        state.body_read_chunk_size_kb,
     )
     .await
     .map_err(|err| log_and_return_body_error(err, &context, &ip, &query, &path))?;
