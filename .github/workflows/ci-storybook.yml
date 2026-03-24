@@ -48,12 +48,12 @@ jobs:
             - name: Detect snapshot mode
               id: detect
               env:
-                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
+                  GH_TOKEN: ${{ github.token }}
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  elif [ "$HAS_UPDATE_LABEL" == "true" ]; then
+                  elif [ -n "${{ github.event.pull_request.number }}" ] && gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name' | grep -q '^update-snapshots$'; then
                     echo "mode=update" >> $GITHUB_OUTPUT
                     echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
                   else
