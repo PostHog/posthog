@@ -201,6 +201,14 @@ def evaluate_auth_attempt(
         raise SuspiciousAttemptBlocked()
 
     if will_challenge:
+        if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
+            logger.error(
+                "workos_radar_challenge_no_site_key",
+                action=action.value,
+                email_hash=_hash_email(email),
+            )
+            raise SuspiciousAttemptBlocked()
+
         nonce = create_challenge_nonce(email, ip_address)
         logger.info(
             "workos_radar_challenge_issued",

@@ -9,25 +9,6 @@ import { signupLogic } from './signupLogic'
 
 const TURNSTILE_SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
 
-declare global {
-    interface Window {
-        turnstile?: {
-            render: (
-                container: string | HTMLElement,
-                options: {
-                    sitekey: string
-                    callback: (token: string) => void
-                    'error-callback'?: (error: unknown) => void
-                    'expired-callback'?: () => void
-                    theme?: 'light' | 'dark' | 'auto'
-                }
-            ) => string
-            reset: (widgetId: string) => void
-            remove: (widgetId: string) => void
-        }
-    }
-}
-
 function loadTurnstileScript(): Promise<void> {
     if (window.turnstile) {
         return Promise.resolve()
@@ -35,6 +16,10 @@ function loadTurnstileScript(): Promise<void> {
     return new Promise((resolve, reject) => {
         const existing = document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`)
         if (existing) {
+            if (window.turnstile) {
+                resolve()
+                return
+            }
             existing.addEventListener('load', () => resolve())
             existing.addEventListener('error', () => reject(new Error('Failed to load Turnstile')))
             return

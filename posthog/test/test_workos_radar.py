@@ -650,6 +650,22 @@ class TestChallengeFlow(TestCase):
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is True
 
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", CLOUDFLARE_TURNSTILE_SITE_KEY="")
+    def test_challenge_verdict_blocks_when_turnstile_not_configured(self, mock_call_api, mock_log_event):
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        with pytest.raises(SuspiciousAttemptBlocked):
+            evaluate_auth_attempt(
+                request=request,
+                email="test@example.com",
+                action=RadarAction.SIGNUP,
+                auth_method=RadarAuthMethod.PASSWORD,
+            )
+
     @patch("posthog.workos_radar.is_radar_bypass_email", return_value=True)
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
