@@ -817,7 +817,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "POST",
             "/provision",
             json_body={
-                "image": "ghcr.io/posthog/duckgres:latest",
                 "metadata_store": {"type": "aurora", "aurora": {"min_acu": 0.5, "max_acu": 2}},
             },
         )
