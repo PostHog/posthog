@@ -15,8 +15,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.utils_cors import KNOWN_ORIGINS
 
-from ee.api.vercel.types import VercelUserClaims
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
+from ee.api.vercel.types import VercelUserClaims
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import SSOParams, VercelIntegration
