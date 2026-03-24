@@ -1895,7 +1895,6 @@
         },
         "AssistantLifecycleActionsNode": {
             "additionalProperties": false,
-            "description": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
             "properties": {
                 "custom_name": {
                     "type": "string"
@@ -1923,7 +1922,6 @@
         },
         "AssistantLifecycleEventsNode": {
             "additionalProperties": false,
-            "description": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
             "properties": {
                 "custom_name": {
                     "type": "string"
