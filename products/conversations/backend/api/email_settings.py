@@ -108,6 +108,10 @@ class EmailConnectView(APIView):
             )
         except Exception:
             logger.exception("email_connect_mailgun_add_domain_failed", team_id=team.id, domain=domain)
+            return Response(
+                {"error": "Failed to register domain for sending. Please try again later."},
+                status=502,
+            )
 
         def _enable_email_on_team() -> None:
             s = team.conversations_settings or {}
@@ -281,24 +285,27 @@ class EmailDisconnectView(APIView):
 
         team = user.current_team
 
-        # Capture domain before deleting config so we can clean up Mailgun after
         domain_to_delete: str | None = None
+        should_delete_from_mailgun = False
 
         with transaction.atomic():
             try:
-                config = TeamConversationsEmailConfig.objects.get(team=team)
+                config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
                 domain_to_delete = config.domain
                 config.delete()
             except TeamConversationsEmailConfig.DoesNotExist:
                 pass
+
+            # Check while still holding the transaction so a concurrent connect can't sneak in
+            if domain_to_delete and not TeamConversationsEmailConfig.objects.filter(domain=domain_to_delete).exists():
+                should_delete_from_mailgun = True
 
             settings = team.conversations_settings or {}
             settings["email_enabled"] = False
             team.conversations_settings = settings
             team.save(update_fields=["conversations_settings"])
 
-        # Only remove from Mailgun if no other teams still use this domain
-        if domain_to_delete and not TeamConversationsEmailConfig.objects.filter(domain=domain_to_delete).exists():
+        if should_delete_from_mailgun:
             try:
                 mailgun_delete_domain(domain_to_delete)
             except ValueError:
