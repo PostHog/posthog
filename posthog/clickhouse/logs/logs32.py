@@ -107,6 +107,19 @@ CREATE TABLE IF NOT EXISTS {database}.logs AS {database}.{table_name} ENGINE = {
     )
 
 
+def LOGS_DISTRIBUTED2_TABLE_SQL():
+    return """
+CREATE TABLE IF NOT EXISTS {database}.logs_distributed AS {database}.{table_name} ENGINE = {engine}
+""".format(
+        engine=Distributed(
+            data_table=f"{TABLE_NAME}",
+            cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
+        ),
+        database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+        table_name=TABLE_NAME,
+    )
+
+
 def LOG_ATTRIBUTES_MV():
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}

@@ -162,16 +162,6 @@ class TestExplainLogWithOpenAI:
 class TestFetchLogByUuid(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-
     def test_returns_none_for_nonexistent_uuid(self):
         result = fetch_log_by_uuid(self.team, "nonexistent-uuid", "2025-12-16T09:01:22")
         assert result is None
@@ -212,16 +202,6 @@ class TestFetchLogByUuid(ClickhouseTestMixin, APIBaseTest):
 
 class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
 
     def _get_valid_explanation_response(self):
         return json.dumps(

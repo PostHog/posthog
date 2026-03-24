@@ -16,16 +16,6 @@ from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-
     def test_has_logs_returns_false_when_no_logs(self):
         runner = HasLogsQueryRunner(self.team)
         self.assertFalse(runner.run())
@@ -64,16 +54,6 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
 
     def setUp(self):
         super().setUp()
