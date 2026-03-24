@@ -11,6 +11,11 @@ from unittest.mock import AsyncMock, patch
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+
+_DUMMY_CONTEXT = CustomPromptSandboxContext(team_id=1, user_id=1, repository="test/repo")
+_MOCK_RESOLVE_CTX = AsyncMock(return_value=_DUMMY_CONTEXT)
+_EXECUTOR_PREFIX = "products.review_hog.backend.reviewer.sandbox.executor"
 
 
 class DummyModel(BaseModel):
@@ -25,7 +30,10 @@ class TestRunSandboxReview:
         output_path = tmp_path / "output.json"
         mock_run = AsyncMock(return_value=('{"result": "ok"}', "full log content"))
 
-        with patch("products.review_hog.backend.reviewer.sandbox.executor.run_review", mock_run):
+        with (
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+        ):
             result = await run_sandbox_review(
                 prompt="user prompt",
                 system_prompt="system prompt",
@@ -50,7 +58,10 @@ class TestRunSandboxReview:
         output_path = tmp_path / "output.json"
         mock_run = AsyncMock(return_value=('{"result": "ok"}', "line1\nline2\n"))
 
-        with patch("products.review_hog.backend.reviewer.sandbox.executor.run_review", mock_run):
+        with (
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+        ):
             await run_sandbox_review(
                 prompt="p",
                 system_prompt="s",
@@ -68,7 +79,10 @@ class TestRunSandboxReview:
         output_path = tmp_path / "output.json"
         mock_run = AsyncMock(side_effect=RuntimeError("sandbox crashed"))
 
-        with patch("products.review_hog.backend.reviewer.sandbox.executor.run_review", mock_run):
+        with (
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+        ):
             result = await run_sandbox_review(
                 prompt="p",
                 system_prompt="s",
@@ -85,7 +99,10 @@ class TestRunSandboxReview:
         output_path = tmp_path / "output.json"
         mock_run = AsyncMock(return_value=("", "some log"))
 
-        with patch("products.review_hog.backend.reviewer.sandbox.executor.run_review", mock_run):
+        with (
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+        ):
             result = await run_sandbox_review(
                 prompt="p",
                 system_prompt="s",
@@ -101,7 +118,10 @@ class TestRunSandboxReview:
         output_path = tmp_path / "output.json"
         mock_run = AsyncMock(return_value=("not valid json at all", "log"))
 
-        with patch("products.review_hog.backend.reviewer.sandbox.executor.run_review", mock_run):
+        with (
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+        ):
             result = await run_sandbox_review(
                 prompt="p",
                 system_prompt="s",
@@ -122,7 +142,10 @@ class TestRunSandboxReview:
         # Valid JSON but doesn't match DummyModel (missing required field)
         mock_run = AsyncMock(return_value=('{"wrong_field": "value"}', "log"))
 
-        with patch("products.review_hog.backend.reviewer.sandbox.executor.run_review", mock_run):
+        with (
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+        ):
             result = await run_sandbox_review(
                 prompt="p",
                 system_prompt="s",
@@ -151,8 +174,9 @@ class TestSemaphore:
             return '{"result": "ok"}', "log"
 
         with (
-            patch("products.review_hog.backend.reviewer.sandbox.executor.run_review", side_effect=tracked_run),
-            patch("products.review_hog.backend.reviewer.sandbox.executor._sandbox_semaphore", asyncio.Semaphore(2)),
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", side_effect=tracked_run),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(2)),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
             tasks = []
             for i in range(5):
@@ -183,11 +207,9 @@ class TestSemaphore:
             return '{"result": "ok"}', "log"
 
         with (
-            patch(
-                "products.review_hog.backend.reviewer.sandbox.executor.run_review",
-                side_effect=failing_then_succeeding,
-            ),
-            patch("products.review_hog.backend.reviewer.sandbox.executor._sandbox_semaphore", asyncio.Semaphore(1)),
+            patch(f"{_EXECUTOR_PREFIX}.run_prompt", side_effect=failing_then_succeeding),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(1)),
+            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
             # First call fails
             result1 = await run_sandbox_review(

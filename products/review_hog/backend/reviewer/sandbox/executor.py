@@ -3,15 +3,39 @@ import asyncio
 import logging
 from pathlib import Path
 
+from django.conf import settings
+
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.constants import MAX_CONCURRENT_SANDBOXES
-from products.review_hog.backend.reviewer.sandbox.runner import run_review
-from products.review_hog.backend.reviewer.utils.json_utils import extract_json_from_text
+from products.tasks.backend.services.custom_prompt_executor import extract_json_from_text
+from products.tasks.backend.services.custom_prompt_runner import (
+    CustomPromptSandboxContext,
+    resolve_sandbox_context_for_local_dev,
+    run_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
 _sandbox_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
+
+# Cloud defaults (used when DEBUG=False)
+_CLOUD_TEAM_ID = 2
+_CLOUD_USER_ID = 196695
+_CLOUD_REPOSITORY = "posthog/posthog"
+_LOCAL_REPOSITORY = "sortafreel/posthog"
+
+
+async def _resolve_context() -> CustomPromptSandboxContext:
+    """Return sandbox context based on environment (cloud vs local dev)."""
+    if settings.DEBUG:
+        return await sync_to_async(resolve_sandbox_context_for_local_dev)(_LOCAL_REPOSITORY)
+    return CustomPromptSandboxContext(
+        team_id=_CLOUD_TEAM_ID,
+        user_id=_CLOUD_USER_ID,
+        repository=_CLOUD_REPOSITORY,
+    )
 
 
 async def run_sandbox_review(
@@ -33,9 +57,12 @@ async def run_sandbox_review(
         logger.info(f"Acquired sandbox semaphore (limit={MAX_CONCURRENT_SANDBOXES})")
 
         full_prompt = f"{system_prompt}\n\n{prompt}"
+        context = await _resolve_context()
 
         try:
-            last_message, full_log = await run_review(prompt=full_prompt, branch=branch, step_name=step_name)
+            last_message, full_log = await run_prompt(
+                prompt=full_prompt, context=context, branch=branch, step_name=step_name
+            )
         except Exception as e:
             logger.exception(f"Sandbox execution failed: {e}")
             return False
