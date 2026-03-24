@@ -19,12 +19,16 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
+from posthog.personhog_client.client import get_personhog_client
+from posthog.personhog_client.converters import proto_person_to_model
+from posthog.personhog_client.gate import use_personhog
 from posthog.personhog_client.metrics import (
     PERSONHOG_ROUTING_ERRORS_TOTAL,
     PERSONHOG_ROUTING_TOTAL,
     PERSONHOG_TEAM_MISMATCH_TOTAL,
     get_client_name,
 )
+from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
 from posthog.queries.insight import insight_sync_execute
 
 logger = structlog.get_logger(__name__)
@@ -266,10 +270,6 @@ def get_groups(
 def _fetch_people_via_personhog(
     team_id: int, people_ids: list[Any], distinct_id_limit: int | None = 1000
 ) -> list[Person]:
-    from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.converters import proto_person_to_model
-    from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
-
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -308,8 +308,6 @@ def get_people(
     distinct_id_limit: int | None = 1000,
 ) -> tuple[Union[QuerySet[Person], list[Person]], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
-    from posthog.personhog_client.gate import use_personhog
-
     if use_personhog():
         try:
             persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)

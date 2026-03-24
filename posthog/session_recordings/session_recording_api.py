@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -74,7 +75,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
-from posthog.models.person.person import Person, PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
+from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.personhog_client.gate import use_personhog
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1895,9 +1898,6 @@ def list_recordings_from_query(
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
 
-        from posthog.models.person.util import get_persons_by_distinct_ids
-        from posthog.personhog_client.gate import use_personhog
-
         distinct_id_to_person: dict[str, Person] = {}
         person_distinct_ids = None
         if use_personhog():
@@ -1924,10 +1924,6 @@ def list_recordings_from_query(
             # the original timing attribution (DB round-trip in process_persons span).
             # Intentionally set _distinct_ids to a single ID per person to avoid
             # loading all distinct_ids (which can be very large).
-            from django.db.models import Prefetch
-
-            from posthog.models.person.person import READ_DB_FOR_PERSONS
-
             person_distinct_ids = (
                 PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
                 .filter(distinct_id__in=distinct_ids, team=team)

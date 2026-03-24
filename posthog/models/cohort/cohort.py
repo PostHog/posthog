@@ -27,6 +27,7 @@ from posthog.models.person.util import get_person_by_uuid, get_persons_by_distin
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.personhog_client.gate import use_personhog
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
@@ -384,8 +385,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         if not distinct_ids:
             return []
-
-        from posthog.personhog_client.gate import use_personhog
 
         # Get person UUIDs for this batch of distinct IDs.
         # This is limited to the batch size so it will be no more than 1000 items in-memory at a time.
