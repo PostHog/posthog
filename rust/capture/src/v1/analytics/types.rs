@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::v1::sinks::Destination;
@@ -33,6 +33,42 @@ pub struct WrappedEvent {
     pub status_code: u16,
     pub destination: Destination,
     pub skip_person_processing: bool,
+}
+
+/// The Kafka-ready event produced by the v1 analytics pipeline.
+/// Replaces legacy `CapturedEvent` from `common_types`.
+///
+/// Constructed from a valid `WrappedEvent` + request `Context` in a future
+/// transformation step within `process_batch`, before being handed to a
+/// `v1::Sink` for publishing. The sink should not perform any enrichment
+/// or property inspection -- all transformations happen at construction time.
+///
+/// Property-level checks needed at construction time (from legacy parity):
+/// - `properties.capture_internal`: if present, redact `ip` to "127.0.0.1"
+/// - `properties.$cookieless_mode`: extract bool for Kafka partition key
+///   selection (true -> partition by token:ip, false -> token:distinct_id).
+///   Non-boolean values should be treated as a malformed event (status 400).
+///
+/// Will implement the upcoming `v1::Sink` trait to abstract serialization
+/// and partition key derivation.
+#[derive(Debug, Serialize)]
+pub struct IngestionEvent {
+    pub uuid: String,
+    pub distinct_id: String,
+    pub ip: String,
+    pub event: String,
+    pub timestamp: DateTime<Utc>,
+    pub token: String,
+    pub is_cookieless_mode: bool,
+    pub data: String,
+    pub now: String,
+    #[serde(skip)]
+    pub destination: Destination,
+    #[serde(skip)]
+    pub skip_person_processing: bool,
+    /// Maps back to the originating WrappedEvent in the batch for result tracking.
+    #[serde(skip)]
+    pub ordinal: usize,
 }
 
 #[cfg(test)]
