@@ -2146,7 +2146,33 @@ class GitHubIntegration:
         if not isinstance(body, list):
             return []
 
-        return [branch["name"] for branch in body if isinstance(branch, dict) and isinstance(branch.get("name"), str)]
+        def extract_names(data: list) -> list[str]:
+            return [
+                branch["name"] for branch in data if isinstance(branch, dict) and isinstance(branch.get("name"), str)
+            ]
+
+        all_branches = extract_names(body)
+
+        # Paginate through remaining pages (w/cap)
+        max_pages = 20
+        current_page = 1
+        while current_page < max_pages and 'rel="next"' in response.headers.get("Link", ""):
+            current_page += 1
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                break
+            if response.status_code != 200:
+                break
+            try:
+                body = response.json()
+            except Exception:
+                break
+            if not isinstance(body, list):
+                break
+            all_branches.extend(extract_names(body))
+
+        return all_branches
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -2172,16 +2198,17 @@ class GitHubIntegration:
 
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        access_token = self.integration.sensitive_config.get("access_token")
 
         response = requests.get(
-            f"https://api.github.com/repos/{org}/{repository}",
+            f"https://api.github.com/repos/{repo_path}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
+            timeout=10,
         )
 
         if response.status_code == 200:
