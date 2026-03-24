@@ -26,8 +26,6 @@ metadata:
           title: Developer tools and utilities
         - key: utilities
           title: Git worktrees and admin
-        - key: box
-          title: Remote devbox (Codespaces)
         - key: environment
           title: Environment and shell
     services:
@@ -89,14 +87,6 @@ metadata:
         phrocs:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
-box:
-    box:start: null
-    box:stop: null
-    box:delete: null
-    box:list: null
-    box:ssh: null
-    box:ports: null
-    box:status: null
 devenv:
     dev:setup: null
     dev:generate: null
