@@ -376,6 +376,13 @@ export interface PatchedDashboardApi {
     _create_in_folder?: string
 }
 
+export interface CopyDashboardTileRequestApi {
+    /** Dashboard id the tile currently belongs to. */
+    fromDashboardId: number
+    /** Dashboard tile id to copy. */
+    tileId: number
+}
+
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -498,6 +505,18 @@ export type DashboardsAnalyzeRefreshResultCreateFormat =
     (typeof DashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat]
 
 export const DashboardsAnalyzeRefreshResultCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat
+}
+
+export type DashboardsCopyTileCreateFormat =
+    (typeof DashboardsCopyTileCreateFormat)[keyof typeof DashboardsCopyTileCreateFormat]
+
+export const DashboardsCopyTileCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
