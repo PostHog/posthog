@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { IconInfo, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -27,13 +27,16 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -41,6 +44,7 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import {
     DataVisualizationNode,
     InsightQueryNode,
@@ -58,9 +62,19 @@ import {
     EditorFilterProps,
     InsightEditorFilter,
     InsightEditorFilterGroup,
+    InsightType,
     PathType,
     PropertyGroupFilter,
 } from '~/types'
+
+const INSIGHT_TYPE_TO_ICON_TYPE: Partial<Record<InsightType, FileSystemIconType>> = {
+    [InsightType.TRENDS]: 'insight/trends',
+    [InsightType.FUNNELS]: 'insight/funnels',
+    [InsightType.RETENTION]: 'insight/retention',
+    [InsightType.PATHS]: 'insight/paths',
+    [InsightType.STICKINESS]: 'insight/stickiness',
+    [InsightType.LIFECYCLE]: 'insight/lifecycle',
+}
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
@@ -84,6 +98,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
 
     const { insightProps } = useValues(insightLogic)
+    const { activeView, tabs } = useValues(insightNavLogic(insightProps))
+    const { setActiveView } = useActions(insightNavLogic(insightProps))
     const {
         isTrends,
         isFunnels,
@@ -534,6 +550,36 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
                             )}
                         >
+                            {editorPanelsEnabled && (
+                                <div className="border rounded bg-surface-primary group/colorful-product-icons colorful-product-icons-true">
+                                    <div className="px-3 py-2">
+                                        <span className="text-[13px] font-semibold text-secondary">Insight type</span>
+                                    </div>
+                                    <div className="px-3 pb-3 pt-1">
+                                        <LemonSelect
+                                            value={activeView}
+                                            onChange={(newKey) => setActiveView(newKey)}
+                                            options={tabs.map(({ label, type }) => {
+                                                const fsType = INSIGHT_TYPE_TO_ICON_TYPE[type]
+                                                return {
+                                                    value: type,
+                                                    label,
+                                                    icon: fsType
+                                                        ? iconForType(fsType)
+                                                        : INSIGHT_TYPES_METADATA[type]?.icon
+                                                          ? (() => {
+                                                                const Icon = INSIGHT_TYPES_METADATA[type].icon
+                                                                return <Icon />
+                                                            })()
+                                                          : undefined,
+                                                }
+                                            })}
+                                            dropdownMatchSelectWidth={false}
+                                            fullWidth
+                                        />
+                                    </div>
+                                </div>
+                            )}
                             {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
                                 <div
                                     key={title}
