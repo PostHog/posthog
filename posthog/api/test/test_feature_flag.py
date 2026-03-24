@@ -5528,6 +5528,70 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         matched_keys = {result["key"] for result in data["results"]}
         assert "web-analytics" in matched_keys, f"Expected 'web-analytics' with surrounding spaces, got {matched_keys}"
 
+    def test_get_flags_with_search_regex_metacharacters(self):
+        """Test that search handles regex metacharacters safely by escaping them."""
+        # Create flags to test regex escaping
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test.period.flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-hyphen-flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test+plus+flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test*asterisk*flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test[bracket]flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test(paren)flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test?question?flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated-flag", active=True)
+
+        # Test that periods are treated as literal characters, not regex wildcards
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test.period")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test.period.flag" in matched_keys, "Should find exact period match"
+        assert "test-hyphen-flag" not in matched_keys, "Should not match hyphen when searching for period"
+
+        # Test that plus signs are escaped (URL encode + as %2B)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%2Bplus")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test+plus+flag" in matched_keys, "Should find exact plus match"
+
+        # Test that asterisks are escaped (URL encode * as %2A)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%2Aasterisk")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test*asterisk*flag" in matched_keys, "Should find exact asterisk match"
+
+        # Test that brackets are escaped (URL encode [ and ] as %5B and %5D)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%5Bbracket%5D")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test[bracket]flag" in matched_keys, "Should find exact bracket match"
+
+        # Test that parentheses are escaped (URL encode ( and ) as %28 and %29)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%28paren%29")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test(paren)flag" in matched_keys, "Should find exact parentheses match"
+
+        # Test that question marks are escaped (URL encode ? as %3F)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%3Fquestion")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test?question?flag" in matched_keys, "Should find exact question mark match"
+
+    def test_get_flags_with_search_length_limit(self):
+        """Test that search terms longer than 200 characters are rejected."""
+        # Test with exactly 200 characters (should work)
+        search_200 = "a" * 200
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search={search_200}")
+        assert response.status_code == 200, "200-character search should be allowed"
+
+        # Test with 201 characters (should fail)
+        search_201 = "a" * 201
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search={search_201}")
+        assert response.status_code == 400, "201-character search should be rejected"
+
+        data = response.json()
+        assert "Search term cannot exceed 200 characters" in str(data), "Should return appropriate error message"
+
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
         # No last_called_at so it falls back to config-based staleness detection

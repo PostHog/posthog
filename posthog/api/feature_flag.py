@@ -2608,8 +2608,11 @@ class FeatureFlagViewSet(
                 if isinstance(value, str):
                     value = value.strip()
                     if value:
-                        # Escape regex metacharacters first, then replace spaces with word boundary pattern
+                        # Limit search term length for performance safety
+                        if len(value) > 200:
+                            raise serializers.ValidationError("Search term cannot exceed 200 characters")
 
+                        # Escape regex metacharacters first, then replace spaces with word boundary pattern
                         escaped_value = re.escape(value)
                         regex_pattern = escaped_value.replace(r"\ ", r"[\s\-_]*")
                         queryset = queryset.filter(
