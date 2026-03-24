@@ -462,6 +462,42 @@ describe('taxonomicFilterLogic', () => {
 
             testLogic.unmount()
         })
+
+        it('does not auto-tab when active tab has no results', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testNoAutoTab',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            }
+            const testLogic = taxonomicFilterLogic(logicProps)
+            testLogic.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+
+            testLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
+
+            const eventsListLogic = infiniteListLogic({
+                ...logicProps,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+
+            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.setSearchQuery('zzz-definitely-not-found')
+            })
+                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+                .delay(1)
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
+
+            testLogic.unmount()
+        })
     })
 
     describe('promoted groups are reordered', () => {
