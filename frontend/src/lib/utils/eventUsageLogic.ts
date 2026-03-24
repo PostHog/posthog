@@ -468,7 +468,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
         reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
-        reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentPaused: (experiment: Experiment) => ({ experiment }),
         reportExperimentResumed: (experiment: Experiment) => ({ experiment }),
         reportExperimentStopped: (experiment: Experiment) => ({ experiment }),
@@ -525,7 +524,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             index,
             isPrimary,
         }),
-        reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
             experiment,
             newStartDate,
@@ -1401,11 +1399,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 })
             }
         },
-        reportExperimentArchived: ({ experiment }) => {
-            posthog.capture('experiment archived', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
         reportExperimentPaused: ({ experiment }) => {
             posthog.capture('experiment paused', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1496,12 +1489,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_property: breakdown.property,
                 breakdown_index: index,
                 is_primary_metric: isPrimary,
-            })
-        },
-        reportExperimentLaunched: ({ experiment, launchDate }) => {
-            posthog.capture('experiment launched', {
-                ...getEventPropertiesForExperiment(experiment),
-                launch_date: launchDate.toISOString(),
             })
         },
         reportExperimentStartDateChange: ({ experiment, newStartDate }) => {

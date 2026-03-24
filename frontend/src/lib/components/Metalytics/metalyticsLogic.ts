@@ -37,12 +37,11 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         WHERE app_source = 'metalytics'
                         AND instance_id = ${values.instanceId}`
 
-                    // NOTE: I think this gets cached heavily - how to correctly invalidate?
                     const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Metalytics'
                     const response = await api.queryHogQL(
                         query,
                         { scene: currentScene, productKey: 'platform_and_support' },
-                        { refresh: 'force_blocking' }
+                        { refresh: 'async' }
                     )
                     const result = response.results as number[][]
                     return {
@@ -68,7 +67,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                     const response = await api.queryHogQL(
                         query,
                         { scene: currentScene, productKey: 'platform_and_support' },
-                        { refresh: 'force_blocking' }
+                        { refresh: 'async' }
                     )
                     return response.results.map((result) => result[0]) as string[]
                 },
@@ -108,7 +107,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                 actions.loadViewCount()
                 actions.loadUsersLast30days()
 
-                await api.create(`/api/projects/${values.currentProjectId}/metalytics/`, {
+                void api.create(`/api/projects/${values.currentProjectId}/metalytics/`, {
                     metric_name: 'viewed',
                     instance_id: instanceId,
                 })

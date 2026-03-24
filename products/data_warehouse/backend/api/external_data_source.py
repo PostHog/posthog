@@ -80,10 +80,84 @@ def get_password_field_names(fields: list[FieldType]) -> set[str]:
     return password_fields
 
 
+def get_direct_postgres_connection_metadata(
+    *,
+    source_impl: Any,
+    source_config: Config,
+    team_id: int,
+    source_model: ExternalDataSource | None = None,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata_fetcher = getattr(source_impl, "get_connection_metadata", None)
+    if not callable(metadata_fetcher):
+        return fallback or {}
+
+    from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
+
+    require_ssl = source_model is not None and source_model.created_at >= SSL_REQUIRED_AFTER_DATE
+
+    try:
+        metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
+    except Exception as error:
+        capture_exception(error)
+        return fallback or {}
+
+    return metadata if isinstance(metadata, dict) else (fallback or {})
+
+
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
         fields = ["enabled", "include_invoiceless_charges"]
+
+
+class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
+    database = serializers.CharField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Database name discovered for a direct connection.",
+    )
+    version = serializers.CharField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Database version string reported by the direct connection.",
+    )
+    engine = serializers.ChoiceField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        choices=["duckdb", "postgres"],
+        help_text="Backend engine detected for the direct connection.",
+    )
+    function_source = serializers.CharField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="System catalog or function source used to discover supported functions.",
+    )
+    available_functions = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        required=False,
+        help_text="Functions discovered as available on the direct connection.",
+    )
+
+
+class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
+    engine = serializers.ChoiceField(
+        source="connection_metadata.engine",
+        read_only=True,
+        allow_null=True,
+        choices=["duckdb", "postgres"],
+        help_text="Backend engine detected for the direct connection.",
+    )
+
+    class Meta:
+        model = ExternalDataSource
+        fields = ["id", "prefix", "engine"]
+        read_only_fields = ["id", "prefix", "engine"]
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
@@ -138,6 +212,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
+    engine = serializers.ChoiceField(
+        source="connection_metadata.engine",
+        read_only=True,
+        allow_null=True,
+        required=False,
+        choices=["duckdb", "postgres"],
+        help_text="Backend engine detected for the direct connection.",
+    )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
         source="revenue_analytics_config_safe", read_only=True
     )
@@ -157,6 +239,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "prefix",
             "description",
             "access_method",
+            "engine",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -172,6 +255,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "last_run_at",
             "schemas",
+            "engine",
             "revenue_analytics_config",
             "user_access_level",
             "access_method",
@@ -206,6 +290,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "email_address",
             # hubspot
             "hubspot_integration_id",
+            "custom_properties",
             # snowflake
             "account_id",
             "warehouse",
@@ -382,6 +467,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
+            if instance.is_direct_postgres:
+                validated_data["connection_metadata"] = get_direct_postgres_connection_metadata(
+                    source_impl=source,
+                    source_config=source_config,
+                    team_id=instance.team_id,
+                    source_model=instance,
+                    fallback=instance.connection_metadata,
+                )
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
@@ -535,6 +628,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
+        if is_direct_postgres:
+            new_source_model.connection_metadata = get_direct_postgres_connection_metadata(
+                source_impl=source,
+                source_config=source_config,
+                team_id=self.team_id,
+                source_model=new_source_model,
+            )
+            new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         schema_names = [schema.name for schema in source_schemas]
 
         payload_schemas = payload.get("schemas", None)
@@ -753,6 +854,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source = SourceRegistry.get_source(source_type)
             config = source.parse_config(instance.job_inputs)
             schemas = source.get_schemas(config, self.team_id)
+            connection_metadata = (
+                get_direct_postgres_connection_metadata(
+                    source_impl=source,
+                    source_config=config,
+                    team_id=self.team_id,
+                    source_model=instance,
+                    fallback=instance.connection_metadata,
+                )
+                if instance.is_direct_postgres
+                else instance.connection_metadata
+            )
             schema_names = [s.name for s in schemas]
             logger.info(
                 "refresh_schemas fetched from source",
@@ -769,6 +881,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
+                instance.connection_metadata = connection_metadata
+                instance.save(update_fields=["connection_metadata", "updated_at"])
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
@@ -920,6 +1035,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             status=status.HTTP_200_OK,
             data={str(key): value.model_dump() for key, value in configs.items()},
         )
+
+    @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
+    @action(methods=["GET"], detail=False)
+    def connections(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        queryset = (
+            ExternalDataSource._base_manager.filter(
+                team_id=self.team_id,
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                source_type=ExternalDataSourceType.POSTGRES,
+            )
+            .exclude(deleted=True)
+            .only("id", "prefix", "connection_metadata")
+            .order_by(self.ordering)
+        )
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        serializer = ExternalDataSourceConnectionOptionSerializer(queryset, many=True)
+        return Response(status=status.HTTP_200_OK, data=serializer.data)
 
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:

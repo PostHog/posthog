@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -119,6 +120,49 @@ class RequiredRootFilesCheck(ProductCheck):
         return CheckResult(lines=["✓ ok"])
 
 
+def _has_test_files(backend_dir: Path) -> bool:
+    """Check if backend/ contains any pytest-discoverable test files."""
+    return any(backend_dir.rglob("test_*.py")) or any(backend_dir.rglob("*_test.py"))
+
+
+def _is_noop_script(script: str) -> bool:
+    """Check if a script is a no-op (echo, true, exit 0, etc.)."""
+    stripped = script.strip()
+    return stripped.startswith("echo ") or stripped in ("true", "exit 0", ":")
+
+
+def _parse_pytest_paths(script: str) -> list[str]:
+    """Extract test path arguments from a pytest command.
+
+    Given something like:
+        pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short
+    Returns:
+        ["backend/tests"]
+    """
+    try:
+        parts = shlex.split(script)
+    except ValueError:
+        parts = script.split()
+    if not parts or parts[0] != "pytest":
+        return []
+
+    paths: list[str] = []
+    skip_next = False
+    for part in parts[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        # flags that consume the next token
+        if part in ("-c", "--rootdir", "-k", "-m", "-p", "--override-ini", "-o"):
+            skip_next = True
+            continue
+        # skip flags
+        if part.startswith("-"):
+            continue
+        paths.append(part)
+    return paths
+
+
 class PackageJsonScriptsCheck(ProductCheck):
     label = "package.json scripts"
 
@@ -135,8 +179,10 @@ class PackageJsonScriptsCheck(ProductCheck):
                 issues=["package.json is not valid JSON"],
             )
 
-        required = ["backend:test"] + (["backend:contract-check"] if ctx.is_isolated else [])
         result = CheckResult()
+
+        # --- presence checks ---
+        required = ["backend:test"] + (["backend:contract-check"] if ctx.is_isolated else [])
         for script in required:
             if script not in scripts:
                 result.lines.append(f"✗ missing '{script}'")
@@ -144,6 +190,49 @@ class PackageJsonScriptsCheck(ProductCheck):
                     f"Product has backend/ but package.json is missing '{script}' script — "
                     "turbo cannot discover this product"
                 )
+
+        # --- absence check: non-isolated must NOT have contract-check ---
+        if not ctx.is_isolated and "backend:contract-check" in scripts:
+            result.lines.append("✗ non-isolated product has 'backend:contract-check'")
+            result.issues.append(
+                "Non-isolated product must not have 'backend:contract-check' script — "
+                "turbo-discover uses this to classify products as isolated, which causes "
+                "the full Django test suite to be skipped when this product changes"
+            )
+
+        # --- content checks on backend:test ---
+        test_script = scripts.get("backend:test", "")
+        if test_script:
+            # strip trailing || true / || exit 0 before further checks
+            base_script = test_script.split("||")[0].strip()
+
+            # check: || true / || exit 0 swallows failures
+            if "||" in test_script:
+                tail = test_script.split("||", 1)[1].strip()
+                if tail in ("true", "exit 0"):
+                    result.lines.append(f"✗ 'backend:test' uses '|| {tail}'")
+                    result.issues.append(f"'backend:test' script uses '|| {tail}' which swallows test failures in CI")
+
+            # check: no-op script but test files exist
+            if _is_noop_script(base_script) and _has_test_files(ctx.backend_dir):
+                result.lines.append("✗ 'backend:test' is a no-op but test files exist")
+                result.issues.append(
+                    "'backend:test' is a no-op (e.g. echo) but backend/ contains test files "
+                    "that will never run — update the script to use pytest"
+                )
+
+            # check: pytest paths exist on disk
+            if base_script.startswith("pytest"):
+                test_paths = _parse_pytest_paths(base_script)
+                for tp in test_paths:
+                    resolved = ctx.product_dir / tp
+                    if not resolved.exists():
+                        result.lines.append(f"✗ test path '{tp}' does not exist")
+                        result.issues.append(
+                            f"'backend:test' references path '{tp}' which does not exist — "
+                            "pytest will fail or silently collect zero tests"
+                        )
+
         if not result.issues:
             result.lines.append("✓ ok")
         return result

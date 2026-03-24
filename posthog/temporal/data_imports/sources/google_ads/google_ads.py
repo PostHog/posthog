@@ -254,9 +254,19 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
 
 
 class GoogleAdsTable(Table[GoogleAdsColumn]):
-    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
+    def __init__(
+        self,
+        *args,
+        requires_filter: bool,
+        primary_key: list[str],
+        partition_keys: list[str] | None = None,
+        extra_where: str | None = None,
+        **kwargs,
+    ):
         self.requires_filter = requires_filter
         self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
+        self.partition_keys = [pkey.replace(".", "_") for pkey in partition_keys] if partition_keys else None
+        self.extra_where = extra_where
         super().__init__(*args, **kwargs)
 
 
@@ -290,6 +300,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
 
         requires_filter = resource_contents.get("filter_field_names", None) is not None
         primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
+        extra_where = typing.cast(str | None, resource_contents.get("extra_where", None))
+        partition_keys = typing.cast(list[str] | None, resource_contents.get("partition_keys", None))
 
         columns = []
 
@@ -319,6 +331,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
             alias=table_alias,
             requires_filter=requires_filter,
             primary_key=primary_key,
+            extra_where=extra_where,
+            partition_keys=partition_keys,
             columns=columns,
             parents=None,
         )
@@ -374,6 +388,9 @@ def google_ads_source(
                 # TODO: Make sure to bump this before 2100-01-01.
                 query += f" AND {incremental_field} < '2100-01-01'"
 
+        if table.extra_where:
+            query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
+
         client = google_ads_client(config, team_id)
         service = client.get_service("GoogleAdsService", version="v23")
         stream = service.search_stream(query=query, customer_id=clean_customer_id(config.customer_id))
@@ -388,7 +405,7 @@ def google_ads_source(
         partition_size=1 if table.requires_filter else None,  # this enables partitioning
         partition_mode="datetime" if table.requires_filter else None,
         partition_format="day" if table.requires_filter else None,
-        partition_keys=["segments_date"] if table.requires_filter else None,
+        partition_keys=table.partition_keys or (["segments_date"] if table.requires_filter else None),
     )
 
 

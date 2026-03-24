@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1062_migrate_links_models"),
+        ("posthog", "1064_migrate_messaging_models"),
     ]
 
     operations = [

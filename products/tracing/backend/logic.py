@@ -178,7 +178,7 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse]):
         if self.query.traceId:
             exprs.append(
                 parse_expr(
-                    "trace_id = base64Encode(unhex({traceId}))",
+                    "trace_id = assumeNotNull(base64Encode(unhex({traceId})))",
                     placeholders={
                         "traceId": ast.Constant(value=self.query.traceId),
                     },

@@ -214,6 +214,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
+                send_feature_flags=False,
             )
             mock_capture.reset_mock()
 
@@ -259,6 +260,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
+                send_feature_flags=False,
             )
             mock_capture.reset_mock()
 

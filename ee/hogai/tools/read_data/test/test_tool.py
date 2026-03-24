@@ -17,7 +17,7 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight, Survey
+from posthog.models import Insight
 from posthog.models.feature_flag import FeatureFlag
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -29,6 +29,7 @@ from products.llm_analytics.backend.summarization.llm.schema import (
     SummarizationResponse,
     SummaryBullet,
 )
+from products.surveys.backend.models import Survey
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError

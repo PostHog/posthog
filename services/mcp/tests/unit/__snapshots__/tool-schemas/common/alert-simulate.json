@@ -390,6 +390,17 @@
                                                 "default": "ecod",
                                                 "enum": ["ecod"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -456,6 +467,17 @@
                                                 "default": "copod",
                                                 "enum": ["copod"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -533,6 +555,17 @@
                                                 "default": "isolation_forest",
                                                 "enum": ["isolation_forest"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -621,6 +654,17 @@
                                                 "default": "knn",
                                                 "enum": ["knn"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -698,6 +742,17 @@
                                                 "default": "hbos",
                                                 "enum": ["hbos"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -775,6 +830,17 @@
                                                 "default": "lof",
                                                 "enum": ["lof"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -863,6 +929,17 @@
                                                 "default": "ocsvm",
                                                 "enum": ["ocsvm"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -929,6 +1006,17 @@
                                                 "default": "pca",
                                                 "enum": ["pca"],
                                                 "type": "string"
+                                            },
+                                            "window": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                             }
                                         },
                                         "type": "object"
@@ -1320,6 +1408,17 @@
                             "default": "ecod",
                             "enum": ["ecod"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"
@@ -1386,6 +1485,17 @@
                             "default": "copod",
                             "enum": ["copod"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"
@@ -1463,6 +1573,17 @@
                             "default": "isolation_forest",
                             "enum": ["isolation_forest"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"
@@ -1551,6 +1672,17 @@
                             "default": "knn",
                             "enum": ["knn"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"
@@ -1628,6 +1760,17 @@
                             "default": "hbos",
                             "enum": ["hbos"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"
@@ -1705,6 +1848,17 @@
                             "default": "lof",
                             "enum": ["lof"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"
@@ -1793,6 +1947,17 @@
                             "default": "ocsvm",
                             "enum": ["ocsvm"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"
@@ -1859,6 +2024,17 @@
                             "default": "pca",
                             "enum": ["pca"],
                             "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                         }
                     },
                     "type": "object"

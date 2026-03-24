@@ -53,20 +53,14 @@ impl Default for RoutingTableConfig {
 pub struct RoutingTable {
     store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
-    handler: Arc<dyn CutoverHandler>,
     table: Arc<RwLock<HashMap<u32, String>>>,
 }
 
 impl RoutingTable {
-    pub fn new(
-        store: Arc<PersonhogStore>,
-        config: RoutingTableConfig,
-        handler: Arc<dyn CutoverHandler>,
-    ) -> Self {
+    pub fn new(store: Arc<PersonhogStore>, config: RoutingTableConfig) -> Self {
         Self {
             store,
             config,
-            handler,
             table: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -91,12 +85,21 @@ impl RoutingTable {
 
     /// Run the routing table. Registers with etcd, loads the initial state,
     /// then watches for assignment changes and handoffs. Blocks until cancelled.
-    pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
+    ///
+    /// The `handler` performs the actual traffic cutover when a handoff reaches
+    /// the Ready phase. Accepting it here (rather than in the constructor)
+    /// lets callers build the handler after the routing table, avoiding
+    /// circular-dependency workarounds like `OnceCell`.
+    pub async fn run(
+        &self,
+        cancel: CancellationToken,
+        handler: Arc<dyn CutoverHandler>,
+    ) -> Result<()> {
         // Register this router so the coordinator can count it for ack quorum
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
-        self.load_initial().await?;
+        self.load_initial(&handler).await?;
 
         // Run heartbeat, assignment watch, and handoff watch concurrently
         let mut tasks = tokio::task::JoinSet::new();
@@ -119,7 +122,7 @@ impl RoutingTable {
 
         {
             let store = Arc::clone(&self.store);
-            let handler = Arc::clone(&self.handler);
+            let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
             let token = cancel.child_token();
             tasks.spawn(async move {
@@ -150,7 +153,7 @@ impl RoutingTable {
         self.store.register_router(&router, lease_id).await
     }
 
-    async fn load_initial(&self) -> Result<()> {
+    async fn load_initial(&self, handler: &Arc<dyn CutoverHandler>) -> Result<()> {
         let assignments = self.store.list_assignments().await?;
         let mut table = self.table.write().await;
         for a in assignments {
@@ -173,7 +176,7 @@ impl RoutingTable {
                     "catching up on in-progress handoff"
                 );
 
-                self.handler
+                handler
                     .execute_cutover(handoff.partition, &handoff.old_owner, &handoff.new_owner)
                     .await?;
 

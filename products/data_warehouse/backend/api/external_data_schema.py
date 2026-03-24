@@ -143,7 +143,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ):
             raise ValidationError("Invalid sync type")
 
-        validated_data["sync_type"] = sync_type
+        # Only update sync_type if it was explicitly provided in the request
+        if "sync_type" in data:
+            validated_data["sync_type"] = sync_type
 
         trigger_refresh = False
         # Update the validated_data with incremental fields

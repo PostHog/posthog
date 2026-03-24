@@ -43,9 +43,10 @@ logger = structlog.get_logger(__name__)
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
 
-def get_experiment_query_sql(experiment_query_ast: ast.SelectQuery, team: Team) -> str:
+def get_experiment_query_debug(experiment_query_ast: ast.SelectQuery, team: Team) -> tuple[str, str]:
     """
-    Generate raw SQL for debugging from experiment query AST
+    Generate both HogQL and ClickHouse SQL for debugging from experiment query AST.
+    Returns (hogql, clickhouse_sql) tuple.
     """
     executor = HogQLQueryExecutor(
         query=experiment_query_ast,
@@ -53,9 +54,8 @@ def get_experiment_query_sql(experiment_query_ast: ast.SelectQuery, team: Team) 
         modifiers=create_default_modifiers_for_team(team),
     )
     clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
-
-    # Substitute the parameters to get the final executable query
-    return substitute_params(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    clickhouse_sql = substitute_params(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    return (executor.hogql, clickhouse_sql)
 
 
 def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:

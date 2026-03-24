@@ -533,6 +533,7 @@ def team_api_test_factory():
                     event="team deleted",
                     properties=mock.ANY,
                     groups=mock.ANY,
+                    send_feature_flags=False,
                 ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -542,6 +543,7 @@ def team_api_test_factory():
                         event="project deleted",
                         properties=mock.ANY,
                         groups=mock.ANY,
+                        send_feature_flags=False,
                     )
                 )
                 mock_delete_task_project.delay.assert_called_once_with(

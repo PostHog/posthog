@@ -1,0 +1,681 @@
+name: Enable Feature Flags PR Canary
+
+# Build the feature-flags Docker image from the PR head commit and dispatch
+# the canary deployment to the charts repo, which handles the ArgoCD rollout
+# using a two-phase deployment approach.
+#
+# Trigger options:
+# 1. Comment /pr-canary on a PR (supports weight= and env= params)
+# 2. Push new commits to a PR that already has the 'canary-flags' label
+# 3. Manually via workflow_dispatch with PR number and options
+#
+# Requirements:
+# - PR must be approved (no outstanding change requests)
+# - PR author must be a PostHog org member
+# - For /pr-canary and workflow_dispatch: actor must be in team-feature-flags or team-flags-platform
+
+concurrency:
+    group: canary-flags-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
+    cancel-in-progress: true
+
+on:
+    issue_comment:
+        types: [created]
+    pull_request:
+        types: [synchronize]
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: 'PR number'
+                required: true
+                type: string
+            canary_weight:
+                description: 'Traffic weight for canary (1-10, or "auto" to match per-pod traffic of the stable fleet)'
+                required: false
+                type: string
+                default: 'auto'
+            target_environment:
+                description: 'Target environment for the canary'
+                required: false
+                type: choice
+                options:
+                    - dev
+                    - prod-us
+                    - prod-eu
+                default: 'dev'
+
+jobs:
+    # Lightweight job: parse /pr-canary commands, validate, add label, provide feedback
+    handle_comment:
+        name: Handle /pr-canary command
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            github.event_name == 'issue_comment' &&
+            github.event.issue.pull_request &&
+            startsWith(github.event.comment.body, '/pr-canary')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            pull-requests: write
+            issues: write
+        outputs:
+            should_build: ${{ steps.command.outputs.should_build }}
+            pr_number: ${{ steps.command.outputs.pr_number }}
+            pr_head_sha: ${{ steps.command.outputs.pr_head_sha }}
+            canary_weight: ${{ steps.command.outputs.canary_weight }}
+            target_environment: ${{ steps.command.outputs.target_environment }}
+        steps:
+            - name: React to comment
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      await github.rest.reactions.createForIssueComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: context.payload.comment.id,
+                          content: 'eyes'
+                      });
+
+            - name: Parse command and validate
+              id: command
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  ACTOR: ${{ github.actor }}
+              with:
+                  script: |
+                      const prNumber = context.payload.issue.number;
+                      const body = context.payload.comment.body.trim();
+                      const firstLine = body.split('\n')[0].trim();
+
+                      // Handle /pr-canary help
+                      if (/^\/pr-canary\s+help\b/.test(firstLine)) {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: prNumber,
+                              body: [
+                                  '### `/pr-canary` — Feature flags canary deployment',
+                                  '',
+                                  '| Command | Description |',
+                                  '|---------|-------------|',
+                                  '| `/pr-canary` | Deploy with auto weight to dev |',
+                                  '| `/pr-canary weight=5` | Deploy with 5% traffic to dev |',
+                                  '| `/pr-canary env=prod-us` | Deploy with auto weight to prod-us |',
+                                  '| `/pr-canary weight=3 env=prod-eu` | Deploy with 3% traffic to prod-eu |',
+                                  '| `/pr-canary help` | Show this help |',
+                                  '',
+                                  '**Parameters:**',
+                                  '',
+                                  '| Parameter | Values | Default |',
+                                  '|-----------|--------|---------|',
+                                  '| `weight` | `1`–`10` or `auto` | `auto` |',
+                                  '| `env` | `dev`, `prod-us`, `prod-eu` | `dev` |',
+                                  '',
+                                  '**Requirements:** PR must be approved. You must be in `team-feature-flags` or `team-flags-platform`.',
+                                  '',
+                                  'The canary auto-disables after 48h or when the PR is closed/merged.',
+                              ].join('\n')
+                          });
+                          core.setOutput('should_build', 'false');
+                          return;
+                      }
+
+                      // Check team membership
+                      const actor = process.env.ACTOR;
+                      const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
+                      let isMember = false;
+
+                      for (const team of allowedTeams) {
+                          try {
+                              await github.rest.teams.getMembershipForUserInOrg({
+                                  org: 'PostHog',
+                                  team_slug: team,
+                                  username: actor
+                              });
+                              console.log(`${actor} is a member of PostHog/${team}`);
+                              isMember = true;
+                              break;
+                          } catch (e) {
+                              if (e.status === 404) {
+                                  console.log(`${actor} is not in PostHog/${team}`);
+                              } else {
+                                  core.setFailed(
+                                      `Failed to check team membership for PostHog/${team}: ${e.message}. ` +
+                                      `The GITHUB_TOKEN may lack Organization > Members > Read permission.`
+                                  );
+                                  return;
+                              }
+                          }
+                      }
+
+                      if (!isMember) {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: prNumber,
+                              body: `@${actor} you must be a member of \`team-feature-flags\` or \`team-flags-platform\` to use \`/pr-canary\`.`
+                          });
+                          core.setFailed('Not a member of an authorized team');
+                          return;
+                      }
+
+                      // Pin the PR head SHA now so it cannot change between
+                      // validation and checkout (addresses TOCTOU concern for
+                      // issue_comment running in a privileged context).
+                      const { data: pr } = await github.rest.pulls.get({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          pull_number: prNumber
+                      });
+
+                      // Restrict canary to PRs authored by PostHog org members
+                      // to prevent building code from external contributors.
+                      try {
+                          const { data: membership } = await github.rest.orgs.getMembershipForUser({
+                              org: 'PostHog',
+                              username: pr.user.login
+                          });
+                          if (membership.state !== 'active') {
+                              throw new Error('not active');
+                          }
+                      } catch (e) {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: prNumber,
+                              body: `Canary deployments are restricted to PRs authored by PostHog org members. PR author \`${pr.user.login}\` is not a member.`
+                          });
+                          core.setFailed('PR author is not a PostHog org member');
+                          return;
+                      }
+
+                      // Parse /pr-canary [weight=N] [env=ENV]
+                      const weightMatch = firstLine.match(/\bweight=(\S+)/);
+                      const envMatch = firstLine.match(/\benv=(\S+)/);
+                      const canaryWeight = weightMatch ? weightMatch[1] : 'auto';
+                      const targetEnvironment = envMatch ? envMatch[1] : 'dev';
+
+                      // Validate params early so the user gets immediate feedback
+                      if (canaryWeight !== 'auto') {
+                          const w = Number(canaryWeight);
+                          if (!Number.isInteger(w) || w < 1 || w > 10) {
+                              await github.rest.issues.createComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  issue_number: prNumber,
+                                  body: `Invalid \`weight\` value: \`${canaryWeight}\`. Must be \`auto\` or an integer between 1 and 10.`
+                              });
+                              core.setFailed(`Invalid canary weight: ${canaryWeight}`);
+                              return;
+                          }
+                      }
+
+                      const validEnvs = ['dev', 'prod-us', 'prod-eu'];
+                      if (!validEnvs.includes(targetEnvironment)) {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: prNumber,
+                              body: `Invalid \`env\` value: \`${targetEnvironment}\`. Must be one of: ${validEnvs.map(e => `\`${e}\``).join(', ')}.`
+                          });
+                          core.setFailed(`Invalid target environment: ${targetEnvironment}`);
+                          return;
+                      }
+
+                      core.setOutput('should_build', 'true');
+                      core.setOutput('pr_number', prNumber.toString());
+                      core.setOutput('pr_head_sha', pr.head.sha);
+                      core.setOutput('canary_weight', canaryWeight);
+                      core.setOutput('target_environment', targetEnvironment);
+
+                      console.log(`Parsed: PR #${prNumber}, SHA=${pr.head.sha}, weight=${canaryWeight}, env=${targetEnvironment}`);
+
+            - name: Add canary-flags label
+              if: steps.command.outputs.should_build == 'true'
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ steps.command.outputs.pr_number }}
+              with:
+                  script: |
+                      const prNumber = parseInt(process.env.PR_NUMBER);
+                      await github.rest.issues.addLabels({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          labels: ['canary-flags']
+                      });
+                      console.log(`Added canary-flags label to PR #${prNumber}`);
+
+            - name: Report failure on PR
+              if: failure()
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const prNumber = context.payload.issue.number;
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body: `**Canary deployment failed.** [View details](${runUrl})`
+                      });
+
+    # Heavy job: build image + dispatch to charts
+    build_and_enable:
+        name: Build feature-flags image and enable canary
+        needs: [handle_comment]
+        if: >-
+            !cancelled() &&
+            github.repository == 'PostHog/posthog' && (
+                github.event_name == 'workflow_dispatch' ||
+                (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'canary-flags')) ||
+                (needs.handle_comment.result == 'success' && needs.handle_comment.outputs.should_build == 'true')
+            )
+        runs-on: depot-ubuntu-22.04
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+            pull-requests: read
+            issues: write
+
+        steps:
+            - name: Resolve PR info and validate approval
+              id: pr_info
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  COMMENT_PR_NUMBER: ${{ needs.handle_comment.outputs.pr_number }}
+                  COMMENT_PR_HEAD_SHA: ${{ needs.handle_comment.outputs.pr_head_sha }}
+                  COMMENT_CANARY_WEIGHT: ${{ needs.handle_comment.outputs.canary_weight }}
+                  COMMENT_TARGET_ENV: ${{ needs.handle_comment.outputs.target_environment }}
+              with:
+                  script: |
+                      let prNumber, canaryWeight, targetEnvironment, headSha;
+
+                      if (context.eventName === 'workflow_dispatch') {
+                          prNumber = parseInt(context.payload.inputs.pr_number);
+                          canaryWeight = context.payload.inputs.canary_weight || 'auto';
+                          targetEnvironment = context.payload.inputs.target_environment || 'dev';
+                      } else if (context.eventName === 'issue_comment') {
+                          prNumber = parseInt(process.env.COMMENT_PR_NUMBER);
+                          canaryWeight = process.env.COMMENT_CANARY_WEIGHT;
+                          targetEnvironment = process.env.COMMENT_TARGET_ENV;
+                          // Use the SHA pinned by handle_comment to prevent TOCTOU:
+                          // the PR HEAD cannot change between validation and checkout.
+                          headSha = process.env.COMMENT_PR_HEAD_SHA;
+                      } else {
+                          prNumber = context.payload.pull_request.number;
+                          canaryWeight = 'auto';
+                          targetEnvironment = 'dev';
+                          headSha = context.payload.pull_request.head.sha;
+                      }
+
+                      if (isNaN(prNumber) || prNumber <= 0) {
+                          core.setFailed(`Invalid PR number: ${prNumber}`);
+                          return;
+                      }
+
+                      // For workflow_dispatch we need to fetch the PR to get the
+                      // head SHA and author. For pull_request the payload has both.
+                      // For issue_comment the SHA was already pinned in handle_comment.
+                      let prAuthor;
+                      if (context.eventName === 'workflow_dispatch') {
+                          const { data: pr } = await github.rest.pulls.get({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              pull_number: prNumber
+                          });
+                          headSha = pr.head.sha;
+                          prAuthor = pr.user.login;
+                      } else if (context.eventName === 'pull_request') {
+                          prAuthor = context.payload.pull_request.user.login;
+                      }
+
+                      const allReviews = await github.paginate(github.rest.pulls.listReviews, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          pull_number: prNumber,
+                          per_page: 100,
+                      });
+
+                      // Keep only the latest meaningful review per reviewer.
+                      // Filter to APPROVED/CHANGES_REQUESTED so that a follow-up
+                      // COMMENTED review doesn't shadow a prior approval.
+                      const significantReviews = allReviews.filter(r =>
+                          r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED'
+                      );
+                      const latestByReviewer = significantReviews.reduce((acc, r) => {
+                          if (!acc[r.user.login] || new Date(r.submitted_at) > new Date(acc[r.user.login].submitted_at)) {
+                              acc[r.user.login] = r;
+                          }
+                          return acc;
+                      }, {});
+                      const latestReviews = Object.values(latestByReviewer);
+
+                      const hasApproval = latestReviews.some(r => r.state === 'APPROVED');
+                      const hasChangesRequested = latestReviews.some(r => r.state === 'CHANGES_REQUESTED');
+
+                      if (!hasApproval || hasChangesRequested) {
+                          const reason = !hasApproval
+                              ? 'it has not been approved'
+                              : 'it has outstanding change requests';
+                          core.setFailed(`PR #${prNumber} cannot enable canary: ${reason}`);
+                          return;
+                      }
+
+                      const shortSha = headSha.substring(0, 7);
+
+                      core.setOutput('pr_number', prNumber.toString());
+                      core.setOutput('pr_head_sha', headSha);
+                      core.setOutput('canary_weight', canaryWeight);
+                      core.setOutput('target_environment', targetEnvironment);
+                      core.setOutput('image_tag', `sha-${shortSha}`);
+                      if (prAuthor) {
+                          core.setOutput('pr_author', prAuthor);
+                      }
+
+                      console.log(`PR #${prNumber} approved. SHA: ${headSha}`);
+
+            - name: Verify canary label was authorized
+              if: github.event_name == 'pull_request'
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+              with:
+                  script: |
+                      const prNumber = parseInt(process.env.PR_NUMBER);
+
+                      // Find who added the canary-flags label by inspecting PR events.
+                      // If the label was added by the workflow (github-actions[bot]) it
+                      // went through /pr-canary which already verified team membership.
+                      // If added manually, verify the user is on an allowed team.
+                      const events = await github.paginate(github.rest.issues.listEvents, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          per_page: 100,
+                      });
+
+                      const labelEvent = events
+                          .findLast(e => e.event === 'labeled' && e.label.name === 'canary-flags');
+
+                      if (!labelEvent) {
+                          core.setFailed('canary-flags label event not found — cannot verify authorization');
+                          return;
+                      }
+
+                      const labeler = labelEvent.actor.login;
+
+                      // Label added by the workflow itself (via /pr-canary) — already authorized
+                      if (labeler === 'github-actions[bot]') {
+                          console.log('canary-flags label was added by the workflow (authorized)');
+                          return;
+                      }
+
+                      // Label added manually — verify the user is on an allowed team
+                      const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
+                      for (const team of allowedTeams) {
+                          try {
+                              await github.rest.teams.getMembershipForUserInOrg({
+                                  org: 'PostHog',
+                                  team_slug: team,
+                                  username: labeler
+                              });
+                              console.log(`Label was added by ${labeler} who is a member of PostHog/${team}`);
+                              return;
+                          } catch (e) {
+                              if (e.status !== 404) {
+                                  core.setFailed(`Failed to check team membership: ${e.message}`);
+                                  return;
+                              }
+                          }
+                      }
+
+                      core.setFailed(
+                          `canary-flags label was added by ${labeler} who is not a member of ` +
+                          `team-feature-flags or team-flags-platform. ` +
+                          `Use /pr-canary to enable canary deployments.`
+                      );
+
+            - name: Verify PR author is org member
+              if: github.event_name != 'issue_comment'
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
+              with:
+                  script: |
+                      // pr_author is set by pr_info: from the API for workflow_dispatch,
+                      // from the event payload for pull_request.
+                      // For issue_comment this step is skipped entirely (checked in handle_comment).
+                      const prAuthor = process.env.PR_AUTHOR;
+                      if (!prAuthor) {
+                          core.setFailed('pr_author output not set by pr_info step');
+                          return;
+                      }
+
+                      try {
+                          const { data: membership } = await github.rest.orgs.getMembershipForUser({
+                              org: 'PostHog',
+                              username: prAuthor
+                          });
+                          if (membership.state !== 'active') {
+                              throw new Error('not active');
+                          }
+                          console.log(`PR author ${prAuthor} is a PostHog org member`);
+                      } catch (e) {
+                          core.setFailed(
+                              `Canary deployments are restricted to PRs authored by PostHog org members. ` +
+                              `PR author ${prAuthor} is not a member.`
+                          );
+                      }
+
+            - name: Verify team membership
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  ACTOR: ${{ github.actor }}
+              with:
+                  script: |
+                      const actor = process.env.ACTOR;
+                      const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
+
+                      for (const team of allowedTeams) {
+                          try {
+                              await github.rest.teams.getMembershipForUserInOrg({
+                                  org: 'PostHog',
+                                  team_slug: team,
+                                  username: actor
+                              });
+                              console.log(`${actor} is a member of PostHog/${team}`);
+                              return;
+                          } catch (e) {
+                              if (e.status === 404) {
+                                  console.log(`${actor} is not in PostHog/${team}`);
+                              } else {
+                                  core.setFailed(
+                                      `Failed to check team membership for PostHog/${team}: ${e.message}. ` +
+                                      `The GITHUB_TOKEN may lack Organization > Members > Read permission.`
+                                  );
+                                  return;
+                              }
+                          }
+                      }
+                      core.setFailed(
+                          `${actor} is not a member of team-feature-flags or team-flags-platform. ` +
+                          `Only members of these teams can trigger canary deployments.`
+                      );
+
+            - name: Validate canary inputs
+              env:
+                  CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
+              run: |
+                  if [ "$CANARY_WEIGHT" != "auto" ]; then
+                    if ! [[ "$CANARY_WEIGHT" =~ ^[0-9]+$ ]]; then
+                      echo "::error::Canary weight must be 'auto' or numeric, got: $CANARY_WEIGHT"
+                      exit 1
+                    fi
+                    if [ "$CANARY_WEIGHT" -lt 1 ] || [ "$CANARY_WEIGHT" -gt 10 ]; then
+                      echo "::error::Canary weight must be between 1 and 10, got: $CANARY_WEIGHT"
+                      exit 1
+                    fi
+                  fi
+
+                  case "$TARGET_ENVIRONMENT" in
+                    dev|prod-us|prod-eu) ;;
+                    *)
+                      echo "::error::Invalid target environment: $TARGET_ENVIRONMENT. Must be one of: dev, prod-us, prod-eu"
+                      exit 1
+                      ;;
+                  esac
+
+                  echo "Validated: weight=${CANARY_WEIGHT}, environment=${TARGET_ENVIRONMENT}"
+
+            - name: Check Out Repo
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ steps.pr_info.outputs.pr_head_sha }}
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                  sparse-checkout-cone-mode: false
+
+            - name: Copy proto files into rust build context
+              run: cp -r proto rust/proto
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+            - name: Retrieve sccache configuration
+              id: sccache
+              run: |
+                  echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
+                  echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
+                  echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
+
+            - name: Build and push feature-flags image
+              id: docker_build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: vglf58qgzw
+                  context: ./rust/
+                  file: ./rust/Dockerfile
+                  push: true
+                  tags: ghcr.io/posthog/posthog/feature-flags:${{ steps.pr_info.outputs.image_tag }}
+                  platforms: linux/arm64
+                  build-args: |
+                      SCCACHE_LOG=warn
+                      SCCACHE_NO_DAEMON=1
+                      BIN=feature-flags
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+
+            - name: Get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+
+            - name: Dispatch canary deployment to charts repo
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+                  IMAGE_TAG: ${{ steps.pr_info.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
+                  STARTED_BY: ${{ github.actor }}
+              with:
+                  github-token: ${{ steps.deployer.outputs.token }}
+                  script: |
+                      await github.rest.repos.createDispatchEvent({
+                          owner: 'PostHog',
+                          repo: 'charts',
+                          event_type: 'enable-canary-flags',
+                          client_payload: {
+                              pr_number: process.env.PR_NUMBER,
+                              image_tag: process.env.IMAGE_TAG,
+                              canary_weight: process.env.CANARY_WEIGHT,
+                              target_environment: process.env.TARGET_ENVIRONMENT,
+                              started_by: process.env.STARTED_BY
+                          }
+                      });
+
+            - name: Summary
+              env:
+                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+                  IMAGE_TAG: ${{ steps.pr_info.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
+              run: |
+                  echo "## Canary Flags - Build & Dispatch" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- **PR**: #${PR_NUMBER}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Image**: ghcr.io/posthog/posthog/feature-flags:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Weight**: ${CANARY_WEIGHT}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Environment**: ${TARGET_ENVIRONMENT}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "Deployment dispatched to the [charts repo canary workflow](https://github.com/PostHog/charts/actions/workflows/pr-canary-flags-enable.yml)." >> $GITHUB_STEP_SUMMARY
+
+            - name: Report success on PR
+              if: success() && github.event_name == 'issue_comment'
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+                  IMAGE_TAG: ${{ steps.pr_info.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
+              with:
+                  script: |
+                      await github.rest.reactions.createForIssueComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: context.payload.comment.id,
+                          content: 'rocket'
+                      });
+
+                      const prNumber = parseInt(process.env.PR_NUMBER);
+                      const chartsUrl = 'https://github.com/PostHog/charts/actions/workflows/pr-canary-flags-enable.yml';
+                      await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body: [
+                              `**Canary deployment dispatched**`,
+                              '',
+                              `| | |`,
+                              `|---|---|`,
+                              `| Image | \`${process.env.IMAGE_TAG}\` |`,
+                              `| Weight | ${process.env.CANARY_WEIGHT} |`,
+                              `| Environment | ${process.env.TARGET_ENVIRONMENT} |`,
+                              '',
+                              `[View deployment progress](${chartsUrl})`,
+                          ].join('\n')
+                      });
+
+            - name: Report failure on PR
+              if: failure() && github.event_name == 'issue_comment'
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const prNumber = context.payload.issue.number;
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body: `**Canary deployment failed.** [View details](${runUrl})`
+                      });

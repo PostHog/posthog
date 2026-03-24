@@ -1,5 +1,5 @@
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -140,6 +140,120 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         )
         assert list_for_another_insight.status_code == status.HTTP_200_OK
         assert len(list_for_another_insight.json()["results"]) == 0
+
+    @parameterized.expand(
+        [
+            ("default_limit", 8, "", 5),
+            ("explicit_limit", 10, "?checks_limit=3", 3),
+            ("capped_at_max", 3, "?checks_limit=9999", 3),
+            ("negative_clamped_to_1", 5, "?checks_limit=-5", 1),
+            ("zero_clamped_to_1", 5, "?checks_limit=0", 1),
+            ("invalid_falls_back_to_default", 5, "?checks_limit=abc", 5),
+        ]
+    )
+    def test_retrieve_checks_limit_behaviour(
+        self, _name: str, total_checks: int, query_param: str, expected_count: int
+    ) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "checks limit test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+
+        for i in range(total_checks):
+            AlertCheck.objects.create(
+                alert_configuration=alert_obj,
+                calculated_value=float(i),
+                state=AlertState.NOT_FIRING,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}{query_param}")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["checks"]) == expected_count
+
+    def test_retrieve_checks_with_date_from(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "checks date test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+
+        now = datetime.now(UTC)
+        # Create 3 old checks (2 days ago) and 2 recent checks (now)
+        for i in range(3):
+            check = AlertCheck.objects.create(
+                alert_configuration=alert_obj,
+                calculated_value=float(i),
+                state=AlertState.NOT_FIRING,
+            )
+            AlertCheck.objects.filter(id=check.id).update(created_at=now - timedelta(hours=48 + i))
+
+        for i in range(2):
+            AlertCheck.objects.create(
+                alert_configuration=alert_obj,
+                calculated_value=float(10 + i),
+                state=AlertState.NOT_FIRING,
+            )
+
+        # Without date_from — returns last 5 (all of them)
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert len(response.json()["checks"]) == 5
+
+        # With date_from=-24h — only the 2 recent checks
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}?checks_date_from=-24h")
+        assert response.status_code == status.HTTP_200_OK
+        checks = response.json()["checks"]
+        assert len(checks) == 2
+        for check in checks:
+            assert check["calculated_value"] >= 10.0
+
+    def test_retrieve_checks_with_date_from_and_date_to(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "checks window test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+
+        now = datetime.now(UTC)
+        # Create checks at different times: 3 days ago, 2 days ago, 1 day ago, now
+        times_and_values = [
+            (now - timedelta(hours=72), 1.0),
+            (now - timedelta(hours=48), 2.0),
+            (now - timedelta(hours=24), 3.0),
+            (now, 4.0),
+        ]
+        for created_at, value in times_and_values:
+            check = AlertCheck.objects.create(
+                alert_configuration=alert_obj,
+                calculated_value=value,
+                state=AlertState.NOT_FIRING,
+            )
+            AlertCheck.objects.filter(id=check.id).update(created_at=created_at)
+
+        # Window from 4 days ago to 12 hours ago — should get checks with values 1.0, 2.0, 3.0 but not 4.0
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}?checks_date_from=-4d&checks_date_to=-12h"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        checks = response.json()["checks"]
+        assert len(checks) == 3
+        values = [c["calculated_value"] for c in checks]
+        assert 4.0 not in values
 
     def test_alert_limit(self) -> None:
         with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER") as alert_limit:
