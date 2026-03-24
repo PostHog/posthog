@@ -1371,9 +1371,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('property select toggle opened')
         },
         reportCreatedDashboardFromModal: async () => {
-        reportWebDashboardCreatedFromTemplate: async (payload) => {
-            posthog.capture('dashboard created from template', payload)
+            posthog.capture('created new dashboard from modal')
         },
+        reportWebDashboardCreatedFromTemplate: async (payload) => {
+            posthog.capture('dashboard created from template', {
+                dashboard_id: payload.dashboard_id,
+                template_id: payload.template_id,
+                template_name: payload.template_name,
+                template_variable_count: payload.template_variable_count,
             })
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
