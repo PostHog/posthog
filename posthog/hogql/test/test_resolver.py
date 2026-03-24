@@ -1202,8 +1202,7 @@ class TestResolver(BaseTest):
         assert isinstance(selected.type, ast.CallType)
         assert selected.type.return_type.nullable is False
 
-    @pytest.mark.parametrize(
-        "expr,from_clause",
+    @parameterized.expand(
         [
             ("toNullable('hello')", ""),
             ("toNullable(event)", "FROM events"),
