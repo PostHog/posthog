@@ -839,10 +839,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
         """
-        Safely save cohort state with fallback to save only critical fields.
+        Save only the cohort's calculation-state fields with a single retry on failure.
 
-        This prevents cohorts from getting stuck in calculating state when
-        database issues occur during cleanup operations.
+        Only updates `is_calculating`, `count`, and either success fields
+        (`last_calculation`, `errors_calculating`) or error fields
+        (`errors_calculating`, `last_error_at`) — never the full model — so
+        concurrent edits to other cohort fields are not overwritten.
 
         Args:
             team_id: Team ID for logging context
