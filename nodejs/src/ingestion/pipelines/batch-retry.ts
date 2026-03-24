@@ -2,7 +2,6 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { BatchProcessingStep } from './base-batch-pipeline'
-import { wrapBatchStep } from './extensions/helpers'
 import { dlq } from './results'
 
 export interface BatchRetryOptions {
@@ -27,14 +26,13 @@ export function withBatchRetry<T, U>(
     step: BatchProcessingStep<T, U>,
     options: BatchRetryOptions = {}
 ): BatchProcessingStep<T, U> {
-    return wrapBatchStep(step, async (values, s) => {
-        const stepName = s.name || 'anonymousBatchStep'
+    const wrappedStep: BatchProcessingStep<T, U> = async (values: T[]) => {
         try {
-            return await retryIfRetriable(() => s(values), options.tries ?? 3, options.sleepMs ?? 100)
+            return await retryIfRetriable(() => step(values), options.tries ?? 3, options.sleepMs ?? 100)
         } catch (error) {
             const isRetriable = (error as any)?.isRetriable
 
-            logger.error('🔥', `Batch step ${stepName} failed`, {
+            logger.error('🔥', `Batch step ${step.name} failed`, {
                 error: error instanceof Error ? error.message : String(error),
                 stack: (error as Error).stack,
                 batchSize: values.length,
@@ -48,5 +46,8 @@ export function withBatchRetry<T, U>(
 
             throw error
         }
-    })
+    }
+
+    Object.defineProperty(wrappedStep, 'name', { value: step.name })
+    return wrappedStep
 }

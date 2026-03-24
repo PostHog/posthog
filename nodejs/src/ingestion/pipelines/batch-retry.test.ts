@@ -152,26 +152,19 @@ describe('withBatchRetry', () => {
         expect(isOkResult(results![2].result) && results![2].result.value).toBe('6')
     })
 
-    it('preserves the step name for metrics', () => {
-        const myNamedStep: BatchProcessingStep<number, string> = function myNamedStep(values) {
-            return Promise.resolve(values.map((v) => ok(String(v))))
-        }
+    // Declare steps outside it.each to preserve inferred names from variable assignment
+    const myNamedStep: BatchProcessingStep<number, string> = function myNamedStep(values) {
+        return Promise.resolve(values.map((v) => ok(String(v))))
+    }
+    const myArrowStep: BatchProcessingStep<number, string> = (values) => {
+        return Promise.resolve(values.map((v) => ok(String(v))))
+    }
 
-        const wrapped = withBatchRetry(myNamedStep)
-
-        // The wrapped function should preserve the original step name
-        expect(wrapped.name).toBe('myNamedStep')
-    })
-
-    it('uses variable name for arrow functions assigned to variables', () => {
-        // JavaScript infers the name from the variable assignment
-        const myArrowStep: BatchProcessingStep<number, string> = (values) => {
-            return Promise.resolve(values.map((v) => ok(String(v))))
-        }
-
-        const wrapped = withBatchRetry(myArrowStep)
-
-        // Arrow functions assigned to variables get their name from the variable
-        expect(wrapped.name).toBe('myArrowStep')
+    it.each([
+        { description: 'named function expression', step: myNamedStep, expectedName: 'myNamedStep' },
+        { description: 'arrow function assigned to variable', step: myArrowStep, expectedName: 'myArrowStep' },
+    ])('preserves step name for $description', ({ step, expectedName }) => {
+        const wrapped = withBatchRetry(step)
+        expect(wrapped.name).toBe(expectedName)
     })
 })
