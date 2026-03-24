@@ -1,5 +1,6 @@
 import { ReactNode } from 'react'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -31,7 +32,9 @@ export function InsightLegendRowContextMenu({
 }: InsightLegendRowContextMenuProps): JSX.Element {
     return (
         <ContextMenu>
-            <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+            <Tooltip title="Right-click for options" delayMs={200}>
+                <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+            </Tooltip>
             <ContextMenuContent className="max-w-[300px] click-outside-block">
                 <ContextMenuGroup>
                     {showLegendIsolateSeriesItem && !isHidden && (
