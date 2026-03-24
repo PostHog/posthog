@@ -450,9 +450,12 @@ def _get_experimental_chunking(config: ExperimentalSessionsBackfillConfig) -> tu
 
         def distinct_id_range(i: int) -> str:
             low = i * chunk_size
+            high = (i + 1) * chunk_size
+            if i == 0:
+                return f"cityHash64(distinct_id) < {high}"
             if i == num_chunks - 1:
                 return f"cityHash64(distinct_id) >= {low}"
-            return f"cityHash64(distinct_id) >= {low} AND cityHash64(distinct_id) < {(i + 1) * chunk_size}"
+            return f"cityHash64(distinct_id) >= {low} AND cityHash64(distinct_id) < {high}"
 
         return num_chunks, "cityHash64(distinct_id) range", distinct_id_range
     else:
