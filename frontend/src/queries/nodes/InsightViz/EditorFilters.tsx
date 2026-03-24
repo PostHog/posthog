@@ -240,7 +240,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
-            title: 'Advanced options',
+            title: editorPanelsEnabled
+                ? isFunnels
+                    ? 'Funnel settings'
+                    : isPaths
+                      ? 'Path settings'
+                      : 'Advanced options'
+                : 'Advanced options',
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
