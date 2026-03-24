@@ -102,7 +102,7 @@ Use `pathGroupings` for simpler glob-like grouping of paths into single nodes. U
 
 ## Exclusions
 
-Use `excludeEvents` to remove noisy events that clutter the visualization, such as common but uninteresting events.
+Use `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these are URLs (e.g., `/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.
 
 # Examples
 
@@ -136,16 +136,31 @@ Use `excludeEvents` to remove noisy events that clutter the visualization, such 
 }
 ```
 
-## Navigation paths excluding common noise events
+## Navigation paths excluding noisy URLs
 
 ```json
 {
   "kind": "PathsQuery",
   "pathsFilter": {
     "includeEventTypes": ["$pageview"],
-    "excludeEvents": ["$pageleave"],
+    "excludeEvents": ["/health-check", "/ping"],
     "stepLimit": 5,
     "edgeLimit": 30
+  },
+  "dateRange": { "date_from": "-14d" },
+  "filterTestAccounts": true
+}
+```
+
+## Custom event paths excluding noisy events
+
+```json
+{
+  "kind": "PathsQuery",
+  "pathsFilter": {
+    "includeEventTypes": ["custom_event"],
+    "excludeEvents": ["$pageleave", "heartbeat"],
+    "stepLimit": 5
   },
   "dateRange": { "date_from": "-14d" },
   "filterTestAccounts": true
