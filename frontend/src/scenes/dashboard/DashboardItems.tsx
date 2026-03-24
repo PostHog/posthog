@@ -300,10 +300,10 @@ export function DashboardItems(): JSX.Element {
                                               return
                                           }
 
-                                          // Don't trigger when clicking obvious interactive controls
+                                          // Don't trigger when clicking obvious interactive controls or readonly rich text (TipTap/LemonMarkdown).
                                           if (
                                               target.closest(
-                                                  'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                                  'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
                                               )
                                           ) {
                                               return

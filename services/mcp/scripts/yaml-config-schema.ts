@@ -25,6 +25,8 @@ export const ToolConfigSchema = z
         list: z.boolean().optional(),
         title: z.string().optional(),
         description: z.string().optional(),
+        /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
+        description_file: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         param_overrides: z
@@ -70,6 +72,9 @@ export const ToolConfigSchema = z
                 'input_schema replaces the entire schema, so include_params, exclude_params, and param_overrides have no effect and should be removed',
         }
     )
+    .refine((data) => !(data.description && data.description_file), {
+        message: 'description and description_file are mutually exclusive',
+    })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
 
@@ -135,11 +140,16 @@ export const QueryWrapperToolConfigSchema = z
         mcp_version: z.number().int().positive().optional(),
         title: z.string().optional(),
         description: z.string().optional(),
+        /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
+        description_file: z.string().optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),
     })
     .strict()
+    .refine((data) => !(data.description && data.description_file), {
+        message: 'description and description_file are mutually exclusive',
+    })
 
 export type QueryWrapperToolConfig = z.infer<typeof QueryWrapperToolConfigSchema>
 

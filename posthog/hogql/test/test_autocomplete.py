@@ -114,6 +114,25 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert "toDateTime" in [suggestion.label for suggestion in results.suggestions]
         assert "toDateTime()" in [suggestion.insertText for suggestion in results.suggestions]
 
+    def test_autocomplete_includes_direct_connection_functions(self):
+        database = Database.create_for(team=self.team)
+        database._direct_connection_metadata = {"available_functions": ["icu_collate_nl"]}
+
+        query = "select  from events"
+        results = self._select(query=query, start=7, end=7, database=database)
+
+        assert "icu_collate_nl" in [suggestion.label for suggestion in results.suggestions]
+        assert "icu_collate_nl()" in [suggestion.insertText for suggestion in results.suggestions]
+
+    def test_autocomplete_matches_partial_direct_connection_function_without_from(self):
+        database = Database()
+        database._direct_connection_metadata = {"available_functions": ["icu_collate_nl"]}
+
+        query = "select icu"
+        results = self._select(query=query, start=7, end=10, database=database)
+
+        assert "icu_collate_nl" in [suggestion.label for suggestion in results.suggestions]
+
     def test_autocomplete_persons_suggestions(self):
         query = "select  from persons"
         results = self._select(query=query, start=7, end=7)

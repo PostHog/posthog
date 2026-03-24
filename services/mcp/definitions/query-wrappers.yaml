@@ -19,12 +19,7 @@ wrappers:
             idempotent: true
         mcp_version: 2
         title: Run a trends query
-        description: >
-            Run a trends query to analyze metrics over time. Use this to answer questions
-            about event counts, unique users, session counts, or property aggregations
-            with breakdowns and comparisons. Prefer this over raw HogQL for trends analysis.
-            Use 'event-definitions-list' to discover available events, and 'properties-list'
-            to discover available properties for filters and breakdowns.
+        description_file: ./prompts/query-trends.md
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
             - response
@@ -42,11 +37,7 @@ wrappers:
             idempotent: true
         mcp_version: 2
         title: Run a funnel query
-        description: >
-            Run a funnel query to analyze conversion rates through a sequence of steps.
-            Use this to understand how users progress through multi-step flows like
-            sign-up, onboarding, or purchase funnels. Requires at least two series
-            steps. Use 'event-definitions-list' to discover available events.
+        description_file: ./prompts/query-funnel.md
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
             - response
@@ -64,10 +55,7 @@ wrappers:
             idempotent: true
         mcp_version: 2
         title: Run a retention query
-        description: >
-            Run a retention query to analyze how many users return over time after
-            performing an initial action. Use this to measure user engagement and
-            stickiness by cohort. Use 'event-definitions-list' to discover available events.
+        description_file: ./prompts/query-retention.md
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
             - response

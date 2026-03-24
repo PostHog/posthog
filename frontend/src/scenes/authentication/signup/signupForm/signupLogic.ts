@@ -355,8 +355,7 @@ export const signupLogic = kea<signupLogicType>([
             (s) => [s.signupPanelAuth, s.signupPanel1],
             (signupPanelAuth, signupPanel1): ValidatedPasswordResult => {
                 // Use new form if available, fallback to legacy
-                const password = signupPanelAuth.password || signupPanel1.password
-                return validatePassword(password)
+                return validatePassword(signupPanelAuth.password || signupPanel1.password)
             },
         ],
         emailCaseNotice: [

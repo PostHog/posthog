@@ -228,11 +228,13 @@ FROM {database}.{kafka_table}
 #
 
 ERROR_TRACKING_EVENTS_TEST_TABLE = "error_tracking_events_test"
+ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE = f"writable_{ERROR_TRACKING_EVENTS_TEST_TABLE}"
 ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE = f"kafka_{ERROR_TRACKING_EVENTS_TEST_TABLE}"
 ERROR_TRACKING_EVENTS_TEST_MV = f"{ERROR_TRACKING_EVENTS_TEST_TABLE}_mv"
 
 DROP_ERROR_TRACKING_EVENTS_TEST_MV_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_MV}"
 DROP_ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE}"
+DROP_ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE}"
 DROP_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_TABLE}"
 
 
@@ -262,6 +264,22 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     )
 
 
+def WRITABLE_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL():
+    # Distributed table on ingestion layer that routes writes to the data table
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
+        engine=Distributed(
+            data_table=ERROR_TRACKING_EVENTS_TEST_TABLE,
+            cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
+        ),
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        materialized_columns="",
+        indexes="",
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
+    )
+
+
 def KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL():
     # kafka_skip_broken_messages = 0 ensures malformed messages surface as consumer lag
     # rather than being silently discarded, making pipeline issues visible during validation
@@ -285,6 +303,6 @@ def ERROR_TRACKING_EVENTS_TEST_MV_SQL():
     return EVENTS_TABLE_JSON_MV_SQL(
         mv_name=ERROR_TRACKING_EVENTS_TEST_MV,
         kafka_table=ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE,
-        target_table=ERROR_TRACKING_EVENTS_TEST_TABLE,
+        target_table=ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE,  # Write to writable table
         on_cluster=False,
     )
