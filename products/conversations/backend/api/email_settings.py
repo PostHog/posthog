@@ -306,6 +306,7 @@ class EmailDisconnectView(APIView):
             team.save(update_fields=["conversations_settings"])
 
         if should_delete_from_mailgun:
+            assert domain_to_delete is not None
             try:
                 mailgun_delete_domain(domain_to_delete)
             except ValueError:
