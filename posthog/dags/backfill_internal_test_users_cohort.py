@@ -23,6 +23,11 @@ def create_internal_test_users_cohorts_op(
         ).values_list("team_id", flat=True)
     )
 
+    # Bulk-fetch teams that need a cohort to avoid N+1 queries
+    teams_needing_cohort = {
+        team.id: team for team in Team.objects.filter(id__in=[tid for tid in team_ids if tid not in teams_with_cohort])
+    }
+
     created = 0
     skipped = len(teams_with_cohort)
     failed = 0
@@ -31,14 +36,16 @@ def create_internal_test_users_cohorts_op(
         if team_id in teams_with_cohort:
             continue
 
+        team = teams_needing_cohort.get(team_id)
+        if team is None:
+            context.log.warning(f"Team {team_id} not found, skipping")
+            skipped += 1
+            continue
+
         try:
-            team = Team.objects.get(id=team_id)
             get_or_create_internal_test_users_cohort(team)
             created += 1
             context.log.info(f"Created internal/test users cohort for team {team_id}")
-        except Team.DoesNotExist:
-            context.log.warning(f"Team {team_id} not found, skipping")
-            skipped += 1
         except Exception as e:
             context.log.exception(f"Failed to create cohort for team {team_id}")
             capture_exception(e, {"team_id": team_id})
