@@ -45,9 +45,11 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                                             host: process.env.VITE_PUBLIC_POSTHOG_HOST
                                         })
 
-                                        // use posthog for feature flags here
-
-                                        await posthog.shutdown()
+                                        try {
+                                            // use posthog for feature flags here
+                                        } finally {
+                                            await posthog.shutdown()
+                                        }
                                     }
                                 `,
                             },
