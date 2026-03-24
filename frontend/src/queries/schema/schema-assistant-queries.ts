@@ -262,10 +262,6 @@ export interface AssistantInsightsQueryBase {
     aggregation_group_type_index?: integer | null
 }
 
-export interface AssistantSeriesProperties {
-    properties?: AssistantPropertyFilter[]
-}
-
 /**
  * Defines the event series.
  */
@@ -1036,13 +1032,14 @@ export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
     pathsFilter: AssistantPathsFilter
 }
 
-export interface AssistantLifecycleEventsNode
-    extends Pick<EventsNode, 'kind' | 'event' | 'name' | 'custom_name'>, AssistantSeriesProperties {}
+export interface AssistantLifecycleEventsNode extends Pick<EventsNode, 'kind' | 'event' | 'name' | 'custom_name'> {
+    properties?: AssistantPropertyFilter[]
+}
 
 export type AssistantLifecycleSeriesNode = AssistantLifecycleEventsNode | AssistantLifecycleActionsNode
 
-export interface AssistantLifecycleActionsNode
-    extends Pick<ActionsNode, 'kind' | 'id' | 'custom_name'>, AssistantSeriesProperties {
+export interface AssistantLifecycleActionsNode extends Pick<ActionsNode, 'kind' | 'id' | 'custom_name'> {
+    properties?: AssistantPropertyFilter[]
     /**
      * Action name from the plan.
      */
