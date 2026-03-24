@@ -756,6 +756,9 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     })
 }
 
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
 export const getExternalDataSourcesConnectionsListUrl = (
     projectId: string,
     params?: ExternalDataSourcesConnectionsListParams
