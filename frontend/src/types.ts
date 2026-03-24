@@ -6264,6 +6264,7 @@ export type HogFunctionConfigurationContextId =
     | 'discussion-mention'
     | 'insight-alerts'
     | 'experiment-alerts'
+    | 'logs-alerting'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6275,6 +6276,7 @@ export type HogFunctionSubTemplateIdType =
     | 'discussion-mention'
     | 'insight-alert-firing'
     | 'experiment-significant'
+    | 'logs-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

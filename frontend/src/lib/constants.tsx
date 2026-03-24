@@ -576,6 +576,9 @@ export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
 export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
 export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
 
+export const LOGS_ALERT_FIRING_SUB_TEMPLATE_ID = 'logs-alert-firing'
+export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'
+
 export const COHORT_PERSONS_QUERY_LIMIT = 10000
 
 /** Maps SDK keys to their corresponding snippet language identifiers */
