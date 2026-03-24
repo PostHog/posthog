@@ -222,12 +222,17 @@ class DashboardTile(models.Model):
     def sort_tiles_by_layout(
         tiles: list["DashboardTile"] | QuerySet["DashboardTile"], layout_size: str = "sm"
     ) -> list["DashboardTile"]:
-        """Sort tiles by their layout position (y, then x)."""
+        """Sort tiles by their layout position (y, then x, then tile pk ascending).
+
+        The pk tiebreaker keeps order stable when positions match (e.g. duplicate insight workflow)
+        so the original tile always sorts before the copy so that we have less likelihood of breaking dashboard layout orders
+        """
         return sorted(
             tiles,
             key=lambda tile: (
                 tile.layouts.get(layout_size, {}).get("y", 100),
                 tile.layouts.get(layout_size, {}).get("x", 100),
+                tile.pk,
             ),
         )
 

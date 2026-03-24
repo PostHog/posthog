@@ -1099,6 +1099,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         new_tile = next(t for t in tiles if t["id"] != original_tile.id)
         assert new_tile["layouts"] == expected_layouts
 
+        tile_ids_in_response_order = [t["id"] for t in tiles]
+        assert tile_ids_in_response_order.index(original_tile.id) < tile_ids_in_response_order.index(new_tile["id"])
+
     def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
         self.dashboard_api.create_insight({"dashboards": [existing_dashboard.pk], "name": None})

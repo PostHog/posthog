@@ -530,7 +530,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         return dashboard
 
-    def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
+    def _deep_duplicate_tiles(
+        self, dashboard: Dashboard, existing_tile: DashboardTile, duplicate_layouts: dict | None = None
+    ) -> None:
+        layouts = duplicate_layouts if duplicate_layouts is not None else existing_tile.layouts
         if existing_tile.insight:
             new_data = {
                 **InsightSerializer(existing_tile.insight, context=self.context).data,
@@ -551,7 +554,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             DashboardTile.objects.create(
                 dashboard=dashboard,
                 insight=insight,
-                layouts=existing_tile.layouts,
+                layouts=layouts,
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
@@ -570,7 +573,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             DashboardTile.objects.create(
                 dashboard=dashboard,
                 text=text,
-                layouts=existing_tile.layouts,
+                layouts=layouts,
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
@@ -589,7 +592,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             DashboardTile.objects.create(
                 dashboard=dashboard,
                 button_tile=button_tile,
-                layouts=existing_tile.layouts,
+                layouts=layouts,
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
@@ -667,8 +670,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         for tile_data in duplicate_tiles:
             # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
             existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
-            existing_tile.layouts = tile_data.get("layouts", {})
-            self._deep_duplicate_tiles(instance, existing_tile)
+            self._deep_duplicate_tiles(instance, existing_tile, tile_data.get("layouts", {}))
 
         if "request" in self.context:
             report_user_action(
@@ -1153,13 +1155,7 @@ class DashboardsViewSet(
 
         layout_size = self._get_layout_size_from_request(request)
 
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get(layout_size, {}).get("y", 100),
-                tile.layouts.get(layout_size, {}).get("x", 100),
-            ),
-        )
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes, None]:

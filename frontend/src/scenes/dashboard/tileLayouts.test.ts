@@ -1,6 +1,6 @@
 import { Layout, LayoutItem } from 'react-grid-layout'
 
-import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateLayouts, sortTilesByLayout } from 'scenes/dashboard/tileLayouts'
 
 import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
@@ -133,5 +133,19 @@ describe('calculateDuplicateLayout', () => {
 
         expect(result.duplicateLayouts.sm).toEqual({ x: 6, y: 0, w: 6, h: 5 })
         expect((result.duplicateLayouts as any).xs).toBeUndefined()
+    })
+
+    describe('sortTilesByLayout', () => {
+        it('tiebreaks by tile id ascending when sm positions match', () => {
+            const a = {
+                id: 1,
+                layouts: { sm: { x: 0, y: 0, w: 6, h: 5 } },
+            } as unknown as DashboardTile<QueryBasedInsightModel>
+            const b = {
+                id: 2,
+                layouts: { sm: { x: 0, y: 0, w: 6, h: 5 } },
+            } as unknown as DashboardTile<QueryBasedInsightModel>
+            expect(sortTilesByLayout([b, a], 'sm')).toEqual([a, b])
+        })
     })
 })

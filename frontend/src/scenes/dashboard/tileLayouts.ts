@@ -102,10 +102,15 @@ export const sortTilesByLayout = (
         const bx = b.layouts?.[col]?.x ?? 0
         const by = b.layouts?.[col]?.y ?? 0
 
-        if (ay < by || (ay == by && ax < bx)) {
-            return -1
-        } else if (ay > by || (ay == by && ax > bx)) {
-            return 1
+        if (ay !== by) {
+            return ay < by ? -1 : 1
+        }
+        if (ax !== bx) {
+            return ax < bx ? -1 : 1
+        }
+        // Deterministic order when positions match (e.g. duplicate tile): older tile first
+        if (a.id != null && b.id != null && a.id !== b.id) {
+            return a.id < b.id ? -1 : 1
         }
         return 0
     })

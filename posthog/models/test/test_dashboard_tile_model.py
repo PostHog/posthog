@@ -46,3 +46,16 @@ class TestDashboardTileModel(APIBaseTest):
                     text = Text.objects.create(team=self.team, body="I am a text")
                     tile = DashboardTile.objects.create(dashboard=self.dashboard, text=text, **invalid_text_tile_field)
                     tile.clean()
+
+    def test_sort_tiles_by_layout_tiebreaks_by_pk_when_positions_match(self) -> None:
+        """Same (y, x) must sort deterministically so duplicate tiles never flap before the original."""
+        dashboard = Dashboard.objects.create(team=self.team, name="sort tiebreak", created_by=self.user)
+        insight_a = Insight.objects.create(team=self.team, short_id="aaaaaa", name="a")
+        insight_b = Insight.objects.create(team=self.team, short_id="bbbbbb", name="b")
+        same_sm = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        tile_lower_pk = DashboardTile.objects.create(dashboard=dashboard, insight=insight_a, layouts=same_sm)
+        tile_higher_pk = DashboardTile.objects.create(dashboard=dashboard, insight=insight_b, layouts=same_sm)
+        assert tile_lower_pk.pk < tile_higher_pk.pk
+
+        sorted_tiles = DashboardTile.sort_tiles_by_layout([tile_higher_pk, tile_lower_pk], "sm")
+        assert sorted_tiles == [tile_lower_pk, tile_higher_pk]
