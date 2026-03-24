@@ -11,11 +11,7 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.vercel.vercel_connect import (
-    _sign_connect_session,
-    _load_connect_session,
-    _validate_next_url,
-)
+from ee.api.vercel.vercel_connect import _load_connect_session, _sign_connect_session, _validate_next_url
 from ee.vercel.client import OAuthTokenResponse
 
 CACHED_SESSION_DATA = {
