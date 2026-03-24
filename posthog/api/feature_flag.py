@@ -1387,6 +1387,8 @@ class FeatureFlagSerializer(
         self._update_filters(validated_data)
 
         # TRICKY: Update super_groups if key is changing, since the super groups depend on the key name.
+        # Note: feature_enrollment is a boolean and doesn't need updating on key change —
+        # the enrollment property key ($feature_enrollment/{flag_key}) is derived at evaluation time.
         if validated_key and validated_key != old_key:
             filters = validated_data.get("filters", instance.filters) or {}
             validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
