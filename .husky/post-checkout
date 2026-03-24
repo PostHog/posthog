@@ -8,7 +8,12 @@
 [ -f .git ] || exit 0
 
 # Bootstrap husky + lint-staged so pre-commit hooks work in worktrees
-# pnpm is expected to be globally available (corepack, brew, etc.)
+# pnpm may come from flox, corepack, brew, etc. — add flox bin to PATH if available
+MAIN_REPO="$(cd "$(dirname "$0")/.." && pwd)"
+for p in "$MAIN_REPO/.flox/run"/*/bin; do
+    [ -d "$p" ] && export PATH="$p:$PATH"
+done
+
 if [ ! -d node_modules/.pnpm ]; then
     echo "husky: worktree detected, bootstrapping with pnpm install ..."
     pnpm install --frozen-lockfile --filter=.

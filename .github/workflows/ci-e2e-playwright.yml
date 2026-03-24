@@ -665,6 +665,7 @@ jobs:
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes, playwright]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
@@ -687,6 +688,7 @@ jobs:
     handle-screenshots:
         name: Handle screenshot changes
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [playwright, changes]
         if: always() && needs.changes.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
@@ -756,6 +758,7 @@ jobs:
         needs: [playwright, handle-screenshots]
         name: Playwright tests pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome

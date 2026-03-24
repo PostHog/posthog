@@ -298,7 +298,7 @@ describe('experimentsLogic', () => {
             const initialExperiments = { results: [mockExperiment], count: 1 }
             logic.actions.loadExperimentsSuccess(initialExperiments)
 
-            api.update.mockResolvedValue({})
+            api.create.mockResolvedValue({})
 
             await expectLogic(logic, () => {
                 logic.actions.archiveExperiment(mockExperiment.id as number)
@@ -311,9 +311,9 @@ describe('experimentsLogic', () => {
                     }),
                 })
 
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${mockExperiment.id}`), {
-                archived: true,
-            })
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`)
+            )
         })
 
         it('duplicates experiment and navigates to it', async () => {

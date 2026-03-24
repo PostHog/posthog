@@ -44,6 +44,8 @@ COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
+COPY ./common/replay-shared/package.json ./common/replay-shared/
+COPY ./common/replay-headless/package.json ./common/replay-headless/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Use system librdkafka from Confluent (2.10.1) instead of bundled version
@@ -53,6 +55,7 @@ ENV BUILD_LIBRDKAFKA=0
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/replay-headless... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
@@ -61,10 +64,16 @@ COPY ./nodejs/src/ ./nodejs/src/
 COPY ./nodejs/tests/ ./nodejs/tests/
 COPY ./nodejs/assets/ ./nodejs/assets/
 COPY ./nodejs/bin/ ./nodejs/bin/
+COPY ./common/replay-shared/src/ ./common/replay-shared/src/
+COPY ./common/replay-shared/tsconfig.json ./common/replay-shared/
+COPY ./common/replay-headless/src/ ./common/replay-headless/src/
+COPY ./common/replay-headless/build.mjs ./common/replay-headless/
 
 # Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
+# Build replay-headless (dependency of nodejs rasterizer code)
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-headless build
 # Then build the nodejs services
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
@@ -124,6 +133,8 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/dist /code/common/replay-headless/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/package.json /code/common/replay-headless/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
 

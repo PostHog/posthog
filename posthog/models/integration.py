@@ -1189,15 +1189,6 @@ class GoogleCloudServiceAccountIntegration:
         token_uri: str | None = None,
         created_by: User | None = None,
     ) -> Integration:
-        sensitive_config = {}
-
-        is_impersonated = True
-        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
-            sensitive_config["private_key"] = private_key
-            sensitive_config["private_key_id"] = private_key_id
-            sensitive_config["token_uri"] = token_uri
-            is_impersonated = False
-
         # Do not allow the same project_id in multiple organizations
         same_service_account_integrations = Integration.objects.select_related("team__organization").filter(
             kind="google-cloud-service-account", config__service_account_email=service_account_email
@@ -1205,6 +1196,15 @@ class GoogleCloudServiceAccountIntegration:
         for integration in same_service_account_integrations:
             if str(integration.team.organization.id) != str(organization_id):
                 raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
+
+        sensitive_config = {}
+        is_impersonated = True
+        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
+            sensitive_config["private_key"] = private_key
+            sensitive_config["private_key_id"] = private_key_id
+            sensitive_config["token_uri"] = token_uri
+
+            is_impersonated = False
 
         variant = "impersonated" if is_impersonated else "key-file"
 
@@ -2146,7 +2146,39 @@ class GitHubIntegration:
         if not isinstance(body, list):
             return []
 
-        return [branch["name"] for branch in body if isinstance(branch, dict) and isinstance(branch.get("name"), str)]
+        def extract_names(data: list) -> list[str]:
+            return [
+                branch["name"] for branch in data if isinstance(branch, dict) and isinstance(branch.get("name"), str)
+            ]
+
+        all_branches = extract_names(body)
+
+        # Paginate through remaining pages (w/cap)
+        max_pages = 20
+        current_page = 1
+        while current_page < max_pages and 'rel="next"' in response.headers.get("Link", ""):
+            current_page += 1
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                break
+            if response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration.list_branches pagination stopped",
+                    status_code=response.status_code,
+                    page=current_page,
+                    repo=repo,
+                )
+                break
+            try:
+                body = response.json()
+            except Exception:
+                break
+            if not isinstance(body, list):
+                break
+            all_branches.extend(extract_names(body))
+
+        return all_branches
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -2172,23 +2204,26 @@ class GitHubIntegration:
 
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        access_token = self.integration.sensitive_config.get("access_token")
+        if not access_token:
+            raise ValueError("GitHub access token not configured")
 
         response = requests.get(
-            f"https://api.github.com/repos/{org}/{repository}",
+            f"https://api.github.com/repos/{repo_path}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
+            timeout=10,
         )
 
         if response.status_code == 200:
             repo_data = response.json()
             return repo_data.get("default_branch", "main")
         else:
-            return "main"
+            raise Exception(f"Failed to get default branch: HTTP {response.status_code}")
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""

@@ -58,7 +58,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 <>
                     <Markdown>
                         Configure PostHog by setting your project token and host as well as adding `posthog` to your
-                        LiteLLM callback handlers. You can find your API key in [your project
+                        LiteLLM callback handlers. You can find your project token in [your project
                         settings](https://app.posthog.com/settings/project).
                     </Markdown>
 

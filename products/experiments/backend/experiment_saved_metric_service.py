@@ -26,7 +26,7 @@ from products.experiments.backend.models.experiment import ExperimentSavedMetric
 class ExperimentSavedMetricService:
     """Single source of truth for experiment saved metric business logic."""
 
-    VALID_QUERY_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
+    LEGACY_QUERY_KINDS = {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
 
     def __init__(self, team: Team, user: Any):
         self.team = team
@@ -39,10 +39,14 @@ class ExperimentSavedMetricService:
             raise ValidationError("Query is required to create a saved metric")
 
         kind = query.get("kind")
-        if kind not in cls.VALID_QUERY_KINDS:
+        if kind in cls.LEGACY_QUERY_KINDS:
             raise ValidationError(
-                "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
+                f"Legacy metric kind '{kind}' is no longer supported for new saved metrics. "
+                "Use 'ExperimentMetric' instead."
             )
+
+        if kind != "ExperimentMetric":
+            raise ValidationError("Metric query kind must be 'ExperimentMetric'")
 
         try:
             if kind == "ExperimentMetric":

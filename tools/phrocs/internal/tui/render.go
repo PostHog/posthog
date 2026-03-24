@@ -7,8 +7,12 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
+
+// Triggers warning icon and banner
+const highMemoryMB = 2048
 
 func (m Model) renderHeader() string {
 	brand := headerBrandStyle.Render("phrocs")
@@ -56,7 +60,7 @@ func (m Model) renderSidebar() string {
 	h := m.sidebarHeight()
 
 	// Usable column width inside the border
-	innerW := sidebarWidth - 1
+	innerW := m.effectiveSidebarWidth() - 1
 
 	// Determine the vertical slice of the services list to render based
 	// on the current cursor position and servicesOffset
@@ -66,17 +70,19 @@ func (m Model) renderSidebar() string {
 	var rows []string
 	for i := start; i < end; i++ {
 		p := m.services[i]
-		iconChar := statusIconChar(p.Status())
+		status := p.Status()
+		iconChar := statusIconChar(status)
 		// For pending processes, swap in the current spinner frame. Strip ANSI
 		// from spinner.View() so the raw character can be safely composed inside
 		// the surrounding lipgloss styles without breaking their background colour.
-		if p.Status() == process.StatusPending {
+		if status == process.StatusPending {
 			iconChar = ansi.Strip(m.spinner.View())
 		}
-		iconColor := statusIconColor(p.Status())
+		iconColor := statusIconColor(status)
 
 		name := truncate(p.Name, innerW-3)
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, innerW))
+		cpuPct := p.CPUPercent()
+		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, cpuPct, innerW))
 	}
 
 	// Pad remaining rows so the sidebar border extends the full height
@@ -92,10 +98,7 @@ func (m Model) renderSidebar() string {
 }
 
 func (m Model) sidebarHeight() int {
-	fh := footerHeightShort
-	if m.showHelp {
-		fh = footerHeightFull
-	}
+	fh := m.footerHeight()
 	h := m.height - headerHeight - fh
 	return max(h, 1)
 }
@@ -136,6 +139,9 @@ func (m Model) viewportWithIndicator() string {
 	view := m.viewport.View()
 	if m.hedgehogMode {
 		view = m.overlayHedgehog(view)
+	}
+	if m.infoMode {
+		return view
 	}
 	total := m.viewport.TotalLineCount()
 	if total <= m.viewport.Height() {
@@ -205,6 +211,9 @@ func (m Model) renderFooter() string {
 			lipgloss.NewStyle().Foreground(colorYellow).Render(matchInfo),
 		)
 	}
+	if m.hideHelp {
+		return ""
+	}
 	var content string
 	if m.showHelp {
 		content = m.help.FullHelpView(m.keys.FullHelp())
@@ -237,6 +246,12 @@ func (m Model) renderInfo() string {
 	}
 
 	var lines []string
+
+	// High memory warning banner
+	if snap.MemRSSMB != nil && *snap.MemRSSMB >= highMemoryMB {
+		lines = append(lines, warnStyle.Width(m.viewport.Width()).Render(fmt.Sprintf("  %s High memory usage: %.0f MB", sharedpalette.IconWarning, *snap.MemRSSMB)))
+	}
+
 	lines = append(lines, "")
 
 	// Status
@@ -303,7 +318,11 @@ func (m Model) renderInfo() string {
 	// Config
 	lines = append(lines, "")
 	lines = append(lines, titleStyle.Render("  Config"))
-	lines = append(lines, row("  Command", p.Cfg.Shell))
+	if len(p.Cfg.Cmd) > 0 {
+		lines = append(lines, row("  Command", strings.Join(p.Cfg.Cmd, " ")))
+	} else {
+		lines = append(lines, row("  Command", p.Cfg.Shell))
+	}
 	if p.Cfg.ReadyPattern != "" {
 		lines = append(lines, row("  Ready pattern", p.Cfg.ReadyPattern))
 	}

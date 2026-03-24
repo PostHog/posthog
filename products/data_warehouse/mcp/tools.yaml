@@ -397,3 +397,6 @@ tools:
     external-data-sources-webhook-info-retrieve:
         operation: external_data_sources_webhook_info_retrieve
         enabled: false
+    external-data-sources-connections-list:
+        operation: external_data_sources_connections_list
+        enabled: false

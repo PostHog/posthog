@@ -156,7 +156,7 @@ function SentimentCardRow({
 }): JSX.Element {
     const { generation, messageIndex, sentiment } = card
     const { uuid, traceId, aiInput, timestamp } = generation
-    const { toggleCardExpanded } = useActions(llmAnalyticsSentimentLogic)
+    const { toggleCardExpanded, trackTraceClicked } = useActions(llmAnalyticsSentimentLogic)
 
     const targetMessage = getMessageAtIndex(aiInput, messageIndex)
     const fullText = targetMessage ? getTextContent(targetMessage) : ''
@@ -209,7 +209,10 @@ function SentimentCardRow({
                                 })}
                                 className="text-xs ml-1"
                                 data-attr="llma-sentiment-trace-link"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    trackTraceClicked(card)
+                                }}
                             >
                                 View trace
                             </Link>

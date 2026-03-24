@@ -1259,6 +1259,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         project_id=project_id,
         dataset_id=inputs.dataset_id,
         table_id=inputs.table_id,
+        integration_id=inputs.integration_id,
     )
     external_logger = EXTERNAL_LOGGER.bind()
 
@@ -1337,7 +1338,22 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     google_cloud_integration.service_account_email, inputs.team_id
                 )
                 await ensure_our_google_cloud_credentials_are_valid()
-            bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            try:
+                bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            except Exception:
+                LOGGER.exception("Initialize client from service account failed")
+                # TODO: Migrate everyone and remove this
+                if (
+                    inputs.private_key is None
+                    or inputs.private_key_id is None
+                    or inputs.token_uri is None
+                    or inputs.client_email is None
+                ):
+                    # We cannot fallback to using inputs
+                    raise
+                bq_client = BigQueryClient.from_service_account_inputs(
+                    inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
+                )
 
         else:
             # TODO: Migrate everyone and remove this
@@ -1529,6 +1545,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=bigquery_default_fields(),
+            integration_id=inputs.integration_id,
         )
 
         await execute_batch_export_using_internal_stage(

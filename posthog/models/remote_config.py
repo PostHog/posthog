@@ -19,13 +19,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 tracer = trace.get_tracer(__name__)
 
@@ -122,12 +122,12 @@ class RemoteConfig(UUIDTModel):
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self):
-        from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.

@@ -50,7 +50,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint?.is_materialized
     const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== baseIsMaterialized
     const baseBucketOverrides = viewingVersion?.bucket_overrides ?? endpoint?.bucket_overrides ?? {}
-    const hasBucketOverridesChange = objectsEqual(bucketOverrides, baseBucketOverrides)
+    const hasBucketOverridesChange = !objectsEqual(bucketOverrides, baseBucketOverrides)
     const hasChanges =
         hasNameChange ||
         hasDescriptionChange ||

@@ -474,6 +474,7 @@ def test_can_run_databricks_test_step_for_new_destination(
                 "server_hostname": "my-server-hostname",
                 "client_id": "my-client-id",
                 "client_secret": "my-client-secret",
+                "integration": databricks_integration,
             }
         )
 

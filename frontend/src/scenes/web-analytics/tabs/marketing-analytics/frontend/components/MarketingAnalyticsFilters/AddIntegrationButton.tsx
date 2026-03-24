@@ -61,7 +61,13 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 if (pendingNavigation.onIntegrationSelect) {
                     pendingNavigation.onIntegrationSelect(pendingNavigation.integrationId)
                 } else {
-                    router.actions.push(urls.dataWarehouseSourceNew(pendingNavigation.integrationId))
+                    router.actions.push(
+                        urls.dataWarehouseSourceNew(
+                            pendingNavigation.integrationId,
+                            urls.marketingAnalyticsApp(),
+                            'Marketing analytics'
+                        )
+                    )
                 }
                 setShowPopover(false)
                 setPendingNavigation(null)
@@ -99,7 +105,9 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         if (onIntegrationSelect) {
             onIntegrationSelect(integrationId)
         } else {
-            router.actions.push(urls.dataWarehouseSourceNew(integrationId))
+            router.actions.push(
+                urls.dataWarehouseSourceNew(integrationId, urls.marketingAnalyticsApp(), 'Marketing analytics')
+            )
         }
         setShowPopover(false)
     }
