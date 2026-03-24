@@ -513,7 +513,11 @@ class APIScopePermission(ScopeBasePermission):
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
-        self._check_organization_personal_api_key_restrictions(request, view)
+        # OAuth access tokens (used by the toolbar) are not personal API keys
+        # and should not be subject to the "members can use personal API keys"
+        # organization restriction.
+        if not isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            self._check_organization_personal_api_key_restrictions(request, view)
 
         if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             scoped_organizations = request.successful_authenticator.access_token.scoped_organizations
