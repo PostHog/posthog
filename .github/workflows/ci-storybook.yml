@@ -47,10 +47,15 @@ jobs:
 
             - name: Detect snapshot mode
               id: detect
+              env:
+                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
+                  elif [ "$HAS_UPDATE_LABEL" == "true" ]; then
+                    echo "mode=update" >> $GITHUB_OUTPUT
+                    echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
@@ -70,12 +75,9 @@ jobs:
                     if [[ "$IS_TRUSTED" == "true" ]]; then
                       echo "mode=update" >> $GITHUB_OUTPUT
                       echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
-                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
+                      echo "mode=check" >> $GITHUB_OUTPUT
+                      echo "::notice::🔍 Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates"
                     fi
                   fi
 
