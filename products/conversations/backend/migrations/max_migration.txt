@@ -1,1 +1,1 @@
-0025_email_channel
+0026_email_config_unique_domain

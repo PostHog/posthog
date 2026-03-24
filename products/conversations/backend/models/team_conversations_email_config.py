@@ -31,3 +31,6 @@ class TeamConversationsEmailConfig(models.Model):
     class Meta:
         app_label = "conversations"
         db_table = "posthog_conversations_email_config"
+        constraints = [
+            models.UniqueConstraint(fields=["domain"], name="unique_email_domain"),
+        ]

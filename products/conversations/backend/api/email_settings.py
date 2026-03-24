@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import EmailSendTestThrottle, EmailVerifyDomainThrottle
 
@@ -26,6 +27,30 @@ from products.conversations.backend.mailgun import (
 from products.conversations.backend.models import TeamConversationsEmailConfig
 
 logger = structlog.get_logger(__name__)
+
+
+def _enable_email_on_team(team: Team) -> None:
+    """Atomically set email_enabled=True on the team's conversations_settings.
+
+    Must be called inside a transaction.atomic() block.
+    """
+    t = Team.objects.select_for_update().get(id=team.id)
+    s = t.conversations_settings or {}
+    s["email_enabled"] = True
+    t.conversations_settings = s
+    t.save(update_fields=["conversations_settings"])
+
+
+def _disable_email_on_team(team: Team) -> None:
+    """Atomically set email_enabled=False on the team's conversations_settings.
+
+    Must be called inside a transaction.atomic() block.
+    """
+    t = Team.objects.select_for_update().get(id=team.id)
+    s = t.conversations_settings or {}
+    s["email_enabled"] = False
+    t.conversations_settings = s
+    t.save(update_fields=["conversations_settings"])
 
 
 class EmailConnectSerializer(serializers.Serializer):
@@ -90,10 +115,6 @@ class EmailConnectView(APIView):
                 status=400,
             )
 
-        # Prevent cross-team domain conflicts
-        if TeamConversationsEmailConfig.objects.filter(domain=domain).exclude(team=team).exists():
-            return Response({"error": "This domain is already in use by another team."}, status=400)
-
         # Register domain with Mailgun for outbound sending
         dns_records: dict = {}
         try:
@@ -113,44 +134,12 @@ class EmailConnectView(APIView):
                 status=502,
             )
 
-        def _enable_email_on_team() -> None:
-            s = team.conversations_settings or {}
-            s["email_enabled"] = True
-            team.conversations_settings = s
-            team.save(update_fields=["conversations_settings"])
-
         try:
-            with transaction.atomic():
-                config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
-                config.from_email = from_email
-                config.from_name = from_name
-                config.domain = domain
-                if dns_records:
-                    config.dns_records = dns_records
-                config.save(update_fields=["from_email", "from_name", "domain", "dns_records"])
-                _enable_email_on_team()
-        except TeamConversationsEmailConfig.DoesNotExist:
-            try:
-                with transaction.atomic():
-                    config = TeamConversationsEmailConfig.objects.create(
-                        team=team,
-                        inbound_token=secrets.token_hex(16),
-                        from_email=from_email,
-                        from_name=from_name,
-                        domain=domain,
-                        dns_records=dns_records,
-                    )
-                    _enable_email_on_team()
-            except IntegrityError:
-                with transaction.atomic():
-                    config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
-                    config.from_email = from_email
-                    config.from_name = from_name
-                    config.domain = domain
-                    if dns_records:
-                        config.dns_records = dns_records
-                    config.save(update_fields=["from_email", "from_name", "domain", "dns_records"])
-                    _enable_email_on_team()
+            config = self._upsert_config(team, from_email, from_name, domain, dns_records)
+        except IntegrityError:
+            # Domain unique constraint violation — another team owns this domain.
+            # Do NOT call mailgun_delete_domain here: the domain belongs to the other team.
+            return Response({"error": "This domain is already in use by another team."}, status=409)
 
         forwarding_address = f"team-{config.inbound_token}@{inbound_domain}"
 
@@ -166,6 +155,61 @@ class EmailConnectView(APIView):
                 "dns_records": dns_records,
             }
         )
+
+    @staticmethod
+    def _upsert_config(
+        team: Team,
+        from_email: str,
+        from_name: str,
+        domain: str,
+        dns_records: dict,
+    ) -> TeamConversationsEmailConfig:
+        """Create or update email config + enable email on team atomically.
+
+        Raises IntegrityError if the domain unique constraint is violated
+        (another team owns the domain).
+        """
+        try:
+            with transaction.atomic():
+                config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
+                config.from_email = from_email
+                config.from_name = from_name
+                config.domain = domain
+                if dns_records:
+                    config.dns_records = dns_records
+                config.save(update_fields=["from_email", "from_name", "domain", "dns_records"])
+                _enable_email_on_team(team)
+                return config
+        except TeamConversationsEmailConfig.DoesNotExist:
+            pass
+
+        try:
+            with transaction.atomic():
+                config = TeamConversationsEmailConfig.objects.create(
+                    team=team,
+                    inbound_token=secrets.token_hex(16),
+                    from_email=from_email,
+                    from_name=from_name,
+                    domain=domain,
+                    dns_records=dns_records,
+                )
+                _enable_email_on_team(team)
+                return config
+        except IntegrityError:
+            # Could be team-level race (two concurrent creates) or domain conflict.
+            # Distinguish: if the config now exists for this team, retry as update.
+            if not TeamConversationsEmailConfig.objects.filter(team=team).exists():
+                raise
+            with transaction.atomic():
+                config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
+                config.from_email = from_email
+                config.from_name = from_name
+                config.domain = domain
+                if dns_records:
+                    config.dns_records = dns_records
+                config.save(update_fields=["from_email", "from_name", "domain", "dns_records"])
+                _enable_email_on_team(team)
+                return config
 
 
 class EmailVerifyDomainView(APIView):
@@ -300,10 +344,7 @@ class EmailDisconnectView(APIView):
             if domain_to_delete and not TeamConversationsEmailConfig.objects.filter(domain=domain_to_delete).exists():
                 should_delete_from_mailgun = True
 
-            settings = team.conversations_settings or {}
-            settings["email_enabled"] = False
-            team.conversations_settings = settings
-            team.save(update_fields=["conversations_settings"])
+            _disable_email_on_team(team)
 
         if should_delete_from_mailgun:
             assert domain_to_delete is not None
