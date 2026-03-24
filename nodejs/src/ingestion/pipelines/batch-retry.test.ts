@@ -1,4 +1,5 @@
 import { BatchProcessingStep } from './base-batch-pipeline'
+import { withBatchRetry } from './batch-retry'
 import { newBatchPipelineBuilder } from './builders'
 import { createContext } from './helpers'
 import { drop, isDlqResult, isDropResult, isOkResult, ok } from './results'
@@ -149,5 +150,28 @@ describe('withBatchRetry', () => {
         // Other results should be processed
         expect(isOkResult(results![1].result) && results![1].result.value).toBe('4')
         expect(isOkResult(results![2].result) && results![2].result.value).toBe('6')
+    })
+
+    it('preserves the step name for metrics', () => {
+        const myNamedStep: BatchProcessingStep<number, string> = function myNamedStep(values) {
+            return Promise.resolve(values.map((v) => ok(String(v))))
+        }
+
+        const wrapped = withBatchRetry(myNamedStep)
+
+        // The wrapped function should preserve the original step name
+        expect(wrapped.name).toBe('myNamedStep')
+    })
+
+    it('uses variable name for arrow functions assigned to variables', () => {
+        // JavaScript infers the name from the variable assignment
+        const myArrowStep: BatchProcessingStep<number, string> = (values) => {
+            return Promise.resolve(values.map((v) => ok(String(v))))
+        }
+
+        const wrapped = withBatchRetry(myArrowStep)
+
+        // Arrow functions assigned to variables get their name from the variable
+        expect(wrapped.name).toBe('myArrowStep')
     })
 })

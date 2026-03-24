@@ -2,6 +2,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { BatchProcessingStep } from './base-batch-pipeline'
+import { wrapBatchStep } from './extensions/helpers'
 import { dlq } from './results'
 
 export interface BatchRetryOptions {
@@ -26,11 +27,10 @@ export function withBatchRetry<T, U>(
     step: BatchProcessingStep<T, U>,
     options: BatchRetryOptions = {}
 ): BatchProcessingStep<T, U> {
-    const stepName = step.name || 'anonymousBatchStep'
-
-    return async (values: T[]) => {
+    return wrapBatchStep(step, async (values, s) => {
+        const stepName = s.name || 'anonymousBatchStep'
         try {
-            return await retryIfRetriable(() => step(values), options.tries ?? 3, options.sleepMs ?? 100)
+            return await retryIfRetriable(() => s(values), options.tries ?? 3, options.sleepMs ?? 100)
         } catch (error) {
             const isRetriable = (error as any)?.isRetriable
 
@@ -48,5 +48,5 @@ export function withBatchRetry<T, U>(
 
             throw error
         }
-    }
+    })
 }
