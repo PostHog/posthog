@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from rest_framework.test import APIClient
 
@@ -16,6 +17,10 @@ class TestNotificationsAPI(BaseTest):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
+        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
+        mock_flag = self.feature_flag_patcher.start()
+        mock_flag.side_effect = lambda flag, *a, **kw: flag == "real-time-notifications"
+
         self.event = NotificationEvent.objects.create(
             organization=self.organization,
             team=self.team,
@@ -26,6 +31,10 @@ class TestNotificationsAPI(BaseTest):
             target_id=str(self.user.id),
             resolved_user_ids=[self.user.id],
         )
+
+    def tearDown(self):
+        self.feature_flag_patcher.stop()
+        super().tearDown()
 
     def test_list_notifications(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
