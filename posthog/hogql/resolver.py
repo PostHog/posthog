@@ -1607,6 +1607,7 @@ class Resolver(CloningVisitor):
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
+        resolved_chain: list[str] = [str(node.chain[0])]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
@@ -1626,9 +1627,12 @@ class Resolver(CloningVisitor):
                 loop_type = loop_type.get_child(str(next_chain), self.context)
             except NotImplementedError:
                 raise QueryError(
-                    f"Cannot access property '{next_chain}' on '{'.'.join(node.chain[: node.chain.index(next_chain)])}'. "
+                    f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
                     f"This can happen when a column alias shadows a table field. Try renaming the alias."
                 )
+            resolved_chain.append(str(next_chain))
+            # Note: get_child currently always raises rather than returning None,
+            # but this guard is kept for safety in case that contract changes.
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
