@@ -607,7 +607,7 @@ class ExperimentService:
         """Archive an ended experiment: validate it has ended, set archived=True."""
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
-        if not experiment.end_date:
+        if not experiment.is_stopped:
             raise ValidationError("Experiment must be ended before it can be archived.")
 
         experiment.archived = True
@@ -629,6 +629,92 @@ class ExperimentService:
         report_user_action(
             self.user,
             "experiment archived",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Pause / Resume
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def pause_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Pause a running experiment: deactivate its feature flag so it is no longer served by /decide."""
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+
+        feature_flag = experiment.feature_flag
+        if feature_flag is None:
+            raise ValidationError("Experiment does not have a feature flag linked.")
+        if not feature_flag.active:
+            raise ValidationError("Experiment is already paused.")
+
+        feature_flag.active = False
+        feature_flag.save(update_fields=["active"])
+
+        # Re-fetch so the serializer sees the updated flag
+        experiment.feature_flag = feature_flag
+
+        self._report_experiment_paused(experiment, request=request)
+
+        return experiment
+
+    @transaction.atomic
+    def resume_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Resume a paused experiment: reactivate its feature flag so /decide serves variants again."""
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+
+        feature_flag = experiment.feature_flag
+        if feature_flag is None:
+            raise ValidationError("Experiment does not have a feature flag linked.")
+        if feature_flag.active:
+            raise ValidationError("Experiment is not paused.")
+
+        feature_flag.active = True
+        feature_flag.save(update_fields=["active"])
+
+        # Re-fetch so the serializer sees the updated flag
+        experiment.feature_flag = feature_flag
+
+        self._report_experiment_resumed(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_paused(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment paused",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    def _report_experiment_resumed(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment resumed",
             experiment.get_analytics_metadata(),
             team=experiment.team,
             request=request,

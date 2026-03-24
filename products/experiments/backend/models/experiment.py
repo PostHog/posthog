@@ -145,6 +145,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def is_draft(self):
         return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.DRAFT
 
+    @property
+    def is_running(self):
+        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.RUNNING
+
+    @property
+    def is_stopped(self):
+        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.STOPPED
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)

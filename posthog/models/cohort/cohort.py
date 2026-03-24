@@ -1,3 +1,4 @@
+import re
 import time
 from datetime import datetime
 from enum import StrEnum
@@ -30,6 +31,10 @@ from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class CohortKind(StrEnum):
+    INTERNAL_TEST_USERS = "internal_test_users"
 
 
 class CohortType(StrEnum):
@@ -182,6 +187,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     last_backfill_person_properties_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
+    kind = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        choices=[(kind.value, kind.value) for kind in CohortKind],
+        help_text="System-defined cohort kind. Null for user-created cohorts.",
+    )
 
     cohort_type = models.CharField(
         max_length=50,
@@ -878,6 +890,76 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         transaction.on_commit(trigger_calculation)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
+
+
+INTERNAL_TEST_USERS_COHORT_NAME = "Internal / Test users"
+
+
+def get_or_create_internal_test_users_cohort(
+    team: "Team",
+    initiating_user_email: str | None = None,
+) -> "Cohort":
+    """
+    Get or create an 'Internal / Test users' cohort for the team.
+
+    Contains users with $internal_or_test_user set to true, and optionally
+    users whose email matches the creating user's domain (if not a generic provider).
+    """
+    from posthog.utils import GenericEmails
+
+    existing = Cohort.objects.filter(team=team, kind=CohortKind.INTERNAL_TEST_USERS).first()
+    if existing is not None:
+        return existing
+
+    # Always include the $internal_or_test_user property filter
+    filter_groups: list[dict] = [
+        {
+            "type": "AND",
+            "values": [
+                {
+                    "key": "$internal_or_test_user",
+                    "type": "person",
+                    "value": [True],
+                    "operator": "exact",
+                }
+            ],
+        }
+    ]
+
+    # Add email domain filter if the creating user has a non-generic domain
+    if initiating_user_email:
+        generic_emails = GenericEmails()
+        if not generic_emails.is_generic(initiating_user_email):
+            match = re.search(r"@([\w.]+)", initiating_user_email)
+            if match:
+                domain = match.group(1).lower()
+                filter_groups.append(
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": f"@{domain}",
+                                "operator": "icontains",
+                            }
+                        ],
+                    }
+                )
+
+    return Cohort.objects.create(
+        team=team,
+        name=INTERNAL_TEST_USERS_COHORT_NAME,
+        description="People who are internal team members or test users. Used for filtering out internal traffic from analytics.",
+        is_static=False,
+        kind=CohortKind.INTERNAL_TEST_USERS,
+        filters={
+            "properties": {
+                "type": "OR",
+                "values": filter_groups,
+            }
+        },
+    )
 
 
 class CohortPeople(models.Model):

@@ -309,7 +309,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }>
         ) => ({ filters }),
         reportInsightWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
-        reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
+        reportEntityFilterVisibilitySet: (index: number, visible: boolean, entityName?: string) => ({
+            index,
+            visible,
+            entityName,
+        }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportPropertyGroupFilterAdded: true,
         reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
@@ -438,6 +442,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
+        reportDashboardInsightLegendToggled: (
+            dashboardId: number | undefined,
+            insightId: number,
+            source: DashboardEventSource
+        ) => ({ dashboardId, insightId, source }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -468,8 +477,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
         reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
-        reportExperimentPaused: (experiment: Experiment) => ({ experiment }),
-        reportExperimentResumed: (experiment: Experiment) => ({ experiment }),
         reportExperimentStopped: (experiment: Experiment) => ({ experiment }),
         reportExperimentReset: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (
@@ -676,6 +683,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
         reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
+        // Taxonomic Filter
+        reportTaxonomicFilterCategorySelected: (groupType: TaxonomicFilterGroupType, eventName?: string) => ({
+            groupType,
+            eventName,
+        }),
+        reportTaxonomicFilterAddFilterClicked: (eventName?: string) => ({ eventName }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType, mediaPreviewCount?: number) => ({
             type,
@@ -1295,6 +1308,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportDashboardInsightLegendToggled: async ({ dashboardId, insightId, source }) => {
+            posthog.capture('dashboard insight legend toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                source,
+            })
+        },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
@@ -1337,8 +1357,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightWhitelabelToggled: async ({ isWhiteLabelled }) => {
             posthog.capture(`insight whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
-        reportEntityFilterVisibilitySet: async ({ index, visible }) => {
-            posthog.capture('entity filter visbility set', { index, visible })
+        reportEntityFilterVisibilitySet: async ({ index, visible, entityName }) => {
+            posthog.capture('entity filter visbility set', { index, visible, entityName })
         },
         reportPropertySelectOpened: async () => {
             posthog.capture('property select toggle opened')
@@ -1398,16 +1418,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     delay,
                 })
             }
-        },
-        reportExperimentPaused: ({ experiment }) => {
-            posthog.capture('experiment paused', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
-        reportExperimentResumed: ({ experiment }) => {
-            posthog.capture('experiment resumed', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
         },
         reportExperimentStopped: ({ experiment }) => {
             posthog.capture('experiment stopped', {
@@ -1680,6 +1690,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
+        },
+        reportTaxonomicFilterCategorySelected: ({ groupType, eventName }) => {
+            posthog.capture('taxonomic filter category selected', { groupType, eventName })
+        },
+        reportTaxonomicFilterAddFilterClicked: ({ eventName }) => {
+            posthog.capture('taxonomic filter add filter clicked', { eventName })
         },
         reportDataManagementDefinitionHovered: ({ type, mediaPreviewCount }) => {
             posthog.capture('definition hovered', { type, media_preview_count: mediaPreviewCount ?? 0 })

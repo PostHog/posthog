@@ -1,5 +1,6 @@
 #include "json.h"
 
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -218,6 +219,11 @@ std::string Json::dumpImpl(int indent, int currentIndent) const {
         } else if constexpr (std::is_same_v<T, Int>) {
           return std::to_string(v);
         } else if constexpr (std::is_same_v<T, Float>) {
+          if (std::isinf(v)) {
+            return v < 0 ? "\"-Infinity\"" : "\"Infinity\"";
+          } else if (std::isnan(v)) {
+            return "\"NaN\"";
+          }
           std::ostringstream oss;
           oss << std::setprecision(17) << v;
           std::string result = oss.str();

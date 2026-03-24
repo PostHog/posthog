@@ -1,1 +1,1 @@
-1064_migrate_messaging_models
+1065_add_cohort_kind

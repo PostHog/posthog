@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFlag, IconHeart, IconStar } from '@posthog/icons'
+import { IconFlag, IconHeart, IconHeartFilled, IconStar, IconStarFilled } from '@posthog/icons'
 import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TagSelect } from 'lib/components/TagSelect'
@@ -205,7 +205,19 @@ export function SavedInsightsFilters({
                             active={favorited || false}
                             onClick={() => setFilters({ favorited: !favorited })}
                             size="small"
-                            icon={isAIFirst ? <IconHeart /> : <IconStar />}
+                            icon={
+                                isAIFirst ? (
+                                    favorited ? (
+                                        <IconHeartFilled className="text-danger" />
+                                    ) : (
+                                        <IconHeart className="text-secondary" />
+                                    )
+                                ) : favorited ? (
+                                    <IconStarFilled className="text-warning" />
+                                ) : (
+                                    <IconStar className="text-secondary" />
+                                )
+                            }
                         >
                             Favorites
                         </LemonButton>

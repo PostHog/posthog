@@ -980,7 +980,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "gunicorn", specifier = ">=23.0.0" },
     { name = "httpx", specifier = ">=0.28.0" },
-    { name = "litellm", specifier = ">=1.81.0" },
+    { name = "litellm", specifier = "==1.81.13" },
     { name = "orjson", specifier = ">=3.10.0" },
     { name = "posthoganalytics", specifier = ">=3.0.0" },
     { name = "prometheus-client", specifier = ">=0.21.0" },
