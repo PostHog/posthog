@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
@@ -13,6 +12,7 @@ import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
+import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
@@ -244,11 +244,11 @@ export function SharedMetricModal({
                                         dataIndex: 'tags' as keyof SharedMetric,
                                         key: 'tags',
                                         render: (_: any, metric: SharedMetric) => (
-                                            <ObjectTags
-                                                tags={metric.tags || []}
-                                                onChange={(newTags) => updateSharedMetricTags(metric.id, newTags)}
+                                            <InlineTagEditor
+                                                metric={metric}
+                                                allTags={allTags}
+                                                onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
                                                 saving={savingTagsMetricId === metric.id}
-                                                tagsAvailable={allTags.filter((t) => !metric.tags?.includes(t))}
                                             />
                                         ),
                                     },

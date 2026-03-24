@@ -13,7 +13,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -24,6 +23,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { isLegacySharedMetric } from '../utils'
+import { InlineTagEditor } from './InlineTagEditor'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -85,11 +85,11 @@ export function SharedMetrics(): JSX.Element {
             dataIndex: 'tags' as keyof SharedMetric,
             render: function Render(_: any, metric: SharedMetric) {
                 return (
-                    <ObjectTags
-                        tags={metric.tags || []}
-                        onChange={(newTags) => updateSharedMetricTags(metric.id, newTags)}
+                    <InlineTagEditor
+                        metric={metric}
+                        allTags={allTags}
+                        onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
                         saving={savingTagsMetricId === metric.id}
-                        tagsAvailable={allTags.filter((t) => !metric.tags?.includes(t))}
                     />
                 )
             },
