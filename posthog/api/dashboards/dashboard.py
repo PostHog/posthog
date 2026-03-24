@@ -1250,6 +1250,7 @@ class DashboardsViewSet(
             dashboard__team__project_id=self.team.project_id,
         )
         to_dashboard_obj = get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
+        self.check_object_permissions(request, to_dashboard_obj)
         if not self.user_permissions.dashboard(to_dashboard_obj).can_edit:
             raise exceptions.PermissionDenied("You don't have edit permissions for the destination dashboard.")
         try:
