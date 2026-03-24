@@ -110,6 +110,8 @@ export interface ActionFilterProps {
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
+    /** Extra content rendered in the footer alongside the "Add series" button */
+    customFooter?: React.ReactNode
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -149,6 +151,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         hogQLGlobals,
         definitionPopoverRenderer,
         operatorAllowlist,
+        customFooter,
     },
     ref
 ): JSX.Element {
@@ -310,23 +313,22 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
-                    {!singleFilter && (
-                        <LemonButton
-                            type={buttonType}
-                            onClick={() => addFilter()}
-                            data-attr="add-action-event-button"
-                            icon={<IconPlusSmall />}
-                            size="small"
-                            disabled={reachedLimit || disabled || readOnly}
-                            {...buttonProps}
-                        >
-                            {!reachedLimit
-                                ? buttonCopy || 'Action or event'
-                                : `Reached limit of ${entitiesLimit} ${
-                                      filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
-                                  }`}
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type={buttonType}
+                        onClick={() => addFilter()}
+                        data-attr="add-action-event-button"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        disabled={reachedLimit || disabled || readOnly}
+                        {...buttonProps}
+                    >
+                        {!reachedLimit
+                            ? buttonCopy || 'Action or event'
+                            : `Reached limit of ${entitiesLimit} ${
+                                  filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
+                              }`}
+                    </LemonButton>
+                    {customFooter}
                 </div>
             )}
         </div>

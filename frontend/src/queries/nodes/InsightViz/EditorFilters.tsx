@@ -68,7 +68,6 @@ import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
-import { TrendsFormulaToggle } from './TrendsFormulaToggle'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 
@@ -225,12 +224,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Series',
-            ...(editorPanelsEnabled &&
-            isTrends &&
-            display !== ChartDisplayType.CalendarHeatmap &&
-            display !== ChartDisplayType.BoxPlot
-                ? { headerExtra: TrendsFormulaToggle }
-                : {}),
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',

@@ -1,7 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCalculator } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
@@ -32,8 +36,12 @@ export function TrendsSeries(): JSX.Element | null {
     const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
+    const editorPanelsEnabled = true
+    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -63,6 +71,28 @@ export function TrendsSeries(): JSX.Element | null {
             : display === ChartDisplayType.BoxPlot
               ? MathAvailability.BoxPlotOnly
               : MathAvailability.All
+
+    const showFormulaOption =
+        editorPanelsEnabled &&
+        isTrends &&
+        display !== ChartDisplayType.CalendarHeatmap &&
+        display !== ChartDisplayType.BoxPlot
+
+    const canDisableFormula: boolean =
+        !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
+
+    const formulaFooter = showFormulaOption ? (
+        <LemonButton
+            size="small"
+            onClick={() => toggleFormulaMode()}
+            disabled={hasFormula && !canDisableFormula}
+            icon={<IconCalculator />}
+            id="trends-formula-switch"
+            data-attr="trends-formula-switch"
+        >
+            {hasFormula ? 'Remove formula' : 'Add formula'}
+        </LemonButton>
+    ) : null
 
     return (
         <>
@@ -100,7 +130,13 @@ export function TrendsSeries(): JSX.Element | null {
                     }
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
+                buttonCopy={
+                    editorPanelsEnabled
+                        ? hasFormula
+                            ? 'Variable'
+                            : 'Series'
+                        : `Add graph ${hasFormula ? 'variable' : 'series'}`
+                }
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
@@ -124,8 +160,10 @@ export function TrendsSeries(): JSX.Element | null {
                         : []),
                 ]}
                 hideDeleteBtn={series?.length === 1}
+                hideDuplicate={editorPanelsEnabled}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}
+                customFooter={formulaFooter}
             />
         </>
     )
