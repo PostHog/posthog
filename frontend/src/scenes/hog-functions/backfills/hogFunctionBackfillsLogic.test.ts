@@ -1,19 +1,20 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { teamLogic } from 'scenes/teamLogic'
+import api from 'lib/api'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { HogFunctionType } from '~/types'
 
-import { batchExportBackfillsLogic } from '../../data-pipelines/batch-exports/batchExportBackfillsLogic'
-import { batchExportConfigLogic } from '../../data-pipelines/batch-exports/batchExportConfigLogic'
+import { hogFunctionBackfillsLogic } from './hogFunctionBackfillsLogic'
 
-jest.mock('lib/lemon-ui/LemonToast', () => ({
-    lemonToast: {
-        error: jest.fn(),
-        success: jest.fn(),
-        info: jest.fn(),
-        warning: jest.fn(),
+jest.mock('lib/api', () => ({
+    ...jest.requireActual('lib/api'),
+    hogFunctions: {
+        get: jest.fn(),
+        getTemplate: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+        enableBackfills: jest.fn(),
     },
 }))
 
@@ -21,44 +22,71 @@ jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn().mockResolvedValue(null),
 }))
 
-const MOCK_BATCH_EXPORT_ID = 'batch-export-from-hog-function'
+const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
+
+const MOCK_HOG_FUNCTION_ID = 'hog-func-001'
+const MOCK_BATCH_EXPORT_ID = 'batch-export-from-hog-func'
+
+function makeHogFunction(overrides: Partial<HogFunctionType> = {}): HogFunctionType {
+    return {
+        id: MOCK_HOG_FUNCTION_ID,
+        type: 'destination',
+        name: 'Test Destination',
+        description: '',
+        created_at: '2024-01-01T00:00:00Z',
+        created_by: {} as any,
+        updated_at: '2024-01-01T00:00:00Z',
+        enabled: true,
+        hog: '',
+        inputs_schema: [],
+        inputs: {},
+        filters: {},
+        icon_url: null,
+        template: null,
+        masking: null,
+        ...overrides,
+    } as HogFunctionType
+}
 
 describe('hogFunctionBackfillsLogic', () => {
-    it('mounts correctly', async () => {
-        // oxlint-disable-next-line react-hooks/rules-of-hooks -- useMocks is not a React hook
-        useMocks({
-            get: {
-                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: {
-                    id: MOCK_BATCH_EXPORT_ID,
-                    team_id: 997,
-                    name: 'Test Export',
-                    destination: { type: 'S3', config: {} },
-                    interval: 'hour',
-                    paused: false,
-                    model: 'events',
-                    filters: [],
-                },
-                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/backfills/`]: {
-                    results: [],
-                    next: null,
-                },
-            },
-        })
+    let logic: ReturnType<typeof hogFunctionBackfillsLogic.build>
+
+    beforeEach(() => {
+        jest.clearAllMocks()
         initKeaTests()
-        await expectLogic(teamLogic).toFinishAllListeners()
+    })
 
-        // Pre-mount the lightweight batchExportConfigLogic, simulating what BindLogic
-        // does in HogFunctionBackfills.tsx. This must happen before mounting
-        // batchExportBackfillsLogic so the reducer is attached to the store.
-        const configLogic = batchExportConfigLogic({ id: MOCK_BATCH_EXPORT_ID })
-        configLogic.mount()
-        await expectLogic(configLogic).toFinishAllListeners()
+    it('calls enableHogFunctionBackfills when batch_export_id is missing', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockResolvedValue({} as any)
 
-        const logic = batchExportBackfillsLogic({ id: MOCK_BATCH_EXPORT_ID })
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.batchExportConfig).toBeTruthy()
-        expect(logic.values.batchExportConfig?.id).toBe(MOCK_BATCH_EXPORT_ID)
+        expect(mockApi.enableBackfills).toHaveBeenCalledWith(MOCK_HOG_FUNCTION_ID)
+    })
+
+    it('does not call enableHogFunctionBackfills when batch_export_id is already set', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockApi.enableBackfills).not.toHaveBeenCalled()
+    })
+
+    it('does not throw when enableBackfills API fails', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['enableHogFunctionBackfills']).toFinishAllListeners()
+
+        // The error is caught gracefully — logic stays mounted and isn't in a broken state
+        expect(mockApi.enableBackfills).toHaveBeenCalled()
+        expect(logic.isMounted()).toBeTruthy()
     })
 })

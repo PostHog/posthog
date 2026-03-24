@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -35,6 +35,12 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 setLoading: (_, { loading }) => loading,
             },
         ],
+        hasTriedEnabling: [
+            false,
+            {
+                enableHogFunctionBackfills: () => true,
+            },
+        ],
     }),
     selectors({
         isReady: [
@@ -61,11 +67,17 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
             }
         },
         loadHogFunctionSuccess: () => {
-            // Only enable backfills after the config has loaded and we know
-            // batch_export_id is genuinely missing (not just not-yet-loaded).
-            if (!values.configuration.batch_export_id) {
+            // Handle the case where config loads after this logic mounts.
+            if (!values.configuration.batch_export_id && !values.hasTriedEnabling) {
                 actions.enableHogFunctionBackfills()
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        // If hogFunctionConfigurationLogic has already loaded (e.g. user clicked
+        // the Backfills tab after the page loaded), check immediately.
+        if (values.configuration?.name && !values.configuration.batch_export_id && !values.hasTriedEnabling) {
+            actions.enableHogFunctionBackfills()
+        }
+    }),
 ])
