@@ -135,6 +135,49 @@ class AllowIPMiddleware:
         )
 
 
+_TOOLBAR_OAUTH_CORS_PATHS = frozenset(
+    {
+        "/oauth/token",
+        "/oauth/token/",
+        "/toolbar_oauth/check",
+        "/toolbar_oauth/check/",
+    }
+)
+
+
+class ToolbarOAuthCorsMiddleware:
+    """Echo back all requested headers for toolbar OAuth CORS preflights.
+
+    The toolbar runs inside the customer's page and calls ``window.fetch``.
+    Customer code may monkey-patch ``fetch`` to inject custom headers
+    (e.g. ``x-app-version``).  If those headers aren't in our CORS
+    ``Access-Control-Allow-Headers``, the browser blocks the request.
+
+    For the small set of toolbar OAuth endpoints we simply echo back
+    whatever ``Access-Control-Request-Headers`` the browser asks for.
+    This is safe because the endpoints are auth-protected via Bearer
+    tokens (not cookies), so no credentials header is needed.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.method == "OPTIONS" and request.path in _TOOLBAR_OAUTH_CORS_PATHS:
+            requested_headers = request.headers.get("Access-Control-Request-Headers", "")
+            origin = request.headers.get("Origin", "*")
+
+            response = HttpResponse(status=200)
+            response["Access-Control-Allow-Origin"] = origin
+            response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            response["Access-Control-Allow-Headers"] = requested_headers
+            response["Access-Control-Max-Age"] = "86400"
+            response["Vary"] = "Origin"
+            return response
+
+        return self.get_response(request)
+
+
 class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
     """Middleware accepting requests that either contain a valid CSRF token or a personal API key."""
 
