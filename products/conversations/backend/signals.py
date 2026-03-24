@@ -229,6 +229,10 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
     if author_type == "customer":
         return
 
+    # Don't echo messages that originated from Slack back to Slack
+    if isinstance(item_context, dict) and item_context.get("from_slack"):
+        return
+
     # Capture values for the deferred callback
     team_id = instance.team_id
     item_id = instance.item_id
