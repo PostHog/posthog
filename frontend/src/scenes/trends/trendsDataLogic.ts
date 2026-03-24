@@ -499,7 +499,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         showLegendIsolateSeriesItem: [
             (s) => [s.indexedResults, s.getTrendsHidden],
             (indexedResults, getTrendsHidden): boolean =>
-                indexedResults.length === 0 || !indexedResults.every((d) => getTrendsHidden(d)),
+                indexedResults.length > 0 && !indexedResults.every((d) => getTrendsHidden(d)),
         ],
 
         legendSeriesIsolationMenuEligible: [
