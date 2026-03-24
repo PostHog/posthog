@@ -428,7 +428,7 @@ const SortableCondition = ({
                                         <LemonLabel className="mb-1">Match filters</LemonLabel>
                                         <PropertyFilters
                                             orFiltering={true}
-                                            pageKey={`feature-flag-workflow-${id}-${group.sort_key ?? index}`}
+                                            pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
                                             propertyFilters={group?.properties}
                                             logicalRowDivider
                                             addText="Add filter"
@@ -690,7 +690,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setIsAnyItemDragging(true)
 
         // Find the group being dragged
-        const draggedItem = filterGroups.find((group) => group.sort_key === String(event.active.id))
+        const draggedItem = filterGroups.find(
+            (group: FeatureFlagGroupType) => group.sort_key === String(event.active.id)
+        )
         setDraggedGroup(draggedItem || null)
     }
 
@@ -714,7 +716,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
         if (newlyOpened.length > 0 && collapseRef.current) {
             // Extract the index from the key (format: "condition-{sort_key}")
             const openedKey = newlyOpened[0]
-            const panelIndex = filterGroups.findIndex((g, i) => `condition-${g.sort_key ?? i}` === openedKey)
+            const panelIndex = filterGroups.findIndex(
+                (g: FeatureFlagGroupType) => `condition-${g.sort_key!}` === openedKey
+            )
 
             setTimeout(() => {
                 // Find the panel by its position in the collapse
@@ -730,7 +734,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         return (
             <div className="flex flex-col gap-2">
                 <LemonLabel>Release conditions</LemonLabel>
-                {filterGroups.map((group, index) => {
+                {filterGroups.map((group: FeatureFlagGroupType, index: number) => {
                     // Use description if available, otherwise summarize the filters
                     const summary =
                         group.description || summarizeProperties(group.properties || [], aggregationTargetName)
@@ -891,17 +895,37 @@ export function FeatureFlagReleaseConditionsCollapsible({
                         </div>
                     )}
                 </div>
-                <div className="flex items-start">
-                    {filterGroups.length > 1 && openConditions.length > 0 && (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            icon={<IconCollapse />}
-                            onClick={() => handleOpenConditionsChange([])}
-                            data-attr="collapse-all-conditions"
-                        >
-                            Collapse all
-                        </LemonButton>
+                <div className="flex items-start gap-2">
+                    {filterGroups.length > 1 && (
+                        <>
+                            {openConditions.length < filterGroups.length && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    icon={<IconExpand />}
+                                    onClick={() => {
+                                        const allConditionKeys = filterGroups.map(
+                                            (group: FeatureFlagGroupType) => `condition-${group.sort_key!}`
+                                        )
+                                        handleOpenConditionsChange(allConditionKeys)
+                                    }}
+                                    data-attr="expand-all-conditions"
+                                >
+                                    Expand all
+                                </LemonButton>
+                            )}
+                            {openConditions.length > 0 && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    icon={<IconCollapse />}
+                                    onClick={() => handleOpenConditionsChange([])}
+                                    data-attr="collapse-all-conditions"
+                                >
+                                    Collapse all
+                                </LemonButton>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
@@ -919,10 +943,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
                         }}
                     >
                         <SortableContext
-                            items={filterGroups.map((group) => group.sort_key!)}
+                            items={filterGroups.map((group: FeatureFlagGroupType) => group.sort_key!)}
                             strategy={verticalListSortingStrategy}
                         >
-                            {filterGroups.map((group, index) => (
+                            {filterGroups.map((group: FeatureFlagGroupType, index: number) => (
                                 <React.Fragment key={`fragment-${group.sort_key!}`}>
                                     {index > 0 && (
                                         <div className="text-xs font-medium text-muted uppercase tracking-wide text-center w-full py-2">
@@ -931,7 +955,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     )}
                                     <SortableCondition
                                         key={`condition-${group.sort_key!}`}
-                                        group={group}
+                                        group={group as FeatureFlagGroupTypeWithSortKey}
                                         index={index}
                                         totalGroups={filterGroups.length}
                                         affectedUsers={affectedUsers}
@@ -965,8 +989,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     <div className="flex items-center justify-between w-full p-3">
                                         <div className="flex items-start gap-2 min-w-0">
                                             <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">
-                                                {filterGroups.findIndex((g) => g.sort_key === draggedGroup.sort_key) +
-                                                    1}
+                                                {filterGroups.findIndex(
+                                                    (g: FeatureFlagGroupType) => g.sort_key === draggedGroup.sort_key
+                                                ) + 1}
                                             </span>
                                             <span className="text-sm break-all">
                                                 {draggedGroup.description ||
@@ -989,16 +1014,16 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     </DndContext>
                 ) : (
                     // Fallback to non-draggable conditions when feature flag is disabled
-                    filterGroups.map((group, index) => (
-                        <React.Fragment key={`fragment-${group.sort_key ?? index}`}>
+                    filterGroups.map((group: FeatureFlagGroupType, index: number) => (
+                        <React.Fragment key={`fragment-${group.sort_key!}`}>
                             {index > 0 && (
                                 <div className="text-xs font-medium text-muted uppercase tracking-wide text-center w-full py-2">
                                     or
                                 </div>
                             )}
                             <SortableCondition
-                                key={`condition-${group.sort_key ?? index}`}
-                                group={group}
+                                key={`condition-${group.sort_key!}`}
+                                group={group as FeatureFlagGroupTypeWithSortKey}
                                 index={index}
                                 totalGroups={filterGroups.length}
                                 affectedUsers={affectedUsers}
