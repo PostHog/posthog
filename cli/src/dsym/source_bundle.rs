@@ -23,24 +23,9 @@ pub struct SourceFiles {
     pub contents: BTreeMap<String, Vec<u8>>,
 }
 
-/// Extract all source file paths referenced in DWARF debug info from a dSYM bundle.
-///
-/// Finds the DWARF binary at `<dSYM>/Contents/Resources/DWARF/<name>`,
-/// parses it with `symbolic`, and collects all referenced source file paths.
-pub fn extract_dwarf_source_paths(dsym_path: &Path) -> Result<Vec<String>> {
-    let dwarf_dir = dsym_path.join("Contents/Resources/DWARF");
-
-    if !dwarf_dir.is_dir() {
-        anyhow::bail!("DWARF directory not found at {}", dwarf_dir.display());
-    }
-
-    // Find the DWARF binary (there's typically one file in this directory)
-    let dwarf_binary = fs::read_dir(&dwarf_dir)?
-        .filter_map(|e| e.ok())
-        .find(|e| e.path().is_file())
-        .ok_or_else(|| anyhow::anyhow!("No DWARF binary found in {}", dwarf_dir.display()))?;
-
-    let dwarf_data = fs::read(dwarf_binary.path())?;
+/// Extract all source file paths referenced in a DWARF binary file.
+pub fn extract_source_paths_from_dwarf(dwarf_path: &Path) -> Result<Vec<String>> {
+    let dwarf_data = fs::read(dwarf_path)?;
     let archive = Archive::parse(&dwarf_data)?;
 
     let mut paths = Vec::new();

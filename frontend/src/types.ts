@@ -2201,28 +2201,34 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     transparent_background?: boolean | null
 }
 
+export type DashboardWidgetType = 'insight' | 'text' | 'button_tile'
+
 export interface DashboardTileBasicType {
     id: number
     dashboard_id: number
     deleted?: boolean
 }
 
-export interface TextModel {
-    body: string
+/** Shared fields for simple dashboard content models (text card, button tile, etc.). */
+export interface DashboardWidgetInterface {
+    id?: number
+    /** Placements on dashboards (same shape as insight `dashboard_tiles`; preferred over legacy `dashboards` on insights where applicable). */
+    dashboard_tiles?: DashboardTileBasicType[] | null
     created_by?: UserBasicType
     last_modified_by?: UserBasicType
+    last_modified_at?: string
+}
+
+export interface TextModel extends DashboardWidgetInterface {
+    body: string
     last_modified_at: string
 }
 
-export interface ButtonTileModel {
-    id?: number
+export interface ButtonTileModel extends DashboardWidgetInterface {
     url: string
     text: string
     placement: 'left' | 'right'
     style: 'primary' | 'secondary'
-    created_by?: UserBasicType
-    last_modified_by?: UserBasicType
-    last_modified_at?: string
     team?: number
 }
 
@@ -6258,6 +6264,7 @@ export type HogFunctionConfigurationContextId =
     | 'discussion-mention'
     | 'insight-alerts'
     | 'experiment-alerts'
+    | 'logs-alerting'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6269,6 +6276,7 @@ export type HogFunctionSubTemplateIdType =
     | 'discussion-mention'
     | 'insight-alert-firing'
     | 'experiment-significant'
+    | 'logs-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

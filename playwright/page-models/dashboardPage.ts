@@ -58,7 +58,11 @@ export class DashboardPage {
         const modal = this.page.locator('.LemonModal').filter({ hasText: 'Create a dashboard' })
         await expect(modal).toBeVisible()
 
-        const templateOption = this.page.getByTestId('create-dashboard-from-template').first()
+        // Pick a template with no variables — `.first()` can hit e.g. AARRR or Product Analytics,
+        // which open the variable picker instead of creating and never leave #newDashboard=modal.
+        const templateOption = this.page
+            .getByTestId('create-dashboard-from-template')
+            .filter({ hasText: 'Website Metrics' })
         await expect(templateOption).toBeVisible()
         await templateOption.click()
 
