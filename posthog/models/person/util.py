@@ -299,7 +299,9 @@ def get_persons_by_distinct_ids(
     from django.db.models.query import Prefetch
 
     def orm_fn() -> list[Person]:
-        return list(
+        did_queryset = PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id).order_by("id")
+
+        persons = list(
             Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(
                 team_id=team_id,
@@ -309,13 +311,17 @@ def get_persons_by_distinct_ids(
             .prefetch_related(
                 Prefetch(
                     "persondistinctid_set",
-                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                    .filter(team_id=team_id)
-                    .order_by("id"),
+                    queryset=did_queryset,
                     to_attr="distinct_ids_cache",
                 )
             )
         )
+
+        if distinct_id_limit is not None:
+            for person in persons:
+                person.distinct_ids_cache = person.distinct_ids_cache[:distinct_id_limit]
+
+        return persons
 
     return _personhog_routed(
         operation,
