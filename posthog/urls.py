@@ -33,6 +33,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.hog_support_report import hog_support_report
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
@@ -207,6 +208,7 @@ urlpatterns = [
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
+    opt_slash_path("api/support/hog-report", hog_support_report),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
     path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
