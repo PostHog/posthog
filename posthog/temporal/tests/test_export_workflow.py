@@ -114,10 +114,10 @@ async def test_transient_error_retries_and_succeeds(
 
 
 @pytest.mark.parametrize(
-    "error,expected_exception_class,expected_call_count",
+    "error_factory,expected_exception_class,expected_call_count",
     [
-        (QueryError("Invalid HogQL query"), "QueryError", 1),
-        (RuntimeError("Chrome crashed"), "RuntimeError", 1),
+        (lambda: QueryError("Invalid HogQL query"), "QueryError", 1),
+        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 1),
     ],
     ids=["non_retryable_user_error", "generic_runtime_error"],
 )
@@ -127,7 +127,7 @@ async def test_export_failure_emits_slo_failure(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
-    error: Exception,
+    error_factory,
     expected_exception_class: str,
     expected_call_count: int,
 ):
@@ -138,7 +138,7 @@ async def test_export_failure_emits_slo_failure(
     def failing_export(asset_obj, **kwargs):
         nonlocal call_count
         call_count += 1
-        raise error
+        raise error_factory()
 
     with pytest.raises(Exception):
         async with await WorkflowEnvironment.start_time_skipping() as env:
