@@ -34,8 +34,7 @@ import {
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const BUCKET_WINDOW_MINUTES = 30
-const BATCH_FLUSH_INTERVAL_MS = 500
-const BATCH_SIZE_THRESHOLD = 50
+const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 
@@ -112,13 +111,19 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 },
             },
         ],
-        windowVersion: [
+        eventsVersion: [
             0,
             {
                 setInitialData: (v) => v + 1,
                 addEvents: (v) => v + 1,
-                addGeoEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
+            },
+        ],
+        geoVersion: [
+            0,
+            {
+                setInitialData: (v) => v + 1,
+                addGeoEvents: (v) => v + 1,
             },
         ],
         isLoading: [
@@ -130,37 +135,22 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     }),
     selectors({
         chartData: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): ChartDataPoint[] => {
                 const bucketMap = new Map(slidingWindow.getSortedBuckets())
                 const result: ChartDataPoint[] = []
-                const seenUsers = new Set<string>()
 
                 const currentBucketTs = Math.floor(Date.now() / 60000) * 60
                 for (let i = BUCKET_WINDOW_MINUTES - 1; i >= 0; i--) {
                     const ts = currentBucketTs - i * 60
                     const bucket = bucketMap.get(ts)
 
-                    let newUsers = 0
-                    let returningUsers = 0
-
-                    if (bucket) {
-                        for (const userId of bucket.uniqueUsers) {
-                            if (seenUsers.has(userId)) {
-                                returningUsers++
-                            } else {
-                                newUsers++
-                                seenUsers.add(userId)
-                            }
-                        }
-                    }
-
                     result.push({
                         minute: dayjs.unix(ts).format('HH:mm'),
                         timestamp: ts * 1000,
                         users: bucket?.uniqueUsers.size ?? 0,
-                        newUsers,
-                        returningUsers,
+                        newUsers: bucket?.newUserCount ?? 0,
+                        returningUsers: bucket?.returningUserCount ?? 0,
                         pageviews: bucket?.pageviews ?? 0,
                     })
                 }
@@ -170,35 +160,35 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             { resultEqualityCheck: equal },
         ],
         deviceBreakdown: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
             { resultEqualityCheck: equal },
         ],
         browserBreakdown: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): BrowserBreakdownItem[] => slidingWindow.getBrowserBreakdown(6),
             { resultEqualityCheck: equal },
         ],
         countryBreakdown: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.geoVersion],
             (slidingWindow: LiveMetricsSlidingWindow): CountryBreakdownItem[] => slidingWindow.getCountryBreakdown(),
             { resultEqualityCheck: equal },
         ],
         topPaths: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
             { resultEqualityCheck: equal },
         ],
         totalPageviews: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalPageviews(),
         ],
         totalUniqueVisitors: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalUniqueUsers(),
         ],
         totalBrowsers: [
-            (s) => [s.slidingWindow, s.windowVersion],
+            (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBrowsers(),
         ],
     }),
@@ -266,8 +256,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const url = new URL(`${host}/events`)
             url.searchParams.append('columns', '$pathname,$device_type,$device_id,$browser,$ip,$raw_user_agent')
 
-            cache.batch = [] as LiveEvent[]
-            cache.lastBatchTime = performance.now()
+            cache.batch = cache.batch ?? ([] as LiveEvent[])
 
             cache.eventsConnection = createStreamConnection({
                 url,
@@ -281,13 +270,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         cache.batch.push(eventData)
                     } catch (ex) {
                         console.error(ex)
-                    }
-
-                    const timeSinceLastBatch = performance.now() - cache.lastBatchTime
-                    if (cache.batch.length >= BATCH_SIZE_THRESHOLD || timeSinceLastBatch > BATCH_FLUSH_INTERVAL_MS) {
-                        actions.addEvents(cache.batch, cache.newerThan)
-                        cache.batch = []
-                        cache.lastBatchTime = performance.now()
                     }
                 },
                 onError: (error) => {
@@ -318,8 +300,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const url = new URL(`${host}/events`)
             url.searchParams.append('geo', 'true')
 
-            cache.geoBatch = [] as LiveGeoEvent[]
-            cache.lastGeoBatchTime = performance.now()
+            cache.geoBatch = cache.geoBatch ?? ([] as LiveGeoEvent[])
 
             cache.geoConnection = createStreamConnection({
                 url,
@@ -333,13 +314,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     } catch (ex) {
                         console.error('Failed to parse geo event:', ex)
                     }
-
-                    const timeSinceLastBatch = performance.now() - cache.lastGeoBatchTime
-                    if (cache.geoBatch.length >= BATCH_SIZE_THRESHOLD || timeSinceLastBatch > BATCH_FLUSH_INTERVAL_MS) {
-                        actions.addGeoEvents(cache.geoBatch)
-                        cache.geoBatch = []
-                        cache.lastGeoBatchTime = performance.now()
-                    }
                 },
                 onError: (error) => {
                     console.error('Geo stream error:', error)
@@ -349,7 +323,23 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
+            cache.batch = [] as LiveEvent[]
+            cache.geoBatch = [] as LiveGeoEvent[]
+
             actions.loadInitialData()
+
+            // Flush both event and geo batches on a fixed interval
+            // to cap kea dispatches at a predictable rate regardless of event volume
+            cache.flushInterval = setInterval(() => {
+                if (cache.batch.length > 0) {
+                    actions.addEvents(cache.batch, cache.newerThan)
+                    cache.batch = []
+                }
+                if (cache.geoBatch.length > 0) {
+                    actions.addGeoEvents(cache.geoBatch)
+                    cache.geoBatch = []
+                }
+            }, FLUSH_INTERVAL_MS)
 
             // Ensures that our graph continues to update and old data "falls off"
             // even if new events aren't coming in
@@ -366,6 +356,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         beforeUnmount: () => {
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()
+            if (cache.flushInterval) {
+                clearInterval(cache.flushInterval)
+            }
             if (cache.minuteTickTimeout) {
                 clearTimeout(cache.minuteTickTimeout)
             }
@@ -590,6 +583,8 @@ const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: num
 const createEmptyBucket = (): SlidingWindowBucket => {
     return {
         pageviews: 0,
+        newUserCount: 0,
+        returningUserCount: 0,
         devices: new Map<string, Set<string>>(),
         browsers: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
