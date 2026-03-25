@@ -683,6 +683,7 @@ describe('checkFeatureFlagEligibility', () => {
         deleted: false,
         active: true,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,

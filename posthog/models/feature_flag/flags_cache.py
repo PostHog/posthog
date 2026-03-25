@@ -3,13 +3,15 @@ Flags HyperCache for feature-flags service.
 
 This module provides a HyperCache that stores feature flags for the feature-flags service.
 Unlike the local_evaluation.py cache which provides rich data for SDKs (including cohorts
-and group type mappings), this cache provides just the raw flag data.
+and group type mappings), this cache provides flag data plus the cohort definitions that
+those flags actually reference.
 
 The cache is automatically invalidated when:
 - FeatureFlag models are created, updated, or deleted
 - Team models are created or deleted (to ensure flag caches are cleaned up)
 - FeatureFlagEvaluationTag models are created or deleted
 - Tag models are updated (since tag names are cached in evaluation_tags)
+- Cohort definitions are created, updated, or deleted (not recalculation-only saves)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Cache Key Pattern:
@@ -44,6 +46,8 @@ import structlog
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.metrics import TOMBSTONE_COUNTER
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.cohort.dependencies import extract_cohort_dependencies
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import (
     FeatureFlagEvaluationTag,
@@ -90,6 +94,138 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
                 except (ValueError, KeyError, TypeError):
                     continue
     return dep_ids
+
+
+# Cohort model fields that change only during recalculation, not definition edits.
+# Used by the post_save signal to avoid rebuilding the flags cache on every
+# static cohort recalculation or count update.
+# NOTE: cohort_type is included because calculate_people_ch() always saves it in
+# update_fields even when unchanged. The rare actual cohort_type change (realtime
+# exceeding person limit) uses Cohort.objects.filter().update() which bypasses signals.
+_COHORT_RECALCULATION_FIELDS = frozenset(
+    [
+        "count",
+        "version",
+        "pending_version",
+        "is_calculating",
+        "last_calculation",
+        "last_calculation_duration_ms",
+        "errors_calculating",
+        "last_error_at",
+        # NOTE: `groups` is the legacy cohort-condition field (deprecated in favour of
+        # `filters`).  calculate_people_ch() always saves it in update_fields even when
+        # unchanged (see cohort.py:347).  Real definition changes go through a full save
+        # (update_fields=None), so they still trigger invalidation.
+        "groups",
+        "cohort_type",
+    ]
+)
+
+
+def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> set[int]:
+    """Extract cohort IDs directly referenced in active flag filters.
+
+    Only scans ``groups`` — the other filter sections cannot contain cohort
+    properties:
+    - ``super_groups`` are early-access enrollment gates that only use person
+      properties (``$feature_enrollment/*``).
+    - ``holdout`` uses a different schema for configuring experiment holdouts
+      with no property filters at all.
+    """
+    cohort_ids: set[int] = set()
+    for flag in flags_data:
+        if not flag.get("active", True) or flag.get("deleted", False):
+            continue
+        for group in flag.get("filters", {}).get("groups") or []:
+            for prop in group.get("properties") or []:
+                if prop.get("type") == "cohort":
+                    try:
+                        cohort_ids.add(int(prop["value"]))
+                    except (ValueError, KeyError, TypeError):
+                        continue
+    return cohort_ids
+
+
+_MAX_COHORT_DEPENDENCY_DEPTH = 20
+
+
+def _load_cohorts_with_deps(seed_ids: set[int], **team_filter: Any) -> dict[int, Cohort]:
+    """BFS-load cohorts by seed IDs, resolving transitive cohort-on-cohort deps.
+
+    Args:
+        seed_ids: Initial cohort IDs to load.
+        **team_filter: Passed to Cohort.objects.filter() for team scoping,
+            e.g. team_id=5 or team_id__in={5, 6}.
+
+    Returns:
+        Dict mapping cohort PK to loaded Cohort instance.
+    """
+    if not seed_ids:
+        return {}
+
+    all_ids = set(seed_ids)
+    ids_to_load = set(seed_ids)
+    loaded: dict[int, Cohort] = {}
+    depth = 0
+
+    while ids_to_load:
+        if depth >= _MAX_COHORT_DEPENDENCY_DEPTH:
+            logger.warning(
+                "Cohort dependency depth limit reached",
+                depth=depth,
+                remaining_ids=ids_to_load,
+            )
+            break
+        depth += 1
+        newly_loaded: list[Cohort] = []
+        for cohort in Cohort.objects.filter(pk__in=ids_to_load, deleted=False, **team_filter):
+            loaded[cohort.pk] = cohort
+            newly_loaded.append(cohort)
+
+        ids_to_load_next: set[int] = set()
+        for cohort in newly_loaded:
+            for dep_id in extract_cohort_dependencies(cohort):
+                if dep_id not in all_ids:
+                    all_ids.add(dep_id)
+                    ids_to_load_next.add(dep_id)
+        ids_to_load = ids_to_load_next
+
+    return loaded
+
+
+def _get_referenced_cohorts(team_id: int, flags_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fetch cohort definitions referenced by flags, including transitive cohort-on-cohort deps."""
+    direct_ids = _extract_cohort_ids_from_flag_filters(flags_data)
+    loaded = _load_cohorts_with_deps(direct_ids, team_id=team_id)
+    return [_serialize_cohort(c) for c in loaded.values()]
+
+
+def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
+    """Serialize a Cohort to a dict matching the Rust Cohort struct field names.
+
+    Keep in sync with rust/feature-flags/src/cohorts/cohort_models.rs::Cohort.
+    The Rust struct has no serde(default) on required fields (deleted, is_calculating,
+    is_static, errors_calculating, groups), so omitting any of these causes a
+    deserialization failure.
+    """
+    return {
+        "id": cohort.id,
+        "name": cohort.name,
+        "description": cohort.description,
+        "team_id": cohort.team_id,
+        "deleted": cohort.deleted,
+        "filters": cohort.filters,
+        "query": cohort.query,
+        "version": cohort.version,
+        "pending_version": cohort.pending_version,
+        "count": cohort.count,
+        "is_calculating": cohort.is_calculating,
+        "is_static": cohort.is_static,
+        "errors_calculating": cohort.errors_calculating,
+        "groups": cohort.groups,
+        "created_by_id": cohort.created_by_id,
+        "cohort_type": cohort.cohort_type,
+    }
 
 
 def _compute_flag_dependencies(flags_data: list[dict[str, Any]]) -> dict[str, Any]:
@@ -185,24 +321,28 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     in /flags would return unusable encrypted ciphertext.
 
     Returns:
-        dict: {"flags": [...], "evaluation_metadata": {...}} where flags is a list
-        of flag dictionaries and evaluation_metadata contains pre-computed dependency
-        metadata (stages, missing deps, transitive deps).
+        dict: {"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]} where
+        flags is a list of flag dictionaries, evaluation_metadata contains pre-computed
+        dependency metadata (stages, missing deps, transitive deps), and cohorts contains
+        serialized cohort definitions referenced by the flags (including transitive deps).
     """
     # Exclude encrypted remote config flags at DB level for efficiency
     flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
     flags_data = serialize_feature_flags(flags)
     evaluation_metadata = _compute_flag_dependencies(flags_data)
 
+    cohorts = _get_referenced_cohorts(team.id, flags_data)
+
     logger.info(
         "Loaded feature flags for service cache",
         team_id=team.id,
         project_id=team.project_id,
         flag_count=len(flags_data),
+        cohort_count=len(cohorts),
     )
 
     # Wrap in dict for HyperCache compatibility
-    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata}
+    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata, "cohorts": cohorts}
 
 
 def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -220,7 +360,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         teams: List of Team objects to load flags for
 
     Returns:
-        Dict mapping team_id to {"flags": [...], "evaluation_metadata": {...}} for each team
+        Dict mapping team_id to {"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]} for each team
     """
     if not teams:
         return {}
@@ -255,21 +395,44 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     for flag in all_flags:
         flags_by_team_id[flag.team_id].append(flag)
 
-    # Serialize flags for each team
-    result: dict[int, dict[str, Any]] = {}
+    # Serialize flags for each team and collect all referenced cohort IDs
+    flags_data_by_team: dict[int, list[dict[str, Any]]] = {}
+    all_cohort_ids: set[int] = set()
     for team in teams:
         team_flags = flags_by_team_id.get(team.id, [])
         flags_data = serialize_feature_flags(team_flags)
+        flags_data_by_team[team.id] = flags_data
+        all_cohort_ids.update(_extract_cohort_ids_from_flag_filters(flags_data))
+
+    # Batch-load all referenced cohorts across all teams (including transitive deps)
+    team_ids = {t.id for t in teams}
+    loaded_cohorts = _load_cohorts_with_deps(all_cohort_ids, team_id__in=team_ids)
+
+    # Group loaded cohorts by team_id
+    cohorts_by_team: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for cohort in loaded_cohorts.values():
+        cohorts_by_team[cohort.team_id].append(_serialize_cohort(cohort))
+
+    # Build result for each team
+    result: dict[int, dict[str, Any]] = {}
+    for team in teams:
+        flags_data = flags_data_by_team[team.id]
         evaluation_metadata = _compute_flag_dependencies(flags_data)
 
+        team_cohorts = cohorts_by_team.get(team.id, [])
         logger.info(
             "Loaded feature flags for service cache (batch)",
             team_id=team.id,
             project_id=team.project_id,
             flag_count=len(flags_data),
+            cohort_count=len(team_cohorts),
         )
 
-        result[team.id] = {"flags": flags_data, "evaluation_metadata": evaluation_metadata}
+        result[team.id] = {
+            "flags": flags_data,
+            "evaluation_metadata": evaluation_metadata,
+            "cohorts": team_cohorts,
+        }
 
     return result
 
@@ -746,3 +909,25 @@ def tag_changed_flags_cache(sender, instance: "Tag", created: bool, **kwargs):
     for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
         # Capture team_id in closure to avoid late binding issues
         transaction.on_commit(lambda tid=team_id: update_team_service_flags_cache.delay(tid))  # type: ignore[misc]
+
+
+@receiver(post_save, sender=Cohort)
+@receiver(post_delete, sender=Cohort)
+def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
+    """
+    Invalidate flags cache when a cohort definition changes.
+
+    Skips recalculation-only saves (count, version, is_calculating, etc.) to avoid
+    rebuilding the flags cache on every static cohort recalculation.
+    Only operates when FLAGS_REDIS_URL is configured.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and frozenset(update_fields) <= _COHORT_RECALCULATION_FIELDS:
+        return
+
+    from posthog.tasks.feature_flags import update_team_service_flags_cache
+
+    transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))

@@ -1,4 +1,5 @@
 use crate::properties::property_models::PropertyFilter;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -31,16 +32,20 @@ pub struct Cohort {
     pub groups: serde_json::Value,
     pub created_by_id: Option<i32>,
     pub cohort_type: Option<CohortType>,
+    pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
 }
 
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
+    /// Requires both a realtime/behavioral cohort type AND a populated backfill
+    /// timestamp, which indicates that the membership table has been written to.
+    /// Without the timestamp, the cohort falls through to dynamic filter evaluation.
     pub fn uses_realtime_membership(&self) -> bool {
         matches!(
             self.cohort_type,
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
-        )
+        ) && self.last_backfill_person_properties_at.is_some()
     }
 
     /// Estimates the memory size of this cohort in bytes.
@@ -173,6 +178,7 @@ mod tests {
             groups,
             created_by_id: Some(1),
             cohort_type: None,
+            last_backfill_person_properties_at: None,
         }
     }
 
@@ -299,24 +305,69 @@ mod tests {
 
     #[test]
     fn test_uses_realtime_membership() {
-        let cases = vec![
-            (None, false),
-            (Some(CohortType::Static), false),
-            (Some(CohortType::PersonProperty), false),
-            (Some(CohortType::Analytical), false),
-            (Some(CohortType::Realtime), true),
-            (Some(CohortType::Behavioral), true),
+        let backfill_ts = Some(Utc::now());
+
+        let cases: Vec<(Option<CohortType>, Option<DateTime<Utc>>, bool)> = vec![
+            (None, None, false),
+            (None, backfill_ts, false),
+            (Some(CohortType::Static), None, false),
+            (Some(CohortType::Static), backfill_ts, false),
+            (Some(CohortType::PersonProperty), None, false),
+            (Some(CohortType::PersonProperty), backfill_ts, false),
+            (Some(CohortType::Analytical), None, false),
+            (Some(CohortType::Analytical), backfill_ts, false),
+            (Some(CohortType::Realtime), None, false),
+            (Some(CohortType::Realtime), backfill_ts, true),
+            (Some(CohortType::Behavioral), None, false),
+            (Some(CohortType::Behavioral), backfill_ts, true),
         ];
 
-        for (cohort_type, expected) in cases {
+        for (cohort_type, ts, expected) in cases {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
+            cohort.last_backfill_person_properties_at = ts;
             assert_eq!(
                 cohort.uses_realtime_membership(),
                 expected,
-                "cohort_type={cohort_type:?} should return {expected}"
+                "cohort_type={cohort_type:?}, backfill_ts={} should return {expected}",
+                ts.is_some()
             );
         }
+    }
+
+    #[test]
+    fn test_realtime_cohort_filtering_mirrors_flag_matching() {
+        // Verifies that filtering cohorts by `uses_realtime_membership()` correctly
+        // selects only Realtime/Behavioral cohorts with a backfill timestamp, which
+        // is the same filter applied in flag_matching::prepare_flag_evaluation_data.
+        let backfill_ts = Some(Utc::now());
+
+        let make_cohort = |id: i32, cohort_type: Option<CohortType>, ts: Option<DateTime<Utc>>| {
+            let mut c = create_test_cohort(None, None, serde_json::json!({}));
+            c.id = id;
+            c.cohort_type = cohort_type;
+            c.last_backfill_person_properties_at = ts;
+            c
+        };
+
+        let cohorts = [
+            make_cohort(1, Some(CohortType::Static), None),
+            make_cohort(2, Some(CohortType::PersonProperty), backfill_ts),
+            make_cohort(3, Some(CohortType::Realtime), None), // no backfill
+            make_cohort(4, Some(CohortType::Realtime), backfill_ts), // should be selected
+            make_cohort(5, Some(CohortType::Behavioral), None), // no backfill
+            make_cohort(6, Some(CohortType::Behavioral), backfill_ts), // should be selected
+            make_cohort(7, Some(CohortType::Analytical), backfill_ts),
+            make_cohort(8, None, backfill_ts),
+        ];
+
+        let realtime_ids: Vec<i32> = cohorts
+            .iter()
+            .filter(|c| c.uses_realtime_membership())
+            .map(|c| c.id)
+            .collect();
+
+        assert_eq!(realtime_ids, vec![4, 6]);
     }
 
     #[test]
