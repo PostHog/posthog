@@ -28,7 +28,7 @@ jobs:
               uses: actions/checkout@v6
 
             - name: Install Flox
-              uses: flox/install-flox-action@v3
+              uses: flox/install-flox-action@5d676fd0285f8d6be465cb73a28aa3892144978b # v2.3.0
 
             - name: Activate Flox environment
               run: flox activate -- bash -c 'echo "Flox environment activated successfully"'
@@ -37,9 +37,9 @@ jobs:
               run: |
                   flox activate -- bash -c '
                     echo "Go:     $(go version)"
-                    echo "Node:   $(node --(python --version 2>&1)"
-                    echo "Rust:   $version)"
-                    echo "Python: $(rustc --version)"
+                    echo "Node:   $(node --version)"
+                    echo "Python: $(python --version 2>&1)"
+                    echo "Rust:   $(rustc --version)"
                     echo "pnpm:   $(pnpm --version)"
                     echo "uv:     $(uv --version)"
                   '
