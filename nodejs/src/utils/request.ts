@@ -18,9 +18,11 @@ import {
 } from 'undici'
 import { URL } from 'url'
 
-import { defaultConfig } from '../config/config'
+import { getExternalRequestConfig } from '../common/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
+
+const requestConfig = getExternalRequestConfig()
 
 // eslint-disable-next-line no-restricted-imports
 export { Response } from 'undici'
@@ -223,11 +225,11 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
 class SecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: Number(defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
-                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+                timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
         })
     }
@@ -237,10 +239,10 @@ class SecureAgent extends Agent {
 class InsecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
-                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+                timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
         })
     }
@@ -256,8 +258,8 @@ function makeSecureDispatcher(): Dispatcher {
     if (proxyUrl) {
         return new ProxyAgent({
             uri: proxyUrl,
-            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             requestTls: {},
         })
     }
@@ -279,7 +281,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
 
-    options.timeoutMs = options.timeoutMs ?? defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
 
     const result = await request(parsed.toString(), {
         method: options.method ?? 'GET',
@@ -349,7 +351,7 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent
-    requestOptions.signal = AbortSignal.timeout(defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
 
     return undiciFetch(parsed.toString(), requestOptions)
 }

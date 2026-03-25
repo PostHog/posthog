@@ -181,6 +181,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'data_pipeline',
     },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
+    [Scene.DebugNotifications]: { projectBased: true, name: 'Notifications tester' },
     [Scene.DebugQuery]: { projectBased: true },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
@@ -926,6 +927,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.debugNotifications()]: [Scene.DebugNotifications, 'debugNotifications'],
 
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],

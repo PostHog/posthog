@@ -27,7 +27,6 @@ import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema,
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 export class RecordingApi {
-    private corsOrigin: string | null = null
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
     private s3Prefix: string | null = null
@@ -52,8 +51,6 @@ export class RecordingApi {
     }
 
     async start(recordingService?: RecordingService): Promise<void> {
-        this.corsOrigin = this.config.SITE_URL || null
-
         if (recordingService) {
             this.recordingService = recordingService
             logger.info('[RecordingApi] Started with injected RecordingService')
@@ -203,8 +200,6 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
-        router.options(blockPath, this.handleCorsPreflightForBlock)
-        router.options(blocksPath, this.handleCorsPreflightForBlock)
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
@@ -212,24 +207,7 @@ export class RecordingApi {
         return router
     }
 
-    private setCorsHeaders(req: express.Request, res: express.Response): void {
-        if (this.corsOrigin && req.headers.origin === this.corsOrigin) {
-            res.set('Access-Control-Allow-Origin', this.corsOrigin)
-            res.set('Vary', 'Origin')
-        }
-    }
-
-    private handleCorsPreflightForBlock = (req: express.Request, res: express.Response): void => {
-        this.setCorsHeaders(req, res)
-        res.set('Access-Control-Allow-Methods', 'GET')
-        res.set('Access-Control-Allow-Headers', 'X-Internal-Api-Secret')
-        res.set('Access-Control-Max-Age', '86400')
-        res.status(204).end()
-    }
-
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {
-        this.setCorsHeaders(req, res)
-
         // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -303,8 +281,6 @@ export class RecordingApi {
     }
 
     private listBlocks = async (req: express.Request, res: express.Response): Promise<void> => {
-        this.setCorsHeaders(req, res)
-
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
