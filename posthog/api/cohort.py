@@ -28,7 +28,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, HogQLQuery
+from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
@@ -41,6 +41,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -1192,6 +1193,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             filter = filter.shallow_clone({LIMIT: 100})
 
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         raw_result = sync_execute(
             query,
             {**params, **filter.hogql_context.values},
@@ -1474,6 +1476,7 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     # scan and discard all preceding rows.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         rows = sync_execute(
             f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
             {
@@ -1508,6 +1511,7 @@ def insert_actors_into_cohort_by_query(
     *,
     team_id: int,
 ):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {
