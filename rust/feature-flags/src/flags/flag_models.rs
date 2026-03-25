@@ -145,6 +145,11 @@ pub struct FlagFilters {
     /// fallback to regular conditions.
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
+    /// New format for early access feature enrollment. When `true`, the flag is evaluated
+    /// against the person property `$feature_enrollment/{flag_key}`. Takes precedence over
+    /// `super_groups` when both are present.
+    #[serde(default)]
+    pub feature_enrollment: Option<bool>,
     /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
     /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
