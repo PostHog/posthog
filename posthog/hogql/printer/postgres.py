@@ -222,6 +222,15 @@ class PostgresPrinter(HogQLPrinter):
         else:
             right = self.visit(node.right)
 
+        if (
+            node.null_comparison_style == "is"
+            and isinstance(node.right, ast.Constant)
+            and node.right.value is None
+            and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)
+        ):
+            not_kw = " NOT" if node.op == ast.CompareOperationOp.NotEq else ""
+            return f"({left} IS{not_kw} NULL)"
+
         return self._get_compare_op(node.op, left, right)
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:

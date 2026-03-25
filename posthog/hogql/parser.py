@@ -1066,6 +1066,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             left=self.visit(ctx.columnExpr()),
             right=ast.Constant(value=None),
             op=ast.CompareOperationOp.NotEq if ctx.NOT() else ast.CompareOperationOp.Eq,
+            null_comparison_style="is",
         )
 
     def visitColumnExprIsDistinctFrom(self, ctx: HogQLParser.ColumnExprIsDistinctFromContext):

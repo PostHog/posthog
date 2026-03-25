@@ -4442,6 +4442,12 @@ class TestPostgresPrinter(BaseTest):
             dialect,
         )[0]
 
+    def test_null_comparisons_in_postgres(self):
+        self.assertEqual(self._expr("event is null"), "(events.event IS NULL)")
+        self.assertEqual(self._expr("event is not null"), "(events.event IS NOT NULL)")
+        self.assertEqual(self._expr("event = null"), "(events.event = NULL)")
+        self.assertEqual(self._expr("event != null"), "(events.event != NULL)")
+
     @parameterized.expand(
         [
             (
