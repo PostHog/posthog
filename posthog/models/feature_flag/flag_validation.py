@@ -13,7 +13,6 @@ from django.db.models.query import QuerySet
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.cohort import Cohort, CohortOrEmpty
-from posthog.models.cohort.cohort import CohortType
 from posthog.models.filters import Filter
 from posthog.models.group import Group
 from posthog.models.person import Person
@@ -111,7 +110,7 @@ def _exclude_realtime_backfilled_cohort_properties(
                     team__project_id=project_id,
                     deleted=False,
                 )
-                if cohort.cohort_type == CohortType.REALTIME and cohort.last_backfill_person_properties_at is not None:
+                if cohort.is_flag_compatible:
                     continue
             except (Cohort.DoesNotExist, ValueError):
                 pass

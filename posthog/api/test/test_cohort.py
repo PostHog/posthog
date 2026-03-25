@@ -1470,14 +1470,30 @@ email@example.org,
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], regular_cohort.id)
 
-    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled", return_value=True)
+    @parameterized.expand(
+        [
+            ("realtime_backfilled_flag_on", CohortType.REALTIME, True, True, True),
+            ("realtime_not_backfilled_flag_on", CohortType.REALTIME, False, True, False),
+            ("realtime_backfilled_flag_off", CohortType.REALTIME, True, False, False),
+        ]
+    )
+    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
-    def test_list_cohorts_includes_realtime_backfilled_behavioral_cohort(self, patch_capture, mock_flag):
-        from posthog.models.cohort.cohort import CohortType
+    def test_behavioral_cohort_dropdown_visibility(
+        self,
+        _name,
+        cohort_type,
+        is_backfilled,
+        flag_enabled,
+        expect_behavioral_visible,
+        patch_capture,
+        mock_flag,
+    ):
+        mock_flag.return_value = flag_enabled
 
-        realtime_cohort = Cohort.objects.create(
+        behavioral_cohort = Cohort.objects.create(
             team=self.team,
-            name="realtime behavioral cohort",
+            name="behavioral cohort",
             filters={
                 "properties": {
                     "type": "OR",
@@ -1493,8 +1509,8 @@ email@example.org,
                     ],
                 }
             },
-            cohort_type=CohortType.REALTIME,
-            last_backfill_person_properties_at=datetime.now(),
+            cohort_type=cohort_type,
+            last_backfill_person_properties_at=datetime.now() if is_backfilled else None,
         )
 
         regular_cohort = Cohort.objects.create(
@@ -1510,98 +1526,12 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        result_ids = {r["id"] for r in results}
-        self.assertIn(realtime_cohort.id, result_ids)
+        result_ids = {r["id"] for r in response.json()["results"]}
         self.assertIn(regular_cohort.id, result_ids)
-
-    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled", return_value=True)
-    @patch("posthog.api.cohort.report_user_action")
-    def test_list_cohorts_excludes_realtime_not_backfilled_behavioral_cohort(self, patch_capture, mock_flag):
-        from posthog.models.cohort.cohort import CohortType
-
-        Cohort.objects.create(
-            team=self.team,
-            name="realtime not backfilled",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
-            cohort_type=CohortType.REALTIME,
-            last_backfill_person_properties_at=None,
-        )
-
-        regular_cohort = Cohort.objects.create(
-            team=self.team,
-            name="regular cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
-                }
-            },
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], regular_cohort.id)
-
-    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled", return_value=False)
-    @patch("posthog.api.cohort.report_user_action")
-    def test_list_cohorts_excludes_realtime_backfilled_when_feature_disabled(self, patch_capture, mock_flag):
-        from posthog.models.cohort.cohort import CohortType
-
-        Cohort.objects.create(
-            team=self.team,
-            name="realtime behavioral cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
-            cohort_type=CohortType.REALTIME,
-            last_backfill_person_properties_at=datetime.now(),
-        )
-
-        regular_cohort = Cohort.objects.create(
-            team=self.team,
-            name="regular cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
-                }
-            },
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], regular_cohort.id)
+        if expect_behavioral_visible:
+            self.assertIn(behavioral_cohort.id, result_ids)
+        else:
+            self.assertNotIn(behavioral_cohort.id, result_ids)
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_cohort_activity_log(self, patch_on_commit):

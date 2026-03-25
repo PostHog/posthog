@@ -123,7 +123,7 @@ def _validate_behavioral_cohort_for_feature_flag(cohort: Cohort, *, allow_realti
     are permitted. Otherwise all behavioral cohorts are rejected.
     """
     if allow_realtime_backfilled:
-        if cohort.cohort_type == CohortType.REALTIME and cohort.last_backfill_person_properties_at is not None:
+        if cohort.is_flag_compatible:
             return
         if cohort.cohort_type != CohortType.REALTIME:
             raise serializers.ValidationError(
@@ -977,7 +977,7 @@ class FeatureFlagSerializer(
                     code="invalid_input",
                 )
 
-        allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+        self._allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
 
         for condition in filters["groups"]:
             if condition.get("variant") and condition["variant"] not in variants:
@@ -1010,7 +1010,7 @@ class FeatureFlagSerializer(
                         for cohort in [initial_cohort, *dependency_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                                 _validate_behavioral_cohort_for_feature_flag(
-                                    cohort, allow_realtime_backfilled=allow_realtime_backfilled
+                                    cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
@@ -1269,10 +1269,12 @@ class FeatureFlagSerializer(
         if flag_dependencies:
             return  # Skip validation for flag dependencies
 
-        allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
         try:
             check_flag_evaluation_query_is_ok(
-                temporary_flag, team_id, project_id, allow_realtime_backfilled=allow_realtime_backfilled
+                temporary_flag,
+                team_id,
+                project_id,
+                allow_realtime_backfilled=getattr(self, "_allow_realtime_backfilled", False),
             )
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
