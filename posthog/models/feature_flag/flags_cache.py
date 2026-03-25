@@ -47,6 +47,7 @@ from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.dependencies import extract_cohort_dependencies
+from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import get_feature_flags, serialize_feature_flags
 from posthog.models.team import Team
@@ -856,6 +857,25 @@ def team_deleted_flags_cache(sender, instance: "Team", **kwargs):
     # For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_flags_cache(instance, kinds=kinds)
+
+
+@receiver(post_save, sender=FeatureFlagEvaluationContext)
+@receiver(post_delete, sender=FeatureFlagEvaluationContext)
+def evaluation_context_changed_flags_cache(sender, instance: "FeatureFlagEvaluationContext", **kwargs):
+    """
+    Invalidate flags cache when evaluation contexts are added or removed from a flag.
+
+    Evaluation context names are cached as part of the flag data, so changes to the
+    FeatureFlagEvaluationContext join table require a cache refresh.
+    Only operates when FLAGS_REDIS_URL is configured.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    from posthog.tasks.feature_flags import update_team_service_flags_cache
+
+    team_id = instance.feature_flag.team_id
+    transaction.on_commit(lambda: update_team_service_flags_cache.delay(team_id))
 
 
 @receiver(post_save, sender=Cohort)

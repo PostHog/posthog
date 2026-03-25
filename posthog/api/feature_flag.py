@@ -456,8 +456,14 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
-        deduped_names = list({normalize_context_name(t) for t in evaluation_contexts or []})
-        deduped_set = set(deduped_names)
+        seen: set[str] = set()
+        deduped_names: list[str] = []
+        for t in evaluation_contexts or []:
+            name = normalize_context_name(t)
+            if name not in seen:
+                seen.add(name)
+                deduped_names.append(name)
+        deduped_set = seen
 
         current_context_names = set(
             FeatureFlagEvaluationContext.objects.filter(feature_flag=obj)
