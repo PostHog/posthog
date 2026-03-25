@@ -203,7 +203,6 @@ resource "posthog_insight" "slo_duration" {
   for_each = local.slo_operation_regions
 
   name        = "SLO: Duration - ${each.value.name} — ${each.value.region}"
-  description = ""
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -244,7 +243,6 @@ resource "posthog_insight" "slo_duration" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "slo_success_rate" {
   name        = "SLO: 28d Success Rate"
-  description = ""
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -325,7 +323,6 @@ resource "posthog_insight" "slo_success_rate" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "slo_volume" {
   name        = "SLO: 28d Volume by Operation"
-  description = ""
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
