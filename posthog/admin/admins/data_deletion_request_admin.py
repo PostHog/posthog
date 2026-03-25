@@ -50,6 +50,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
         workload=Workload.OFFLINE,
         query_type="delete_event_count",
     ):
+        # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
         event_result = sync_execute(
             f"""
             SELECT
@@ -80,6 +81,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
         cluster = django_settings.CLICKHOUSE_CLUSTER
 
+        # nosemgrep: clickhouse-fstring-param-audit (extra_filter from internal helpers; cluster from Django settings)
         parts_result = sync_execute(
             f"""
             SELECT
@@ -338,7 +340,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-
         updated = DataDeletionRequest.objects.filter(
             pk=obj.pk,
             status__in=[RequestStatus.PENDING, RequestStatus.APPROVED],
@@ -349,7 +350,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             approved_at=None,
             updated_at=timezone.now(),
         )
-
 
         if not updated:
             messages.error(request, "Only pending or approved requests can be moved back to draft.")
