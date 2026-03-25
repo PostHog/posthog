@@ -5,6 +5,11 @@ use serde_json::Value;
 use crate::flags::flag_models::FlagFilters;
 
 impl FlagFilters {
+    /// Returns the person property key used for early access feature enrollment.
+    pub fn enrollment_key(flag_key: &str) -> String {
+        format!("$feature_enrollment/{}", flag_key)
+    }
+
     pub fn requires_db_properties(
         &self,
         overrides: &HashMap<String, Value>,
@@ -12,8 +17,7 @@ impl FlagFilters {
     ) -> bool {
         self.aggregation_group_type_index.is_some()
             || (self.feature_enrollment == Some(true) && {
-                let enrollment_key = format!("$feature_enrollment/{}", flag_key);
-                !overrides.contains_key(&enrollment_key)
+                !overrides.contains_key(&Self::enrollment_key(flag_key))
             })
             || self
                 .super_groups
@@ -202,7 +206,7 @@ mod tests {
         filters.feature_enrollment = Some(true);
 
         let overrides = HashMap::from([(
-            "$feature_enrollment/my-flag".to_string(),
+            FlagFilters::enrollment_key("my-flag"),
             Value::String("true".to_string()),
         )]);
         assert!(!filters.requires_db_properties(&overrides, "my-flag"));

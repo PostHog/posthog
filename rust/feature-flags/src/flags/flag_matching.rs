@@ -1250,7 +1250,7 @@ impl FeatureFlagMatcher {
         // Legacy format: `super_groups` array with explicit property filters.
         // New format takes precedence when both are present.
         if flag.filters.feature_enrollment == Some(true) {
-            let enrollment_key = format!("$feature_enrollment/{}", flag.key);
+            let enrollment_key = FlagFilters::enrollment_key(&flag.key);
             let person_properties = self.get_person_properties(property_overrides)?;
 
             if person_properties.contains_key(&enrollment_key) {
