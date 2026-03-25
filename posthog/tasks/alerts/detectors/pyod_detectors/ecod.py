@@ -17,4 +17,4 @@ class ECODDetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": DetectorType.ECOD.value, "threshold": 0.9}
+        return {"type": DetectorType.ECOD.value, "threshold": cls.DEFAULT_THRESHOLD}

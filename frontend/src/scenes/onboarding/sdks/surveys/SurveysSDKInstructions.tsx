@@ -12,6 +12,7 @@ import {
     SurveysNuxtInstallation,
     SurveysReactInstallation,
     SurveysReactNativeInstallation,
+    SurveysReactRouterInstallation,
     SurveysRemixInstallation,
     SurveysSvelteInstallation,
     SurveysVueInstallation,
@@ -57,18 +58,26 @@ const SurveysAstroInstructionsWrapper = withOnboardingDocsWrapper({
 const SurveysAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysAngularInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Angular',
 })
 const SurveysVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysVueInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Vue',
 })
 const SurveysNuxtInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysNuxtInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Nuxt',
+})
+const SurveysReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SurveysReactRouterInstallation,
     snippets: SNIPPETS,
 })
 const SurveysRemixInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysRemixInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 
 // Website builders
@@ -89,6 +98,7 @@ const SurveysWebflowInstructionsWrapper = withOnboardingDocsWrapper({
 const SurveysIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysIOSInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Swift',
 })
 const SurveysFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysFlutterInstallation,
@@ -109,6 +119,7 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: SurveysNextJSInstructionsWrapper,
     [SDKKey.NUXT_JS]: SurveysNuxtInstructionsWrapper,
     [SDKKey.REACT]: SurveysReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: SurveysReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: SurveysRemixInstructionsWrapper,
     [SDKKey.TANSTACK_START]: SurveysReactInstructionsWrapper,
     [SDKKey.SVELTE]: SurveysSvelteInstructionsWrapper,

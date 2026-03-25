@@ -48,6 +48,7 @@ describe('the feature flag release conditions logic', () => {
                 {
                     properties: [],
                     rollout_percentage: 50,
+                    sort_key: 'group-1',
                     variant: null,
                 },
             ]),
@@ -596,11 +597,14 @@ describe('the feature flag release conditions logic', () => {
             )
         })
 
-        it('accepts valid rollout percentages', () => {
+        it.each([
+            ['integer boundary values', 0, 50, 100],
+            ['decimal sub-1% values', 0.01, 0.15, 33.33],
+        ])('accepts valid rollout percentages (%s)', (_label, a, b, c) => {
             const filters = generateFeatureFlagFilters([
-                { properties: [], rollout_percentage: 0, variant: null, sort_key: 'A' },
-                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'B' },
-                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+                { properties: [], rollout_percentage: a, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: b, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: c, variant: null, sort_key: 'C' },
             ])
             logic.actions.setFilters(filters)
 
@@ -814,6 +818,84 @@ describe('the feature flag release conditions logic', () => {
                     // The open state should be preserved by index (first condition stays open)
                     openConditions: ['condition-NEW-KEY'],
                 })
+        })
+
+        it('can reorder condition sets', async () => {
+            logic?.unmount()
+
+            // Create logic with multiple condition sets
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'reorder-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'first' },
+                    { properties: [], rollout_percentage: 30, variant: null, sort_key: 'second' },
+                    { properties: [], rollout_percentage: 20, variant: null, sort_key: 'third' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toMatchValues({
+                filterGroups: [
+                    expect.objectContaining({ sort_key: 'first', rollout_percentage: 50 }),
+                    expect.objectContaining({ sort_key: 'second', rollout_percentage: 30 }),
+                    expect.objectContaining({ sort_key: 'third', rollout_percentage: 20 }),
+                ],
+            })
+
+            // Reorder: move 'first' to after 'second'
+            await expectLogic(logic, () => {
+                logic.actions.reorderConditionSets('first', 'second')
+            }).toMatchValues({
+                filterGroups: [
+                    expect.objectContaining({ sort_key: 'second', rollout_percentage: 30 }),
+                    expect.objectContaining({ sort_key: 'first', rollout_percentage: 50 }),
+                    expect.objectContaining({ sort_key: 'third', rollout_percentage: 20 }),
+                ],
+            })
+
+            // Reorder: move 'third' to the beginning
+            await expectLogic(logic, () => {
+                logic.actions.reorderConditionSets('third', 'second')
+            }).toMatchValues({
+                filterGroups: [
+                    expect.objectContaining({ sort_key: 'third', rollout_percentage: 20 }),
+                    expect.objectContaining({ sort_key: 'second', rollout_percentage: 30 }),
+                    expect.objectContaining({ sort_key: 'first', rollout_percentage: 50 }),
+                ],
+            })
+        })
+
+        it('ignores reorder when activeId equals overId', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'reorder-same-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'first' },
+                    { properties: [], rollout_percentage: 30, variant: null, sort_key: 'second' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toMatchValues({
+                filterGroups: [
+                    expect.objectContaining({ sort_key: 'first', rollout_percentage: 50 }),
+                    expect.objectContaining({ sort_key: 'second', rollout_percentage: 30 }),
+                ],
+            })
+
+            // Try to reorder same item to itself - should be ignored
+            await expectLogic(logic, () => {
+                logic.actions.reorderConditionSets('first', 'first')
+            }).toMatchValues({
+                // Should remain unchanged
+                filterGroups: [
+                    expect.objectContaining({ sort_key: 'first', rollout_percentage: 50 }),
+                    expect.objectContaining({ sort_key: 'second', rollout_percentage: 30 }),
+                ],
+            })
         })
     })
 })

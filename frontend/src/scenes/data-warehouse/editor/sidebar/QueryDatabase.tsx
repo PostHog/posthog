@@ -22,7 +22,7 @@ import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/Dropdow
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/ConnectionSelector'
+import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'

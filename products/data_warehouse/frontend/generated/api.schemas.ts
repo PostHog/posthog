@@ -448,6 +448,21 @@ export const AccessMethodEnumApi = {
     Direct: 'direct',
 } as const
 
+/**
+ * * `duckdb` - duckdb
+ * `postgres` - postgres
+ */
+export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
+
+export const EngineEnumApi = {
+    Duckdb: 'duckdb',
+    Postgres: 'postgres',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
     include_invoiceless_charges?: boolean
@@ -480,6 +495,11 @@ export interface ExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method: AccessMethodEnumApi
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine: EngineEnumApi | NullEnumApi | null
     readonly last_run_at: string
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
@@ -527,6 +547,11 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine?: EngineEnumApi | NullEnumApi | null
     readonly last_run_at?: string
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
@@ -536,6 +561,26 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface ExternalDataSourceConnectionOptionApi {
+    readonly id: string
+    /** @nullable */
+    readonly prefix: string | null
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine: EngineEnumApi | NullEnumApi | null
+}
+
+export interface PaginatedExternalDataSourceConnectionOptionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSourceConnectionOptionApi[]
 }
 
 export interface QueryTabStateApi {
@@ -597,10 +642,6 @@ export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 export const BlankEnumApi = {
     '': '',
 } as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
 
 /**
  * @nullable
@@ -718,6 +759,13 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    readonly is_test: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -786,6 +834,13 @@ export interface DataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
@@ -845,6 +900,13 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin?: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at?: string | null
 }
 
 /**
@@ -1003,6 +1065,21 @@ export type ExternalDataSchemasListParams = {
 }
 
 export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
      */

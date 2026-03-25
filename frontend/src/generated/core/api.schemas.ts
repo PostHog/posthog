@@ -1189,6 +1189,11 @@ export interface PatchedIntegrationApi {
 export interface GitHubBranchesResponseApi {
     /** List of branch names */
     branches: string[]
+    /**
+     * The default branch of the repository
+     * @nullable
+     */
+    default_branch?: string | null
 }
 
 export interface GitHubRepoApi {

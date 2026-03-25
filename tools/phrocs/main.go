@@ -74,7 +74,7 @@ func main() {
 	}
 
 	mgr := process.NewManager(cfg)
-	m := tui.New(mgr, cfg.MouseScrollSpeed, logger)
+	m := tui.New(mgr, cfg, logger)
 	p := tea.NewProgram(m)
 
 	// StartAll is launched in a goroutine so it doesn't block: p.Send() inside

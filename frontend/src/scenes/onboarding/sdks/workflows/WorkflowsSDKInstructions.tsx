@@ -24,6 +24,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
@@ -85,38 +86,51 @@ const WorkflowsWebInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsReactInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'React',
 })
 const WorkflowsNextJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NextJSInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Next.js',
 })
 const WorkflowsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SvelteInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Svelte',
 })
 const WorkflowsAstroInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AstroInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Astro',
 })
 const WorkflowsTanStackInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: TanStackInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'TanStack Start',
 })
 const WorkflowsAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Angular',
 })
 const WorkflowsVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VueInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Vue',
 })
 const WorkflowsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
+    modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Nuxt',
+})
+const WorkflowsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
     modifySteps: workflowsModifySteps,
 })
 const WorkflowsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'React Router',
 })
 
 // Website builders
@@ -157,10 +171,12 @@ const WorkflowsRetoolInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Android',
 })
 const WorkflowsIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Swift',
 })
 const WorkflowsFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
@@ -169,6 +185,7 @@ const WorkflowsFlutterInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsRNInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'React Native',
 })
 
 // Server-side SDKs
@@ -179,10 +196,12 @@ const WorkflowsNodeInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsPythonInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PythonInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Python',
 })
 const WorkflowsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DjangoInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Django',
 })
 const WorkflowsGoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoInstallation,
@@ -195,10 +214,12 @@ const WorkflowsPHPInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: LaravelInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Laravel',
 })
 const WorkflowsRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Ruby',
 })
 const WorkflowsElixirInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ElixirInstallation,
@@ -282,6 +303,7 @@ export const WorkflowsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: WorkflowsPythonInstructionsWrapper,
     [SDKKey.REACT]: WorkflowsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: WorkflowsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: WorkflowsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: WorkflowsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: WorkflowsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: WorkflowsRubyInstructionsWrapper,

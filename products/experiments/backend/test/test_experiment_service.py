@@ -1156,6 +1156,18 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
+    def _create_ended_experiment(
+        self,
+        name: str = "Ended",
+        feature_flag_key: str = "ended-flag",
+        **kwargs: Any,
+    ) -> Experiment:
+        experiment = self._create_launchable_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+        service = self._service()
+        service.launch_experiment(experiment)
+        service.update_experiment(experiment, {"end_date": timezone.now()})
+        return experiment
+
     def test_launch_experiment_success(self):
         experiment = self._create_launchable_experiment(name="Launch Test", feature_flag_key="launch-new-flag")
 
@@ -1325,6 +1337,138 @@ class TestExperimentService(APIBaseTest):
             self._service().launch_experiment(experiment)
 
         assert "at least 2 variants" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Archive
+    # ------------------------------------------------------------------
+
+    def test_archive_experiment_success(self):
+        experiment = self._create_ended_experiment(name="Archive Test", feature_flag_key="archive-flag")
+
+        archived = self._service().archive_experiment(experiment)
+
+        assert archived.archived is True
+        assert archived.status == Experiment.Status.STOPPED
+
+    def test_archive_experiment_already_archived_raises(self):
+        experiment = self._create_ended_experiment(name="Already Archived", feature_flag_key="already-archived-flag")
+        service = self._service()
+        service.archive_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.archive_experiment(experiment)
+
+        assert "already archived" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("draft", True),
+            ("running", False),
+        ]
+    )
+    def test_archive_experiment_not_ended_raises(self, _name: str, is_draft: bool):
+        service = self._service()
+        experiment = self._create_launchable_experiment(
+            name=f"Archive {_name}", feature_flag_key=f"archive-{_name}-flag"
+        )
+        if not is_draft:
+            service.launch_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.archive_experiment(experiment)
+        assert "must be ended" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Pause / Resume
+    # ------------------------------------------------------------------
+
+    def _create_running_experiment(
+        self,
+        name: str = "Running",
+        feature_flag_key: str = "running-flag",
+        **kwargs: Any,
+    ) -> Experiment:
+        experiment = self._create_launchable_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+        self._service().launch_experiment(experiment)
+        return experiment
+
+    def test_pause_experiment_success(self):
+        experiment = self._create_running_experiment(name="Pause Test", feature_flag_key="pause-flag")
+
+        assert experiment.feature_flag.active is True
+
+        paused = self._service().pause_experiment(experiment)
+
+        paused.feature_flag.refresh_from_db()
+        assert paused.feature_flag.active is False
+        assert paused.start_date is not None
+        assert paused.end_date is None
+
+    def test_resume_experiment_success(self):
+        experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
+        service = self._service()
+        service.pause_experiment(experiment)
+
+        assert experiment.feature_flag.active is False
+
+        resumed = service.resume_experiment(experiment)
+
+        resumed.feature_flag.refresh_from_db()
+        assert resumed.feature_flag.active is True
+        assert resumed.start_date is not None
+        assert resumed.end_date is None
+
+    def test_pause_experiment_already_paused_raises(self):
+        experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
+        service = self._service()
+        service.pause_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.pause_experiment(experiment)
+
+        assert "already paused" in str(ctx.exception)
+
+    def test_resume_experiment_not_paused_raises(self):
+        experiment = self._create_running_experiment(name="Not Paused", feature_flag_key="not-paused-flag")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().resume_experiment(experiment)
+
+        assert "not paused" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("draft",),
+            ("ended",),
+        ]
+    )
+    def test_pause_experiment_wrong_state_raises(self, state: str):
+        service = self._service()
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="Pause Draft", feature_flag_key=f"pause-{state}-flag")
+        else:
+            experiment = self._create_ended_experiment(name="Pause Ended", feature_flag_key=f"pause-{state}-flag")
+
+        with self.assertRaises(ValidationError):
+            service.pause_experiment(experiment)
+
+    @parameterized.expand(
+        [
+            ("draft",),
+            ("ended",),
+        ]
+    )
+    def test_resume_experiment_wrong_state_raises(self, state: str):
+        service = self._service()
+        if state == "draft":
+            experiment = self._create_launchable_experiment(
+                name="Resume Draft", feature_flag_key=f"resume-{state}-flag"
+            )
+        else:
+            experiment = self._create_ended_experiment(name="Resume Ended", feature_flag_key=f"resume-{state}-flag")
+
+        with self.assertRaises(ValidationError):
+            service.resume_experiment(experiment)
 
     # ------------------------------------------------------------------
     # Exposure cohort

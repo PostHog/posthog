@@ -467,3 +467,31 @@ PromotedGroupsAreReordered.parameters = {
         },
     },
 }
+
+export const AutocaptureContextPromotesElements: StoryFn<typeof TaxonomicFilter> = (args) => {
+    useMountedLogic(actionsModel)
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={2} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+AutocaptureContextPromotesElements.args = {
+    taxonomicFilterLogicKey: 'autocapture-promotes-elements',
+    eventNames: ['$autocapture'],
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.Elements,
+    ],
+}
+AutocaptureContextPromotesElements.parameters = {
+    ...SUGGESTED_FILTERS_PARAMETERS,
+    docs: {
+        description: {
+            story: 'When $autocapture is the selected event, SuggestedFilters shows "text" and "selector" autocapture properties and the Elements group is promoted after SuggestedFilters/Recents.',
+        },
+    },
+}

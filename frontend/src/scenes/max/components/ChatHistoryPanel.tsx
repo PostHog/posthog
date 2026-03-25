@@ -75,6 +75,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                     <div className="flex items-center gap-1 p-2 shrink-0">
                         <ButtonPrimitive
                             onClick={toggleChatHistoryPanelCollapsed}
+                            data-attr="max-toggle-chat-history"
                             tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
                             className="h-[32px]"
                             iconOnly
@@ -92,6 +93,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                     <IconSearch className="size-3 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
                                     <Autocomplete.Input
                                         id="search-chats"
+                                        data-attr="max-search-chat-history"
                                         placeholder="Chat history"
                                         aria-label="Chat history"
                                         className={cn(
@@ -103,6 +105,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                     variant="outline"
                                     iconOnly
                                     onClick={() => startNewConversation()}
+                                    data-attr="max-new-chat"
                                     tooltip="New chat"
                                 >
                                     <IconPlusSmall />

@@ -447,6 +447,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
             self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
             self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
+            self.assertEqual(self._expr("'\\x41'"), ast.Constant(value="\\x41"))
+            self.assertEqual(self._expr("'\\x61\\x62'"), ast.Constant(value="\\x61\\x62"))
+            self.assertEqual(self._expr("'\\x5a'"), ast.Constant(value="\\x5a"))
 
             # String literals containing special float names should remain as strings
             self.assertEqual(self._expr("'Infinity'"), ast.Constant(value="Infinity"))
@@ -833,6 +836,34 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_function_calls_with_filter(self):
+            self.assertEqual(
+                self._expr("sum(event) FILTER (WHERE event = 'a')"),
+                ast.Call(
+                    name="sum",
+                    params=None,
+                    args=[ast.Field(chain=["event"])],
+                    distinct=False,
+                    filter_expr=ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="a"),
+                        op=ast.CompareOperationOp.Eq,
+                    ),
+                ),
+            )
+
+        def test_function_calls_with_order_by(self):
+            self.assertEqual(
+                self._expr("sum(event ORDER BY timestamp DESC)"),
+                ast.Call(
+                    name="sum",
+                    params=None,
+                    args=[ast.Field(chain=["event"])],
+                    distinct=False,
+                    order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                ),
+            )
+
         def test_alias(self):
             self.assertEqual(
                 self._expr("1 as asd"),
@@ -1159,6 +1190,55 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_ignore_nulls_expr(self):
+            self.assertEqual(
+                self._expr("event IGNORE NULLS"),
+                ast.Field(chain=["event"]),
+            )
+            self.assertEqual(
+                self._select("select event IGNORE NULLS from events"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["event"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        def test_select_columns_qualified(self):
+            self.assertEqual(
+                self._select("select COLUMNS(events.*) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(columns=[ast.Field(chain=["events", "*"])])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* EXCLUDE (event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(columns=[ast.ColumnsExpr(all_columns=True, exclude=["event"])])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* REPLACE (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, replace={"event": ast.Constant(value=1)})],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* EXCLUDE (event) REPLACE (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[
+                        ast.ColumnsExpr(
+                            all_columns=True,
+                            exclude=["event"],
+                            replace={"event": ast.Constant(value=1)},
+                        )
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
         def test_select_from_placeholder(self):
             self.assertEqual(
                 self._select("select 1 from {placeholder}"),
@@ -1476,6 +1556,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_group_by_all(self):
+            self.assertEqual(
+                self._select("select distinct_id, event, count(*) from events GROUP BY ALL"),
+                ast.SelectQuery(
+                    select=[
+                        ast.Field(chain=["distinct_id"]),
+                        ast.Field(chain=["event"]),
+                        ast.Call(name="count", args=[ast.Field(chain=["*"])]),
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    group_by=None,
+                    group_by_mode="all",
+                ),
+            )
+
         def test_order_by(self):
             self.assertEqual(
                 parse_order_expr("1 ASC"),
@@ -1765,6 +1860,23 @@ def parser_test_factory(backend: HogQLParserBackend):
                         SelectSetNode(
                             set_operator="EXCEPT ALL",
                             select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_select_set_order_by(self):
+            self.assertEqual(
+                self._select("select 1 union all select 2 order by 1"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="UNION ALL",
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+                            ),
                         )
                     ],
                 ),
@@ -3319,6 +3431,22 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._expr("CAST(x AS DECIMAL(10, 2))"),
                 ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="decimal(10, 2)"),
             )
+            self.assertEqual(
+                self._expr("CAST(x AS INTEGER[])"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer[]"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS VARCHAR[3])"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="varchar[3]"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS ARRAY(INTEGER))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="array(integer)"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS TUPLE(INTEGER, VARCHAR))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="tuple(integer, varchar)"),
+            )
 
         def test_with_clause_column_name_list(self):
             node = self._select("WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte")
@@ -3371,6 +3499,35 @@ def parser_test_factory(backend: HogQLParserBackend):
             cte = parsed.ctes.get("x")
             assert cte is not None
             assert cte.materialized is False
+
+        def test_with_clause_before_parens_select_set(self):
+            self.assertEqual(
+                self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[ast.Field(chain=["a"])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["cte"])),
+                        ctes={
+                            "cte": ast.CTE(
+                                name="cte",
+                                expr=ast.SelectQuery(
+                                    select=[ast.Alias(alias="a", expr=ast.Constant(value=1))],
+                                ),
+                                cte_type="subquery",
+                            )
+                        },
+                    ),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            set_operator="UNION ALL",
+                            select_query=ast.SelectQuery(
+                                select=[ast.Field(chain=["a"])],
+                                select_from=ast.JoinExpr(table=ast.Field(chain=["cte"])),
+                            ),
+                        )
+                    ],
+                ),
+            )
 
         def test_cte_using_key_is_none_when_omitted(self):
             parsed = self._select("WITH RECURSIVE x(a, b) AS (SELECT 1, 2) SELECT * FROM x;")
@@ -3524,6 +3681,149 @@ def parser_test_factory(backend: HogQLParserBackend):
                                 )
                             ],
                         )
+                    ),
+                ),
+            )
+
+        def test_select_from_pivot(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events PIVOT (count() FOR event IN ('a', 'b'))"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["event"]),
+                                    values=[ast.Constant(value="a"), ast.Constant(value="b")],
+                                )
+                            ],
+                            group_by=None,
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_pivot_multiple_columns(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT * FROM events PIVOT (count() FOR event IN ('a') person_id IN (1, 2) GROUP BY distinct_id)"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["event"]),
+                                    values=[ast.Constant(value="a")],
+                                ),
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["person_id"]),
+                                    values=[ast.Constant(value=1), ast.Constant(value=2)],
+                                ),
+                            ],
+                            group_by=[ast.Field(chain=["distinct_id"])],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_join_pivot(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.JoinExpr(
+                                table=ast.Field(chain=["events"]),
+                                next_join=ast.JoinExpr(
+                                    join_type="JOIN",
+                                    table=ast.Field(chain=["events"]),
+                                    alias="e2",
+                                    constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                                ),
+                            ),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["events", "event"]),
+                                    values=[ast.Constant(value="a")],
+                                )
+                            ],
+                            group_by=None,
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_include_nulls(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["field_name"]), ast.Field(chain=["field_value"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"])],
+                                )
+                            ],
+                            include_nulls=True,
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_join_unpivot(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+                    "UNPIVOT (field_value FOR field_name IN (events.event))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["field_name"]), ast.Field(chain=["field_value"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.JoinExpr(
+                                table=ast.Field(chain=["events"]),
+                                next_join=ast.JoinExpr(
+                                    join_type="JOIN",
+                                    table=ast.Field(chain=["events"]),
+                                    alias="e2",
+                                    constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                                ),
+                            ),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["events", "event"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_positional_join(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events POSITIONAL JOIN persons"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        next_join=ast.JoinExpr(table=ast.Field(chain=["persons"]), join_type="POSITIONAL JOIN"),
                     ),
                 ),
             )
