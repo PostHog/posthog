@@ -1830,6 +1830,7 @@ export namespace Schemas {
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
       RevenueAnalytics: 'revenue_analytics',
     } as const;
 
@@ -4198,7 +4199,6 @@ export namespace Schemas {
     * `plan` - plan
     * `execution` - execution
     * `survey` - survey
-    * `onboarding` - onboarding
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
@@ -4215,7 +4215,6 @@ export namespace Schemas {
       Plan: 'plan',
       Execution: 'execution',
       Survey: 'survey',
-      Onboarding: 'onboarding',
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
@@ -14400,11 +14399,12 @@ export namespace Schemas {
     * `Postmark` - Postmark
     * `Granola` - Granola
     * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
      */
-    export type SourceTypeE09Enum = typeof SourceTypeE09Enum[keyof typeof SourceTypeE09Enum];
+    export type SourceType432Enum = typeof SourceType432Enum[keyof typeof SourceType432Enum];
 
 
-    export const SourceTypeE09Enum = {
+    export const SourceType432Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -14545,6 +14545,7 @@ export namespace Schemas {
       Postmark: 'Postmark',
       Granola: 'Granola',
       BuildBetter: 'BuildBetter',
+      Convex: 'Convex',
     } as const;
 
     /**
@@ -14558,7 +14559,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -14586,6 +14587,7 @@ export namespace Schemas {
        * @nullable
        */
       readonly user_access_level: string | null;
+      readonly supports_webhooks: boolean;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -14610,6 +14612,8 @@ export namespace Schemas {
     } as const;
 
     export type FeatureFlagFilters = {[key: string]: unknown};
+
+    export type FeatureFlagExperimentSetMetadataItem = {[key: string]: unknown};
 
     export type FeatureFlagSurveys = {[key: string]: unknown};
 
@@ -14656,6 +14660,7 @@ export namespace Schemas {
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       readonly experiment_set: readonly number[];
+      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown | null;
@@ -20385,7 +20390,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -22252,7 +22257,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeE09Enum;
+      readonly source_type?: SourceType432Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -22280,6 +22285,7 @@ export namespace Schemas {
        * @nullable
        */
       readonly user_access_level?: string | null;
+      readonly supports_webhooks?: boolean;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -28831,6 +28837,7 @@ export namespace Schemas {
     * `reference` - reference
     * `output` - output
     * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
      */
     export type TaskRunArtifactUploadTypeEnum = typeof TaskRunArtifactUploadTypeEnum[keyof typeof TaskRunArtifactUploadTypeEnum];
 
@@ -28841,6 +28848,7 @@ export namespace Schemas {
       Reference: 'reference',
       Output: 'output',
       Artifact: 'artifact',
+      TreeSnapshot: 'tree_snapshot',
     } as const;
 
     export interface TaskRunArtifactUpload {
@@ -28855,7 +28863,8 @@ export namespace Schemas {
     * `context` - context
     * `reference` - reference
     * `output` - output
-    * `artifact` - artifact */
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot */
       type: TaskRunArtifactUploadTypeEnum;
       /** Raw file contents (UTF-8 string or base64 data) */
       content: string;

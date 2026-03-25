@@ -5,12 +5,12 @@ import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { EVENTS_OUTPUT, EventOutput } from '../analytics/outputs'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { isOkResult } from '../pipelines/results'
 import {
@@ -21,9 +21,8 @@ import {
     serializeEvent,
 } from './emit-event-step'
 
-// Mock the utils module
-jest.mock('../../worker/ingestion/utils', () => ({
-    captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
+jest.mock('../common/ingestion-warnings', () => ({
+    emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
 // Mock the metrics module
@@ -47,14 +46,13 @@ jest.mock('~/common/metrics', () => ({
     },
 }))
 
-const mockCaptureIngestionWarning = jest.mocked(captureIngestionWarning)
+const mockEmitIngestionWarning = jest.mocked(emitIngestionWarning)
 const mockEventProcessedAndIngestedCounter = jest.mocked(eventProcessedAndIngestedCounter)
 const mockIngestionLagGauge = jest.mocked(ingestionLagGauge)
 const mockIngestionLagHistogram = jest.mocked(ingestionLagHistogram)
 
 describe('emit-event-step', () => {
-    let mockOutputs: jest.Mocked<IngestionOutputs<EventOutput>>
-    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockOutputs: jest.Mocked<IngestionOutputs<EventOutput | IngestionWarningsOutput>>
     let config: EmitEventStepConfig<EventOutput>
     let mockProcessedEvent: ProcessedEvent
     let mockHeaders: EventHeaders
@@ -65,12 +63,10 @@ describe('emit-event-step', () => {
         mockMessage = createTestMessage()
         jest.clearAllMocks()
 
-        mockOutputs = createMockIngestionOutputs<EventOutput>()
-        mockKafkaProducer = {} as any
+        mockOutputs = createMockIngestionOutputs<EventOutput | IngestionWarningsOutput>()
 
         config = {
             outputs: mockOutputs,
-            kafkaProducer: mockKafkaProducer,
             groupId: 'test-group-id',
         }
 
@@ -147,7 +143,7 @@ describe('emit-event-step', () => {
             // Execute the side effect to test error handling
             await result.sideEffects[0]
 
-            expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(mockKafkaProducer, 1, 'message_size_too_large', {
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
                 eventUuid: 'test-uuid',
                 distinctId: 'test-distinct-id',
             })
@@ -169,7 +165,7 @@ describe('emit-event-step', () => {
 
             // Execute the side effect to test error handling
             await expect(result.sideEffects[0]).rejects.toThrow('Generic Kafka error')
-            expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
+            expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
             // Metric should not be incremented when there's an error
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
         })

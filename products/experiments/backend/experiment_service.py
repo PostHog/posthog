@@ -376,6 +376,8 @@ class ExperimentService:
         }
         if params.get("ensure_experience_continuity") is not None:
             feature_flag_data["ensure_experience_continuity"] = params["ensure_experience_continuity"]
+        else:
+            feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
 
@@ -715,6 +717,50 @@ class ExperimentService:
         report_user_action(
             self.user,
             "experiment resumed",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def reset_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Reset an experiment back to draft state so it can be re-run.
+
+        The feature flag stays unchanged — users continue to see their assigned
+        variants. Only the experiment dates, conclusion, and archived flag are
+        cleared, moving the experiment back to draft state.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment is already in draft state.")
+
+        experiment.start_date = None
+        experiment.end_date = None
+        experiment.archived = False
+        experiment.conclusion = None
+        experiment.conclusion_comment = None
+
+        experiment.save()
+
+        self._report_experiment_reset(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_reset(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment reset",
             experiment.get_analytics_metadata(),
             team=experiment.team,
             request=request,

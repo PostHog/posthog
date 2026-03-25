@@ -216,7 +216,9 @@ class ExperimentQueryRunner(QueryRunner):
             force_precomputation=self.force_precomputation,
         )
 
-        if self.experiment.exposure_preaggregation_enabled:
+        # Skip precomputation for data warehouse metrics because the precomputed table
+        # doesn't include the join keys needed to link exposures to data warehouse tables
+        if self.experiment.exposure_preaggregation_enabled and not self.is_data_warehouse_query:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:

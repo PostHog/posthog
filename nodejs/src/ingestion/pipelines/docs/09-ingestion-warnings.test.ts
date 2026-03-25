@@ -43,9 +43,11 @@
  * ignored and never sent to Kafka. Always ensure `handleIngestionWarnings()`
  * is called within a `teamAware()` block to process warnings.
  */
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { IngestionWarningsOutput } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
 import { createContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'
@@ -235,9 +237,7 @@ describe('Handling Ingestion Warnings', () => {
      * Use `handleSideEffects()` to execute the warning side effects.
      */
     it('handleIngestionWarnings converts warnings to side effects', async () => {
-        const mockKafkaProducer = {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        }
+        const mockOutputs = createMockIngestionOutputs<IngestionWarningsOutput>()
         const promiseScheduler = new PromiseScheduler()
 
         interface Event {
@@ -256,7 +256,7 @@ describe('Handling Ingestion Warnings', () => {
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
             .pipeBatch(createWarningStep())
             .teamAware((builder) => builder)
-            .handleIngestionWarnings(mockKafkaProducer as any)
+            .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
             .build()
 
@@ -268,8 +268,8 @@ describe('Handling Ingestion Warnings', () => {
         // Warnings are cleared after handling
         expect(results![0].context.warnings).toEqual([])
 
-        // Side effects were executed (warning sent to Kafka)
-        expect(mockKafkaProducer.queueMessages).toHaveBeenCalled()
+        // Side effects were executed (warning sent to Kafka via outputs)
+        expect(mockOutputs.queueMessages).toHaveBeenCalled()
     })
 
     /**
@@ -277,9 +277,7 @@ describe('Handling Ingestion Warnings', () => {
      * Both the original side effects and warning side effects are executed.
      */
     it('handleIngestionWarnings preserves existing side effects', async () => {
-        const mockKafkaProducer = {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        }
+        const mockOutputs = createMockIngestionOutputs<IngestionWarningsOutput>()
         const promiseScheduler = new PromiseScheduler()
 
         const sideEffectLog: string[] = []
@@ -304,7 +302,7 @@ describe('Handling Ingestion Warnings', () => {
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
             .pipeBatch(createStepWithBothSideEffectsAndWarnings())
             .teamAware((builder) => builder)
-            .handleIngestionWarnings(mockKafkaProducer as any)
+            .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
             .build()
 
@@ -316,8 +314,8 @@ describe('Handling Ingestion Warnings', () => {
         // Original side effect executed
         expect(sideEffectLog).toContain('processed: click')
 
-        // Warning side effect executed (sent to Kafka)
-        expect(mockKafkaProducer.queueMessages).toHaveBeenCalled()
+        // Warning side effect executed (sent to Kafka via outputs)
+        expect(mockOutputs.queueMessages).toHaveBeenCalled()
     })
 })
 

@@ -269,6 +269,9 @@ elif [[ -n "$_flox_rustc_ver" ]]; then
   done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
 fi
 
+# Share a single Cargo target dir so worktrees skip redundant linking
+export CARGO_TARGET_DIR="$HOME/.cargo/target"
+
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)
 _activation_time=$(( _activation_end - _activation_start ))

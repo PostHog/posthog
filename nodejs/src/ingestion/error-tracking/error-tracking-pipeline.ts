@@ -7,7 +7,8 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { EVENTS_OUTPUT, EventOutput } from '../common/outputs'
+import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { EVENTS_OUTPUT, EventOutput, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -114,10 +115,14 @@ export function createErrorTrackingPipeline(
     const topHogWrapper = createTopHogWrapper(topHog)
 
     // Create outputs configuration for the emit step
-    const outputs = new IngestionOutputs<EventOutput>({
+    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput>({
         [EVENTS_OUTPUT]: {
             topic: outputTopic,
             producer: kafkaProducer,
+        },
+        [INGESTION_WARNINGS_OUTPUT]: {
+            topic: KAFKA_INGESTION_WARNINGS,
+            producer: ingestionWarningProducer,
         },
     })
 
@@ -200,7 +205,6 @@ export function createErrorTrackingPipeline(
                                                 topHogWrapper(
                                                     createEmitEventStep({
                                                         outputs,
-                                                        kafkaProducer,
                                                         groupId,
                                                     }),
                                                     [
@@ -216,7 +220,7 @@ export function createErrorTrackingPipeline(
                                             )
                                     )
                             )
-                            .handleIngestionWarnings(ingestionWarningProducer)
+                            .handleIngestionWarnings(outputs)
                 )
         )
         .handleResults(pipelineConfig)

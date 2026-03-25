@@ -9,6 +9,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
@@ -35,7 +36,7 @@ export interface EventSubpipelineInput {
 
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<EventOutput | HeatmapsOutput>
+    outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
@@ -113,7 +114,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             topHog(
                 createEmitEventStep({
                     outputs,
-                    kafkaProducer,
                     groupId,
                 }),
                 [
