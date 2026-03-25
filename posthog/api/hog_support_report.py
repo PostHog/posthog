@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.sdk_doctor import get_github_sdk_data, get_team_data
 from posthog.models import Team, User
 from posthog.models.proxy_record import ProxyRecord
 from posthog.utils import capture_exception
@@ -110,10 +111,62 @@ def check_reverse_proxy(team: Team) -> DiagnosticResult:
     )
 
 
+def check_sdk_versions(team: Team) -> DiagnosticResult:
+    """Summarise SDK versions in use, flagging any that are not on the latest release."""
+    team_data = get_team_data(team.id, force_refresh=False)
+    if not team_data:
+        return DiagnosticResult(
+            id="sdk_versions",
+            label="SDK versions",
+            status="skipped",
+            value="No data available",
+        )
+
+    sdk_data = get_github_sdk_data()
+    if not sdk_data:
+        return DiagnosticResult(
+            id="sdk_versions",
+            label="SDK versions",
+            status="skipped",
+            value="GitHub SDK data unavailable",
+        )
+
+    outdated: list[str] = []
+    current: list[str] = []
+
+    for lib, entries in team_data.items():
+        if lib not in sdk_data:
+            continue
+        latest = sdk_data[lib].get("latestVersion")
+        for entry in entries:
+            version = entry.get("lib_version", "unknown")
+            if latest and version != latest:
+                outdated.append(f"{lib}@{version} (latest: {latest})")
+            else:
+                current.append(f"{lib}@{version}")
+
+    if outdated:
+        return DiagnosticResult(
+            id="sdk_versions",
+            label="SDK versions",
+            status="warning",
+            value=f"{len(outdated)} outdated: {', '.join(outdated[:5])}",
+            detail=f"up to date: {', '.join(current[:5])}" if current else None,
+        )
+
+    return DiagnosticResult(
+        id="sdk_versions",
+        label="SDK versions",
+        status="ok",
+        value=", ".join(current[:5]) if current else "No SDKs detected",
+    )
+
+
 # Registry — add new checks here
 DIAGNOSTIC_CHECKS = [
     check_custom_api_host,
     check_reverse_proxy,
+    check_sdk_versions,
 ]
 
 
