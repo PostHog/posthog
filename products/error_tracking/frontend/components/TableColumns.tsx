@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { IconChevronDown, IconChevronRight, IconMinus } from '@posthog/icons'
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Params } from 'scenes/sceneTypes'
@@ -140,7 +141,7 @@ const IssueTitle = ({
 }: {
     record: ErrorTrackingIssue
     issueUrl: string
-    runtime: string | undefined
+    runtime: ErrorTrackingRuntime
 }): JSX.Element => (
     <Link
         className="flex-1 pr-12 text-[0.9rem]"
