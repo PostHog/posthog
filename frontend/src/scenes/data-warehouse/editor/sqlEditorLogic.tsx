@@ -138,6 +138,13 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     types: string[][]
 }
 
+function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
+    return {
+        ...source,
+        sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
+    }
+}
+
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
@@ -145,7 +152,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const connectionId = values.sourceQuery?.source.connectionId
     if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
         hash['c'] = connectionId
-        if (values.sourceQuery?.source.skipDirectHogQL) {
+        if (values.sourceQuery?.source.sendRawQuery) {
             hash['shl'] = '1'
         }
     }
@@ -336,10 +343,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,
                 setSkipHogQLLayer: (state, { skipHogQLLayer }) => ({
                     ...state,
-                    source: {
+                    source: normalizeRawQuerySource({
                         ...state.source,
-                        skipDirectHogQL: skipHogQLLayer || undefined,
-                    },
+                        sendRawQuery: skipHogQLLayer || undefined,
+                    }),
                 }),
             },
         ],
@@ -731,20 +738,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             }
         },
-        setSkipHogQLLayer: async ({ skipHogQLLayer }, breakpoint) => {
-            // Wait for the reducer update from this action before syncing the active tab and URL.
-            await breakpoint(0)
-
-            const currentSourceQuery = sqlEditorLogic.findMounted()?.values.sourceQuery ?? values.sourceQuery
+        setSkipHogQLLayer: ({ skipHogQLLayer }) => {
+            const currentSourceQuery = values.sourceQuery
             const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
                 currentSourceQuery as typeof currentSourceQuery & { connectionId?: string }
 
             actions.setSourceQuery({
                 ...sourceQueryWithoutLegacyConnectionId,
-                source: {
+                source: normalizeRawQuerySource({
                     ...currentSourceQuery.source,
-                    skipDirectHogQL: skipHogQLLayer || undefined,
-                },
+                    sendRawQuery: skipHogQLLayer || undefined,
+                }),
             } as typeof currentSourceQuery)
             actions.syncUrlWithQuery()
         },
@@ -787,10 +791,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         runQuery: ({ queryOverride, switchTab }) => {
             const query = (queryOverride || values.queryInput) ?? ''
 
-            const newSource = {
+            const newSource = normalizeRawQuerySource({
                 ...values.sourceQuery.source,
                 query,
-            }
+            })
 
             actions.setSourceQuery({
                 ...values.sourceQuery,
@@ -872,10 +876,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
-            const queryToSave = {
+            const queryToSave = normalizeRawQuerySource({
                 ...query,
                 query: values.queryInput ?? '',
-            }
+            })
 
             const logic = dataNodeLogic({
                 key: values.dataLogicKey,
@@ -1019,10 +1023,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const endpoint = await api.endpoint.create({
                     name: slugify(name),
                     description: description || undefined,
-                    query: {
+                    query: normalizeRawQuerySource({
                         ...(values.sourceQuery.source as HogQLQuery),
                         query: values.queryInput ?? '',
-                    },
+                    }),
                 })
                 lemonToast.success('Endpoint created')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
@@ -1280,7 +1284,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
             },
         ],
-        skipHogQLLayerEnabled: [(s) => [s.sourceQuery], (sourceQuery) => sourceQuery.source.skipDirectHogQL ?? false],
+        skipHogQLLayerEnabled: [
+            (s) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
+        ],
         isEditingMaterializedView: [
             (s) => [s.editingView],
             (editingView) => {
@@ -1544,7 +1551,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
                 String(hashParams.shl) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
-            const currentSkipHogQLLayer = values.sourceQuery.source.skipDirectHogQL ?? false
+            const currentSkipHogQLLayer = values.sourceQuery.source.sendRawQuery ?? false
 
             if (connectionIdFromHash !== currentConnectionId || skipHogQLLayerFromHash !== currentSkipHogQLLayer) {
                 const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
@@ -1552,11 +1559,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 actions.setSourceQuery({
                     ...sourceQueryWithoutLegacyConnectionId,
-                    source: {
+                    source: normalizeRawQuerySource({
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
-                        skipDirectHogQL: skipHogQLLayerFromHash || undefined,
-                    },
+                        sendRawQuery: skipHogQLLayerFromHash || undefined,
+                    }),
                 })
             }
 

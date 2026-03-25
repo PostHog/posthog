@@ -18395,7 +18395,7 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
-                "skipDirectHogQL": {
+                "sendRawQuery": {
                     "description": "Run the selected connection query directly without translating it through HogQL first",
                     "type": "boolean"
                 },

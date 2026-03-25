@@ -17153,7 +17153,7 @@ class HogQLQuery(BaseModel):
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str
     response: HogQLQueryResponse | None = None
-    skipDirectHogQL: bool | None = Field(
+    sendRawQuery: bool | None = Field(
         default=None,
         description=("Run the selected connection query directly without translating it through HogQL first"),
     )

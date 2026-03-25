@@ -43,7 +43,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "name": None,
             "query": "SELECT count(1) FROM query_log",
             "response": None,
-            "skipDirectHogQL": None,
+            "sendRawQuery": None,
             "tags": None,
             "values": None,
             "variables": None,
@@ -340,7 +340,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "name": None,
             "query": "SELECT 1",
             "response": None,
-            "skipDirectHogQL": None,
+            "sendRawQuery": None,
             "tags": None,
             "values": None,
             "variables": None,
@@ -371,6 +371,43 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         changed_fields = {c.get("field") for c in changes}
         # description is now stored on EndpointVersion, not tracked in Endpoint activity log
         self.assertIn("is_active", changed_fields)
+        self.assertNotIn("description", changed_fields)
+
+    def test_retrieve_endpoint_upgrades_legacy_skip_direct_hogql_field(self):
+        endpoint = create_endpoint_with_version(
+            name="legacy_direct_query",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT 1",
+                "skipDirectHogQL": True,
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["query"]["sendRawQuery"], True)
+        self.assertNotIn("skipDirectHogQL", response.json()["query"])
+
+    def test_retrieve_endpoint_upgrades_legacy_run_directly_field(self):
+        endpoint = create_endpoint_with_version(
+            name="legacy_run_directly_query",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT 1",
+                "runDirectly": True,
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["query"]["sendRawQuery"], True)
+        self.assertNotIn("runDirectly", response.json()["query"])
 
     def test_delete_endpoint(self):
         endpoint = create_endpoint_with_version(

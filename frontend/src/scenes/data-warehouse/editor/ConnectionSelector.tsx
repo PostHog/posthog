@@ -45,7 +45,7 @@ export function ConnectionSelector(): JSX.Element | null {
                         source: {
                             ...sourceQuery.source,
                             connectionId: undefined,
-                            skipDirectHogQL: undefined,
+                            sendRawQuery: undefined,
                         },
                     } as typeof sourceQuery)
                     syncUrlWithQuery()
@@ -67,6 +67,7 @@ export function ConnectionSelector(): JSX.Element | null {
                     source: {
                         ...sourceQuery.source,
                         connectionId: nextValue,
+                        sendRawQuery: undefined,
                     },
                 } as typeof sourceQuery)
                 syncUrlWithQuery()
