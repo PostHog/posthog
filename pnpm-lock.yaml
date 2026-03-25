@@ -10870,6 +10870,9 @@ packages:
   '@types/d3-selection@3.0.11':
     resolution: {integrity: sha512-bhAXu23DJWsrI45xafYpkQ4NtcKMwWnAC/vKrd2l+nxMFuvOT3XMYTIj2opv8vq8AO5Yh7Qac/nSeP/3zjTK0w==}
 
+  '@types/d3-selection@3.0.3':
+    resolution: {integrity: sha512-Mw5cf6nlW1MlefpD9zrshZ+DAWL4IQ5LnWfRheW6xwsdaWOb6IRRu2H7XPAQcyXEx1D7XQWgdoKR83ui1/HlEA==}
+
   '@types/d3-shape@3.1.0':
     resolution: {integrity: sha512-jYIYxFFA9vrJ8Hd4Se83YI6XF+gzDL1aC5DCsldai4XYYiVNdhtpGbA/GM6iyQ8ayhSp3a148LY34hy7A4TxZA==}
 
@@ -13327,8 +13330,8 @@ packages:
     resolution: {integrity: sha512-zxV/SsA+U4yte8051P4ECydjD/S+qeYtnaIyAs9tgHCqfguma/aAQDjo85A9Z6EKhBirHRJHXIgJUlffT4wdLg==}
     engines: {node: '>=12'}
 
-  d3-format@3.1.2:
-    resolution: {integrity: sha512-AJDdYOdnyRDV5b6ArilzCPPwc1ejkHcoyFarqlPqT7zRYjhavcT3uSrqcMvsgh2CgoPbK3RCwyHaVyxYcP2Arg==}
+  d3-format@3.1.0:
+    resolution: {integrity: sha512-YyUI6AEuY/Wpt8KWLgZHsIU86atmikuoOmCfommt0LYHiQSPjvX2AcFc38PX0CBpr2RCyZhjex+NS/LPOv6YqA==}
     engines: {node: '>=12'}
 
   d3-geo@3.1.0:
@@ -32890,11 +32893,11 @@ snapshots:
 
   '@types/d3-axis@3.0.1':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.3
 
   '@types/d3-brush@3.0.1':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.3
 
   '@types/d3-chord@3.0.1': {}
 
@@ -32913,7 +32916,7 @@ snapshots:
 
   '@types/d3-drag@3.0.1':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.3
 
   '@types/d3-drag@3.0.7':
     dependencies:
@@ -32967,6 +32970,8 @@ snapshots:
 
   '@types/d3-selection@3.0.11': {}
 
+  '@types/d3-selection@3.0.3': {}
+
   '@types/d3-shape@3.1.0':
     dependencies:
       '@types/d3-path': 3.0.0
@@ -32979,7 +32984,7 @@ snapshots:
 
   '@types/d3-transition@3.0.2':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.3
 
   '@types/d3-transition@3.0.9':
     dependencies:
@@ -32993,7 +32998,7 @@ snapshots:
   '@types/d3-zoom@3.0.1':
     dependencies:
       '@types/d3-interpolate': 3.0.1
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.3
 
   '@types/d3-zoom@3.0.8':
     dependencies:
@@ -33025,7 +33030,7 @@ snapshots:
       '@types/d3-random': 3.0.1
       '@types/d3-scale': 4.0.2
       '@types/d3-scale-chromatic': 3.0.0
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.3
       '@types/d3-shape': 3.1.0
       '@types/d3-time': 3.0.0
       '@types/d3-time-format': 4.0.0
@@ -35967,7 +35972,7 @@ snapshots:
       d3-array: 3.2.4
       d3-dispatch: 3.0.1
       d3-ease: 3.0.1
-      d3-format: 3.1.2
+      d3-format: 3.1.0
       d3-hierarchy: 3.1.2
       d3-scale: 4.0.2
       d3-selection: 3.0.0
@@ -35979,7 +35984,7 @@ snapshots:
       d3-quadtree: 3.0.1
       d3-timer: 3.0.1
 
-  d3-format@3.1.2: {}
+  d3-format@3.1.0: {}
 
   d3-geo@3.1.0:
     dependencies:
@@ -36007,7 +36012,7 @@ snapshots:
   d3-scale@4.0.2:
     dependencies:
       d3-array: 3.2.4
-      d3-format: 3.1.2
+      d3-format: 3.1.0
       d3-interpolate: 3.0.1
       d3-time: 3.1.0
       d3-time-format: 4.1.0
@@ -36060,7 +36065,7 @@ snapshots:
       d3-ease: 3.0.1
       d3-fetch: 3.0.1
       d3-force: 3.0.0
-      d3-format: 3.1.2
+      d3-format: 3.1.0
       d3-geo: 3.1.0
       d3-hierarchy: 3.1.2
       d3-interpolate: 3.0.1
