@@ -541,6 +541,7 @@ class CloningVisitor(Visitor[Any]):
             left=self.visit(node.left),
             right=self.visit(node.right),
             op=node.op,
+            is_null_comparison_style=node.is_null_comparison_style,
         )
 
     def visit_not(self, node: ast.Not):

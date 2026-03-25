@@ -8,7 +8,7 @@ import { RasterizeRecordingInput, RecordingResult } from '../types'
 import { elapsed } from '../utils'
 import { BrowserPool } from './browser-pool'
 import { buildCaptureConfig, capturePlayback } from './capture'
-import { PlayerController, buildPlayerConfig } from './player'
+import { PlayerController, buildPlayerConfig, fetchBlockList } from './player'
 
 export const playerHtmlCache = {
     _html: null as string | null,
@@ -126,11 +126,13 @@ export async function rasterizeRecording(
         }
         await preparePage(page, viewport, cfg.captureBrowserLogs, log)
 
-        player = new PlayerController(page, log)
-        const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, cfg)
+        player = new PlayerController(page, baseHtml, cfg, log)
+        const blocks = await fetchBlockList(input, cfg)
+        log.info({ blockCount: blocks.length }, 'block listing fetched')
+        const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blocks.length)
 
         log.info('loading player')
-        await player.load(baseHtml, cfg.siteUrl, playerConfig)
+        await player.load(playerConfig, blocks)
         log.info('player loaded, waiting for recording data')
 
         await player.waitForStart(playerConfig)

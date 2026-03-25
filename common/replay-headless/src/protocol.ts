@@ -21,11 +21,10 @@ export interface ViewportEvent {
 }
 
 export interface PlayerConfig {
-    recordingApiBaseUrl: string
-    recordingApiSecret: string
     teamId: number
     sessionId: string
     playbackSpeed: number
+    blockCount: number
     skipInactivity?: boolean
     startTimestamp?: number
     endTimestamp?: number
@@ -61,6 +60,17 @@ export const PLAYER_CONFIG_KEY = '__posthog_player_config__'
 // --- Event names (rasterizer → player) ---
 
 export const PLAYER_START_EVENT = 'posthog-player-start'
+
+// --- Block request API ---
+//
+// The in-browser data-loader fetches recording blocks via these paths
+// (relative to the page origin). The rasterizer host intercepts them via
+// Puppeteer request interception and proxies to the real recording-api,
+// adding auth headers and implementation details (S3 keys, byte ranges,
+// decompress flags) that the player doesn't need to know about.
+
+/** GET /__blocks/:index → JSONL text */
+export const BLOCK_REQUEST_PREFIX = '/__blocks/'
 
 // --- Window augmentation ---
 
