@@ -27,6 +27,11 @@ locals {
     }
   ]...)
 
+  # Row budgets for queries (with 2x margin for safety).
+  slo_burn_rate_limit      = 168 * 4 * 2            # 7 days * 24h * 4 metrics * margin
+  slo_duration_limit       = 28 * 3 * 2             # 28 days * 3 percentiles * margin
+  slo_success_rate_limit   = length(local.slo_operations) * 28 * 2  # 28 days * N operations * margin
+
   # ---------------------------------------------------------------------------
   # Burn rate query template (hourly granularity, 4 windows).
   # Placeholders: {{OPERATION}}, {{REGION}}, {{ERROR_BUDGET}}
@@ -78,17 +83,17 @@ locals {
             hour,
             ['Burn rate 1h', 'Burn rate 24h', 'Burn rate 7d', 'Burn rate 28d'] AS metrics,
             [
-                round(if(t1h  > 0, (f1h  / t1h)  / {{ERROR_BUDGET}}, 0), 2),
-                round(if(t24h > 0, (f24h / t24h) / {{ERROR_BUDGET}}, 0), 2),
-                round(if(t7d  > 0, (f7d  / t7d)  / {{ERROR_BUDGET}}, 0), 2),
-                round(if(t28d > 0, (f28d / t28d) / {{ERROR_BUDGET}}, 0), 2)
+                if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL),
+                if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL),
+                if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL),
+                if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL)
             ] AS vals
         FROM rolling
         WHERE hour >= now() - INTERVAL 7 DAY
     )
     ARRAY JOIN metrics AS metric, vals AS value
     ORDER BY time ASC, metric ASC
-    LIMIT 5000
+    LIMIT ${local.slo_burn_rate_limit}
   SQL
 
   # ---------------------------------------------------------------------------
@@ -128,15 +133,15 @@ locals {
             date,
             ['p50', 'p95', 'p99'] AS metrics,
             [
-                round(coalesce(p50, 0), 1),
-                round(coalesce(p95, 0), 1),
-                round(coalesce(p99, 0), 1)
+                round(p50, 1),
+                round(p95, 1),
+                round(p99, 1)
             ] AS vals
         FROM base
     )
     ARRAY JOIN metrics AS metric, vals AS value
     ORDER BY day ASC, metric ASC
-    LIMIT 500
+    LIMIT ${local.slo_duration_limit}
   SQL
 
 }
@@ -280,10 +285,10 @@ resource "posthog_insight" "slo_success_rate" {
         SELECT
             date AS day,
             operation,
-            round(if(t28 > 0, (t28 - f28) / t28 * 100, 100), 2) AS success_rate
+            if(t28 > 0, round((t28 - f28) / t28 * 100, 2), NULL) AS success_rate
         FROM rolling
         ORDER BY date ASC, operation ASC
-        LIMIT 500
+        LIMIT ${local.slo_success_rate_limit}
       SQL
     }
     display = "ActionsLineGraph"
