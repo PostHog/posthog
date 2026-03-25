@@ -1474,12 +1474,19 @@ class TestExperimentService(APIBaseTest):
     # Reset
     # ------------------------------------------------------------------
 
-    def test_reset_running_experiment_success(self):
-        experiment = self._create_running_experiment(name="Reset Running", feature_flag_key="reset-running-flag")
-
-        assert experiment.is_running
-        assert experiment.start_date is not None
-        assert experiment.feature_flag.active is True
+    @parameterized.expand(
+        [
+            ("running",),
+            ("ended",),
+        ]
+    )
+    def test_reset_experiment_success(self, state: str):
+        if state == "running":
+            experiment = self._create_running_experiment(name="Reset Running", feature_flag_key=f"reset-{state}-flag")
+            assert experiment.is_running
+        else:
+            experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
+            assert experiment.is_stopped
 
         reset = self._service().reset_experiment(experiment)
 
@@ -1500,20 +1507,6 @@ class TestExperimentService(APIBaseTest):
 
         reset.feature_flag.refresh_from_db()
         assert reset.feature_flag.active is True
-
-    def test_reset_ended_experiment_success(self):
-        experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key="reset-ended-flag")
-
-        assert experiment.is_stopped
-        assert experiment.end_date is not None
-
-        reset = self._service().reset_experiment(experiment)
-
-        reset.refresh_from_db()
-        assert reset.is_draft
-        assert reset.start_date is None
-        assert reset.end_date is None
-        assert reset.archived is False
 
     def test_reset_draft_experiment_raises(self):
         experiment = self._create_launchable_experiment(name="Reset Draft", feature_flag_key="reset-draft-flag")
