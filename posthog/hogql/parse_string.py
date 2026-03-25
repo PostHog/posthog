@@ -2,6 +2,8 @@ from antlr4 import ParserRuleContext
 
 from posthog.hogql.errors import SyntaxError
 
+# Escape map derived from clickhouse_driver's escape_chars_map:
+# https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/util/escape.py#L9
 _BACKSLASH_ESCAPE_MAP: dict[str, str] = {
     "b": "\b",
     "f": "\f",

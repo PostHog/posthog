@@ -6,6 +6,9 @@
 using namespace std;
 
 string replace_common_escape_characters(string text) {
+  // Escape map derived from clickhouse_driver's escape_chars_map:
+  // https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/util/escape.py#L9
+  //
   // Single-pass left-to-right scan so that an escaped backslash (\\)
   // is consumed before the next character is inspected.  The previous
   // sequential replace_all approach processed \\\\ last, which meant
