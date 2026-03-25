@@ -1,6 +1,7 @@
 from posthog.schema import (
     CachedRevenueAnalyticsOverviewQueryResponse,
     DatabaseSchemaManagedViewTableKind,
+    ProductKey,
     ResolvedDateRangeResponse,
     RevenueAnalyticsOverviewItem,
     RevenueAnalyticsOverviewItemKey,
@@ -11,6 +12,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
@@ -155,6 +158,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
         return query
 
     def _calculate(self):
+        tag_queries(product=ProductKey.REVENUE_ANALYTICS, feature=Feature.QUERY)
         response = execute_hogql_query(
             query_type="revenue_analytics_overview_query",
             query=self.to_query(),

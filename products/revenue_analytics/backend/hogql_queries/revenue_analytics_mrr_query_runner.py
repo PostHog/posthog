@@ -6,6 +6,7 @@ from posthog.schema import (
     CachedRevenueAnalyticsMRRQueryResponse,
     DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
+    ProductKey,
     ResolvedDateRangeResponse,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMRRQueryResponse,
@@ -18,6 +19,7 @@ from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PR
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
@@ -549,6 +551,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         with self.timings.measure("to_query"):
             query = self.to_query()
 
+        tag_queries(product=ProductKey.REVENUE_ANALYTICS, feature=Feature.QUERY)
         with self.timings.measure("execute_hogql_query"):
             response = execute_hogql_query(
                 query_type="revenue_analytics_mrr_query",
