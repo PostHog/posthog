@@ -25,6 +25,9 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
+import { PersonHogClient } from './personhog/client'
+import { DualReadGroupRepository } from './personhog/dual-read-group-repository'
+import { DualReadPersonRepository } from './personhog/dual-read-person-repository'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -37,6 +40,7 @@ import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
+import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 /**
@@ -372,8 +376,8 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PostgresPersonRepository
-        groupRepository: PostgresGroupRepository
+        personRepository: PersonRepository
+        groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
@@ -381,10 +385,39 @@ export class PluginServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres!, {
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
-        const groupRepository = new PostgresGroupRepository(this.postgres!)
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
+
+        let personRepository: PersonRepository = postgresPersonRepository
+        let groupRepository: GroupRepository = postgresGroupRepository
+
+        if (
+            this.config.PERSONHOG_ENABLED &&
+            this.config.PERSONHOG_ADDR &&
+            this.config.PERSONHOG_ROLLOUT_PERCENTAGE > 0
+        ) {
+            const grpcClient = new PersonHogClient({
+                addr: this.config.PERSONHOG_ADDR,
+                useTls: this.config.PERSONHOG_TLS,
+            })
+            personRepository = new DualReadPersonRepository(
+                postgresPersonRepository,
+                grpcClient,
+                this.config.PERSONHOG_ROLLOUT_PERCENTAGE
+            )
+            groupRepository = new DualReadGroupRepository(
+                postgresGroupRepository,
+                grpcClient,
+                this.config.PERSONHOG_ROLLOUT_PERCENTAGE
+            )
+            logger.info(
+                '🔌',
+                `PersonHog gRPC enabled at ${this.config.PERSONHOG_ADDR} (${this.config.PERSONHOG_ROLLOUT_PERCENTAGE}%)`
+            )
+        }
+
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)

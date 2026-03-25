@@ -81,6 +81,12 @@ export type CommonConfig = BaseServerConfig & {
     POSTGRES_BEHAVIORAL_COHORTS_USER: string
     POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
 
+    // PersonHog gRPC
+    PERSONHOG_ENABLED: boolean
+    PERSONHOG_ADDR: string
+    PERSONHOG_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_TLS: boolean
+
     // Redis
     REDIS_URL: string
     INGESTION_REDIS_HOST: string
@@ -215,6 +221,12 @@ export function getDefaultCommonConfig(): CommonConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
+
+        // PersonHog gRPC
+        PERSONHOG_ENABLED: false,
+        PERSONHOG_ADDR: '',
+        PERSONHOG_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_TLS: false,
 
         // Redis
         // ok to connect to localhost over plaintext

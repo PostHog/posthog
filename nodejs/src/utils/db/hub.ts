@@ -12,9 +12,14 @@ import {
 } from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { PersonHogClient } from '../../personhog/client'
+import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
+import { DualReadPersonRepository } from '../../personhog/dual-read-person-repository'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
+import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
@@ -85,13 +90,42 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const pubSub = new PubSub(redisPool)
     await pubSub.start()
 
-    const groupRepository = new PostgresGroupRepository(postgres)
-    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+    const postgresGroupRepository = new PostgresGroupRepository(postgres)
 
     const personRepositoryOptions = {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
     }
-    const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
+    const postgresPersonRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
+
+    let personRepository: PersonRepository = postgresPersonRepository
+    let groupRepository: GroupRepository = postgresGroupRepository
+
+    if (
+        serverConfig.PERSONHOG_ENABLED &&
+        serverConfig.PERSONHOG_ADDR &&
+        serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE > 0
+    ) {
+        const grpcClient = new PersonHogClient({
+            addr: serverConfig.PERSONHOG_ADDR,
+            useTls: serverConfig.PERSONHOG_TLS,
+        })
+        personRepository = new DualReadPersonRepository(
+            postgresPersonRepository,
+            grpcClient,
+            serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE
+        )
+        groupRepository = new DualReadGroupRepository(
+            postgresGroupRepository,
+            grpcClient,
+            serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE
+        )
+        logger.info(
+            '🔌',
+            `PersonHog gRPC enabled at ${serverConfig.PERSONHOG_ADDR} (${serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE}%)`
+        )
+    }
+
+    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
