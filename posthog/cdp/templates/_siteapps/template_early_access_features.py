@@ -355,6 +355,12 @@ export function onLoad({ inputs, posthog }) {
         window.addEventListener('click', clickListener)
     }
 
+    const escapeHTML = (str) => {
+        const div = document.createElement('div')
+        div.appendChild(document.createTextNode(str || ''))
+        return div.innerHTML
+    }
+
     const listItemComponents = (items?: PreviewItem[]) => {
         if (items) {
             return items
@@ -363,15 +369,15 @@ export function onLoad({ inputs, posthog }) {
 
                     const documentationLink = item.documentationUrl
                         ? `<div class='list-item-documentation-link'>
-                        <a class='label' href='${item.documentationUrl}' target='_blank'>Documentation</a>
+                        <a class='label' href='${encodeURI(item.documentationUrl || '')}' target='_blank'>Documentation</a>
                     </div>
                     `
                         : ''
                     return `
-                        <div class='list-item' data-name='${item.name}'>
+                        <div class='list-item' data-name='${escapeHTML(item.name)}'>
                             <div class='list-content'>
-                                <b class='list-item-name'>${item.name}</b>
-                                <div class='list-item-description'>${item.description}</div>
+                                <b class='list-item-name'>${escapeHTML(item.name)}</b>
+                                <div class='list-item-description'>${escapeHTML(item.description)}</div>
                                 ${documentationLink}
                             </div>
                             <label class="switch">

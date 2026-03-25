@@ -1,5 +1,6 @@
 import json
 
+import unittest
 from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import ANY, patch
 
@@ -13,6 +14,46 @@ from posthog.models import FeatureFlag, Person
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+
+
+class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
+    def test_site_app_template_escapes_user_controlled_fields(self):
+        import re
+
+        from posthog.cdp.templates._siteapps.template_early_access_features import template
+
+        code = template.code
+
+        assert "escapeHTML" in code, "escapeHTML function must be defined in the template"
+
+        for field in ["item.name", "item.description"]:
+            raw_pattern = re.compile(r"\$\{" + re.escape(field) + r"\}")
+            escaped_pattern = re.compile(r"\$\{escapeHTML\(" + re.escape(field) + r"\)\}")
+
+            raw_count = len(raw_pattern.findall(code))
+            escaped_count = len(escaped_pattern.findall(code))
+
+            assert raw_count == 0, f"Found {raw_count} unescaped interpolation(s) of {field}"
+            assert escaped_count > 0, f"No escaped interpolation of {field} found"
+
+    def test_site_app_template_uses_encodeURI_for_documentation_url_href(self):
+        """encodeURI preserves valid URL characters (:, /, ?, #, =, &) unlike escapeHTML
+        which would encode them and break the href."""
+        import re
+
+        from posthog.cdp.templates._siteapps.template_early_access_features import template
+
+        code = template.code
+
+        raw_pattern = re.compile(r"\$\{item\.documentationUrl\}")
+        encoded_pattern = re.compile(r"\$\{encodeURI\(item\.documentationUrl")
+        escape_html_pattern = re.compile(r"\$\{escapeHTML\(item\.documentationUrl")
+
+        assert len(raw_pattern.findall(code)) == 0, "Found unescaped interpolation of item.documentationUrl"
+        assert len(escape_html_pattern.findall(code)) == 0, (
+            "documentationUrl in href must use encodeURI, not escapeHTML (escapeHTML would break URL characters)"
+        )
+        assert len(encoded_pattern.findall(code)) > 0, "item.documentationUrl must be wrapped in encodeURI"
 
 
 class TestEarlyAccessFeature(APIBaseTest):
@@ -1108,6 +1149,33 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             )
 
     @snapshot_postgres_queries
+    def test_early_access_features_preserves_documentation_url(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Docs Test",
+            key="docs-test",
+            created_by=self.user,
+        )
+        documentation_url = "https://docs.example.com/features/sprocket?version=2&lang=en#getting-started"
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Docs Feature",
+            description="Feature with docs link.",
+            stage="beta",
+            feature_flag=feature_flag,
+            documentation_url=documentation_url,
+        )
+
+        self.client.logout()
+
+        response = self._get_features()
+        self.assertEqual(response.status_code, 200)
+        feature_data = response.json()["earlyAccessFeatures"][0]
+        self.assertEqual(
+            feature_data["documentationUrl"],
+            documentation_url,
+        )
+
     def test_early_access_features_includes_payload_in_preview(self):
         Person.objects.create(
             team=self.team,
