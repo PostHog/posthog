@@ -1830,6 +1830,7 @@ export namespace Schemas {
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
       RevenueAnalytics: 'revenue_analytics',
     } as const;
 
@@ -7314,6 +7315,13 @@ export namespace Schemas {
       Number1: 1,
       Number2: 2,
     } as const;
+
+    export interface CopyDashboardTileRequest {
+      /** Dashboard id the tile currently belongs to. */
+      fromDashboardId: number;
+      /** Dashboard tile id to copy. */
+      tileId: number;
+    }
 
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
@@ -15099,6 +15107,11 @@ export namespace Schemas {
       payloads?: FeatureFlagFiltersSchemaPayloads;
       /** Additional super condition groups used by experiments. */
       super_groups?: FeatureFlagFiltersSchemaSuperGroupsItem[];
+      /**
+       * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+       * @nullable
+       */
+      feature_enrollment?: boolean | null;
     }
 
     export interface FeatureFlagCreateRequestSchema {
@@ -15206,6 +15219,11 @@ export namespace Schemas {
     export interface GitHubBranchesResponse {
       /** List of branch names */
       branches: string[];
+      /**
+       * The default branch of the repository
+       * @nullable
+       */
+      default_branch?: string | null;
     }
 
     export interface GitHubRepo {
@@ -18240,6 +18258,22 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotificationEvent {
+      id: string;
+      notification_type: string;
+      priority: string;
+      title: string;
+      body: string;
+      read: boolean;
+      /** @nullable */
+      read_at: string | null;
+      /** @nullable */
+      resource_type: string | null;
+      resource_id: string;
+      source_url: string;
+      created_at: string;
+    }
+
     export interface NumericScoreDefinitionConfig {
       /**
        * Optional inclusive minimum score.
@@ -19236,6 +19270,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: NotebookMinimal[];
+    }
+
+    export interface PaginatedNotificationEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: NotificationEvent[];
     }
 
     export interface PaginatedObjectMediaPreviewList {
@@ -28789,6 +28832,7 @@ export namespace Schemas {
     * `reference` - reference
     * `output` - output
     * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
      */
     export type TaskRunArtifactUploadTypeEnum = typeof TaskRunArtifactUploadTypeEnum[keyof typeof TaskRunArtifactUploadTypeEnum];
 
@@ -28799,6 +28843,7 @@ export namespace Schemas {
       Reference: 'reference',
       Output: 'output',
       Artifact: 'artifact',
+      TreeSnapshot: 'tree_snapshot',
     } as const;
 
     export interface TaskRunArtifactUpload {
@@ -28813,7 +28858,8 @@ export namespace Schemas {
     * `context` - context
     * `reference` - reference
     * `output` - output
-    * `artifact` - artifact */
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot */
       type: TaskRunArtifactUploadTypeEnum;
       /** Raw file contents (UTF-8 string or base64 data) */
       content: string;
@@ -29406,6 +29452,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsCopyTileCreateParams = {
+    format?: EnvironmentsDashboardsCopyTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsCopyTileCreateFormat = typeof EnvironmentsDashboardsCopyTileCreateFormat[keyof typeof EnvironmentsDashboardsCopyTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsCopyTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -31215,6 +31273,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type NotificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type QuickFiltersListParams = {
     /**
      * Number of results to return per page.
@@ -31954,6 +32023,18 @@ export namespace Schemas {
 
 
     export const DashboardsAnalyzeRefreshResultCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat;
+    };
+
+    export type DashboardsCopyTileCreateFormat = typeof DashboardsCopyTileCreateFormat[keyof typeof DashboardsCopyTileCreateFormat];
+
+
+    export const DashboardsCopyTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

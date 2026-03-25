@@ -185,8 +185,6 @@ class ExperimentSummaryDataService:
 
         if experiment.is_draft:
             raise ValueError(f"Experiment {experiment_id} has not been started yet")
-        if not experiment.start_date:
-            raise ValueError(f"Experiment {experiment_id} has no start date")
 
         feature_flag = experiment.feature_flag
         if not feature_flag:

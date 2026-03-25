@@ -13,6 +13,7 @@ import {
     NuxtInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     ShopifyInstallation,
     SvelteInstallation,
@@ -78,6 +79,10 @@ const WebAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: WEB_SNIPPETS,
     wizardIntegrationName: 'Nuxt',
+})
+const WebAnalyticsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: WEB_SNIPPETS,
 })
 const WebAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
@@ -152,6 +157,7 @@ export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: WebAnalyticsNextJSInstructionsWrapper,
     [SDKKey.NUXT_JS]: WebAnalyticsNuxtJSInstructionsWrapper,
     [SDKKey.REACT]: WebAnalyticsReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: WebAnalyticsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: WebAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.SHOPIFY]: WebAnalyticsShopifyInstructionsWrapper,
     [SDKKey.SVELTE]: WebAnalyticsSvelteInstructionsWrapper,

@@ -290,6 +290,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "email_address",
             # hubspot
             "hubspot_integration_id",
+            "custom_properties",
             # snowflake
             "account_id",
             "warehouse",
@@ -960,6 +961,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
                 "description": schema.description,
+                "should_sync_default": schema.should_sync_default,
             }
             for schema in schemas
         ]

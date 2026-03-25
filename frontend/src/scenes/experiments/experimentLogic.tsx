@@ -541,7 +541,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentViewed',
                 'reportExperimentCompleted',
                 'reportExperimentStopped',
-                'reportExperimentArchived',
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantShipped',
@@ -587,7 +586,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
         setExperimentType: (type?: string) => ({ type }),
-        setFeatureFlagActive: (isActive: boolean) => ({ isActive }),
+
         addVariant: true,
         removeVariant: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -742,6 +741,10 @@ export const experimentLogic = kea<experimentLogicType>([
         resetAutoRefreshInterval: true,
         stopAutoRefreshInterval: true,
         setPageVisibility: (visible: boolean) => ({ visible }),
+        subscribeToResultsNotification: true,
+        dismissNotificationOffer: true,
+        setShowNotificationOffer: (show: boolean) => ({ show }),
+        setNotifyWhenResultsReady: (notify: boolean) => ({ notify }),
     }),
     reducers({
         experiment: [
@@ -1221,23 +1224,44 @@ export const experimentLogic = kea<experimentLogicType>([
                 setPageVisibility: (_, { visible }) => visible,
             },
         ],
+        showNotificationOffer: [
+            false,
+            {
+                setShowNotificationOffer: (_, { show }) => show,
+                dismissNotificationOffer: () => false,
+            },
+        ],
+        notifyWhenResultsReady: [
+            false,
+            {
+                setNotifyWhenResultsReady: (_, { notify }) => notify,
+                dismissNotificationOffer: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions, asyncActions, cache }) => ({
         beforeUnmount: () => {
             actions.stopAutoRefreshInterval()
+            clearTimeout(cache.notificationOfferTimer)
         },
-        setFeatureFlagActive: async ({ isActive }) => {
-            if (!values.experiment.feature_flag) {
-                lemonToast.error('Experiment does not have a feature flag linked')
+        subscribeToResultsNotification: async () => {
+            if (!('Notification' in window)) {
+                lemonToast.error('Your browser does not support notifications.')
                 return
             }
 
-            const flagId = values.experiment.feature_flag.id
-            await featureFlagsLogic.asyncActions.updateFeatureFlag({
-                id: flagId,
-                payload: { active: isActive },
-            })
-            actions.loadExperiment({ triggeredBy: 'config_change' })
+            let permission = Notification.permission
+            if (permission === 'default') {
+                permission = await Notification.requestPermission()
+            }
+
+            if (permission === 'granted') {
+                actions.setNotifyWhenResultsReady(true)
+            } else if (permission === 'denied') {
+                lemonToast.info(
+                    'Notifications are blocked. Enable them in your browser address bar or system settings.'
+                )
+            }
         },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
@@ -1437,14 +1461,26 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         pauseExperiment: async () => {
-            await actions.setFeatureFlagActive(false)
-            actions.closePauseExperimentModal()
-            values.experiment && eventUsageLogic.actions.reportExperimentPaused(values.experiment)
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/pause`
+                )
+                actions.setExperiment(response)
+                actions.closePauseExperimentModal()
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to pause experiment')
+            }
         },
         resumeExperiment: async () => {
-            await actions.setFeatureFlagActive(true)
-            actions.closeResumeExperimentModal()
-            values.experiment && eventUsageLogic.actions.reportExperimentResumed(values.experiment)
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/resume`
+                )
+                actions.setExperiment(response)
+                actions.closeResumeExperimentModal()
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to resume experiment')
+            }
         },
         archiveExperiment: async () => {
             try {
@@ -1453,7 +1489,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                eventUsageLogic.actions.reportExperimentArchived(response)
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to archive experiment')
             }
@@ -1464,6 +1499,13 @@ export const experimentLogic = kea<experimentLogicType>([
             const summaries: MetricLoadingSummary[] = []
             cache.refreshSummariesById = cache.refreshSummariesById ?? {}
             cache.refreshSummariesById[refreshId] = summaries
+
+            // Start 10s timer to offer browser notifications
+            clearTimeout(cache.notificationOfferTimer)
+            cache.notificationOfferTimer = setTimeout(() => {
+                actions.setShowNotificationOffer(true)
+            }, 10_000)
+
             try {
                 await Promise.all([
                     asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
@@ -1513,6 +1555,30 @@ export const experimentLogic = kea<experimentLogicType>([
                         total_metrics_count: primaryCount + secondaryCount,
                     }
                 )
+
+                // Clear notification offer timer
+                clearTimeout(cache.notificationOfferTimer)
+
+                // Fire browser notification if user subscribed
+                if (
+                    values.notifyWhenResultsReady &&
+                    'Notification' in window &&
+                    Notification.permission === 'granted'
+                ) {
+                    const notification = new Notification('Experiment results ready', {
+                        body: `Results for "${values.experiment.name}" are now available.`,
+                        icon: '/static/posthog-icon.svg',
+                        tag: `experiment-results-${values.experimentId}`,
+                    })
+                    notification.onclick = () => {
+                        window.focus()
+                        notification.close()
+                    }
+                }
+
+                // Reset notification state
+                actions.setShowNotificationOffer(false)
+                actions.setNotifyWhenResultsReady(false)
 
                 // Only set up auto-refresh if enabled AND page is visible
                 // This prevents the interval from restarting when async operations complete after the page becomes invisible
