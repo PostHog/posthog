@@ -76,13 +76,17 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
         workload=Workload.OFFLINE,
         query_type="delete_part_count",
     ):
+        from django.conf import settings as django_settings
+
+        cluster = django_settings.CLICKHOUSE_CLUSTER
+
         parts_result = sync_execute(
             f"""
             SELECT
                 count() AS part_count,
                 sum(p.bytes_on_disk) AS total_size_on_disk,
                 sum(p.rows) AS total_rows_in_those_parts
-            FROM system.parts AS p
+            FROM cluster('{cluster}', system, parts) AS p
             INNER JOIN (
                 SELECT DISTINCT _part AS name
                 FROM sharded_events
