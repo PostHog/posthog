@@ -212,7 +212,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         start_time = time.monotonic()
         try:
-            with get_client_from_pool(workload=Workload.ONLINE, readonly=False) as client:
+            with get_client_from_pool(workload=Workload.OFFLINE, readonly=False) as client:
                 client.execute(
                     query,
                     settings={
@@ -223,8 +223,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     },
                     query_id=profile_query_id,
                 )
-        except Exception as e:
-            raise exceptions.ValidationError(f"Query execution failed: {e}")
+        except Exception:
+            raise exceptions.ValidationError("Query execution failed.")
         execution_time_ms = round((time.monotonic() - start_time) * 1000)
 
         return Response(
