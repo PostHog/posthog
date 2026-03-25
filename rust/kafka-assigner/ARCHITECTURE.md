@@ -66,7 +66,7 @@ rust/
 │   ├── consumer_registry.rs             In-memory local consumer tracking
 │   ├── error.rs                         Error types
 │   └── grpc/
-│       ├── server.rs                    Register / PartitionReady / PartitionReleased
+│       ├── server.rs                    Register / PartitionReady / PartitionReleased / Deregister
 │       ├── relay.rs                     Watch etcd → push events to consumers
 │       └── convert.rs                   Proto ↔ domain conversions
 │
@@ -106,6 +106,12 @@ rust/
      │                                                    │
      │─── PartitionReleased(topic, partition) ───────────►│
      │◄── PartitionReleasedResponse ──────────────────────│
+     │                                                    │
+     │         ... graceful shutdown ...                  │
+     │                                                    │
+     │─── Deregister(consumer_name) ──────────────────────►│
+     │                                                    │  set status = Draining
+     │◄── DeregisterResponse { action } ──────────────────│  (SHUTDOWN_NOW or WAIT_FOR_DRAIN)
      │                                                    │
 ```
 
@@ -267,13 +273,23 @@ Target: 5 each = [5, 5]
    graceful    crash /
    shutdown    disconnect
         │         │
-        │         ▼
-        │    ┌───────────────────┐
-        │    │  Lease expires    │──── TTL provides a grace window for
-        │    │  via TTL          │     reconnection (e.g. rolling restart).
-        │    └────────┬──────────┘     If the consumer reconnects before
-        │             │                expiry, it re-registers with a fresh
-        ▼             ▼                lease — no rebalance occurs.
+        ▼         ▼
+    ┌───────────────────┐    ┌───────────────────┐
+    │  Deregister()     │    │  Lease expires    │──── TTL provides a grace window for
+    │  gRPC call        │    │  via TTL          │     reconnection (e.g. rolling restart).
+    └────────┬──────────┘    └────────┬──────────┘     If the consumer reconnects before
+             │                        │                expiry, it re-registers with a fresh
+             ▼                        │                lease — no rebalance occurs.
+    ┌───────────────────┐             │
+    │  Status: Draining │─────────    │
+    │                   │        │    │
+    │  Excluded from    │   partitions handed off
+    │  new assignments  │   to other consumers
+    │  Partitions drain │   via handoff protocol
+    │  via handoffs     │        │    │
+    └────────┬──────────┘        │    │
+             │                   │    │
+             ▼                   ▼    ▼
     ┌────────────────────┐
     │  Consumer removed  │
     │  from etcd         │
