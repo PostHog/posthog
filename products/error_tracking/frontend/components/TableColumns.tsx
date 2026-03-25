@@ -107,9 +107,7 @@ export const IssueListTitleColumn = (props: {
 
     return (
         <div className="flex items-start gap-x-2 group my-1 [--line-height:1.3rem]">
-            <div className="flex justify-center w-6 shrink-0 h-(--line-height)">
-                <LemonCheckbox checked={checked} onChange={handleSelectionChange} />
-            </div>
+            <LemonCheckbox className="h-(--line-height)" checked={checked} onChange={handleSelectionChange} />
             <div className="flex flex-col gap-[2px]">
                 <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} />
                 <div
