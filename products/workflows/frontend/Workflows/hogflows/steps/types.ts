@@ -24,8 +24,8 @@ const _commonActionFields = {
     name: z.string(),
     description: z.string(),
     on_error: z.enum(['continue', 'abort']).optional().nullable(),
-    created_at: z.number(),
-    updated_at: z.number(),
+    created_at: z.number().optional(),
+    updated_at: z.number().optional(),
     filters: ActionFiltersSchema.optional().nullable(),
     output_variable: z // The Hogflow-level variable to store the output of this action into
         .union([

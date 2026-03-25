@@ -40,8 +40,8 @@ export class BrowserPool {
     private async closeBrowser(slot: BrowserSlot): Promise<void> {
         try {
             await slot.browser.close()
-        } catch {
-            // Ignore cleanup errors
+        } catch (err) {
+            log.debug({ err }, 'browser close failed, may already be dead')
         }
     }
 
@@ -73,8 +73,8 @@ export class BrowserPool {
 
         try {
             await page.close()
-        } catch {
-            // Page may already be closed
+        } catch (err) {
+            log.debug({ err }, 'page close failed, may already be closed')
         }
 
         if (!slot) {

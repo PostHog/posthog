@@ -23,11 +23,11 @@ use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_cano
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
-    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_DB_PROPERTIES_FETCH_TIME,
-    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_COHORT_SOURCE_COUNTER,
+    FLAG_DB_PROPERTIES_FETCH_TIME, FLAG_EVALUATE_ALL_CONDITIONS_TIME,
+    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED,
+    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
+    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
@@ -270,6 +270,11 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    /// Cohort definitions preloaded from the flags hypercache.
+    /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
+    /// so the matcher skips the CohortCacheManager PG query entirely.
+    /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
+    preloaded_cohorts: Option<Vec<Cohort>>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -318,6 +323,7 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            preloaded_cohorts: None,
         }
     }
 
@@ -389,6 +395,7 @@ impl FeatureFlagMatcher {
         };
 
         self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
+        self.preloaded_cohorts = feature_flags.cohorts;
 
         // Extract global stats before potential consuming filter call
         let error_count = precomputed.error_count;
@@ -1795,8 +1802,27 @@ impl FeatureFlagMatcher {
         &mut self,
         flags: &[&FeatureFlag],
     ) -> Result<(), FlagError> {
-        // Get cohorts first since we need the IDs
-        let cohorts = self.cohort_cache.get_cohorts(self.team_id).await?;
+        // Use preloaded cohorts from the flags cache when available (already scoped
+        // to only referenced cohorts). Fall back to CohortCacheManager which fetches
+        // ALL cohorts for the team.
+        let cohorts = match self.preloaded_cohorts.take() {
+            Some(preloaded) => {
+                inc(
+                    FLAG_COHORT_SOURCE_COUNTER,
+                    &[("source".to_string(), "preloaded".to_string())],
+                    1,
+                );
+                preloaded
+            }
+            None => {
+                inc(
+                    FLAG_COHORT_SOURCE_COUNTER,
+                    &[("source".to_string(), "cache_manager".to_string())],
+                    1,
+                );
+                self.cohort_cache.get_cohorts(self.team_id).await?
+            }
+        };
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
         // Get static cohort IDs

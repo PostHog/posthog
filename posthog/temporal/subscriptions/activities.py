@@ -162,7 +162,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
     assets_by_id = await database_sync_to_async(
         lambda: {
             a.id: a
-            for a in ExportedAsset.objects_including_ttl_deleted.select_related("insight").filter(
+            for a in ExportedAsset.objects_including_ttl_deleted.select_related("insight", "dashboard").filter(
                 pk__in=inputs.exported_asset_ids
             )
         },

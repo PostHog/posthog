@@ -283,14 +283,26 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             )
 
             if hog_fn_result.error or not hog_fn_result.hog_function:
-                logger.warning("Failed to create webhook hog function", error=hog_fn_result.error)
-                return
+                raise ValidationError(
+                    f"Failed to set up webhook: {hog_fn_result.error or 'Unknown error'}. "
+                    "You can set up the webhook manually from the Webhook tab."
+                )
 
             if hog_fn_result.hog_function_created:
                 # Only register the webhook if we're creating the hog function when it didn't exist previously
-                create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+                result = create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+                if not result.success:
+                    raise ValidationError(
+                        f"Failed to register webhook on your source: {result.error or 'Unknown error'}. "
+                        "You can set up the webhook manually from the Webhook tab."
+                    )
+        except ValidationError:
+            raise
         except Exception as e:
             logger.exception("Failed to create webhook during schema update", error=str(e))
+            raise ValidationError(
+                "Failed to create webhook. You can set up the webhook manually from the Webhook tab."
+            ) from e
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):

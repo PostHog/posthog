@@ -20,6 +20,9 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// Cohort source for flag evaluation
+// Labels: source="preloaded" (from flags hypercache) | source="cache_manager" (CohortCacheManager fallback)
+pub const FLAG_COHORT_SOURCE_COUNTER: &str = "flags_cohort_source_total";
 pub const PROPERTY_CACHE_HITS_COUNTER: &str = "flags_property_cache_hits_total";
 pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_total";
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
