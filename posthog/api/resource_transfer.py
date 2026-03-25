@@ -74,7 +74,10 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         resource = self._get_source_resource(data["resource_kind"], data["resource_id"], source_team)
 
-        graph = list(build_resource_duplication_graph(resource, set()))
+        try:
+            graph = list(build_resource_duplication_graph(resource, set()))
+        except (ValueError, TypeError) as e:
+            raise exceptions.ValidationError(str(e))
         dag = dag_sort_duplication_graph(graph)
 
         self._check_access_controls(user, source_team, destination_team, dag)
@@ -104,7 +107,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 dest_visitor = ResourceTransferVisitor.get_visitor(dest_kind)
                 if dest_visitor is not None:
                     try:
-                        dest_resource = dest_visitor.get_model().objects.get(pk=dest_pk)
+                        dest_resource = dest_visitor.get_model().objects.get(pk=dest_pk, team_id=destination_team.pk)
                         entry["suggested_substitution"] = {
                             "resource_kind": dest_kind,
                             "resource_id": str(dest_pk),
@@ -132,7 +135,10 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         resource = self._get_source_resource(data["resource_kind"], data["resource_id"], source_team)
 
-        graph = list(build_resource_duplication_graph(resource, set()))
+        try:
+            graph = list(build_resource_duplication_graph(resource, set()))
+        except (ValueError, TypeError) as e:
+            raise exceptions.ValidationError(str(e))
         dag = dag_sort_duplication_graph(graph)
 
         self._check_access_controls(user, source_team, destination_team, dag)

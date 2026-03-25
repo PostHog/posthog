@@ -280,7 +280,7 @@ def build_resource_duplication_graph(
 
     for edge in edges:
         try:
-            related_resource = edge.target_model.objects.get(pk=edge.target_primary_key)
+            related_resource = edge.target_model.objects.get(pk=edge.target_primary_key, team_id=resource.team_id)
             yield from build_resource_duplication_graph(related_resource, exclude_set, depth + 1)
         except ObjectDoesNotExist:
             logger.exception(
@@ -551,7 +551,10 @@ def _get_mapped_substitutions(
 
         dest_model = dest_visitor.get_model()
         try:
-            dest_resource = dest_model.objects.get(pk=dest_pk)
+            if target_team is not None:
+                dest_resource = dest_model.objects.get(pk=dest_pk, team_id=target_team.pk)
+            else:
+                dest_resource = dest_model.objects.get(pk=dest_pk)
         except ObjectDoesNotExist:
             logger.exception(
                 "resource_transfer.map_substitutions.dest_not_found",
@@ -559,21 +562,6 @@ def _get_mapped_substitutions(
                 dest_pk=str(dest_pk),
             )
             raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")
-
-        if target_team is not None:
-            resource_team = dest_visitor.get_resource_team(dest_resource)
-            if resource_team.pk != target_team.pk:
-                logger.warning(
-                    "resource_transfer.map_substitutions.team_mismatch",
-                    dest_kind=dest_kind,
-                    dest_pk=str(dest_pk),
-                    resource_team_id=resource_team.pk,
-                    target_team_id=target_team.pk,
-                )
-                raise ValueError(
-                    f"Substitution resource {dest_kind} {dest_pk} belongs to team {resource_team.pk}, "
-                    f"not destination team {target_team.pk}"
-                )
 
         normalized_key: ResourceTransferKey = (source_kind, source_resource.pk)
         mapped_substitutions[normalized_key] = dest_resource
