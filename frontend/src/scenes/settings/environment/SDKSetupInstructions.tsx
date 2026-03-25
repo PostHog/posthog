@@ -29,6 +29,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RubyInstallation,
     RubyOnRailsInstallation,
@@ -174,6 +175,13 @@ export const SDK_CONFIGS: { [key in SDKKey]?: SDKConfig } = {
         snippets: JS_WEB_SNIPPETS,
         name: 'Nuxt.js',
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
+        category: 'web',
+    },
+    [SDKKey.REACT_ROUTER]: {
+        Installation: ReactRouterInstallation,
+        snippets: JS_WEB_SNIPPETS,
+        name: 'React Router',
+        docsLink: 'https://posthog.com/docs/libraries/react-router',
         category: 'web',
     },
     [SDKKey.REMIX]: {

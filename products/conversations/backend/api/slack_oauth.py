@@ -33,6 +33,7 @@ SUPPORTHOG_SLACK_SCOPE = ",".join(
         "groups:read",
         "reactions:read",
         "users:read",
+        "users:read.email",
     ]
 )
 

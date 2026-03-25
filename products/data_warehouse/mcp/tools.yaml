@@ -143,7 +143,7 @@ tools:
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
         enabled: false
-    warehouse-saved-queries-list:
+    view-list:
         operation: warehouse_saved_queries_list
         enabled: true
         scopes:
@@ -160,7 +160,7 @@ tools:
             status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available
             views before querying them in HogQL.
         mcp_version: 1
-    warehouse-saved-queries-create:
+    view-create:
         operation: warehouse_saved_queries_create
         enabled: true
         scopes:
@@ -199,7 +199,7 @@ tools:
                     'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
                     {"query": "SELECT * FROM events LIMIT 100"}'
         mcp_version: 2
-    warehouse-saved-queries-retrieve:
+    view-get:
         operation: warehouse_saved_queries_retrieve
         enabled: true
         scopes:
@@ -217,7 +217,7 @@ tools:
     warehouse-saved-queries-update:
         operation: warehouse_saved_queries_update
         enabled: false
-    warehouse-saved-queries-partial-update:
+    view-update:
         operation: warehouse_saved_queries_partial_update
         enabled: true
         scopes:
@@ -261,7 +261,7 @@ tools:
                     Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for
                     optimistic concurrency control.
         mcp_version: 2
-    warehouse-saved-queries-destroy:
+    view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true
         scopes:
@@ -292,7 +292,7 @@ tools:
     warehouse-saved-queries-descendants-create:
         operation: warehouse_saved_queries_descendants_create
         enabled: false
-    warehouse-saved-queries-materialize-create:
+    view-materialize:
         operation: warehouse_saved_queries_materialize_create
         enabled: true
         scopes:
@@ -306,9 +306,9 @@ tools:
         description: >
             Enable materialization for a saved query. This creates a physical table from the view's query and sets up a
             24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use
-            'warehouse-saved-queries-revert-materialization-create' to undo. Rate limited.
+            'view-unmaterialize' to undo. Rate limited.
         mcp_version: 2
-    warehouse-saved-queries-revert-materialization-create:
+    view-unmaterialize:
         operation: warehouse_saved_queries_revert_materialization_create
         enabled: true
         scopes:
@@ -324,7 +324,7 @@ tools:
             reverting the view back to a virtual query that runs on each access. The view definition itself is
             preserved. Rate limited.
         mcp_version: 2
-    warehouse-saved-queries-run-create:
+    view-run:
         operation: warehouse_saved_queries_run_create
         enabled: true
         scopes:
@@ -337,10 +337,9 @@ tools:
         title: Run saved query
         description: >
             Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table
-            with the latest data. The view must already be materialized. Use
-            'warehouse-saved-queries-run-history-retrieve' to check run status.
+            with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.
         mcp_version: 2
-    warehouse-saved-queries-run-history-retrieve:
+    view-run-history:
         operation: warehouse_saved_queries_run_history_retrieve
         enabled: true
         scopes:
@@ -393,6 +392,9 @@ tools:
         enabled: false
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
+        enabled: false
+    external-data-sources-webhook-info-retrieve:
+        operation: external_data_sources_webhook_info_retrieve
         enabled: false
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list

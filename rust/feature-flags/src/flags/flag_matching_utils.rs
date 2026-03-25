@@ -148,51 +148,40 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
     }
 }
 
-/// Fetch and locally cache all properties for a given distinct ID and team ID.
+/// Result from the person + static cohort query branch.
+struct PersonCohortResult {
+    person: Option<Person>,
+    /// `None` when person not found (state's cohort_matches stays unset).
+    /// `Some(empty map)` when person found but no static cohorts to check.
+    /// `Some(results)` when person found and cohorts checked.
+    cohort_matches: Option<HashMap<CohortId, bool>>,
+}
+
+/// Result from the group properties query branch.
+struct GroupResult {
+    group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
+}
+
+/// Fetch person data and static cohort membership from the persons_reader pool.
 ///
-/// This function fetches both person and group properties for a specified distinct ID and team ID.
-/// It updates the properties cache with the fetched properties and returns void if it succeeds.
-#[instrument(skip_all, fields(
-    team_id = %team_id,
-    distinct_id = %distinct_id,
-    cohort_ids = ?static_cohort_ids,
-    group_type_to_key = ?group_type_to_key
-))]
-pub async fn fetch_and_locally_cache_all_relevant_properties(
-    flag_evaluation_state: &mut FlagEvaluationState,
-    reader: PostgresReader,
-    distinct_id: String,
+/// Acquires its own connection. The person query and cohort query run sequentially
+/// because cohort lookup depends on the person_id returned by the person query.
+async fn fetch_person_and_cohorts(
+    reader: &PostgresReader,
     team_id: TeamId,
-    group_type_to_key: &HashMap<GroupTypeIndex, String>,
-    static_cohort_ids: Vec<CohortId>,
-) -> Result<(), FlagError> {
-    // Add the test-specific counter increment
-    #[cfg(test)]
-    increment_fetch_calls_count();
-
-    // Track database property fetch in canonical log
-    with_canonical_log(|log| log.db_property_fetches += 1);
-
-    // Log pool stats before attempting connection
-    if let Some(stats) = reader.as_ref().get_pool_stats() {
-        info!(
-            pool_size = stats.size,
-            pool_idle = stats.num_idle,
-            pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
-            "Connection pool stats before acquiring connection"
-        );
-    }
-
+    distinct_id: &str,
+    static_cohort_ids: &[CohortId],
+) -> Result<PersonCohortResult, FlagError> {
     let conn_acquisition_start = Instant::now();
     let conn_result =
-        get_connection_with_metrics(&reader, "persons_reader", "fetch_person_properties").await;
+        get_connection_with_metrics(reader, "persons_reader", "fetch_person_properties").await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
         Ok(conn) => {
             info!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-                "Database connection acquired"
+                "persons_reader connection acquired for person+cohort query"
             );
             conn
         }
@@ -205,7 +194,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                         stats.size.saturating_sub(stats.num_idle as u32),
                     )
                 } else {
-                    (0, 0, 0) // Default values if stats unavailable
+                    (0, 0, 0)
                 };
 
             warn!(
@@ -214,7 +203,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 pool_idle = pool_idle,
                 pool_in_use = pool_in_use,
                 error = ?e,
-                "Failed to acquire database connection"
+                "Failed to acquire persons_reader connection for person+cohort query"
             );
 
             return Err(FlagError::from(e));
@@ -236,7 +225,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // That's fine though, we shouldn't error out just because we can't find a person ID.
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
-    let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
+    let person = Person::from_distinct_id(&mut conn, team_id, distinct_id).await?;
     person_query_timer.fin();
     let person_query_duration = person_query_start.elapsed();
     with_canonical_log(|log| {
@@ -261,12 +250,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             "Person query completed"
         );
     }
-    let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
-    if let Some(ref person) = person {
-        // NB: this is where we actually set our person ID and UUID in the flag evaluation state.
-        flag_evaluation_state.set_person_id(person.id);
-        flag_evaluation_state.set_person_uuid(person.uuid);
-        // If we have static cohort IDs to check and a valid person_id, do the cohort query
+
+    let cohort_matches = if let Some(ref person) = person {
         if !static_cohort_ids.is_empty() {
             let cohort_query = r#"
                     WITH cohort_membership AS (
@@ -284,7 +269,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             let cohort_query_start = Instant::now();
             let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &query_labels);
             let cohort_rows = sqlx::query(cohort_query)
-                .bind(&static_cohort_ids)
+                .bind(static_cohort_ids)
                 .bind(person.id)
                 .fetch_all(&mut *conn)
                 .await?;
@@ -323,102 +308,244 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                     (cohort_id, is_member)
                 })
                 .collect();
-
-            flag_evaluation_state.set_cohort_matches(cohort_results);
             cohort_processing_timer.fin();
+
+            Some(cohort_results)
         } else {
             // TRICKY: if there are no static cohorts to check, we want to return an empty map to show that
             // we checked the cohorts and found no matches. I want to differentiate from returning None, which
             // would indicate that that we had an error doing this evaluation in the first place.
             // i.e.: if there are no static cohort ID matches, it means we checked, and if there's None, it means something
             // went wrong.  This is handled in the caller.
-            flag_evaluation_state.set_cohort_matches(HashMap::new());
+            Some(HashMap::new())
         }
-    }
-
-    // if we have person properties, set them
-    let mut all_person_properties: HashMap<String, Value> = if let Some(ref person) = person {
-        person
-            .properties
-            .as_object()
-            .unwrap_or(&serde_json::Map::new())
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
     } else {
-        HashMap::new()
+        None
     };
 
-    // Always add distinct_id to person properties to match Python implementation
-    // This allows flags to filter on distinct_id even when no other person properties exist
-    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
+    Ok(PersonCohortResult {
+        person,
+        cohort_matches,
+    })
+}
 
-    flag_evaluation_state.set_person_properties(all_person_properties);
-    person_processing_timer.fin();
+/// Fetch group properties from the database.
+///
+/// Acquires its own connection from the provided reader pool.
+/// Independent of person/cohort queries, so it can run concurrently.
+///
+/// NOTE: `posthog_group` lives in the persons database (same as person/cohort
+/// tables), so this uses the same `persons_reader` pool. The two connections
+/// acquired in parallel (one for person+cohort, one for groups) both come from
+/// the same pool.
+async fn fetch_group_properties(
+    reader: &PostgresReader,
+    team_id: TeamId,
+    group_type_to_key: &HashMap<GroupTypeIndex, String>,
+) -> Result<GroupResult, FlagError> {
+    let conn_acquisition_start = Instant::now();
+    let conn_result =
+        get_connection_with_metrics(reader, "persons_reader", "fetch_group_properties").await;
+    let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
-    // Only fetch group property data if we have group types to look up
-    if !group_type_to_key.is_empty() {
-        let group_query = r#"
-            SELECT
-                g.group_type_index,
-                g.group_properties
-            FROM posthog_group g
-            INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
-                ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
-            WHERE g.team_id = $1
-        "#;
-
-        let (group_type_indexes_vec, group_keys_vec): (Vec<GroupTypeIndex>, Vec<String>) =
-            group_type_to_key
-                .iter()
-                .map(|(&k, v)| (k, v.clone()))
-                .unzip();
-
-        let group_query_start = Instant::now();
-        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &query_labels);
-        let groups = sqlx::query(group_query)
-            .bind(team_id)
-            .bind(&group_type_indexes_vec)
-            .bind(&group_keys_vec)
-            .fetch_all(&mut *conn)
-            .await?;
-        group_query_timer.fin();
-        let group_query_duration = group_query_start.elapsed();
-        with_canonical_log(|log| {
-            log.group_queries += 1;
-            log.group_query_time_ms += group_query_duration.as_millis() as u64;
-        });
-
-        if group_query_duration.as_millis() > 300 {
-            warn!(
-                duration_ms = group_query_duration.as_millis(),
-                team_id = team_id,
-                group_pair_count = group_type_to_key.len(),
-                sql_summary =
-                    "SELECT group properties with UNNEST for group_type_index, group_key pairs",
-                "Slow group query detected"
-            );
-        } else {
+    let mut conn = match conn_result {
+        Ok(conn) => {
             info!(
-                duration_ms = group_query_duration.as_millis(),
-                team_id = team_id,
-                group_pair_count = group_type_to_key.len(),
-                result_count = groups.len(),
-                "Group query completed"
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                "persons_reader connection acquired for group query"
             );
+            conn
         }
+        Err(e) => {
+            let (pool_size, pool_idle, pool_in_use) =
+                if let Some(stats) = reader.as_ref().get_pool_stats() {
+                    (
+                        stats.size,
+                        stats.num_idle as u32,
+                        stats.size.saturating_sub(stats.num_idle as u32),
+                    )
+                } else {
+                    (0, 0, 0)
+                };
 
-        let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
-        for row in groups {
+            warn!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                pool_size = pool_size,
+                pool_idle = pool_idle,
+                pool_in_use = pool_in_use,
+                error = ?e,
+                "Failed to acquire persons_reader connection for group query"
+            );
+
+            return Err(FlagError::from(e));
+        }
+    };
+
+    let query_labels = [
+        ("pool".to_string(), "persons_reader".to_string()),
+        ("team_id".to_string(), team_id.to_string()),
+    ];
+
+    let group_query = r#"
+        SELECT
+            g.group_type_index,
+            g.group_properties
+        FROM posthog_group g
+        INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
+            ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
+        WHERE g.team_id = $1
+    "#;
+
+    let (group_type_indexes_vec, group_keys_vec): (Vec<GroupTypeIndex>, Vec<String>) =
+        group_type_to_key
+            .iter()
+            .map(|(&k, v)| (k, v.clone()))
+            .unzip();
+
+    let group_query_start = Instant::now();
+    let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &query_labels);
+    let groups = sqlx::query(group_query)
+        .bind(team_id)
+        .bind(&group_type_indexes_vec)
+        .bind(&group_keys_vec)
+        .fetch_all(&mut *conn)
+        .await?;
+    group_query_timer.fin();
+    let group_query_duration = group_query_start.elapsed();
+    with_canonical_log(|log| {
+        log.group_queries += 1;
+        log.group_query_time_ms += group_query_duration.as_millis() as u64;
+    });
+
+    if group_query_duration.as_millis() > 300 {
+        warn!(
+            duration_ms = group_query_duration.as_millis(),
+            team_id = team_id,
+            group_pair_count = group_type_to_key.len(),
+            sql_summary =
+                "SELECT group properties with UNNEST for group_type_index, group_key pairs",
+            "Slow group query detected"
+        );
+    } else {
+        info!(
+            duration_ms = group_query_duration.as_millis(),
+            team_id = team_id,
+            group_pair_count = group_type_to_key.len(),
+            result_count = groups.len(),
+            "Group query completed"
+        );
+    }
+
+    let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
+    let group_properties = groups
+        .into_iter()
+        .filter_map(|row| {
             let group_type_index: GroupTypeIndex = row.get("group_type_index");
             let properties: Value = row.get("group_properties");
 
             if let Value::Object(props) = properties {
-                let properties = props.into_iter().collect();
-                flag_evaluation_state.set_group_properties(group_type_index, properties);
+                Some((group_type_index, props.into_iter().collect()))
+            } else {
+                None
             }
+        })
+        .collect();
+    group_processing_timer.fin();
+
+    Ok(GroupResult { group_properties })
+}
+
+/// Apply person and cohort results to the flag evaluation state.
+fn apply_person_cohort_to_state(
+    state: &mut FlagEvaluationState,
+    result: PersonCohortResult,
+    distinct_id: String,
+) {
+    let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
+
+    if let Some(ref person) = result.person {
+        state.set_person_id(person.id);
+        state.set_person_uuid(person.uuid);
+    }
+
+    if let Some(cohort_matches) = result.cohort_matches {
+        state.set_cohort_matches(cohort_matches);
+    }
+
+    let mut all_person_properties: HashMap<String, Value> = if let Some(ref person) = result.person
+    {
+        match person.properties.as_object() {
+            Some(obj) => obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            None => HashMap::new(),
         }
-        group_processing_timer.fin();
+    } else {
+        HashMap::new()
+    };
+
+    // Always add distinct_id to person properties to match Python implementation.
+    // This allows flags to filter on distinct_id even when no other person properties exist.
+    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
+
+    state.set_person_properties(all_person_properties);
+    person_processing_timer.fin();
+}
+
+/// Fetch and locally cache all properties for a given distinct ID and team ID.
+///
+/// This function fetches person, cohort, and group properties and applies them to the
+/// evaluation state. When groups are needed, person+cohort and group queries run in
+/// parallel via `tokio::try_join!`, each acquiring its own connection from the same pool.
+#[instrument(skip_all, fields(
+    team_id = %team_id,
+    distinct_id = %distinct_id,
+    cohort_ids = ?static_cohort_ids,
+    group_type_to_key = ?group_type_to_key
+))]
+pub async fn fetch_and_locally_cache_all_relevant_properties(
+    flag_evaluation_state: &mut FlagEvaluationState,
+    reader: PostgresReader,
+    distinct_id: String,
+    team_id: TeamId,
+    group_type_to_key: &HashMap<GroupTypeIndex, String>,
+    static_cohort_ids: Vec<CohortId>,
+) -> Result<(), FlagError> {
+    // Add the test-specific counter increment
+    #[cfg(test)]
+    increment_fetch_calls_count();
+
+    // Track database property fetch in canonical log
+    with_canonical_log(|log| log.db_property_fetches += 1);
+
+    // Log pool stats before attempting connections
+    if let Some(stats) = reader.as_ref().get_pool_stats() {
+        info!(
+            pool_size = stats.size,
+            pool_idle = stats.num_idle,
+            pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
+            "Connection pool stats before acquiring connection"
+        );
+    }
+
+    if !group_type_to_key.is_empty() {
+        // SAFETY: tokio::try_join! polls both futures on the same task via cooperative
+        // scheduling. with_canonical_log borrows a task-local RefCell synchronously (no
+        // .await while borrowed), so double-borrow cannot occur. Do NOT refactor this
+        // to tokio::spawn: that would run the futures on separate tasks, which do not
+        // inherit the CANONICAL_LOG task-local scope (see handler/canonical_log.rs),
+        // causing with_canonical_log to silently no-op and drop canonical-log counters.
+        let (person_cohort, group) = tokio::try_join!(
+            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids),
+            fetch_group_properties(&reader, team_id, group_type_to_key),
+        )?;
+
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
+        for (idx, props) in group.group_properties {
+            flag_evaluation_state.set_group_properties(idx, props);
+        }
+    } else {
+        let person_cohort =
+            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
     }
 
     Ok(())
@@ -2058,6 +2185,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
             PropertyFilter {
                 key: "age".to_string(),
@@ -2066,6 +2194,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         ];
 
@@ -2081,6 +2210,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
             PropertyFilter {
                 key: "cohort".to_string(),
@@ -2089,6 +2219,7 @@ mod tests {
                 prop_type: PropertyType::Cohort,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         ];
 
@@ -2110,6 +2241,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
             PropertyFilter {
                 key: "missing_property".to_string(), // This property is NOT in overrides
@@ -2118,6 +2250,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         ];
 
@@ -2149,6 +2282,7 @@ mod tests {
             prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
+            compiled_regex: None,
         }];
 
         let result = locally_computable_property_overrides(&overrides, &flag_property_filters);
@@ -2197,6 +2331,7 @@ mod tests {
             prop_type: PropertyType::Flag,
             negation: None,
             group_type_index: None,
+            compiled_regex: None,
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
@@ -2214,6 +2349,7 @@ mod tests {
             prop_type: PropertyType::Flag,
             group_type_index: None,
             negation: None,
+            compiled_regex: None,
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);

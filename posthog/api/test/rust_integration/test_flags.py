@@ -239,3 +239,37 @@ def test_disabled_flag(db: TestDB, api: DjangoAPI, env: TestEnv):
     assert result["flags"]["active-flag"]["enabled"] is True
     # Inactive flags are excluded from the response entirely
     assert "disabled-flag" not in result["flags"]
+
+
+def test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval(db: TestDB, api: DjangoAPI, env: TestEnv):
+    """A Realtime cohort without a backfill timestamp should fall through to
+    dynamic filter evaluation rather than querying the cohort_membership table."""
+    db.create_person(["rt_user"], {"plan": "enterprise"})
+    db.create_person(["rt_nonmatch"], {"plan": "free"})
+
+    cohort = api.create_cohort(
+        "Realtime No Backfill",
+        _cohort_filters(
+            [{"key": "plan", "type": "person", "value": "enterprise", "operator": "exact"}],
+        ),
+    )
+
+    # Override cohort_type to 'realtime' while leaving last_backfill_person_properties_at NULL.
+    # This simulates a realtime cohort that hasn't been backfilled yet.
+    db.set_cohort_type(cohort["id"], "realtime")
+
+    api.create_flag(
+        "realtime-fallback-flag",
+        {
+            "groups": [
+                {
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort["id"]}],
+                    "rollout_percentage": 100,
+                }
+            ],
+        },
+    )
+
+    # Should match via dynamic filter evaluation (the fallback path)
+    assert evaluate_flags(env.api_token, "rt_user")["flags"]["realtime-fallback-flag"]["enabled"] is True
+    assert evaluate_flags(env.api_token, "rt_nonmatch")["flags"]["realtime-fallback-flag"]["enabled"] is False

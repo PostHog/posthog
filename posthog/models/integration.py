@@ -1171,6 +1171,30 @@ class GoogleAdsIntegration:
         return all_accounts
 
 
+def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
+    """Check if the service account is only in one organization.
+
+    This is used as a security measure to block multiple organizations from
+    impersonating the same service account.
+
+    In the future we may lift this restriction, but initially we want to make sure about
+    service account ownership with this check. This complements other runtime checks in
+    batch exports; see `verify_impersonated_service_account_ownership` in
+    `bigquery_batch_export.py`.
+    """
+    same_service_account_integrations = (
+        Integration.objects.select_related("team__organization")
+        .filter(kind="google-cloud-service-account", config__service_account_email=service_account_email)
+        # If private key is present, then we are not impersonating
+        .exclude(sensitive_config__has_key="private_key")
+    )
+    for integration in same_service_account_integrations:
+        if str(integration.team.organization.id) != organization_id:
+            return False
+
+    return True
+
+
 class GoogleCloudServiceAccountIntegration:
     integration: Integration
 
@@ -1189,12 +1213,8 @@ class GoogleCloudServiceAccountIntegration:
         token_uri: str | None = None,
         created_by: User | None = None,
     ) -> Integration:
-        # Do not allow the same project_id in multiple organizations
-        same_service_account_integrations = Integration.objects.select_related("team__organization").filter(
-            kind="google-cloud-service-account", config__service_account_email=service_account_email
-        )
-        for integration in same_service_account_integrations:
-            if str(integration.team.organization.id) != str(organization_id):
+        if private_key is None:
+            if not is_unique_service_account_by_organization_id(service_account_email, organization_id):
                 raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
 
         sensitive_config = {}

@@ -57,6 +57,9 @@ class EmailConnectSerializer(serializers.Serializer):
     from_email = serializers.EmailField()
     from_name = serializers.CharField(max_length=255)
 
+    def validate_from_email(self, value: str) -> str:
+        return value.lower()
+
 
 class EmailStatusView(APIView):
     """Return current email config status (forwarding address, connection state)."""

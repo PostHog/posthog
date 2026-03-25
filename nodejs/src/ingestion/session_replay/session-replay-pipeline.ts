@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
@@ -8,7 +9,9 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '../pipelines/extensions/tophog'
@@ -72,6 +75,13 @@ export function createSessionReplayPipeline(
         sessionBatchManager,
         isDebugLoggingEnabled,
     } = config
+
+    const outputs = new IngestionOutputs<IngestionWarningsOutput>({
+        [INGESTION_WARNINGS_OUTPUT]: {
+            topic: KAFKA_INGESTION_WARNINGS,
+            producer: ingestionWarningProducer,
+        },
+    })
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
@@ -150,7 +160,7 @@ export function createSessionReplayPipeline(
                                     )
                                     .gather()
                             )
-                            .handleIngestionWarnings(ingestionWarningProducer)
+                            .handleIngestionWarnings(outputs)
                 )
         )
         .handleResults(pipelineConfig)
