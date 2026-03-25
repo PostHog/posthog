@@ -3,6 +3,61 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client
 
+from posthog.models.team import Team
+
+from products.conversations.backend.models import TeamConversationsEmailConfig
+
+
+class TestEmailConnectDomainCaseInsensitivity(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_lowercases_domain(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "Support@Example.COM", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        config = TeamConversationsEmailConfig.objects.get(team=self.team)
+        assert config.from_email == "support@example.com"
+        assert config.domain == "example.com"
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_rejects_duplicate_domain_different_casing(
+        self, _mock_setting: MagicMock, _mock_mailgun: MagicMock
+    ):
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        # Second team tries the same domain with different casing
+        second_team = Team.objects.create(organization=self.organization)
+        self.user.current_team = second_team
+        self.user.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "help@Example.COM", "from_name": "Help"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 409
+        assert "already in use" in response.json()["error"]
+
 
 class TestEmailInboundRegionRouting(BaseTest):
     def setUp(self):
