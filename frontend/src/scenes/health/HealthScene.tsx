@@ -101,7 +101,7 @@ const UnifiedHealthScene = (): JSX.Element => {
                         icon={<IconSupport />}
                         type="secondary"
                         size="small"
-                        onClick={() => openSupportForm({ kind: 'support', target_area: 'data_ingestion' })}
+                        onClick={() => openSupportForm({ kind: 'support', target_area: 'health_overview' })}
                     >
                         Get help from our team
                     </LemonButton>
