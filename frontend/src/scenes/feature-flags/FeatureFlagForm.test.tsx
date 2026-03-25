@@ -30,10 +30,21 @@ const MOCK_MULTIVARIATE_FLAG: FeatureFlagType = {
     },
     deleted: false,
     created_at: '2023-01-01T00:00:00Z',
+    updated_at: null,
+    version: null,
+    last_modified_by: null,
+    experiment_set: null,
+    features: null,
+    surveys: null,
     created_by: null,
-    rollout_percentage: null,
     can_edit: true,
     tags: [],
+    evaluation_tags: [],
+    evaluation_contexts: [],
+    is_remote_configuration: false,
+    has_encrypted_payloads: false,
+    status: 'ACTIVE',
+    evaluation_runtime: 'client_and_server',
 }
 
 describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
