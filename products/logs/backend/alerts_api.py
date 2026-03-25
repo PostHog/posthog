@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
@@ -133,6 +134,32 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
+
+    def _track(self, event: str, instance: LogsAlertConfiguration) -> None:
+        report_user_action(
+            self.request.user,
+            event,
+            {
+                "id": str(instance.id),
+                "name": instance.name,
+                "enabled": instance.enabled,
+                "threshold_count": instance.threshold_count,
+                "threshold_operator": instance.threshold_operator,
+                "window_minutes": instance.window_minutes,
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+    def perform_create(self, serializer) -> None:
+        self._track("logs alert created", serializer.save())
+
+    def perform_update(self, serializer) -> None:
+        self._track("logs alert updated", serializer.save())
+
+    def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
+        self._track("logs alert deleted", instance)
+        super().perform_destroy(instance)
 
 
 @mutable_receiver(model_activity_signal, sender=LogsAlertConfiguration)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonBadge, LemonCheckbox, LemonDivider, LemonMenu } from '@posthog/lemon-ui'
@@ -21,7 +21,7 @@ interface ActionFilterRowMenuProps {
     mathAvailability: MathAvailability
     trendsDisplayCategory: ChartDisplayCategory | null
     readOnly: boolean
-    query: Record<string, unknown>
+    query: Record<string, any>
     filter: { optionalInFunnel?: boolean }
     hideRename: boolean
     hideDuplicate: boolean
@@ -62,6 +62,58 @@ export function ActionFilterRowMenu({
         <div onClick={() => setIsMenuVisible(false)}>{element}</div>
     )
 
+    const menuItems: JSX.Element[] = []
+
+    // MathSelector for funnels only (trends shows it inline)
+    if (isFunnelContext) {
+        menuItems.push(
+            <React.Fragment key="math-selector">
+                <MathSelector
+                    math={math}
+                    mathGroupTypeIndex={mathGroupTypeIndex}
+                    index={index}
+                    onMathSelect={onMathSelect}
+                    disabled={readOnly}
+                    style={{ maxWidth: '100%', width: 'initial' }}
+                    mathAvailability={mathAvailability}
+                    trendsDisplayCategory={trendsDisplayCategory}
+                    query={query}
+                />
+                <LemonDivider />
+            </React.Fragment>
+        )
+    }
+
+    // Optional step checkbox for funnels only
+    if (isFunnelContext && index > 0) {
+        menuItems.push(
+            <React.Fragment key="optional-step">
+                <Tooltip title="Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel">
+                    <div className="px-2 py-1">
+                        <LemonCheckbox
+                            checked={!!filter.optionalInFunnel}
+                            onChange={(checked) => onUpdateOptional(checked)}
+                            label="Optional step"
+                        />
+                    </div>
+                </Tooltip>
+                <LemonDivider />
+            </React.Fragment>
+        )
+    }
+
+    if (!hideRename) {
+        menuItems.push(wrapWithClose(renameRowButton))
+    }
+    if (!singleFilter) {
+        if (!hideDuplicate) {
+            menuItems.push(wrapWithClose(duplicateRowButton))
+        }
+        if (!hideDeleteBtn) {
+            menuItems.push(wrapWithClose(deleteButton))
+        }
+    }
+
     return (
         <div className="relative">
             <LemonMenu
@@ -69,78 +121,7 @@ export function ActionFilterRowMenu({
                 visible={isMenuVisible}
                 closeOnClickInside={false}
                 onVisibilityChange={setIsMenuVisible}
-                items={[
-                    // MathSelector for funnels only (trends shows it inline)
-                    ...(isFunnelContext
-                        ? [
-                              {
-                                  label: () => (
-                                      <>
-                                          <MathSelector
-                                              math={math}
-                                              mathGroupTypeIndex={mathGroupTypeIndex}
-                                              index={index}
-                                              onMathSelect={onMathSelect}
-                                              disabled={readOnly}
-                                              style={{
-                                                  maxWidth: '100%',
-                                                  width: 'initial',
-                                              }}
-                                              mathAvailability={mathAvailability}
-                                              trendsDisplayCategory={trendsDisplayCategory}
-                                              query={query}
-                                          />
-                                          <LemonDivider />
-                                      </>
-                                  ),
-                              },
-                          ]
-                        : []),
-                    // Optional step checkbox for funnels only
-                    ...(isFunnelContext && index > 0
-                        ? [
-                              {
-                                  label: () => (
-                                      <>
-                                          <Tooltip title="Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel">
-                                              <div className="px-2 py-1">
-                                                  <LemonCheckbox
-                                                      checked={!!filter.optionalInFunnel}
-                                                      onChange={(checked) => {
-                                                          onUpdateOptional(checked)
-                                                      }}
-                                                      label="Optional step"
-                                                  />
-                                              </div>
-                                          </Tooltip>
-                                          <LemonDivider />
-                                      </>
-                                  ),
-                              },
-                          ]
-                        : []),
-                    ...(!hideRename
-                        ? [
-                              {
-                                  label: () => wrapWithClose(renameRowButton),
-                              },
-                          ]
-                        : []),
-                    ...(!hideDuplicate && !singleFilter
-                        ? [
-                              {
-                                  label: () => wrapWithClose(duplicateRowButton),
-                              },
-                          ]
-                        : []),
-                    ...(!hideDeleteBtn && !singleFilter
-                        ? [
-                              {
-                                  label: () => wrapWithClose(deleteButton),
-                              },
-                          ]
-                        : []),
-                ]}
+                items={menuItems.map((el) => ({ label: () => el }))}
             >
                 <LemonButton
                     size="medium"

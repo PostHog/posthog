@@ -3916,6 +3916,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
+    experiment_set_metadata: { id: number; name: string }[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
