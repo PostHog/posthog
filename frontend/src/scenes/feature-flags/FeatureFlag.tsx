@@ -127,6 +127,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
+        featureFlagChanged,
         originalFeatureFlag,
         featureFlagLoading,
         featureFlagMissing,
@@ -199,6 +200,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             featureFlag?.id
         ),
     })
+
+    // Warn users about unsaved changes when navigating away
+    useEffect(() => {
+        if (featureFlagChanged) {
+            const handler = (e: BeforeUnloadEvent): void => {
+                e.preventDefault()
+            }
+            window.addEventListener('beforeunload', handler)
+            return () => window.removeEventListener('beforeunload', handler)
+        }
+    }, [featureFlagChanged])
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />

@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
     IconBalance,
@@ -59,6 +59,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
+        featureFlagChanged,
         originalFeatureFlag,
         multivariateEnabled,
         variants,
@@ -93,6 +94,17 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
+
+    // Warn users about unsaved changes when navigating away
+    useEffect(() => {
+        if (featureFlagChanged) {
+            const handler = (e: BeforeUnloadEvent): void => {
+                e.preventDefault()
+            }
+            window.addEventListener('beforeunload', handler)
+            return () => window.removeEventListener('beforeunload', handler)
+        }
+    }, [featureFlagChanged])
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
