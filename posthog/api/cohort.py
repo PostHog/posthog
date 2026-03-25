@@ -1094,9 +1094,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         flag_compatible: set[int] = set()
         if allow_realtime_backfilled:
             flag_compatible = {
-                cid
-                for cid in behavioral_cohorts
-                if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
+                cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
             }
         affected_cohorts = behavioral_cohorts - flag_compatible
 
