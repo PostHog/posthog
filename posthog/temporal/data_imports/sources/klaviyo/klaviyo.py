@@ -30,7 +30,7 @@ def _format_datetime_z(dt: datetime) -> str:
     Klaviyo rejects the +00:00 UTC offset format produced by isoformat(),
     so we must use the Z suffix instead.
     """
-    utc_dt = dt.astimezone(UTC)
+    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
     return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 

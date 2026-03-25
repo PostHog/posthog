@@ -33,25 +33,36 @@ class TestFormatIncrementalValue:
 
 
 class TestBuildFilter:
-    def test_incremental_only(self) -> None:
-        config = KLAVIYO_ENDPOINTS["events"]
-        result = _build_filter(config, "datetime", "2026-03-04T02:58:14.000Z")
-        assert result == "greater-than(datetime,2026-03-04T02:58:14.000Z)"
-
-    def test_base_filter_only(self) -> None:
-        config = KLAVIYO_ENDPOINTS["email_campaigns"]
-        result = _build_filter(config, None, None)
-        assert result == "equals(messages.channel,'email')"
-
-    def test_combined_base_and_incremental(self) -> None:
-        config = KLAVIYO_ENDPOINTS["email_campaigns"]
-        result = _build_filter(config, "updated_at", "2026-03-04T02:58:14.000Z")
-        assert result == "and(equals(messages.channel,'email'),greater-than(updated_at,2026-03-04T02:58:14.000Z))"
-
-    def test_no_filter(self) -> None:
-        config = KLAVIYO_ENDPOINTS["metrics"]
-        result = _build_filter(config, None, None)
-        assert result is None
+    @parameterized.expand(
+        [
+            (
+                "incremental_only",
+                KLAVIYO_ENDPOINTS["events"],
+                "datetime",
+                "2026-03-04T02:58:14.000Z",
+                "greater-than(datetime,2026-03-04T02:58:14.000Z)",
+            ),
+            (
+                "base_filter_only",
+                KLAVIYO_ENDPOINTS["email_campaigns"],
+                None,
+                None,
+                "equals(messages.channel,'email')",
+            ),
+            (
+                "combined_base_and_incremental",
+                KLAVIYO_ENDPOINTS["email_campaigns"],
+                "updated_at",
+                "2026-03-04T02:58:14.000Z",
+                "and(equals(messages.channel,'email'),greater-than(updated_at,2026-03-04T02:58:14.000Z))",
+            ),
+            ("no_filter", KLAVIYO_ENDPOINTS["metrics"], None, None, None),
+        ]
+    )
+    def test_build_filter(
+        self, _name: str, config: object, field: str | None, value: str | None, expected: str | None
+    ) -> None:
+        assert _build_filter(config, field, value) == expected
 
 
 class TestBuildInitialParams:
