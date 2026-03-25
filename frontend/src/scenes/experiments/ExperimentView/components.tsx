@@ -297,6 +297,7 @@ export function PageHeaderCustom(): JSX.Element {
         isExperimentStopped,
         isCreatingExperimentDashboard,
         experimentLoading,
+        launchExperimentLoading,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -357,6 +358,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     type="primary"
                                     data-attr="launch-experiment"
                                     onClick={() => launchExperiment()}
+                                    loading={launchExperimentLoading}
                                     size="small"
                                 >
                                     Launch

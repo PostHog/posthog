@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -72,6 +72,7 @@ class DataWarehouseSavedQuerySerializerMixin:
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
             jobs = view.jobs  # type: ignore
@@ -82,12 +83,15 @@ class DataWarehouseSavedQuerySerializerMixin:
 
         return view.last_run_at
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
         return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
         return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
@@ -136,6 +140,8 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "latest_error",
             "is_materialized",
             "origin",
+            "is_test",
+            "expires_at",
         ]
         read_only_fields = fields
 
@@ -180,6 +186,8 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "soft_update",
             "is_materialized",
             "origin",
+            "is_test",
+            "expires_at",
         ]
         read_only_fields = [
             "id",
@@ -193,6 +201,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "latest_history_id",
             "is_materialized",
             "origin",
+            "expires_at",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -204,6 +213,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             },
         }
 
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
         if (
@@ -327,6 +337,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
+                # Clamp deprecated 5min interval to 15min for saved queries
+                if sync_frequency == "5min":
+                    sync_frequency = "15min"
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 locked_instance.sync_frequency_interval = sync_frequency_interval
@@ -452,6 +465,11 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
 
         return query
+
+    def validate_is_test(self, is_test):
+        if is_test and not self.context["request"].user.is_staff:
+            raise serializers.ValidationError("Only staff users can create test views.")
+        return is_test
 
     def validate_name(self, name):
         # if it's an upsert, we don't want to validate the name

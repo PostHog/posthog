@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional, cast
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     AggregationType,
     Breakdown,
@@ -94,11 +96,18 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        """
-        Called after __init__ and after dashboard filters are applied.
-        This ensures cohort optimizations work for both direct filters and dashboard-level filters.
-        """
+        self.validate()
+
+        # Called after __init__ and after dashboard filters are applied. This ensures cohort optimizations work for both direct filters and dashboard-level filters.
         self.update_hogql_modifiers()
+
+    def validate(self) -> None:
+        if (
+            self.query.retentionFilter
+            and self.query.retentionFilter.timeWindowMode == "24_hour_windows"
+            and self.query.retentionFilter.cumulative
+        ):
+            raise ValidationError("Cumulative retention is not supported for 24 hour windows.")
 
     def update_hogql_modifiers(self) -> None:
         """
@@ -399,6 +408,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 properties_chain = ["person", property_name]
             else:
                 properties_chain = ["person", "properties", property_name]
+        elif breakdown_type == "data_warehouse_person_property":
+            properties_chain = ["person", *property_name.split(".")]
         elif breakdown_type == "group":
             if property_name.startswith("$virt_"):
                 # Virtual properties exist as expression fields on the groups table

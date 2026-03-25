@@ -130,9 +130,19 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [observability]
 
+    nodejs_traces:
+        description: 'Node.js Traces - trace ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
     nodejs_feature_flags:
         description: 'Node.js Feature Flags - evaluation scheduler'
         requires: [flag_evaluation]
+        docker_profiles: []
+
+    nodejs_error_tracking:
+        description: 'Node.js Error Tracking - exception event ingestion'
+        requires: [event_ingestion]
         docker_profiles: []
 
     batch_imports:
@@ -178,7 +188,15 @@ intents:
 
     error_tracking:
         description: 'Track and analyze application errors'
-        capabilities: [event_ingestion, error_symbolication, embedding_service, property_definitions, nodejs_cdp]
+        capabilities:
+            [
+                event_ingestion,
+                error_symbolication,
+                embedding_service,
+                property_definitions,
+                nodejs_cdp,
+                nodejs_error_tracking,
+            ]
 
     session_replay:
         description: 'Record and replay user sessions'
@@ -250,7 +268,7 @@ intents:
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, nodejs_logs]
+        capabilities: [event_ingestion, property_definitions, nodejs_logs, nodejs_traces]
 
     workflows:
         description: 'Workflow automation and orchestration'

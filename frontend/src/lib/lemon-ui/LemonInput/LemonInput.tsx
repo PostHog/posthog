@@ -252,7 +252,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (onPressEnter && event.key === 'Enter') {
+                        if (onPressEnter && event.key === 'Enter' && !event.nativeEvent.isComposing) {
                             onPressEnter(event)
                         }
                     }}

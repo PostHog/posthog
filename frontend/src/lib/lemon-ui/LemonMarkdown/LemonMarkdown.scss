@@ -23,11 +23,6 @@
         list-style-type: disc;
     }
 
-    strong[level] {
-        // Low-key headings
-        display: block;
-    }
-
     p {
         margin-bottom: 0.5em;
     }
@@ -79,7 +74,7 @@
     blockquote {
         padding: 0.5em 1em;
         margin: 0.5em 0;
-        color: var(--muted);
+        color: var(--color-text-secondary);
         background-color: var(--bg-light);
         border-left: 3px solid var(--border);
 
@@ -143,5 +138,10 @@
         p:last-child {
             margin-bottom: 0;
         }
+    }
+
+    .LemonMarkdown__low-key-heading {
+        // Low-key headings
+        display: block;
     }
 }

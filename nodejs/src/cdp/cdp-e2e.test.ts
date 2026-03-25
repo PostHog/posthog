@@ -54,7 +54,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
             await resetTestDatabase()
             hub = await createHub()
-            team = await getFirstTeam(hub)
+            team = await getFirstTeam(hub.postgres)
             mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
             mockProducerObserver.resetKafkaProducer()
 

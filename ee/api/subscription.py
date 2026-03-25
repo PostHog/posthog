@@ -21,7 +21,7 @@ from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
+from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs
 from posthog.utils import str_to_bool
 
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
@@ -47,6 +47,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    summary = serializers.CharField(read_only=True)
     invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     integration_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_export_insights = DashboardExportInsightsField(required=False)
@@ -192,7 +193,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         asyncio.run(
             temporal.start_workflow(
                 "handle-subscription-value-change",
-                DeliverSubscriptionReportActivityInputs(
+                ProcessSubscriptionWorkflowInputs(
                     subscription_id=instance.id,
                     previous_value="",
                     invite_message=invite_message,
@@ -218,7 +219,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         asyncio.run(
             temporal.start_workflow(
                 "handle-subscription-value-change",
-                DeliverSubscriptionReportActivityInputs(
+                ProcessSubscriptionWorkflowInputs(
                     subscription_id=instance.id,
                     previous_value=previous_value,
                     invite_message=invite_message,

@@ -1,6 +1,6 @@
 import 'chartjs-adapter-dayjs-3'
 
-import { DeepPartial } from 'chart.js/dist/types/utils'
+import { type DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
@@ -30,14 +30,13 @@ import {
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
+import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -218,6 +217,7 @@ export interface LineGraphProps {
     goalLines?: GoalLine[]
     isStacked?: boolean
     showTrendLines?: boolean
+    anomalyPoints?: AnomalyPoint[]
     ignoreActionsInSeriesLabels?: boolean
     datalabelFormatter?: (value: number, datasetIndex: number) => string
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
@@ -266,6 +266,7 @@ export function LineGraph_({
     goalLines: _goalLines,
     isStacked = true,
     showTrendLines = false,
+    anomalyPoints,
     ignoreActionsInSeriesLabels = false,
     datalabelFormatter,
     onDateRangeZoom,
@@ -275,14 +276,15 @@ export function LineGraph_({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, currentPeriodResult } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
     const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip } = useInsightTooltip()
@@ -401,6 +403,44 @@ export function LineGraph_({
                   ctx.p1DataIndex >= incompleteStartIndex ? areaIncompletePattern : undefined
             : undefined
 
+        // Build anomaly point styling if this series has anomaly points.
+        // Match by date (not index) since the alert check data range may differ from the chart range.
+        const seriesAnomalyPoints = (anomalyPoints ?? []).filter(
+            (ap) => ap.seriesIndex === (dataset.seriesIndex ?? index)
+        )
+        const chartDays: string[] = dataset.days ?? dataset.labels ?? []
+        const anomalyDateSet = new Set(seriesAnomalyPoints.map((ap) => ap.date))
+        const anomalyScoreByDate: Record<string, number | null> = {}
+        for (const ap of seriesAnomalyPoints) {
+            anomalyScoreByDate[ap.date] = ap.score
+        }
+        // Resolve to chart indices by matching dates
+        const seriesAnomalyIndices = new Set<number>()
+        const anomalyScoresMap: Record<number, number | null> = {}
+        for (let i = 0; i < chartDays.length; i++) {
+            if (anomalyDateSet.has(chartDays[i])) {
+                seriesAnomalyIndices.add(i)
+                anomalyScoresMap[i] = anomalyScoreByDate[chartDays[i]] ?? null
+            }
+        }
+        const hasAnomalyPoints = seriesAnomalyIndices.size > 0
+
+        const anomalyPointRadius = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 3 : 0)
+            : undefined
+        const anomalyPointBackgroundColor = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? mainColor : 'transparent')
+            : undefined
+        const anomalyPointBorderColor = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? mainColor : 'transparent')
+            : undefined
+        const anomalyPointBorderWidth = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 2 : 0)
+            : undefined
+
+        const defaultPointRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0
+        const defaultHitRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0
+
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
@@ -413,11 +453,15 @@ export function LineGraph_({
                 backgroundColor: incompleteSegmentBackgroundColor,
             },
             borderWidth: isBar ? 0 : 2,
-            pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
-            hitRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0,
+            pointRadius: anomalyPointRadius ?? defaultPointRadius,
+            pointBackgroundColor: anomalyPointBackgroundColor,
+            pointBorderColor: anomalyPointBorderColor,
+            pointBorderWidth: anomalyPointBorderWidth,
+            hitRadius: hasAnomalyPoints ? 8 : defaultHitRadius,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
+            anomalyScores: hasAnomalyPoints ? anomalyScoresMap : undefined,
             data: adjustedData,
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
@@ -435,6 +479,7 @@ export function LineGraph_({
                           colorMax: mainColor,
                           lineStyle: 'dotted',
                           width: 2,
+                          trendoffset: incompletenessOffsetFromEnd,
                       },
                   }
                 : {}),
@@ -571,13 +616,11 @@ export function LineGraph_({
                     weight: 'normal',
                 },
             }
-            const xAxisTickCallback = featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN]
-                ? createXAxisTickCallback({
-                      interval: interval ?? 'day',
-                      allDays: filteredDatasets[0]?.days ?? [],
-                      timezone,
-                  })
-                : undefined
+            const xAxisTickCallback = createXAxisTickCallback({
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
+                timezone,
+            })
 
             const gridOptions: Partial<GridLineOptions> = {
                 color: (context) => {
@@ -773,6 +816,7 @@ export function LineGraph_({
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
                                         showShiftKeyHint={isBar && isStacked && !isHighlightBarMode && !inSurveyView}
+                                        formatCompareLabel={tooltipConfig?.formatCompareLabel}
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
@@ -1109,6 +1153,7 @@ export function LineGraph_({
             isArea,
             showTrendLines,
             labels,
+            legend?.display,
             hideTooltip,
             showTooltip,
             getTooltip,
@@ -1119,6 +1164,7 @@ export function LineGraph_({
             timezone,
             effectiveZoomCallback,
             zoomPluginOptions,
+            anomalyPoints,
         ],
     })
 

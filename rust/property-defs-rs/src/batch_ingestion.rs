@@ -228,7 +228,20 @@ impl PropertyDefinitionsBatch {
         let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
 
         for update in &self.cached {
-            cache.remove(update);
+            // The shared dedup cache stores group property entries with
+            // Unresolved group types (inserted by the producer before
+            // resolution). By the time we get here the batch entries have been
+            // resolved, so we must revert to Unresolved to match the cache key.
+            let cache_key = match update {
+                Update::Property(pd) if pd.group_type_index.is_some() => {
+                    let mut reverted = pd.clone();
+                    reverted.group_type_index =
+                        reverted.group_type_index.map(|gt| gt.as_unresolved());
+                    Update::Property(reverted)
+                }
+                other => other.clone(),
+            };
+            cache.remove(&cache_key);
             metrics::counter!(V2_PROP_DEFS_CACHE_REMOVED).increment(1);
         }
 

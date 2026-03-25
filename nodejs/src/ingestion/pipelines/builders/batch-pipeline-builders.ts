@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { IngestionWarningsOutput } from '../../common/outputs'
+import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
+import { BatchRetryOptions, withBatchRetry } from '../batch-retry'
 import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
@@ -73,6 +75,20 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
 
     pipeBatch<U>(step: BatchProcessingStep<TOutput, U>): BatchPipelineBuilder<TInput, U, CInput, COutput> {
         return new BatchPipelineBuilder(new BaseBatchPipeline(step, this.pipeline))
+    }
+
+    /**
+     * Add a batch processing step with automatic retry logic.
+     *
+     * When the step throws a retriable error (error.isRetriable === true),
+     * it will be retried with exponential backoff. Non-retriable errors
+     * are converted to DLQ results for all inputs in the batch.
+     */
+    pipeBatchWithRetry<U>(
+        step: BatchProcessingStep<TOutput, U>,
+        options?: BatchRetryOptions
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+        return this.pipeBatch(withBatchRetry(step, options))
     }
 
     concurrently<U>(
@@ -213,8 +229,8 @@ export class TeamAwareBatchPipelineBuilder<
     }
 
     handleIngestionWarnings(
-        kafkaProducer: KafkaProducerWrapper
+        outputs: IngestionOutputs<IngestionWarningsOutput>
     ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-        return new BatchPipelineBuilder(new IngestionWarningHandlingBatchPipeline(kafkaProducer, this.pipeline))
+        return new BatchPipelineBuilder(new IngestionWarningHandlingBatchPipeline(outputs, this.pipeline))
     }
 }

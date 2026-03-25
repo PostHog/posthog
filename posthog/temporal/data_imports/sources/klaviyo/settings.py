@@ -16,6 +16,7 @@ class KlaviyoEndpointConfig:
     base_filter: Optional[str] = None  # e.g., "equals(messages.channel,'email')"
     page_size: Optional[int] = None  # Override default page size (100)
     sort: Optional[str] = None  # Sort field for the endpoint
+    default_lookback_days: Optional[int] = None  # Limit first sync to last N days instead of full history
 
 
 KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
@@ -64,6 +65,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         path="/events",
         default_incremental_field="datetime",
         partition_key="datetime",
+        default_lookback_days=365,
         incremental_fields=[
             {
                 "label": "datetime",

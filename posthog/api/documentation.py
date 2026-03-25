@@ -5,8 +5,11 @@ from typing import Any, get_args
 from django.core.exceptions import ImproperlyConfigured
 
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
-from drf_spectacular.plumbing import build_mock_request
+from drf_spectacular.openapi import AutoSchema
+from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
+    OpenApiParameter,
     PolymorphicProxySerializer,
     extend_schema,  # noqa: F401
     extend_schema_field,
@@ -19,6 +22,38 @@ from posthog.models.entity import MathType
 from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+
+# Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
+# therefore cannot be derived from any model field.  We pre-supply their
+# OpenAPI types so drf-spectacular never falls through to the warning path.
+_KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
+    "project_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
+    "environment_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
+    "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
+    "plugin_config_id": {"schema": build_basic_type(OpenApiTypes.INT), "description": ""},
+}
+
+
+class PostHogAutoSchema(AutoSchema):
+    """AutoSchema subclass that silences path-parameter warnings for params
+    handled by TeamAndOrgViewSetMixin (project_id, environment_id, etc.)."""
+
+    def _resolve_path_parameters(self, variables):
+        known = []
+        remaining = []
+        for var in variables:
+            if var in _KNOWN_PATH_PARAMS:
+                known.append(
+                    build_parameter_type(
+                        name=var,
+                        location=OpenApiParameter.PATH,
+                        description=_KNOWN_PATH_PARAMS[var]["description"],
+                        schema=_KNOWN_PATH_PARAMS[var]["schema"],
+                    )
+                )
+            else:
+                remaining.append(var)
+        return known + super()._resolve_path_parameters(remaining)
 
 
 def build_openapi_mock_request(method, path, view, original_request, **kwargs):
@@ -374,6 +409,11 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Variant key override for multivariate flags.",
     )
+    aggregation_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index for this condition set. None means person-level aggregation.",
+    )
 
 
 class FeatureFlagMultivariateVariantSchemaSerializer(serializers.Serializer):
@@ -418,6 +458,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Additional super condition groups used by experiments.",
+    )
+    feature_enrollment = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
     )
 
 

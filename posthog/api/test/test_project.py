@@ -31,6 +31,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_organizations=[other_org.id],
+            scopes=["*"],
         )
 
         response = self.client.get("/api/projects/", headers={"authorization": f"Bearer {personal_api_key}"})

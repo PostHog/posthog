@@ -182,13 +182,22 @@ impl CheckpointInfo {
         }
     }
 
-    /// Fully-qualified remote path for metadata.json (unhashed; used for list/discovery).
+    /// Fully-qualified remote path for metadata.json.
+    /// When hash_prefix is present, metadata lives alongside object files under the hashed path.
     pub fn get_metadata_key(&self) -> String {
-        format!(
-            "{}/{}",
-            self.s3_key_prefix,
-            self.metadata.get_metadata_filepath()
-        )
+        match &self.hash_prefix {
+            Some(h) => format!(
+                "{}/{}/{}",
+                h,
+                self.s3_key_prefix,
+                self.metadata.get_metadata_filepath()
+            ),
+            None => format!(
+                "{}/{}",
+                self.s3_key_prefix,
+                self.metadata.get_metadata_filepath()
+            ),
+        }
     }
 
     /// Fully-qualified remote path for a file in this attempt (relative_file_path = filename only).
@@ -207,13 +216,22 @@ impl CheckpointInfo {
         }
     }
 
-    // The fully qualified remote base path for this checkpoint attempt
+    /// The fully qualified remote base path for this checkpoint attempt.
+    /// Includes hash prefix when present, matching get_metadata_key() and get_file_key().
     pub fn get_remote_attempt_path(&self) -> String {
-        format!(
-            "{}/{}",
-            self.s3_key_prefix,
-            self.metadata.get_attempt_path(),
-        )
+        match &self.hash_prefix {
+            Some(h) => format!(
+                "{}/{}/{}",
+                h,
+                self.s3_key_prefix,
+                self.metadata.get_attempt_path(),
+            ),
+            None => format!(
+                "{}/{}",
+                self.s3_key_prefix,
+                self.metadata.get_attempt_path(),
+            ),
+        }
     }
 }
 
@@ -515,10 +533,12 @@ mod tests {
         let info = CheckpointInfo::new(metadata, bucket_namespace.to_string(), Some(hash.clone()));
 
         let meta_key = info.get_metadata_key();
-        assert!(!meta_key.contains(&hash));
+        assert!(meta_key.contains(&hash));
         assert_eq!(
             meta_key,
-            format!("{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/{METADATA_FILENAME}")
+            format!(
+                "{hash}/{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/{METADATA_FILENAME}"
+            )
         );
 
         let file_key = info.get_file_key("000001.sst");

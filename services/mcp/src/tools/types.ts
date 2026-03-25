@@ -39,6 +39,12 @@ export type Env = {
      */
     POSTHOG_API_BASE_URL: string | undefined
     /**
+     * Base URL for serving MCP UI app static assets.
+     * When using Workers Static Assets, this is the Worker's own public URL.
+     * Example: https://mcp.posthog.com
+     */
+    MCP_APPS_BASE_URL: string | undefined
+    /**
      * PostHog base URL for MCP Apps analytics (used for CSP and analytics ingestion).
      * For local development, set to http://localhost:8010.
      */

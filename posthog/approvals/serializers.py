@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -65,6 +66,7 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             "result_data",
         ]
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_approvals(self, obj):
         approvals = obj.approvals.all()
         return ApprovalSerializer(approvals, many=True).data

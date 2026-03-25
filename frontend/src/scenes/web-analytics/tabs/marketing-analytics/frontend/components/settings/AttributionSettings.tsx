@@ -152,7 +152,10 @@ export function AttributionSettings(): JSX.Element {
                 <div>
                     <label className="text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Window
-                        <Tooltip title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 30-day window, if someone converts today, we'll look back 30 days for any UTM campaigns they interacted with. Recommendation: Use 30-60 days for short sales cycles, 90+ days for longer consideration periods.">
+                        <Tooltip
+                            delayMs={0}
+                            title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 30-day window, if someone converts today, we'll look back 30 days for any UTM campaigns they interacted with. Recommendation: Use 30-60 days for short sales cycles, 90+ days for longer consideration periods."
+                        >
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
@@ -204,7 +207,10 @@ export function AttributionSettings(): JSX.Element {
                 <div>
                     <label className="block text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Mode
-                        <Tooltip title="Attribution mode determines how credit for a conversion is distributed across marketing touchpoints. First touch: 100% credit to the first touchpoint. Last touch: 100% credit to the last touchpoint. Linear: Equal credit across all touchpoints. Time decay: More credit to recent touchpoints (half-life = attribution window / 4). Position based: 40% first, 40% last, 20% distributed among middle touchpoints.">
+                        <Tooltip
+                            delayMs={0}
+                            title="Attribution mode determines how credit for a conversion is distributed across marketing touchpoints. First touch: 100% credit to the first touchpoint. Last touch: 100% credit to the last touchpoint. Linear: Equal credit across all touchpoints. Time decay: More credit to recent touchpoints (half-life = attribution window / 4). Position based: 40% first, 40% last, 20% distributed among middle touchpoints."
+                        >
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />
                         </Tooltip>
                     </label>

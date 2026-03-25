@@ -54,7 +54,7 @@ For other Linux distros, adjust the steps as needed (e.g. use `dnf` or `pacman` 
 
 Windows isn't supported natively. But, Windows users can run a Linux virtual machine. The latest Ubuntu LTS Desktop is recommended. (Ubuntu Server is not recommended as debugging the frontend will require a browser that can access localhost.)
 
-In case some steps here have fallen out of date, please tell us about it – feel free to [submit a patch](https://github.com/PostHog/posthog.com/blob/master/contents/handbook/engineering/developing-locally.md)!
+In case some steps here have fallen out of date, please tell us about it – feel free to [submit a patch](https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/developing-locally.md)!
 
 ## Option 1: Developing locally
 
@@ -443,6 +443,36 @@ When creating a new email, there are a few steps to take. It's important to add 
    message.send()
    ```
 
+## Extra: Using AI assistants with your local dev environment
+
+Phrocs (the process manager) includes an MCP (Model Context Protocol) server that lets AI coding assistants query your local dev environment. This is useful for debugging issues with AI tools like Claude Desktop, Cursor, Windsurf, or other MCP-compatible assistants.
+
+### Setup
+
+The repository includes a `.mcp.json` configuration file in the repo root that registers the phrocs MCP server. To use it:
+
+1. Ensure your AI tool supports MCP and can read `.mcp.json` configuration files
+2. Open the PostHog repository in your AI tool
+3. The phrocs MCP server is available automatically when `hogli start` is running
+
+### Available tools
+
+The MCP server provides two tools:
+
+- **get_process_status** – Returns process status including PID, running state, readiness, and real-time metrics (CPU, memory, threads)
+- **get_process_logs** – Retrieves recent log lines from a process's in-memory buffer, with optional grep filtering
+
+### Example usage
+
+Ask your AI assistant questions like:
+
+- "What processes are currently running?"
+- "Show me the recent logs from the backend process"
+- "Is the frontend process ready?"
+- "Search the worker logs for error messages"
+
+The AI assistant uses the MCP tools to query phrocs directly and provide you with the relevant information.
+
 ## Extra: Developing paid features (PostHog employees only)
 
 If you're a PostHog employee, you can get access to paid features on your local instance to make development easier. [Learn how to do so in our internal billing guide](https://github.com/PostHog/billing?tab=readme-ov-file#licensing-your-local-instance).
@@ -480,6 +510,13 @@ hogli build:openapi
 ```
 
 See the [Type system guide](type-system) for details on how type generation works and best practices for documenting your API.
+
+## Extra: Working on multiple branches simultaneously
+
+If you frequently switch between features, bug fixes, and PR reviews, the
+[isolated development with Flox](./flox-multi-instance-workflow) guide shows
+how to use Git worktrees with per-worktree Flox environments for fast context
+switching.
 
 ## Extra: Working with the data warehouse
 

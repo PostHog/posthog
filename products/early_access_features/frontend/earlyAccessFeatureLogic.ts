@@ -2,11 +2,13 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { identifierToHuman } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -28,6 +30,7 @@ import {
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
+import { GAPromotionDialogContent } from './GAPromotionDialogContent'
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
@@ -131,9 +134,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     forms(({ actions, props }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
-            errors: (payload) => ({
-                name: !payload.name ? 'Feature name must be set' : undefined,
-            }),
+            errors: ({ name, payload }) =>
+                ({
+                    name: !name ? 'Feature name must be set' : undefined,
+                    // payload is edited as a JSON string in the form, but typed as Record<string, any>
+                    payload:
+                        payload && typeof payload === 'string'
+                            ? (() => {
+                                  try {
+                                      JSON.parse(payload)
+                                      return undefined
+                                  } catch {
+                                      return 'Payload must be valid JSON'
+                                  }
+                              })()
+                            : undefined,
+                }) as any,
             submit: async (payload) => {
                 const parsedPayload = {
                     ...payload,
@@ -260,10 +276,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
             }
         },
-        showGAPromotionConfirmation: async ({ onConfirm }) => {
-            const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
-            const React = await import('react')
-            const { GAPromotionDialogContent } = await import('./GAPromotionDialogContent')
+        showGAPromotionConfirmation: ({ onConfirm }) => {
             let rolloutToAll = false
             LemonDialog.open({
                 title: 'Promote to General Availability?',

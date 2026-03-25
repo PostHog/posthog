@@ -477,7 +477,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -518,6 +520,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -732,7 +735,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -761,7 +766,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -801,6 +808,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1015,7 +1023,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1056,6 +1066,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1229,7 +1240,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1270,6 +1283,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1402,7 +1416,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1443,6 +1459,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1685,6 +1702,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1880,7 +1898,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1921,6 +1941,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2046,6 +2067,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2149,7 +2171,9 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -2188,6 +2212,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",

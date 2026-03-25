@@ -7,6 +7,7 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
+    AnyDataWarehouseNode,
     AnyEntityNode,
     CachedNewExperimentQueryResponse,
     EventsNode,
@@ -122,7 +123,7 @@ export function transformFiltersForWinningVariant(
 }
 
 function seriesToFilterLegacy(
-    series: AnyEntityNode | GroupNode,
+    series: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue | null {
@@ -827,6 +828,12 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         return null
     }
 
+    // Data warehouse tables don't support test account filters — those filters
+    // reference the events table (e.g. events.properties.*), which doesn't exist
+    // on a DW table and causes "Unable to resolve field: events". This matches
+    // product analytics behavior, where the toggle is disabled for DW sources.
+    const isDWQuery = series.some((s) => s.kind === NodeKind.DataWarehouseNode)
+
     return {
         kind: NodeKind.TrendsQuery,
         series,
@@ -840,7 +847,7 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
             explicitDate: false,
         },
         interval: 'day',
-        filterTestAccounts,
+        filterTestAccounts: isDWQuery ? false : filterTestAccounts,
     }
 }
 

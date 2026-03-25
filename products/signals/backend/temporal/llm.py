@@ -62,12 +62,18 @@ def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS
         return query[:char_limit]
 
 
+class EmptyLLMResponseError(Exception):
+    """Raised when the LLM returns no text content."""
+
+    pass
+
+
 def _extract_text_content(response) -> str:
     """Extract text content from Anthropic response."""
     for block in reversed(response.content):
         if block.type == "text":
             return block.text
-    raise ValueError("No text content in response")
+    raise EmptyLLMResponseError("No text content in response")
 
 
 # I could not for the life of me get thinking claude to stop outputting markdown.

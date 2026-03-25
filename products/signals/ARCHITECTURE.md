@@ -74,7 +74,7 @@ Defined in `backend/temporal/buffer.py`.
 - New signals arrive via `@workflow.signal` (`submit_signal`), sent by `SignalEmitterWorkflow` instances.
 - Exposes `@workflow.query` (`get_buffer_size`) so emitters can implement backpressure by polling buffer occupancy before sending.
 - The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (60s) elapses since the first signal arrived.
-- On flush: drains the buffer, writes all signals to S3 at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which creates the grouping workflow if not already running).
+- On flush: drains the buffer, runs the **safety filter** on all signals in parallel via `safety_filter_activity` (drops signals classified as unsafe — prompt injection, data exfiltration, etc.), then writes the safe signals to S3 at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which creates the grouping workflow if not already running). If the entire batch is unsafe, the flush and grouping steps are skipped.
 - If the buffer is already full again after flushing (signals arrived during the flush activities), loops immediately to flush again rather than `continue_as_new` (avoids losing throughput to workflow restart).
 - Otherwise calls `continue_as_new`, carrying over any signals that arrived between drain and now via `BufferSignalsInput.pending_signals`.
 - S3 objects are cleaned up by S3 lifecycle policies, not by the workflows.
@@ -128,7 +128,7 @@ Runs when a report is promoted to `candidate` status. Summarizes the signal grou
 2. **Mark in-progress** in Postgres and advance `signals_at_run` by `SIGNALS_AT_RUN_INCREMENT` (3), so the report must accumulate that many new signals before it can be promoted and re-summarised again → `mark_report_in_progress_activity`
 3. **Summarize** signals into a title + summary via LLM → `summarize_signals_activity` (`summarize_signals.py`)
 4. **Safety judge** + **Actionability judge** — run **concurrently** via `asyncio.gather`:
-   - **Safety judge** → `safety_judge_activity` (`safety_judge.py`) — assess for prompt injection / manipulation
+   - **Safety judge** → `report_safety_judge_activity` (`report_safety_judge.py`) — assess for prompt injection / manipulation
    - **Actionability judge** → `actionability_judge_activity` (`actionability_judge.py`) — assess whether actionable by a coding agent
 5. **Evaluate results** (safety checked first):
    - If **unsafe** → `mark_report_failed_activity` with error, **stop**
@@ -415,7 +415,18 @@ Temperature: 0.2 (more deterministic).
 
 Takes a list of signals and produces a title (max 75 chars) + 2-4 sentence summary. The report is designed for consumption by both humans and coding agents. Temperature: 0.2.
 
-#### `judge_report_safety()` (`backend/temporal/safety_judge.py`)
+#### `safety_filter()` (`backend/temporal/safety_filter.py`)
+
+Per-signal safety classifier that runs in the buffer workflow before signals are flushed to S3.
+Classifies each raw signal against a 7-category threat taxonomy: direct instruction injection, hidden/embedded instructions, encoded/obfuscated payloads, security-weakening requests, data exfiltration, social engineering, and code injection via patches.
+
+Returns `{"safe": bool, "threat_type": "...", "explanation": "..."}`. Explanation required when `safe` is `false`.
+If the LLM returns an empty response (e.g. provider safety filter triggered), the signal is treated as unsafe with threat type `provider_safety_filter`.
+
+This is the first line of defense — it catches adversarial signals before they consume embedding, query generation, or matching costs.
+The report-level safety judge (below) provides a second layer after grouping and summarization.
+
+#### `judge_report_safety()` (`backend/temporal/report_safety_judge.py`)
 
 Assesses the report title, summary, and underlying signals for prompt injection and manipulation attempts. Checks for injected instructions targeting the coding agent, attempts to exfiltrate data, disable security features, introduce backdoors, or override system prompts.
 
@@ -529,7 +540,8 @@ products/signals/
 │       ├── reingestion.py          # SignalReportReingestionWorkflow + soft-delete/delete/reingest activities
 │       ├── summary.py              # SignalReportSummaryWorkflow + state management activities
 │       ├── summarize_signals.py    # Summarization LLM prompt + activity
-│       ├── safety_judge.py         # Safety judge LLM prompt + activity (stores artefact, uses thinking)
+│       ├── safety_filter.py        # Per-signal safety classifier LLM prompt + activity (pre-buffer)
+│       ├── report_safety_judge.py  # Report-level safety judge LLM prompt + activity (stores artefact, uses thinking)
 │       ├── actionability_judge.py  # Actionability judge LLM prompt + activity (stores artefact, uses thinking)
 │       └── types.py                # Shared dataclasses + signal rendering helpers
 └── frontend/                       # Frontend components (not covered here)

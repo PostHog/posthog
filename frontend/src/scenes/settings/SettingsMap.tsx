@@ -23,6 +23,7 @@ import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTyp
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
+import { PersonLastSeenAtEnabled } from 'scenes/settings/environment/PersonLastSeenAtEnabled'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
@@ -40,6 +41,7 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
+import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -484,6 +486,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['name', 'email', 'identity', 'display'],
             },
             {
+                id: 'person-last-seen-at',
+                title: 'Person last seen tracking',
+                description:
+                    'When enabled, PostHog tracks when each person was last active. The value updates hourly and is visible in the People list.',
+                docsUrl: 'https://posthog.com/docs/data/persons',
+                component: <PersonLastSeenAtEnabled />,
+                keywords: ['person', 'last seen', 'activity', 'tracking'],
+            },
+            {
                 id: 'path-cleaning',
                 title: 'Path cleaning rules',
                 description:
@@ -605,10 +616,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'LLM analytics',
         group: 'Products',
         flag: 'LLM_ANALYTICS_EVALUATIONS',
-        accessControl: {
-            resourceType: AccessControlResourceType.LlmAnalytics,
-            minimumAccessLevel: AccessControlLevel.Editor,
-        },
         settings: [
             {
                 id: 'llm-analytics-byok',
@@ -1089,6 +1096,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsRetentionSettings />,
                 flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
+            },
+            {
+                id: 'logs-alerting',
+                title: 'Alerting',
+                description: 'Configure alerts to get notified when log volumes breach thresholds.',
+                component: <LogsAlertingSection />,
+                flag: 'LOGS_ALERTING',
+                keywords: ['notification', 'alert', 'threshold', 'logs'],
             },
         ],
     },

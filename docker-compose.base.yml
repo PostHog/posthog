@@ -136,6 +136,7 @@ services:
             start_period: 10s
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
+            - ./products:/products:ro
 
     redis7:
         image: redis:7.2-alpine
@@ -152,7 +153,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.12.5.44}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.12.8.9}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -450,6 +451,16 @@ services:
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
         image: elasticsearch:7.17.28
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'curl -s http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""',
+                ]
+            interval: 10s
+            timeout: 10s
+            retries: 30
+            start_period: 60s
         expose:
             - 9200
         volumes:
@@ -483,7 +494,7 @@ services:
             db:
                 condition: service_healthy
             elasticsearch:
-                condition: service_started
+                condition: service_healthy
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
@@ -544,15 +555,6 @@ services:
             - jaeger
         networks:
             - otel_network
-
-    echo_server:
-        image: docker.io/library/caddy:2
-        container_name: echo-server
-        restart: on-failure
-        ports:
-            - '18081:8081'
-        volumes:
-            - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0

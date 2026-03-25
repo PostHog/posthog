@@ -38,7 +38,7 @@ export const isSecureURL = (url: string): boolean => {
 
 export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     path(['scenes', 'organization', 'verifiedDomainsLogic']),
-    connect(() => ({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] })),
+    connect(() => ({ values: [organizationLogic, ['currentOrganizationId']], logic: [userLogic] })),
     actions({
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
         setAddModalShown: (shown: boolean) => ({ shown }),
@@ -121,11 +121,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             [] as OrganizationDomainType[],
             {
                 loadVerifiedDomains: async () =>
-                    (await api.get(`api/organizations/${values.currentOrganization?.id}/domains`))
+                    (await api.get(`api/organizations/${values.currentOrganizationId}/domains`))
                         .results as OrganizationDomainType[],
                 addVerifiedDomain: async (domain: string) => {
                     const response = await api.create<OrganizationDomainType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains`,
+                        `api/organizations/${values.currentOrganizationId}/domains`,
                         {
                             domain,
                         }
@@ -133,7 +133,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     return [response, ...values.verifiedDomains]
                 },
                 deleteVerifiedDomain: async (id: string) => {
-                    await api.delete(`api/organizations/${values.currentOrganization?.id}/domains/${id}`)
+                    await api.delete(`api/organizations/${values.currentOrganizationId}/domains/${id}`)
                     return values.verifiedDomains.filter((domain) => domain.id !== id)
                 },
             },
@@ -143,7 +143,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {
                 updateDomain: async (payload: OrganizationDomainUpdatePayload) => {
                     const response = await api.update<OrganizationDomainType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
+                        `api/organizations/${values.currentOrganizationId}/domains/${payload.id}`,
                         { ...payload, id: undefined }
                     )
                     lemonToast.success('Domain updated successfully! Changes will take effect immediately.')
@@ -152,7 +152,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
                 verifyDomain: async () => {
                     const response = await api.create<OrganizationDomainType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${values.verifyModal}/verify`
+                        `api/organizations/${values.currentOrganizationId}/domains/${values.verifyModal}/verify`
                     )
                     if (response.is_verified) {
                         lemonToast.success('Domain verified successfully.')
@@ -180,7 +180,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
                 enableScim: async (domainId: string) => {
                     const domain = await api.update<OrganizationDomainType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}`,
+                        `api/organizations/${values.currentOrganizationId}/domains/${domainId}`,
                         { scim_enabled: true }
                     )
                     actions.replaceDomain({ ...domain, scim_bearer_token: undefined })
@@ -194,7 +194,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
                 disableScim: async (domainId: string) => {
                     const domain = await api.update<OrganizationDomainType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}`,
+                        `api/organizations/${values.currentOrganizationId}/domains/${domainId}`,
                         { scim_enabled: false }
                     )
                     actions.replaceDomain({ ...domain, scim_bearer_token: undefined })
@@ -207,7 +207,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
                 regenerateScimToken: async (domainId: string) => {
                     const response = await api.create<SCIMConfigType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/token`
+                        `api/organizations/${values.currentOrganizationId}/domains/${domainId}/scim/token`
                     )
                     lemonToast.success('SCIM token regenerated successfully!')
                     return { ...response, id: domainId }
@@ -237,7 +237,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                         params.page = String(page)
                     }
                     const queryString = new URLSearchParams(params).toString()
-                    const url = `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/logs${queryString ? `?${queryString}` : ''}`
+                    const url = `api/organizations/${values.currentOrganizationId}/domains/${domainId}/scim/logs${queryString ? `?${queryString}` : ''}`
                     const response = await api.get(url)
                     await breakpoint()
                     return response
@@ -314,7 +314,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     return
                 }
                 const response = await api.update<OrganizationDomainType>(
-                    `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
+                    `api/organizations/${values.currentOrganizationId}/domains/${payload.id}`,
                     {
                         ...updateParams,
                     }

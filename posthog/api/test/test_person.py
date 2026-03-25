@@ -762,6 +762,52 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_property_by_numeric_id(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.post(f"/api/person/{person.id}/update_property", {"key": "foo", "value": "bar"})
+
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": "bar"},
+            },
+            process_person_profile=True,
+        )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.post(f"/api/person/{person.id}/delete_property", {"$unset": "foo"})
+
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$delete_person_property",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$unset": ["foo"],
+            },
+            process_person_profile=True,
+        )
+
     def test_return_non_anonymous_name(self) -> None:
         _create_person(
             team=self.team,
@@ -962,6 +1008,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(data["results"]), 1)
         # CohortMinimalSerializer only returns id, name, count
         self.assertEqual(set(data["results"][0].keys()), {"id", "name", "count"})
+
+    def test_person_cohorts_via_nested_project_url(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something"},
+            immediate=True,
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/persons/cohorts/?person_id={person.uuid}")
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["name"], "cohort1")
 
     def test_split_person_clickhouse(self):
         person = _create_person(

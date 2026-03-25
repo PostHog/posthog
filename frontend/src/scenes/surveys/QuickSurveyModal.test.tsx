@@ -45,7 +45,7 @@ describe('QuickSurveyForm API payloads', () => {
                 '/api/projects/:team_id/surveys': () => [200, { id: 'new-survey' }],
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': () => [200, {}],
+                '/api/environments/:team_id/add_product_intent/': () => [200, {}],
             },
         })
     })

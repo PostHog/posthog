@@ -37,6 +37,12 @@ export interface PaginatedTaskListApi {
 }
 
 /**
+ * Latest run details for this task
+ * @nullable
+ */
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
+
+/**
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
@@ -136,7 +142,11 @@ export interface PatchedTaskApi {
     github_integration?: number | null
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
-    readonly latest_run?: string
+    /**
+     * Latest run details for this task
+     * @nullable
+     */
+    readonly latest_run?: PatchedTaskApiLatestRun
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
@@ -334,6 +344,7 @@ export interface TaskRunAppendLogRequestApi {
  * `reference` - reference
  * `output` - output
  * `artifact` - artifact
+ * `tree_snapshot` - tree_snapshot
  */
 export type TaskRunArtifactUploadTypeEnumApi =
     (typeof TaskRunArtifactUploadTypeEnumApi)[keyof typeof TaskRunArtifactUploadTypeEnumApi]
@@ -344,6 +355,7 @@ export const TaskRunArtifactUploadTypeEnumApi = {
     Reference: 'reference',
     Output: 'output',
     Artifact: 'artifact',
+    TreeSnapshot: 'tree_snapshot',
 } as const
 
 export interface TaskRunArtifactUploadApi {
@@ -358,7 +370,8 @@ export interface TaskRunArtifactUploadApi {
 * `context` - context
 * `reference` - reference
 * `output` - output
-* `artifact` - artifact */
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot */
     type: TaskRunArtifactUploadTypeEnumApi
     /** Raw file contents (UTF-8 string or base64 data) */
     content: string

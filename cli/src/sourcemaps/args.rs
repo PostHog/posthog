@@ -1,4 +1,8 @@
-use std::{fmt::Display, path::PathBuf};
+use std::{
+    fmt::Display,
+    io::{self, BufRead},
+    path::PathBuf,
+};
 
 use anyhow::{bail, Result};
 
@@ -9,6 +13,10 @@ pub struct FileSelectionArgs {
     /// The directory containing the bundled chunks
     #[arg(short, long, alias = "file")]
     pub directory: Vec<PathBuf>,
+
+    /// Read additional file/directory paths from stdin (one per line)
+    #[arg(long, default_value = "false")]
+    pub stdin: bool,
 
     /// One or more directory glob patterns to exclude from selection
     #[arg(short, long, alias = "ignore")]
@@ -22,6 +30,7 @@ pub struct FileSelectionArgs {
 impl TryFrom<FileSelectionArgs> for FileSelection {
     type Error = anyhow::Error;
     fn try_from(args: FileSelectionArgs) -> Result<Self> {
+        let args = args.resolve_stdin()?;
         FileSelection::from_roots(args.directory)
             .include(args.include)?
             .exclude(args.exclude)
@@ -36,7 +45,7 @@ impl Display for FileSelectionArgs {
 
 impl FileSelectionArgs {
     pub fn validate(&self) -> Result<()> {
-        if self.directory.is_empty() {
+        if self.directory.is_empty() && !self.stdin {
             bail!("No --directory provided")
         }
         for dir in &self.directory {
@@ -45,6 +54,25 @@ impl FileSelectionArgs {
             }
         }
         Ok(())
+    }
+
+    /// Read stdin paths (if `--stdin` was set) and fold them into `directory`,
+    /// returning a new `FileSelectionArgs` that no longer needs stdin.
+    /// This allows the resolved args to be cloned and reused by multiple
+    /// downstream consumers (e.g. inject + upload in the `process` command).
+    pub fn resolve_stdin(mut self) -> Result<Self> {
+        if self.stdin {
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {
+                let line = line?;
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    self.directory.push(PathBuf::from(trimmed));
+                }
+            }
+            self.stdin = false;
+        }
+        Ok(self)
     }
 }
 

@@ -35,6 +35,7 @@ from posthog.models.integration import (
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
+    GoogleCloudServiceAccountIntegration,
     Integration,
     JiraIntegration,
     LinearIntegration,
@@ -70,6 +71,9 @@ class GitHubBranchesQuerySerializer(serializers.Serializer):
 
 class GitHubBranchesResponseSerializer(serializers.Serializer):
     branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
+    default_branch = serializers.CharField(
+        help_text="The default branch of the repository", required=False, allow_null=True
+    )
 
 
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -202,6 +206,33 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 )
             except DatabricksIntegrationError as e:
                 raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "google-cloud-service-account":
+            config = validated_data.get("config", {})
+            service_account_email = config.get("service_account_email")
+            project_id = config.get("project_id")
+            if not (service_account_email and project_id):
+                raise ValidationError("Service account email and project ID must be provided")
+
+            if not all(isinstance(value, str) for value in (service_account_email, project_id)):
+                raise ValidationError("Service account email and project ID must be strings")
+
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            instance = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=team_id,
+                organization_id=organization_id,
+                service_account_email=service_account_email,
+                project_id=project_id,
+                private_key=config.get("private_key", None),
+                private_key_id=config.get("private_key_id", None),
+                token_uri=config.get("token_uri", None),
+                created_by=request.user,
+            )
             return instance
 
         elif validated_data["kind"] == "azure-blob":
@@ -533,7 +564,18 @@ class IntegrationViewSet(
         ):
             raise ValidationError("repo must be in owner/repo format")
         github = GitHubIntegration(self.get_object())
-        return Response({"branches": github.list_branches(repo)})
+        branches = github.list_branches(repo)
+        try:
+            default_branch = github.get_default_branch(repo)
+        except Exception:
+            default_branch = None
+
+        # Default branch first
+        if default_branch and default_branch in branches:
+            branches.remove(default_branch)
+            branches.insert(0, default_branch)
+
+        return Response({"branches": branches, "default_branch": default_branch})
 
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -1,6 +1,7 @@
 from django.core.cache import cache
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -50,6 +51,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "latest_run",
         ]
 
+    @extend_schema_field(serializers.DictField(allow_null=True, help_text="Latest run details for this task"))
     def get_latest_run(self, obj):
         latest_run = obj.latest_run
         if latest_run:
@@ -170,6 +172,9 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "completed_at",
         ]
 
+    @extend_schema_field(
+        serializers.URLField(allow_null=True, help_text="Presigned S3 URL for log access (valid for 1 hour).")
+    )
     def get_log_url(self, obj: TaskRun) -> str | None:
         """Return presigned S3 URL for log access, cached to avoid regeneration."""
         cache_key = f"task_run_log_url:{obj.id}"
@@ -236,7 +241,7 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
 
 
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
-    ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
+    ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact", "tree_snapshot"]
 
     name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
     type = serializers.ChoiceField(choices=ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")

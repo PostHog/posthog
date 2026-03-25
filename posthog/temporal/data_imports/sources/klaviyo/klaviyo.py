@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
@@ -99,6 +99,10 @@ def _build_initial_params(
 
     if config.page_size is not None and config.page_size > 0:
         params["page[size]"] = config.page_size
+
+    # On first sync/full refresh, apply a lookback window to avoid fetching the entire history
+    if should_use_incremental_field and not db_incremental_field_last_value and config.default_lookback_days:
+        db_incremental_field_last_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
 
     formatted_last_value = (
         _format_incremental_value(db_incremental_field_last_value)

@@ -24,12 +24,13 @@ export interface InfoTableRow {
 
 export interface InfoTabLogicProps {
     tabId: string
+    viewId?: string
 }
 
 export const infoTabLogic = kea<infoTabLogicType>([
     path(['data-warehouse', 'editor', 'sidebar', 'infoTabLogic']),
     props({} as InfoTabLogicProps),
-    key((props) => props.tabId),
+    key((props) => `${props.tabId}-${props.viewId ?? 'new'}`),
     connect((props: InfoTabLogicProps) => ({
         values: [
             sqlEditorLogic({ tabId: props.tabId }),

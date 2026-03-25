@@ -150,6 +150,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "TeamRevenueAnalyticsConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
         "FeatureFlagOverride",
+        "NotificationReadState",
         "NotificationViewed",
         "SessionRecordingPlaylistViewed",
         "UserPromptState",

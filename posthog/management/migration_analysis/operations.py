@@ -9,7 +9,9 @@ from posthog.management.migration_analysis.models import OperationRisk
 from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
 
 # Base URL for migration safety documentation
-SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
+SAFE_MIGRATIONS_DOCS_URL = (
+    "https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md"
+)
 
 
 def is_unmanaged_model(op, migration, unapplied_migrations=None) -> bool:

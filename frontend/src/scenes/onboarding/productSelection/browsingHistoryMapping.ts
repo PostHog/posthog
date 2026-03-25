@@ -49,16 +49,6 @@ export function mapBrowsingHistoryToProducts(browsingHistory: string[]): Product
     return [...new Set(products)]
 }
 
-/**
- * Maps AI product keys (hyphenated format from WebsiteBrowsingHistoryProdInterest) to ProductKey values.
- * Only returns products that are available in onboarding.
- */
-export function mapAIProductsToProductKeys(products: string[]): ProductKey[] {
-    return products
-        .map((p) => PROD_INTEREST_TO_PRODUCT[p as WebsiteBrowsingHistoryProdInterest])
-        .filter((key): key is ProductKey => key !== null && key in availableOnboardingProducts)
-}
-
 /** Gets human-readable labels for browsing history items. */
 export function getBrowsingHistoryLabels(browsingHistory: string[]): string[] {
     return browsingHistory

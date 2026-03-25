@@ -158,7 +158,6 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `plan` - plan
  * `execution` - execution
  * `survey` - survey
- * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
  * `llm_analytics` - llm_analytics
@@ -174,7 +173,6 @@ export const AgentModeEnumApi = {
     Plan: 'plan',
     Execution: 'execution',
     Survey: 'survey',
-    Onboarding: 'onboarding',
     Research: 'research',
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',
@@ -315,13 +313,26 @@ export const PriorityEnumApi = {
 } as const
 
 /**
+ * @nullable
+ */
+export type TicketAssignmentApiUser = { [key: string]: string } | null | null
+
+/**
+ * @nullable
+ */
+export type TicketAssignmentApiRole = { [key: string]: string } | null | null
+
+/**
  * Serializer for ticket assignment (user or role).
  */
 export interface TicketAssignmentApi {
-    readonly id: string
+    /** @nullable */
+    readonly id: string | null
     readonly type: string
-    readonly user: string
-    readonly role: string
+    /** @nullable */
+    readonly user: TicketAssignmentApiUser
+    /** @nullable */
+    readonly role: TicketAssignmentApiRole
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -374,6 +385,10 @@ export interface TicketApi {
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
+    /** @nullable */
+    readonly email_subject: string | null
+    /** @nullable */
+    readonly email_from: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -423,6 +438,10 @@ export interface PatchedTicketApi {
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
+    /** @nullable */
+    readonly email_subject?: string | null
+    /** @nullable */
+    readonly email_from?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }

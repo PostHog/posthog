@@ -19,6 +19,50 @@ import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, Query
 
 import type { dashboardsModelType } from './dashboardsModelType'
 
+export function mergeTileTextUpdatesIntoDashboard(
+    dashboard: DashboardType<QueryBasedInsightModel>,
+    tilesPayload: Partial<DashboardTile>[] | undefined
+): DashboardType<QueryBasedInsightModel> {
+    // Optimistically reconcile text tile updates in-place after save.
+    // Some dashboard PATCH responses can momentarily return stale tile.text values, so we patch the
+    // returned dashboard with the just-submitted text body for matching tiles to avoid UI flicker/regression.
+    // We only merge `body` so server-owned metadata (timestamps, modifier fields, etc.) remains authoritative.
+    if (!tilesPayload?.length || !dashboard.tiles?.length) {
+        return dashboard
+    }
+
+    const incomingTextByTileId = new Map<number, NonNullable<DashboardTile['text']>>()
+    for (const tile of tilesPayload) {
+        if (typeof tile.id !== 'number' || !tile.text) {
+            continue
+        }
+        incomingTextByTileId.set(tile.id, tile.text)
+    }
+
+    if (incomingTextByTileId.size === 0) {
+        return dashboard
+    }
+
+    return {
+        ...dashboard,
+        tiles: dashboard.tiles.map((tile) => {
+            const incomingText = incomingTextByTileId.get(tile.id)
+            if (!incomingText) {
+                return tile
+            }
+
+            return {
+                ...tile,
+                text: tile.text
+                    ? incomingText.body !== undefined
+                        ? { ...tile.text, body: incomingText.body }
+                        : tile.text
+                    : incomingText,
+            }
+        }),
+    }
+}
+
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
     connect(() => ({
@@ -156,7 +200,16 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     })
                 }
 
-                return discardResult ? values.dashboard : getQueryBasedDashboard(response)
+                if (discardResult) {
+                    return values.dashboard
+                }
+
+                const mappedDashboard = getQueryBasedDashboard(response)
+                if (!mappedDashboard) {
+                    return mappedDashboard
+                }
+
+                return mergeTileTextUpdatesIntoDashboard(mappedDashboard, payload.tiles)
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
                 const deleted = getQueryBasedDashboard(

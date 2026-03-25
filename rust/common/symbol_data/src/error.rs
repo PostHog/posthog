@@ -3,7 +3,7 @@ use std::string::FromUtf8Error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 pub enum Error {
     #[error("Wrong version: {0}, expected {1}")]
     WrongVersion(u32, u32),
@@ -19,6 +19,10 @@ pub enum Error {
     InvalidDataTypeForOperation(u32, String),
     #[error("Invalid utf8, got error: {0}")]
     InvalidUtf8(String),
+    #[error("Compression error: {0}")]
+    CompressionError(String),
+    #[error("Unknown compression type: {0}")]
+    UnknownCompression(u8),
 }
 
 impl From<FromUtf8Error> for Error {

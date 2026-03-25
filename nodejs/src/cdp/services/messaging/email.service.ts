@@ -147,7 +147,7 @@ export class EmailService {
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: params.subject,
             text: params.text,
-            html: addTrackingToEmail(params.html, result.invocation),
+            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation) } : {}),
         }
 
         const ccAddresses = parseAddressList(params.cc)
@@ -177,8 +177,18 @@ export class EmailService {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
         const trackingCode = generateEmailTrackingCode(result.invocation)
-        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
-        const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
+
+        const htmlBody = params.html
+            ? {
+                  Html: {
+                      Data: maybeAddPreheaderToEmail(
+                          addTrackingToEmail(params.html, result.invocation),
+                          params.preheader
+                      ),
+                      Charset: 'UTF-8',
+                  },
+              }
+            : {}
 
         const sendEmailParams: SendEmailCommandInput = {
             FromEmailAddress: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
@@ -192,14 +202,11 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        Html: {
-                            Data: htmlWithTrackingAndPreheader,
-                            Charset: 'UTF-8',
-                        },
                         Text: {
                             Data: params.text,
                             Charset: 'UTF-8',
                         },
+                        ...htmlBody,
                     },
                 },
             },

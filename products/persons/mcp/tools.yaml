@@ -1,0 +1,176 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Persons
+feature: persons
+url_prefix: /persons
+tools:
+    persons-list:
+        operation: persons_list
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List persons
+        description: >
+            List persons in the current project. Supports search by email (full text) or
+            distinct ID (exact match), and filtering by email or distinct_id query parameters.
+            Returns paginated results with person properties and distinct IDs.
+        exclude_params:
+            - format
+            - properties
+    persons-retrieve:
+        operation: persons_retrieve
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get person
+        description: >
+            Retrieve a single person by numeric ID or UUID. Returns the person's properties,
+            distinct IDs, and metadata.
+        enrich_url: '{id}'
+        exclude_params:
+            - format
+    persons-update:
+        operation: persons_update
+        enabled: false
+    persons-partial-update:
+        operation: persons_partial_update
+        enabled: false
+    persons-activity-retrieve:
+        operation: persons_activity_retrieve
+        enabled: false
+    persons-property-delete:
+        operation: persons_delete_property_create
+        enabled: true
+        scopes:
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Delete person property
+        description: >
+            Remove a single property from a person by key. The property is deleted asynchronously
+            via the event pipeline ($unset).
+        exclude_params:
+            - format
+        # Claude API rejects tool schemas with $ in property keys
+        rename_params:
+            $unset: unset
+    persons-properties-timeline-retrieve:
+        operation: persons_properties_timeline_retrieve
+        enabled: false
+    persons-split-create:
+        operation: persons_split_create
+        enabled: false
+    persons-property-set:
+        operation: persons_update_property_create
+        enabled: true
+        scopes:
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set person property
+        description: >
+            Set a single property on a person. The property is updated asynchronously
+            via the event pipeline ($set). Returns 202 Accepted.
+        exclude_params:
+            - format
+    persons-batch-by-distinct-ids-create:
+        operation: persons_batch_by_distinct_ids_create
+        enabled: false
+    persons-bulk-delete:
+        operation: persons_bulk_delete_create
+        enabled: true
+        scopes:
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Bulk delete persons
+        description: >
+            Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete
+            associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`.
+            Returns 202 Accepted. This operation is irreversible.
+        exclude_params:
+            - format
+    persons-cohorts-retrieve:
+        operation: persons_cohorts_retrieve
+        enabled: true
+        scopes:
+            - person:read
+            - cohort:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get person cohorts
+        description: >
+            Get all cohorts that a specific person belongs to. Requires the person_id
+            query parameter.
+        exclude_params:
+            - format
+    persons-funnel-retrieve:
+        operation: persons_funnel_retrieve
+        enabled: false
+    persons-funnel-create:
+        operation: persons_funnel_create
+        enabled: false
+    persons-funnel-correlation-retrieve:
+        operation: persons_funnel_correlation_retrieve
+        enabled: false
+    persons-funnel-correlation-create:
+        operation: persons_funnel_correlation_create
+        enabled: false
+    persons-lifecycle-retrieve:
+        operation: persons_lifecycle_retrieve
+        enabled: false
+    persons-properties-at-time-retrieve:
+        operation: persons_properties_at_time_retrieve
+        enabled: false
+    persons-reset-person-distinct-id-create:
+        operation: persons_reset_person_distinct_id_create
+        enabled: false
+    persons-stickiness-retrieve:
+        operation: persons_stickiness_retrieve
+        enabled: false
+    persons-trends-retrieve:
+        operation: persons_trends_retrieve
+        enabled: false
+    persons-values-retrieve:
+        operation: persons_values_retrieve
+        enabled: true
+        scopes:
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get person property values
+        description: >
+            Get distinct values for a person property key. Useful for discovering what values
+            exist for properties like 'plan', 'role', or 'company'. Provide the property key
+            and optionally a search value to filter results.
+        exclude_params:
+            - format
+            - force_refresh
+    cohorts-persons-retrieve:
+        operation: cohorts_persons_retrieve
+        enabled: false

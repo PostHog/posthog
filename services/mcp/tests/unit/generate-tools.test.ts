@@ -391,6 +391,85 @@ describe('generateToolCode without input_schema', () => {
 })
 
 // ------------------------------------------------------------------
+// rename_params
+// ------------------------------------------------------------------
+
+describe('rename_params', () => {
+    it('swaps field names in schema expression and tracks renames', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            rename_params: { $unset: 'property_key' },
+        }
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    $unset: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = composeToolSchema(config, resolved, makeSpec())
+
+        expect(result.schemaExpr).toContain(".omit({ '$unset': true })")
+        expect(result.schemaExpr).toContain(".extend({ property_key: ThingsCreateBody.shape['$unset'] })")
+        expect(result.bodyFieldNames).toContain('property_key')
+        expect(result.bodyFieldNames).not.toContain('$unset')
+        expect(result.renamedFields).toEqual({ property_key: '$unset' })
+    })
+
+    it('generates handler that maps alias to original body key', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            rename_params: { $unset: 'property_key' },
+        }
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    $unset: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>()
+        )
+
+        expect(result.code).toContain('params.property_key !== undefined')
+        expect(result.code).toContain("body['$unset'] = params.property_key")
+        expect(result.code).not.toContain('params.$unset')
+    })
+})
+
+// ------------------------------------------------------------------
 // ToolConfigSchema — input_schema conflicts
 // ------------------------------------------------------------------
 

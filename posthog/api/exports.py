@@ -41,6 +41,9 @@ logger = structlog.get_logger(__name__)
 class ExportedAssetSerializer(serializers.ModelSerializer):
     """Standard ExportedAsset serializer that doesn't return content."""
 
+    has_content = serializers.BooleanField(read_only=True)
+    filename = serializers.CharField(read_only=True)
+
     class Meta:
         model = ExportedAsset
         fields = [

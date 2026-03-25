@@ -152,6 +152,7 @@ export const NEW_FLAG: FeatureFlagType = {
     created_by: null,
     ensure_experience_continuity: false,
     experiment_set: null,
+    experiment_set_metadata: null,
     features: [],
     surveys: null,
     can_edit: true,
@@ -389,7 +390,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             userLogic,
             ['hasAvailableFeature', 'user'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'currentOrganizationId'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
             defaultEvaluationContextsLogic,
@@ -1231,7 +1232,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         projectsWithCurrentFlag: {
             __default: [] as OrganizationFeatureFlag[],
             loadProjectsWithCurrentFlag: async () => {
-                const orgId = values.currentOrganization?.id
+                const orgId = values.currentOrganizationId
                 const flagKey = values.featureFlag.key
 
                 const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
@@ -1255,7 +1256,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         featureFlagCopy: {
             copyFlag: async () => {
-                const orgId = values.currentOrganization?.id
+                const orgId = values.currentOrganizationId
                 const featureFlagKey = values.featureFlag.key
                 const { copyDestinationProject, currentProjectId, copySchedule } = values
 
@@ -1349,7 +1350,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         experiment: {
             loadExperiment: async () => {
-                if (values.featureFlag.experiment_set) {
+                if (values.featureFlag.experiment_set && values.featureFlag.experiment_set.length > 0) {
                     return await api.experiments.get(values.featureFlag.experiment_set[0])
                 }
                 return null
