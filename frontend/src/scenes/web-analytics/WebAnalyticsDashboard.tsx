@@ -466,7 +466,7 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: React.ReactNode; link: string }[] => {
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
         return []
     }
