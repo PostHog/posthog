@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -15,9 +16,18 @@ export type PathNodeCardProps = {
     insightProps: InsightLogicProps
     node: PathNodeData
     canvasHeight: number
+    onMouseEnter?: () => void
+    onMouseLeave?: () => void
 }
 
-export function PathNodeCard({ insightProps, node, canvasHeight }: PathNodeCardProps): JSX.Element | null {
+export function PathNodeCard({
+    insightProps,
+    node,
+    canvasHeight,
+    onMouseEnter,
+    onMouseLeave,
+}: PathNodeCardProps): JSX.Element | null {
+    const cardRef = useRef<HTMLDivElement>(null)
     const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
 
@@ -56,23 +66,37 @@ export function PathNodeCard({ insightProps, node, canvasHeight }: PathNodeCardP
             placement="bottom"
             padded={false}
             matchWidth
+            onVisibilityChange={(visible) => {
+                if (!visible && !cardRef.current?.matches(':hover')) {
+                    onMouseLeave?.()
+                }
+            }}
         >
             <div
-                className="absolute rounded bg-surface-primary p-1"
+                ref={cardRef}
+                className={`PathNodeCard absolute rounded bg-surface-primary p-1${node.active ? ' PathNodeCard--active' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     width: PATH_NODE_CARD_WIDTH,
                     left: !isPathEnd
                         ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
                         : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
-                    top: calculatePathNodeCardTop(node, canvasHeight),
+                    top: node.resolvedTop ?? calculatePathNodeCardTop(node, canvasHeight),
                     border: `1px solid ${
                         isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
                             ? 'purple'
-                            : 'var(--color-border-primary)'
+                            : node.active
+                              ? 'var(--paths-link-hover)'
+                              : 'var(--color-border-primary)'
                     }`,
+                    zIndex: node.active ? 10 : 'auto',
+                    boxShadow: node.active
+                        ? '0 2px 10px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--paths-link-hover)'
+                        : 'none',
+                    opacity: node.active ? 1 : undefined,
                 }}
                 data-attr="path-node-card-button"
+                onMouseEnter={onMouseEnter}
             >
                 <PathNodeCardButton
                     name={node.name}
