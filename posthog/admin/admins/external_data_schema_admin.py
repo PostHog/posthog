@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
+from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -30,11 +31,18 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
 
     change_form_template = "admin/data_warehouse/externaldataschema/change_form.html"
 
+    JOBS_PER_PAGE = 20
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj:
-            extra_context["jobs"] = ExternalDataJob.objects.filter(schema=obj).order_by("-created_at")[:50]
+            jobs_qs = ExternalDataJob.objects.filter(schema=obj).order_by("-created_at")
+            paginator = Paginator(jobs_qs, self.JOBS_PER_PAGE)
+            page_number = request.GET.get("page", 1)
+            page_obj = paginator.get_page(page_number)
+
+            extra_context["page_obj"] = page_obj
             extra_context["temporal_ui_host"] = settings.TEMPORAL_UI_HOST
             extra_context["temporal_namespace"] = settings.TEMPORAL_NAMESPACE
             extra_context["site_url"] = settings.SITE_URL

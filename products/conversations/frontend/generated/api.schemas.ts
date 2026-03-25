@@ -304,9 +304,9 @@ export const TicketStatusEnumApi = {
  * `medium` - Medium
  * `high` - High
  */
-export type PriorityEnumApi = (typeof PriorityEnumApi)[keyof typeof PriorityEnumApi]
+export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
-export const PriorityEnumApi = {
+export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
@@ -359,7 +359,7 @@ export interface TicketApi {
     readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id: string
     status?: TicketStatusEnumApi
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | NullEnumApi | null
     readonly assignee: TicketAssignmentApi
     anonymous_traits?: unknown
     ai_resolved?: boolean
@@ -412,7 +412,7 @@ export interface PatchedTicketApi {
     readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id?: string
     status?: TicketStatusEnumApi
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | NullEnumApi | null
     readonly assignee?: TicketAssignmentApi
     anonymous_traits?: unknown
     ai_resolved?: boolean
