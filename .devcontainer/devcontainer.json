@@ -19,7 +19,9 @@
     "onCreateCommand": ".devcontainer/on-create.sh",
     "updateContentCommand": ".devcontainer/update-content.sh",
     "postCreateCommand": ".devcontainer/post-create.sh",
+    "postStartCommand": ".devcontainer/post-start.sh",
     "postAttachCommand": ".devcontainer/post-attach.sh",
+    "waitFor": "postCreateCommand",
     "forwardPorts": [8010, 8000, 8234, 3000, 5432, 6379, 8123, 9092],
     "portsAttributes": {
         "8010": {
@@ -74,16 +76,7 @@
     "remoteUser": "vscode",
     "customizations": {
         "vscode": {
-            "extensions": [
-                "ms-python.python",
-                "ms-python.vscode-pylance",
-                "charliermarsh.ruff",
-                "oxc.oxc-vscode",
-                "GitHub.copilot",
-                "eamodio.gitlens",
-                "ckolkman.vscode-postgres",
-                "ultram4rine.sqltools-clickhouse-driver"
-            ],
+            "extensions": ["ms-python.python", "ms-python.vscode-pylance", "charliermarsh.ruff"],
             "settings": {
                 "python.defaultInterpreterPath": "/workspaces/posthog/.venv/bin/python",
                 "python.testing.pytestEnabled": true,
