@@ -209,6 +209,8 @@ export interface JobSpec {
 }
 
 export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
     Stateful = 2,
 }
 

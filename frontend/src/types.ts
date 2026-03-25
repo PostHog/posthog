@@ -6909,6 +6909,8 @@ export type DataColorThemeModelPayload = Omit<DataColorThemeModel, 'id' | 'is_gl
 }
 
 export enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
     Stateful = 2,
 }
 
