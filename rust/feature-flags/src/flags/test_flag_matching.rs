@@ -9122,6 +9122,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(1),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,

@@ -105,6 +105,23 @@ pub struct Config {
     /// Leader gRPC port used when resolving pod names to addresses
     #[envconfig(default = "50053")]
     pub leader_port: u16,
+
+    // ── coordinator (leader election among router-leader pods) ───
+    /// Lease TTL for the coordinator leader election
+    #[envconfig(default = "15")]
+    pub coordinator_lease_ttl: i64,
+
+    /// Keepalive interval for the coordinator lease
+    #[envconfig(default = "5")]
+    pub coordinator_keepalive_secs: u64,
+
+    /// Retry interval when coordinator fails to acquire leadership
+    #[envconfig(default = "5")]
+    pub coordinator_election_retry_secs: u64,
+
+    /// Debounce interval (ms) for batching pod events before rebalancing
+    #[envconfig(default = "1000")]
+    pub coordinator_rebalance_debounce_ms: u64,
 }
 
 impl Config {
@@ -162,6 +179,18 @@ impl Config {
 
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
+    }
+
+    pub fn coordinator_keepalive_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_keepalive_secs)
+    }
+
+    pub fn coordinator_election_retry_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_election_retry_secs)
+    }
+
+    pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
+        Duration::from_millis(self.coordinator_rebalance_debounce_ms)
     }
 }
 
