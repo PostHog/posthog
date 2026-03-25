@@ -5738,18 +5738,10 @@ snapshots:
         hash: v1.k794b7964.3ebbb833ccdf866a5ec4d46849d1a4b85b998247390537142e6c46f9e0e15268.7zNIgJVAQSjE81-nO8Fd5TWIDpjdcHk0BUqhxgVOv04
     scenes-other-onboarding--workflows-custom-installation-instructions--light:
         hash: v1.k794b7964.6e5fbd3a6656ff7d711556a9c0a3aa727a2f3b04a2cd7035bd45347b67ad9293.XUTjpyN9wnkW56NfDf80u1UGXqryJyBYE1a373_alUk
-    scenes-other-onboarding-product-selection--after-ai-recommendation--dark:
-        hash: v1.k794b7964.17ce8bcc6917ec2ae2a9baa469315d842c8a0ef1701db7d4da84ef394576be7f.VgvADwtjWTYtoLIaS5CvDmYhWRqBxcdjFmBkdjSTCQg
-    scenes-other-onboarding-product-selection--after-ai-recommendation--light:
-        hash: v1.k794b7964.27f5c3abd1866876d4307a49484844045b9743d964ff79f07663f08ddd09e4f6.-Rtultw8vORgA5YT3NgBwzEH1QDGeTzqF-dfEMl2M1k
     scenes-other-onboarding-product-selection--base--dark:
         hash: v1.k794b7964.ae8324d6591085d47c1d1c2042fb2b733beb8719471122d1fcf27327ad4eea3a.g4UeLKobPdR_QAWbyLpjL9FO4bAyI-GgD5KyUhFl1s8
     scenes-other-onboarding-product-selection--base--light:
         hash: v1.k794b7964.f2be4135a5d0eab66923929b474832e328c97e6993f1bd36dbbb23cc3e693ae4.tPU8QtfAOalvun0frCZNL0vCJ-FrH2ZbVs9hzM7EYo4
-    scenes-other-onboarding-product-selection--with-ai-feature-flag--dark:
-        hash: v1.k794b7964.26b561ea293426ac855548bc7c80dabbd1156313250c0f0df207215595b92fcd.CiuWhcTQM6uhbNQJqgZMqtGSJ7IQW8lrJL02bB0cvbY
-    scenes-other-onboarding-product-selection--with-ai-feature-flag--light:
-        hash: v1.k794b7964.0daf37ed46ad9c03409bd7e6f5187e887f4f65f28f60d5ca4bea1c84bf0e3618.imLlk_otwPvaYiqx8kMqW8e8b-j-wjiboTg6xeSkAV4
     scenes-other-onboarding-sdks--product-analytics-sd-ks--dark:
         hash: v1.k794b7964.3ccf2899bfd3b8f6867dc8d31a94be053f4d31a802152aa35e0711a650962c12.VEGFf8F3mJcjYklzZW8FmQWxOOUd3f4o_tX8BBUPm-0
     scenes-other-onboarding-sdks--product-analytics-sd-ks--light:

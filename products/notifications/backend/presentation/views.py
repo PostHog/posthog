@@ -1,5 +1,6 @@
 from typing import cast
 
+from django.conf import settings
 from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.utils import extend_schema
@@ -14,13 +15,18 @@ from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
+from products.notifications.backend.facade.contracts import NotificationData
+from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES, TargetType
+from products.notifications.backend.logic import create_notification
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
-from products.notifications.backend.presentation.serializers import NotificationEventSerializer
+from products.notifications.backend.presentation.serializers import (
+    NotificationEventSerializer,
+    SendTestNotificationSerializer,
+)
 
 
 class NotificationPagination(LimitOffsetPagination):
-    default_limit = 50
+    default_limit = 20
     max_limit = 100
 
 
@@ -133,3 +139,63 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
         NotificationReadState.objects.filter(notification_event=event, user=user).delete()
         return Response({"status": "ok"})
+
+    SAMPLE_NOTIFICATIONS: dict[str, dict[str, str]] = {
+        "comment_mention": {
+            "title": "@teammate mentioned you in a comment",
+            "body": "Can you look at the spike in errors on the main dashboard?",
+        },
+        "alert_firing": {
+            "title": "Event ingestion latency > 30s",
+            "body": "Events are queuing up. Ingestion pipeline is degraded.",
+        },
+        "approval_requested": {
+            "title": "Feature flag rollout needs approval",
+            "body": "new-checkout-flow flag change from 10% to 100% requires your approval.",
+        },
+        "approval_resolved": {
+            "title": "Feature flag rollout approved",
+            "body": "new-checkout-flow flag change was approved by the team lead.",
+        },
+        "pipeline_failure": {
+            "title": "Export to BigQuery failed",
+            "body": "Batch export posthog-to-bq has failed 3 consecutive times.",
+        },
+        "issue_assigned": {
+            "title": "Issue #891 assigned to you",
+            "body": "Users unable to load insights since 09:15 UTC.",
+        },
+    }
+
+    @extend_schema(request=SendTestNotificationSerializer)
+    @action(methods=["POST"], detail=False, url_path="send_test")
+    def send_test(self, request: Request, **kwargs) -> Response:
+        if not settings.DEBUG:
+            return Response({"error": "only available in debug mode"}, status=403)
+
+        serializer = SendTestNotificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        notification_type = serializer.validated_data["notification_type"]
+        priority = serializer.validated_data["priority"]
+        sample = self.SAMPLE_NOTIFICATIONS.get(
+            notification_type, {"title": "Test notification", "body": "This is a test."}
+        )
+
+        user = self._get_user()
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=notification_type,
+            priority=priority,
+            title=sample["title"],
+            body=sample["body"],
+            target_type=TargetType.USER,
+            target_id=str(user.id),
+            resource_type="dashboard",
+            resource_id="1",
+            source_url="/dashboard/1",
+        )
+        event = create_notification(data)
+        if event is None:
+            return Response({"error": "notification not created (feature flag disabled or no recipients)"}, status=400)
+        return Response({"id": str(event.id), "title": event.title})
