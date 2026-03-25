@@ -3,105 +3,17 @@ import { useEffect, useState } from 'react'
 
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 
-import {
-    BuilderHog1,
-    DetectiveHog,
-    ExperimentsHog,
-    ExplorerHog,
-    FeatureFlagHog,
-    FilmCameraHog,
-    GraphsHog,
-    MailHog,
-    MicrophoneHog,
-    RobotHog,
-    SupermanHog,
-} from 'lib/components/hedgehogs'
+import { SupermanHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 import { availableOnboardingProducts, toSentenceCase } from './utils'
 
 const HOGFETTI_OPTIONS = { count: 100, duration: 3000 }
-
-/** What you'll unlock — capability + the problem it solves. */
-const PRODUCT_VALUE_PROPS: Partial<Record<ProductKey, { title: string; problem: string }[]>> = {
-    [ProductKey.PRODUCT_ANALYTICS]: [
-        {
-            title: 'Funnels & conversion tracking',
-            problem: 'Find where users drop off in your signup or purchase flow',
-        },
-        { title: 'Trend analysis & dashboards', problem: 'Track how key metrics change week over week' },
-        { title: 'User paths & retention', problem: 'Understand which features keep users coming back' },
-    ],
-    [ProductKey.WEB_ANALYTICS]: [
-        { title: 'Traffic sources & referrals', problem: 'Know which channels bring your best users' },
-        { title: 'Page performance metrics', problem: 'Find slow pages that hurt conversion' },
-        { title: 'Conversion funnels', problem: 'See where visitors leave before converting' },
-    ],
-    [ProductKey.SESSION_REPLAY]: [
-        { title: 'Session recordings', problem: 'See exactly where users get confused or stuck' },
-        { title: 'Console & network logs', problem: 'Debug issues without asking users to reproduce them' },
-        { title: 'Click & scroll heatmaps', problem: 'Find which parts of your pages get attention' },
-    ],
-    [ProductKey.FEATURE_FLAGS]: [
-        { title: 'Targeted rollouts', problem: 'Ship to 5% of users before going to everyone' },
-        { title: 'Release conditions', problem: 'Control who sees what based on properties or cohorts' },
-        { title: 'Multivariate flags', problem: 'Test multiple variants without redeploying' },
-    ],
-    [ProductKey.EXPERIMENTS]: [
-        { title: 'A/B testing', problem: 'Know which version actually performs better' },
-        { title: 'Statistical analysis', problem: 'Get results you can trust, not gut feelings' },
-        { title: 'Goal tracking', problem: 'Tie experiments directly to the metrics that matter' },
-    ],
-    [ProductKey.SURVEYS]: [
-        { title: 'Targeted surveys', problem: 'Ask the right question at the right moment' },
-        { title: 'In-app collection', problem: 'Get feedback without sending users to external forms' },
-    ],
-    [ProductKey.ERROR_TRACKING]: [
-        { title: 'Automatic error capture', problem: 'Know about crashes before your users report them' },
-        { title: 'Stack trace & context', problem: 'Jump straight to the line of code that broke' },
-        { title: 'Issue management', problem: 'Prioritize fixes by how many users are affected' },
-    ],
-    [ProductKey.LLM_ANALYTICS]: [
-        { title: 'Cost tracking per model', problem: 'See which LLM calls are burning your budget' },
-        { title: 'Latency monitoring', problem: 'Find slow prompts before users complain' },
-        { title: 'Prompt evaluation', problem: 'Compare prompt versions with real data' },
-    ],
-    [ProductKey.DATA_WAREHOUSE]: [
-        { title: 'External data joins', problem: 'Combine Stripe, Hubspot, or Postgres data with PostHog' },
-        { title: 'SQL queries', problem: 'Ask questions no pre-built dashboard can answer' },
-    ],
-    [ProductKey.REVENUE_ANALYTICS]: [
-        { title: 'Revenue dashboards', problem: 'See MRR, churn, and LTV without building spreadsheets' },
-        { title: 'Subscription tracking', problem: 'Understand which plans and cohorts drive growth' },
-    ],
-    [ProductKey.LOGS]: [
-        { title: 'Centralized log collection', problem: 'Stop SSH-ing into servers to find what went wrong' },
-        { title: 'Structured search', problem: 'Filter by level, service, or any property in seconds' },
-    ],
-    [ProductKey.WORKFLOWS]: [
-        { title: 'Automated workflows', problem: 'Trigger Slack alerts, emails, or webhooks on any event' },
-        { title: 'Custom logic', problem: 'Build multi-step automations without a separate tool' },
-    ],
-}
-
-const PRODUCT_HEDGEHOG: Partial<Record<string, React.ComponentType<{ className?: string }>>> = {
-    [ProductKey.PRODUCT_ANALYTICS]: GraphsHog,
-    [ProductKey.WEB_ANALYTICS]: ExplorerHog,
-    [ProductKey.SESSION_REPLAY]: FilmCameraHog,
-    [ProductKey.LLM_ANALYTICS]: RobotHog,
-    [ProductKey.DATA_WAREHOUSE]: BuilderHog1,
-    [ProductKey.FEATURE_FLAGS]: FeatureFlagHog,
-    [ProductKey.EXPERIMENTS]: ExperimentsHog,
-    [ProductKey.ERROR_TRACKING]: DetectiveHog,
-    [ProductKey.SURVEYS]: MicrophoneHog,
-    [ProductKey.WORKFLOWS]: MailHog,
-}
 
 export function PostOnboardingModal(): JSX.Element | null {
     const { isModalOpen, productSetupConfig, onboardedProductKey } = useValues(postOnboardingModalLogic)
@@ -137,17 +49,13 @@ export function PostOnboardingModal(): JSX.Element | null {
         return null
     }
 
-    const HedgehogComponent = onboardedProductKey ? (PRODUCT_HEDGEHOG[onboardedProductKey] ?? SupermanHog) : SupermanHog
     const product = onboardedProductKey
         ? availableOnboardingProducts[onboardedProductKey as keyof typeof availableOnboardingProducts]
         : null
+    const HedgehogComponent = product?.hedgehog ?? SupermanHog
     const productColor = product?.iconColor ?? '#1D4AFF'
     const productName = product ? toSentenceCase(product.name) : 'PostHog'
-    const valueProps = onboardedProductKey
-        ? (PRODUCT_VALUE_PROPS[onboardedProductKey] ??
-          // Fallback: derive from the product's capabilities if no custom value props defined
-          (product?.capabilities ?? []).map((cap) => ({ title: cap, problem: '' })))
-        : []
+    const valueProps = product?.valueProps ?? (product?.capabilities ?? []).map((cap) => ({ title: cap, problem: '' }))
     const totalTasks = productSetupConfig?.tasks?.length ?? 0
 
     return (

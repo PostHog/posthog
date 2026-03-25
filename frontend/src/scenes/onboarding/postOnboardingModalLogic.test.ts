@@ -36,7 +36,7 @@ describe('postOnboardingModalLogic', () => {
 
     it('openPostOnboardingModal sets isModalOpen to true', async () => {
         await expectLogic(logic, () => {
-            logic.actions.openPostOnboardingModal()
+            logic.actions.openPostOnboardingModal(ProductKey.PRODUCT_ANALYTICS)
         }).toMatchValues({
             isModalOpen: true,
         })
@@ -44,7 +44,7 @@ describe('postOnboardingModalLogic', () => {
 
     it('closePostOnboardingModal sets isModalOpen to false', async () => {
         await expectLogic(logic, () => {
-            logic.actions.openPostOnboardingModal()
+            logic.actions.openPostOnboardingModal(ProductKey.PRODUCT_ANALYTICS)
         }).toMatchValues({ isModalOpen: true })
 
         await expectLogic(logic, () => {
@@ -58,7 +58,7 @@ describe('postOnboardingModalLogic', () => {
         expect(logic.values.modalShown).toBe(false)
 
         await expectLogic(logic, () => {
-            logic.actions.openPostOnboardingModal()
+            logic.actions.openPostOnboardingModal(ProductKey.PRODUCT_ANALYTICS)
         }).toMatchValues({
             modalShown: true,
         })
@@ -71,7 +71,7 @@ describe('postOnboardingModalLogic', () => {
     })
 
     it('modalShown persists across logic remount', async () => {
-        logic.actions.openPostOnboardingModal()
+        logic.actions.openPostOnboardingModal(ProductKey.PRODUCT_ANALYTICS)
         expect(logic.values.modalShown).toBe(true)
 
         logic.unmount()
@@ -84,17 +84,28 @@ describe('postOnboardingModalLogic', () => {
         logic2.unmount()
     })
 
-    it('openPostOnboardingModal captures post_onboarding_modal_viewed event', () => {
+    it('openPostOnboardingModal captures post_onboarding_modal_shown event', () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
-        logic.actions.openPostOnboardingModal()
-        expect(captureSpy).toHaveBeenCalledWith('post_onboarding_modal_viewed', { variant: 'test' })
+        logic.actions.openPostOnboardingModal(ProductKey.PRODUCT_ANALYTICS)
+        expect(captureSpy).toHaveBeenCalledWith(
+            'post_onboarding_modal_shown',
+            expect.objectContaining({
+                product_key: ProductKey.PRODUCT_ANALYTICS,
+                variant: expect.any(String),
+            })
+        )
         captureSpy.mockRestore()
     })
 
     it('ctaClicked captures post_onboarding_modal_cta_clicked event', () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         logic.actions.ctaClicked()
-        expect(captureSpy).toHaveBeenCalledWith('post_onboarding_modal_cta_clicked')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'post_onboarding_modal_cta_clicked',
+            expect.objectContaining({
+                variant: expect.any(String),
+            })
+        )
         captureSpy.mockRestore()
     })
 
@@ -106,22 +117,28 @@ describe('postOnboardingModalLogic', () => {
 
     it('dismissModal captures post_onboarding_modal_dismissed event', () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
-        logic.actions.dismissModal()
-        expect(captureSpy).toHaveBeenCalledWith('post_onboarding_modal_dismissed')
+        logic.actions.dismissModal('close_button')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'post_onboarding_modal_dismissed',
+            expect.objectContaining({
+                dismiss_method: 'close_button',
+                variant: expect.any(String),
+            })
+        )
         captureSpy.mockRestore()
     })
 
     it('dismissModal dispatches closePostOnboardingModal', async () => {
         await expectLogic(logic, () => {
-            logic.actions.dismissModal()
+            logic.actions.dismissModal('close_button')
         }).toDispatchActions(['dismissModal', 'closePostOnboardingModal'])
     })
 
     it('dismissModal closes the modal', async () => {
-        logic.actions.openPostOnboardingModal()
+        logic.actions.openPostOnboardingModal(ProductKey.PRODUCT_ANALYTICS)
         expect(logic.values.isModalOpen).toBe(true)
         await expectLogic(logic, () => {
-            logic.actions.dismissModal()
+            logic.actions.dismissModal('close_button')
         }).toMatchValues({
             isModalOpen: false,
         })
@@ -145,9 +162,8 @@ describe('postOnboardingModalLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT], {
                 [FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT]: 'test',
             })
-            // kea-loaders success action signature: updateCurrentTeamSuccess(value, payload)
-            // where value = loader return (the team), payload = original request payload
-            // openPostOnboardingModal is owned by postOnboardingModalLogic; watch that logic for the dispatched action
+            // The listener only branches on the experiment when isAwaitingPostOnboardingModal is true
+            obLogic.actions.setAwaitingPostOnboardingModal(true)
             await expectLogic(logic, () => {
                 obLogic.actions.updateCurrentTeamSuccess({} as any, {
                     has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },

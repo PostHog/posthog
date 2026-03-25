@@ -342,7 +342,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
         },
         updateCurrentTeamSuccess: () => {
-            if (values.isAwaitingPostOnboardingModal) {
+            if (values.isAwaitingPostOnboardingModal && values.productKey) {
                 actions.setAwaitingPostOnboardingModal(false)
                 // Experiment branch: variant shows modal, control shows Quick Start
                 const isVariant =
@@ -352,9 +352,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (isVariant) {
                     actions.openPostOnboardingModal(values.productKey)
                 } else {
-                    actions.openPostOnboardingModal(values.productKey)
-                    // TODO: restore control path before shipping
-                    // actions.openGlobalSetup()
+                    actions.openGlobalSetup()
                 }
             } else {
                 actions.openGlobalSetup()

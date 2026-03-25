@@ -4186,6 +4186,7 @@ export type HotKey =
     | 'd'
     | 'e'
     | 'f'
+    | 'g'
     | 'h'
     | 'i'
     | 'j'
@@ -6194,6 +6195,10 @@ export type OnboardingProduct = {
     socialProof?: string
     userCentricDescription?: string
     capabilities?: string[]
+    /** Title + problem pairs shown in the post-onboarding modal. Falls back to capabilities if absent. */
+    valueProps?: { title: string; problem: string }[]
+    /** Hedgehog illustration for the post-onboarding modal. Falls back to SupermanHog if absent. */
+    hedgehog?: React.ComponentType<{ className?: string }>
 }
 
 export type CyclotronJobInputSchemaType = {

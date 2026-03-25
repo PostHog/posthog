@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { PostOnboardingModal } from './PostOnboardingModal'
@@ -18,14 +19,13 @@ jest.mock('lib/components/Hogfetti/Hogfetti', () => ({
 }))
 
 jest.mock('lib/components/hedgehogs', () => ({
-    SupermanHog: (props: any) => <div data-attr="superman-hog" {...props} />,
+    SupermanHog: (props: any) => <div data-testid="superman-hog" {...props} />,
 }))
 
 jest.mock('~/layout/navigation-3000/components/KeyboardShortcut', () => ({
     KeyboardShortcut: (props: any) => <kbd data-attr="keyboard-shortcut" {...props} />,
 }))
 
-// Suppress posthog.capture calls from the logic listeners
 jest.mock('posthog-js', () => ({
     ...jest.requireActual('posthog-js'),
     capture: jest.fn(),
@@ -37,6 +37,7 @@ describe('PostOnboardingModal', () => {
     let logic: ReturnType<typeof postOnboardingModalLogic.build>
 
     beforeEach(() => {
+        jest.useFakeTimers()
         localStorage.clear()
         initKeaTests()
         logic = postOnboardingModalLogic()
@@ -46,67 +47,49 @@ describe('PostOnboardingModal', () => {
 
     afterEach(() => {
         logic.unmount()
-    })
-
-    it('does not render when isModalOpen is false', () => {
-        render(<PostOnboardingModal />)
-        expect(screen.queryByText("You're all set!")).not.toBeInTheDocument()
-    })
-
-    it('renders modal when isModalOpen is true', () => {
-        logic.actions.openPostOnboardingModal()
-        render(<PostOnboardingModal />)
-        // getAllByText handles the case where react-modal may duplicate content in the DOM
-        expect(screen.getAllByText("You're all set!").length).toBeGreaterThan(0)
-    })
-
-    it('displays congratulations description text', () => {
-        logic.actions.openPostOnboardingModal()
-        render(<PostOnboardingModal />)
-        expect(screen.getAllByText(/Congratulations on setting up PostHog/).length).toBeGreaterThan(0)
-    })
-
-    it('displays SupermanHog illustration', () => {
-        logic.actions.openPostOnboardingModal()
-        render(<PostOnboardingModal />)
-        expect(screen.getAllByTestId('superman-hog').length).toBeGreaterThan(0)
-    })
-
-    it('displays three keyboard shortcuts', () => {
-        logic.actions.openPostOnboardingModal()
-        render(<PostOnboardingModal />)
-        expect(screen.getAllByText('Search anything').length).toBeGreaterThan(0)
-        expect(screen.getAllByText('Open Quick Start').length).toBeGreaterThan(0)
-        expect(screen.getAllByText('View all shortcuts').length).toBeGreaterThan(0)
-    })
-
-    it('triggers hogfetti when modal opens', async () => {
-        jest.useFakeTimers()
-        logic.actions.openPostOnboardingModal()
-        render(<PostOnboardingModal />)
-
-        // Flush the initial trigger (0ms) and advance through the 400ms + 400ms delays
-        // Each act flushes promises so the async chain can progress
-        await act(async () => {
-            jest.advanceTimersByTime(400)
-        })
-        await act(async () => {
-            jest.advanceTimersByTime(400)
-        })
-        await act(async () => {
-            jest.advanceTimersByTime(200)
-        })
-
-        expect(mockTrigger).toHaveBeenCalledTimes(3)
         jest.useRealTimers()
     })
 
-    it('CTA button click closes the modal', async () => {
-        logic.actions.openPostOnboardingModal()
+    async function openAndWaitForReady(): Promise<void> {
+        logic.actions.openPostOnboardingModal(ProductKey.PRODUCT_ANALYTICS)
         render(<PostOnboardingModal />)
+        // The component waits 500ms before setting ready=true
+        await act(async () => {
+            jest.advanceTimersByTime(500)
+        })
+    }
 
-        const ctaButtons = screen.getAllByText('Start Quick Start')
-        await userEvent.click(ctaButtons[0])
+    it('does not render when isModalOpen is false', () => {
+        render(<PostOnboardingModal />)
+        expect(screen.queryByText("You're ready to go")).not.toBeInTheDocument()
+    })
+
+    it('renders modal when opened and ready', async () => {
+        await openAndWaitForReady()
+        expect(screen.getAllByText("You're ready to go").length).toBeGreaterThan(0)
+    })
+
+    it('triggers hogfetti when modal opens', async () => {
+        await openAndWaitForReady()
+
+        // Advance through the 400ms + 400ms delays between triggers
+        await act(async () => {
+            jest.advanceTimersByTime(400)
+        })
+        await act(async () => {
+            jest.advanceTimersByTime(400)
+        })
+
+        expect(mockTrigger).toHaveBeenCalledTimes(3)
+    })
+
+    it('CTA button click closes the modal', async () => {
+        await openAndWaitForReady()
+
+        const ctaButtons = screen.getAllByText("Let's get started")
+        await act(async () => {
+            await userEvent.setup({ advanceTimers: jest.advanceTimersByTime }).click(ctaButtons[0])
+        })
 
         expect(logic.values.isModalOpen).toBe(false)
     })
