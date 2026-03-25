@@ -6,6 +6,7 @@ import Papa from 'papaparse'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { compactNumber, dateStringToDayJs, wordPluralize } from 'lib/utils'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
@@ -640,7 +641,8 @@ export function getUsageLimitConsequence(productName: string): string {
  */
 export function buildUsageLimitExceededMessage(
     products: Array<{ name: string; subscribed: boolean | null }>,
-    hasBillingAccess: boolean = true
+    hasBillingAccess: boolean = true,
+    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): {
     title: string
     message: string
@@ -662,9 +664,10 @@ export function buildUsageLimitExceededMessage(
     if (hasBillingAccess) {
         actionText = allSubscribed ? 'increase your billing limit' : 'upgrade your plan'
     } else {
+        const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
         actionText = allSubscribed
-            ? 'ask an organization admin to increase the billing limit'
-            : 'ask an organization admin to upgrade the plan'
+            ? `ask an organization ${roleName} to increase the billing limit`
+            : `ask an organization ${roleName} to upgrade the plan`
     }
 
     return {
@@ -682,7 +685,8 @@ export function buildUsageLimitApproachingMessage(
         percentage_usage: number
         usage_key?: string | null
     }>,
-    hasBillingAccess: boolean = true
+    hasBillingAccess: boolean = true,
+    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): { title: string; message: string } {
     if (products.length === 0) {
         return { title: '', message: '' }
@@ -694,7 +698,8 @@ export function buildUsageLimitApproachingMessage(
         return `${percentage}% of your ${usageKey} allocation`
     })
 
-    const adminSuffix = hasBillingAccess ? '' : ' Please ask an organization admin to increase the billing limit.'
+    const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
+    const adminSuffix = hasBillingAccess ? '' : ` Please ask an organization ${roleName} to increase the billing limit.`
 
     const message =
         products.length === 1

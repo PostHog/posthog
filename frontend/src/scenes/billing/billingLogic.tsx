@@ -882,7 +882,11 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsOverLimit.length > 0) {
-                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit, values.canAccessBilling)
+                const { title, message } = buildUsageLimitExceededMessage(
+                    productsOverLimit,
+                    values.canAccessBilling,
+                    values.minimumBillingAccessLevel
+                )
 
                 actions.setBillingAlert({
                     status: 'error',
@@ -926,7 +930,8 @@ export const billingLogic = kea<billingLogicType>([
             if (productsApproachingLimit.length > 0) {
                 const { title, message } = buildUsageLimitApproachingMessage(
                     productsApproachingLimit,
-                    values.canAccessBilling
+                    values.canAccessBilling,
+                    values.minimumBillingAccessLevel
                 )
 
                 actions.setBillingAlert({

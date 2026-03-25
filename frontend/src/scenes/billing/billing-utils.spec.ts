@@ -547,6 +547,15 @@ describe('buildUsageLimitExceededMessage', () => {
         }
     )
 
+    it('should say "owner" when minimumBillingAccessLevel is Owner and user has no billing access', () => {
+        const result = buildUsageLimitExceededMessage(
+            [{ name: 'Session replay', subscribed: true }],
+            false,
+            OrganizationMembershipLevel.Owner
+        )
+        expect(result.message).toContain('ask an organization owner')
+    })
+
     it('should default to admin message when hasBillingAccess is not provided', () => {
         const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
         expect(result.message).toContain('increase your billing limit')
@@ -612,6 +621,15 @@ describe('buildUsageLimitApproachingMessage', () => {
             }
         }
     )
+
+    it('should say "owner" when minimumBillingAccessLevel is Owner and user has no billing access', () => {
+        const result = buildUsageLimitApproachingMessage(
+            [{ name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' }],
+            false,
+            OrganizationMembershipLevel.Owner
+        )
+        expect(result.message).toContain('ask an organization owner')
+    })
 
     it('should default to no admin suffix when hasBillingAccess is not provided', () => {
         const result = buildUsageLimitApproachingMessage([
