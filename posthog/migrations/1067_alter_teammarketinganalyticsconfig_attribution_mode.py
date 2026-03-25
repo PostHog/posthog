@@ -7,7 +7,7 @@ import posthog.schema
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1050_rename_slack_twig_to_posthog_code"),
+        ("posthog", "1066_alter_insight_saved"),
     ]
 
     operations = [
