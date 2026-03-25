@@ -53,12 +53,18 @@ def team_api_test_factory():
 
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
             starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
             self._assert_activity_log([])
