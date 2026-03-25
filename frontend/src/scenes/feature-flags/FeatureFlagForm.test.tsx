@@ -34,6 +34,7 @@ const MOCK_MULTIVARIATE_FLAG: FeatureFlagType = {
     version: null,
     last_modified_by: null,
     experiment_set: null,
+    experiment_set_metadata: null,
     features: null,
     surveys: null,
     created_by: null,
