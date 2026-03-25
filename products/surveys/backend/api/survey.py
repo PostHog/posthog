@@ -48,6 +48,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
@@ -1621,6 +1622,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             GROUP BY survey_id
         """
 
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         data = sync_execute(query, params)
 
         counts = {}
@@ -1854,6 +1856,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             "dismissed": SurveyEventName.DISMISSED.value,
             "sent": SurveyEventName.SENT.value,
         }
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         results_base = sync_execute(base_stats_query, query_params)
 
         # Query 2: Count of unique persons who both dismissed AND sent
@@ -1877,6 +1880,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                    AND sum(if(event = %(sent)s, 1, 0)) > 0
             ) AS PersonsWithBothEvents
         """
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         dismissed_and_sent_count_result = sync_execute(dismissed_and_sent_query, query_params)
         dismissed_and_sent_count = dismissed_and_sent_count_result[0][0] if dismissed_and_sent_count_result else 0
 
