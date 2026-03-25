@@ -85,12 +85,14 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
-    /// Maximum gRPC message size the server will encode (send), in bytes.
+    /// Maximum gRPC message size to encode (send), in bytes.
+    /// Applied to the router's gRPC server and its backend clients (replica, leader).
     /// Defaults to 128 MB.
     #[envconfig(default = "134217728")]
     pub grpc_max_send_message_size: usize,
 
-    /// Maximum gRPC message size the server will decode (receive), in bytes.
+    /// Maximum gRPC message size to decode (receive), in bytes.
+    /// Applied to the router's gRPC server and its backend clients (replica, leader).
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
