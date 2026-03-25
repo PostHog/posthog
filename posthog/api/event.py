@@ -423,7 +423,6 @@ class EventViewSet(
                 status=400,
             )
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
-        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         query_result = query_with_columns(
             SELECT_ONE_EVENT_SQL,
             {"team_id": self.team.pk, "event_id": pk.replace("-", "")},
