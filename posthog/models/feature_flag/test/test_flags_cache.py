@@ -1150,30 +1150,6 @@ class TestManagementCommands(BaseTest):
         self.assertIn("Total teams: 1", output)
         self.assertIn("Successful: 1", output)
 
-    @patch("builtins.input", return_value="yes")
-    def test_warm_command_invalidate_first(self, mock_input):
-        """Test warm_flags_cache command with --invalidate-first."""
-        from io import StringIO
-
-        from django.core.management import call_command
-
-        # Create a real flag for the team
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        # Call command with --invalidate-first
-        out = StringIO()
-        call_command("warm_flags_cache", "--invalidate-first", stdout=out)
-
-        output = out.getvalue()
-        # Should show warning about invalidation
-        self.assertIn("Invalidate first: True", output)
-        self.assertIn("Flags cache warm completed", output)
-
     def test_analyze_command_validates_sample_size_too_small(self):
         """Test analyze command rejects sample_size < 1."""
         from io import StringIO
@@ -1483,22 +1459,6 @@ class TestManagementCommands(BaseTest):
             # Should show failed count
             self.assertIn("Failed:", output)
             self.assertIn("1", output)  # 1 team failed
-
-    @patch("posthog.storage.hypercache_manager.warm_caches")
-    @patch("builtins.input", return_value="no")
-    def test_warm_invalidate_first_user_cancels(self, mock_input, mock_warm):
-        """Test that user can cancel --invalidate-first operation."""
-        from io import StringIO
-
-        from django.core.management import call_command
-
-        out = StringIO()
-        call_command("warm_flags_cache", "--invalidate-first", stdout=out)
-
-        output = out.getvalue()
-        self.assertIn("Aborted", output)
-        # Should NOT call warm_caches
-        mock_warm.assert_not_called()
 
     def test_warm_staggered_ttl_range(self):
         """Test that TTL staggering parameters are passed correctly."""

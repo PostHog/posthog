@@ -304,7 +304,7 @@ ${C_GREEN}${C_BOLD}hogli start${C_RESET}
 ${C_DIM}Interactive wizard to configure which services to run:${C_RESET}
 ${C_GREEN}hogli dev:setup${C_RESET}
 
-${C_ITALIC}Useful processes available in hogli start (mprocs)${C_RESET}
+${C_ITALIC}Useful processes available in hogli start (phrocs)${C_RESET}
 ${C_DIM}  press ${C_BOLD}r${C_RESET}${C_DIM} to start manually:${C_RESET}
 ${C_DIM}  generate-demo-data${C_RESET}          Create a user with demo data
 ${C_DIM}  storybook${C_RESET}                   Run storybook locally
@@ -317,7 +317,7 @@ ${C_DIM}  hogli --help${C_RESET}                Browse all available commands
 ${C_DIM}  hogli migrations:run${C_RESET}        Run pending migrations
 ${C_DIM}  hogli dev:reset${C_RESET}             Wipe volumes, migrate, load demo data
 ${C_DIM}  hogli doctor:disk${C_RESET}           Free up disk space from dev bloat
-${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in mprocs${C_RESET}             Quit / restart a process
+${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in phrocs${C_RESET}             Quit / restart a process
 "
 fi
 
