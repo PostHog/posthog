@@ -255,7 +255,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 WHERE query_id = %(query_id)s AND trace_type = 'CPU'
                 GROUP BY trace
                 HAVING stack != ''
-                SETTINGS allow_introspection_functions=1
+                SETTINGS allow_introspection_functions=1, skip_unavailable_shards=1
                 """,
                 {"query_id": profile_query_id, "cluster": CLICKHOUSE_CLUSTER},
             )
