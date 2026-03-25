@@ -177,6 +177,7 @@ impl FlagService {
                 let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper {
                     flags,
                     evaluation_metadata: None,
+                    cohorts: None,
                 };
                 let value = serde_json::to_value(&wrapper).map_err(|e| {
                     tracing::error!(
@@ -191,12 +192,14 @@ impl FlagService {
             .await?;
 
         // Parse the result (from cache or fallback)
-        let (flags, evaluation_metadata) = FeatureFlagList::parse_hypercache_value(data, team_id)?;
+        let (flags, evaluation_metadata, cohorts) =
+            FeatureFlagList::parse_hypercache_value(data, team_id)?;
 
         Ok(FlagResult {
             flag_list: FeatureFlagList {
                 flags,
                 evaluation_metadata,
+                cohorts,
                 ..Default::default()
             },
             cache_source: source,
@@ -549,6 +552,7 @@ mod tests {
         let wrapper = HypercacheFlagsWrapper {
             flags: large_flags.flags.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
         let json_string = serde_json::to_string(&wrapper).expect("Failed to serialize to JSON");
 

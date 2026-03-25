@@ -21,6 +21,7 @@ import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsView
 import { ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
+import { LogsAlertNotifications } from './LogsAlertNotifications'
 
 const WINDOW_OPTIONS = [
     { value: 5, label: '5 minutes' },
@@ -260,6 +261,11 @@ export function LogsAlertForm(): JSX.Element {
                                 </LemonField.Pure>
                             </div>
                         ),
+                    },
+                    {
+                        key: 'notifications',
+                        header: 'Notifications',
+                        content: <LogsAlertNotifications />,
                     },
                 ]}
             />

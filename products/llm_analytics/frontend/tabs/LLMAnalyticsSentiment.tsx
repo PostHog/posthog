@@ -15,7 +15,7 @@ import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
-import { normalizeMessages } from '../utils'
+import { getTraceTimestamp, normalizeMessages } from '../utils'
 import type { GroupedSentimentCard, SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
 import { CLASSIFIER_WINDOW, llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
 
@@ -155,7 +155,7 @@ function SentimentCardRow({
     traceCount: number
 }): JSX.Element {
     const { generation, messageIndex, sentiment } = card
-    const { uuid, traceId, aiInput, timestamp } = generation
+    const { uuid, traceId, aiInput, timestamp, createdAt } = generation
     const { toggleCardExpanded, trackTraceClicked } = useActions(llmAnalyticsSentimentLogic)
 
     const targetMessage = getMessageAtIndex(aiInput, messageIndex)
@@ -204,7 +204,7 @@ function SentimentCardRow({
                             <Link
                                 to={urls.llmAnalyticsTrace(traceId, {
                                     event: uuid,
-                                    timestamp,
+                                    timestamp: getTraceTimestamp(createdAt),
                                     msg: String(messageIndex),
                                 })}
                                 className="text-xs ml-1"

@@ -495,7 +495,7 @@ const ConditionContent = ({
                                         <div className="flex items-start gap-6">
                                             <LemonSlider
                                                 value={group.rollout_percentage ?? 100}
-                                                onChange={(value) => updateConditionSet(index, value)}
+                                                onChange={(value) => updateConditionSet(index, Math.round(value))}
                                                 min={0}
                                                 max={100}
                                                 step={1}
@@ -514,8 +514,10 @@ const ConditionContent = ({
                                                 min={0}
                                                 max={100}
                                                 value={group.rollout_percentage ?? 100}
+                                                step={0.01}
                                                 onChange={(value) => {
-                                                    const numValue = value ? parseInt(value.toString()) : 0
+                                                    const raw = value ? parseFloat(value.toString()) : 0
+                                                    const numValue = Math.round(raw * 100) / 100
                                                     updateConditionSet(index, Math.min(100, Math.max(0, numValue)))
                                                 }}
                                                 suffix={<span>%</span>}

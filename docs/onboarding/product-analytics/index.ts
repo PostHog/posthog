@@ -1,5 +1,12 @@
-// Snippets
+// Snippet builder
+export { buildJsHtmlSnippet, snippetFunctions } from './_snippets/js-snippet-builder'
+export type { BuildJsHtmlSnippetConfig, SnippetOption } from './_snippets/js-snippet-builder'
+
+// Snippet components
 export { JSEventCapture } from './_snippets/js-event-capture'
+export { JSHtmlSnippet } from './_snippets/js-html-snippet'
+export type { JSHtmlSnippetProps } from './_snippets/js-html-snippet'
+export { JSInitSnippet } from './_snippets/js-init-snippet'
 export { NodeEventCapture } from './_snippets/node-event-capture'
 export { PythonEventCapture } from './_snippets/python-event-capture'
 
