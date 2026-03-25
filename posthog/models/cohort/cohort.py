@@ -108,6 +108,20 @@ class CohortManager(RootTeamManager):
         return cohort
 
 
+# Fields that are updated during cohort recalculation. The save_fields lists
+# in _safe_save_cohort_state must remain subsets of this set, otherwise the
+# is_cohort_recalculation_only_save guard will incorrectly allow signal handlers to fire.
+COHORT_RECALCULATION_FIELDS = frozenset(
+    {"is_calculating", "last_calculation", "errors_calculating", "last_error_at", "count"}
+)
+
+
+def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
+    """Return True when a post_save signal was triggered only by recalculation bookkeeping fields."""
+    update_fields = kwargs.get("update_fields")
+    return update_fields is not None and COHORT_RECALCULATION_FIELDS.issuperset(update_fields)
+
+
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
@@ -337,6 +351,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.cohort_type = None
                 cohort_type_cleared = True
 
+            # Update version inside the try block so it can't be skipped by finally exceptions.
+            # Conditional filter preserves concurrency safety: lower versions don't overwrite higher ones.
+            version_update_fields: dict[str, Any] = {"version": pending_version, "count": count}
+            if cohort_type_cleared:
+                version_update_fields["cohort_type"] = None
+            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+                **version_update_fields
+            )
+
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.last_error_at = None
@@ -362,13 +385,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # This prevents the flag from being reset while other higher-version calculations are still running
             self._safe_reset_calculating_state(completed_version=pending_version)
 
-        # Update filter to match pending version if still valid
-        update_fields = {"version": pending_version, "count": count}
-        if cohort_type_cleared:
-            update_fields["cohort_type"] = None
-        Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-            **update_fields
-        )
         self.refresh_from_db()
 
         logger.info(
@@ -837,10 +853,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
         """
-        Safely save cohort state with fallback to save only critical fields.
+        Save only the cohort's calculation-state fields with a single retry on failure.
 
-        This prevents cohorts from getting stuck in calculating state when
-        database issues occur during cleanup operations.
+        Only updates `is_calculating`, `count`, and either success fields
+        (`last_calculation`, `errors_calculating`) or error fields
+        (`errors_calculating`, `last_error_at`) — never the full model — so
+        concurrent edits to other cohort fields are not overwritten.
 
         Args:
             team_id: Team ID for logging context
@@ -851,11 +869,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if processing_error is None:
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
+            save_fields = ["is_calculating", "last_calculation", "errors_calculating", "count"]
         else:
             self.errors_calculating = F("errors_calculating") + 1
             self.last_error_at = timezone.now()
+            save_fields = ["is_calculating", "errors_calculating", "last_error_at", "count"]
         try:
-            self.save()
+            self.save(update_fields=save_fields)
         except Exception as save_err:
             logger.exception("Failed to save cohort state", cohort_id=self.id, team_id=team_id)
             capture_exception(
@@ -865,7 +885,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             # Single retry for transient issues
             try:
-                self.save()
+                self.save(update_fields=save_fields)
             except Exception:
                 logger.exception(
                     "Failed to save cohort state on retry",

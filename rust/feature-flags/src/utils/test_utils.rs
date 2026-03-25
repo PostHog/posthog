@@ -1,6 +1,6 @@
 use crate::{
     api::types::FlagValue,
-    cohorts::cohort_models::{Cohort, CohortId},
+    cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
         flag_group_type_mapping::{
@@ -13,6 +13,7 @@ use crate::{
 };
 use anyhow::Error;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{Client as RedisClientTrait, RedisClient};
@@ -674,6 +675,8 @@ pub async fn insert_cohort_for_team_in_pg(
     name: Option<String>,
     filters: serde_json::Value,
     is_static: bool,
+    cohort_type: Option<CohortType>,
+    last_backfill_person_properties_at: Option<DateTime<Utc>>,
 ) -> Result<Cohort, Error> {
     let cohort = Cohort {
         id: 0, // Placeholder, will be updated after insertion
@@ -691,14 +694,15 @@ pub async fn insert_cohort_for_team_in_pg(
         errors_calculating: 0,
         groups: serde_json::json!([]),
         created_by_id: None,
-        cohort_type: None,
+        cohort_type,
+        last_backfill_person_properties_at,
     };
 
     let mut conn = client.get_connection().await?;
     let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_cohort
-        (name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        (name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id, cohort_type, last_backfill_person_properties_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING id"#,
     )
     .bind(&cohort.name)
@@ -715,6 +719,8 @@ pub async fn insert_cohort_for_team_in_pg(
     .bind(cohort.errors_calculating)
     .bind(&cohort.groups)
     .bind(cohort.created_by_id)
+    .bind(cohort.cohort_type)
+    .bind(cohort.last_backfill_person_properties_at)
     .fetch_one(&mut *conn)
     .await?;
 
@@ -1066,6 +1072,29 @@ impl TestContext {
             name,
             filters,
             is_static,
+            None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn insert_cohort_with_type(
+        &self,
+        team_id: i32,
+        name: Option<String>,
+        filters: serde_json::Value,
+        is_static: bool,
+        cohort_type: Option<CohortType>,
+        last_backfill_person_properties_at: Option<DateTime<Utc>>,
+    ) -> Result<Cohort, Error> {
+        insert_cohort_for_team_in_pg(
+            self.non_persons_writer.clone(),
+            team_id,
+            name,
+            filters,
+            is_static,
+            cohort_type,
+            last_backfill_person_properties_at,
         )
         .await
     }

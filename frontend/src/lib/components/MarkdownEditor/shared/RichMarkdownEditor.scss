@@ -78,6 +78,11 @@
             }
         }
 
+        s,
+        del {
+            text-decoration: line-through;
+        }
+
         code {
             padding: 0.15em 0.4em;
             font-family: 'SF Mono', 'Fira Code', Monaco, monospace;
@@ -112,6 +117,17 @@
             font-style: italic;
             color: var(--color-text-secondary);
             border-left: 3px solid var(--color-border-primary);
+        }
+
+        hr {
+            margin: 1rem 0;
+            border: none;
+            border-top: 1px solid var(--color-border-primary);
+        }
+
+        hr.ProseMirror-selectednode {
+            outline: 2px solid var(--color-accent);
+            outline-offset: 2px;
         }
 
         img {
