@@ -577,6 +577,7 @@ class FeatureFlagSerializer(
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
 
     experiment_set = serializers.SerializerMethodField()
+    experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -620,6 +621,7 @@ class FeatureFlagSerializer(
             "last_modified_by",
             "ensure_experience_continuity",
             "experiment_set",
+            "experiment_set_metadata",
             "surveys",
             "features",
             "rollback_conditions",
@@ -1641,6 +1643,12 @@ class FeatureFlagSerializer(
         if hasattr(obj, "_active_experiments"):
             return [exp.id for exp in obj._active_experiments]
         return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
+
+    def get_experiment_set_metadata(self, obj: FeatureFlag) -> list[dict]:
+        # Use the prefetched active experiments
+        if hasattr(obj, "_active_experiments"):
+            return [{"id": exp.id, "name": exp.name} for exp in obj._active_experiments]
+        return [{"id": exp.id, "name": exp.name} for exp in obj.experiment_set.filter(deleted=False)]
 
     def _update_super_groups_for_key_change(self, validated_key: str, old_key: str, filters: dict) -> dict:
         if not (validated_key and validated_key != old_key and "super_groups" in filters):
@@ -2675,11 +2683,21 @@ class FeatureFlagViewSet(
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=value)
             elif key == "search":
-                queryset = queryset.filter(
-                    Q(key__icontains=value)
-                    | Q(name__icontains=value)
-                    | Q(experiment__name__icontains=value, experiment__deleted=False)
-                ).distinct()
+                if isinstance(value, str):
+                    value = value.strip()
+                    if value:
+                        # Limit search term length for performance safety
+                        if len(value) > 200:
+                            raise serializers.ValidationError("Search term cannot exceed 200 characters")
+
+                        # Escape regex metacharacters first, then replace spaces with word boundary pattern
+                        escaped_value = re.escape(value)
+                        regex_pattern = escaped_value.replace(r"\ ", r"[\s\-_]*")
+                        queryset = queryset.filter(
+                            Q(key__iregex=regex_pattern)
+                            | Q(name__iregex=regex_pattern)
+                            | Q(experiment__name__iregex=regex_pattern, experiment__deleted=False)
+                        ).distinct()
             elif key == "type":
                 if value == "boolean":
                     queryset = queryset.filter(

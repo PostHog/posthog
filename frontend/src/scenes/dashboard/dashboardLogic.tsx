@@ -1705,6 +1705,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // and may not load until a component subscribes to its values.
                     if (hasVariablesInUrl) {
                         variableDataLogic.actions.getVariables()
+                    } else {
+                        // No URL variables to wait for — mark as loaded so the
+                        // urlVariables selector is active for runtime overrides
+                        // (e.g. when users change variable values on the dashboard).
+                        actions.setInitialVariablesLoaded(true)
                     }
                 }
             }
