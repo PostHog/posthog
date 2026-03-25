@@ -19,19 +19,19 @@ export function TriggerGroupsEditor(): JSX.Element {
         <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <div>
-                    <h3 className="font-semibold mb-1">Trigger Groups</h3>
+                    <h3 className="font-semibold mb-1">Trigger groups</h3>
                     <p className="text-muted text-sm">
                         Define multiple trigger groups with different sampling rates and conditions.
                     </p>
                 </div>
                 <LemonButton type="primary" icon={<IconPlus />} disabled>
-                    Add Group
+                    Add group
                 </LemonButton>
             </div>
 
             {triggerGroups.length === 0 ? (
                 <div className="border border-dashed rounded p-6 text-center text-muted">
-                    <p>No trigger groups configured.</p>
+                    <p>No trigger groups configured</p>
                     <p className="text-xs mt-2">Add a group to start recording based on specific conditions.</p>
                 </div>
             ) : (

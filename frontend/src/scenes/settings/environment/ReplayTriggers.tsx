@@ -16,6 +16,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
+// TODO: Update once the SDK version supporting trigger groups v2 is released
+const TRIGGER_GROUPS_MIN_SDK_VERSION = 'X'
+
 function TriggerPanelHeader({
     title,
     status,
@@ -310,12 +313,12 @@ export function ReplayTriggers(): JSX.Element {
                                 <strong>SDK version compatibility</strong>
                                 <ul className="list-disc ml-4 mt-2 space-y-1">
                                     <li>
-                                        Older SDK versions (&lt; version X) will use the legacy recording conditions
-                                        below
+                                        Older SDK versions (&lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION}) will use the legacy
+                                        recording conditions below
                                     </li>
                                     <li>
-                                        Newer SDK versions (&gt;= version X) will use trigger groups if configured,
-                                        otherwise will fallback to the legacy recording conditions
+                                        Newer SDK versions (&gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION}) will use trigger
+                                        groups if configured, otherwise will fallback to the legacy recording conditions
                                     </li>
                                     <li>
                                         Both configurations are sent to ensure backward compatibility with all SDK
@@ -327,8 +330,8 @@ export function ReplayTriggers(): JSX.Element {
                             <div>
                                 <h3 className="text-base font-semibold mb-1">Trigger groups</h3>
                                 <p className="text-xs text-muted mb-2">
-                                    Used by SDK versions &gt;= version X. Configure custom recording triggers with
-                                    individual sampling rates per group.
+                                    Used by SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION}. Configure custom
+                                    recording triggers with individual sampling rates per group.
                                 </p>
                             </div>
 
@@ -338,8 +341,8 @@ export function ReplayTriggers(): JSX.Element {
 
                             <h3 className="text-base font-semibold">Legacy recording conditions</h3>
                             <LemonBanner type="warning">
-                                Used by SDK versions &lt; version X and as fallback for newer versions if Trigger Groups
-                                are not configured.
+                                Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for newer
+                                versions if trigger groups are not configured.
                             </LemonBanner>
                         </>
                     )}
