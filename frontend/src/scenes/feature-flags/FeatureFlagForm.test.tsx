@@ -44,7 +44,7 @@ const MOCK_MULTIVARIATE_FLAG: FeatureFlagType = {
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
-    evaluation_runtime: 'client_and_server',
+    evaluation_runtime: 'all',
 }
 
 describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
