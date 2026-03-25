@@ -5,9 +5,12 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
+from posthog.schema import ProductKey
+
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import ClayWebhookResource
 from posthog.dags.common.utils import compute_dataframe_hashes
@@ -136,6 +139,7 @@ def job_switchers_to_clay(
     context.log.info("Querying JobSwitchers_v3 saved query")
 
     team = Team.objects.get(id=JOB_SWITCHERS_TEAM_ID)
+    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.QUERY)
     query = f"""
         SELECT {", ".join(COLUMNS)}
         FROM JobSwitchers_v3
