@@ -1,5 +1,5 @@
+import { select } from 'd3'
 import flamegraph from 'd3-flame-graph'
-import { select } from 'd3-selection'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCopy } from '@posthog/icons'
