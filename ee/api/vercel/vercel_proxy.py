@@ -68,9 +68,6 @@ class VercelProxyRequestSerializer(serializers.Serializer):
 def _extract_access_token(integration: OrganizationIntegration) -> str:
     token = integration.sensitive_config.get("credentials", {}).get("access_token")
     if not token:
-        # Fallback for installations not yet migrated
-        token = integration.config.get("credentials", {}).get("access_token")
-    if not token:
         raise ValueError(f"No access token found for integration {integration.integration_id}")
     return token
 
