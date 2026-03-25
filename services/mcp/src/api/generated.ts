@@ -18278,6 +18278,26 @@ export namespace Schemas {
       created_at: string;
     }
 
+    /**
+     * * `comment_mention` - COMMENT_MENTION
+    * `alert_firing` - ALERT_FIRING
+    * `approval_requested` - APPROVAL_REQUESTED
+    * `approval_resolved` - APPROVAL_RESOLVED
+    * `pipeline_failure` - PIPELINE_FAILURE
+    * `issue_assigned` - ISSUE_ASSIGNED
+     */
+    export type NotificationTypeEnum = typeof NotificationTypeEnum[keyof typeof NotificationTypeEnum];
+
+
+    export const NotificationTypeEnum = {
+      CommentMention: 'comment_mention',
+      AlertFiring: 'alert_firing',
+      ApprovalRequested: 'approval_requested',
+      ApprovalResolved: 'approval_resolved',
+      PipelineFailure: 'pipeline_failure',
+      IssueAssigned: 'issue_assigned',
+    } as const;
+
     export interface NumericScoreDefinitionConfig {
       /**
        * Optional inclusive minimum score.
@@ -19949,6 +19969,7 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
+    * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -19959,6 +19980,7 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
@@ -19966,6 +19988,9 @@ export namespace Schemas {
     * `evaluation` - Evaluation
     * `issue` - Issue
     * `ticket` - Ticket
+    * `issue_created` - Issue created
+    * `issue_reopened` - Issue reopened
+    * `issue_spiking` - Issue spiking
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -19975,6 +20000,9 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Issue: 'issue',
       Ticket: 'ticket',
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
     } as const;
 
     export interface SignalSourceConfig {
@@ -20612,10 +20640,10 @@ export namespace Schemas {
     * `medium` - Medium
     * `high` - High
      */
-    export type PriorityEnum = typeof PriorityEnum[keyof typeof PriorityEnum];
+    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
 
 
-    export const PriorityEnum = {
+    export const TicketPriorityEnum = {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
@@ -20668,7 +20696,7 @@ export namespace Schemas {
       readonly channel_detail: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id: string;
       status?: TicketStatusEnum;
-      priority?: PriorityEnum | BlankEnum | NullEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee: TicketAssignment;
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
@@ -24643,7 +24671,7 @@ export namespace Schemas {
       readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id?: string;
       status?: TicketStatusEnum;
-      priority?: PriorityEnum | BlankEnum | NullEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee?: TicketAssignment;
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
@@ -28227,6 +28255,23 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+    }
+
+    /**
+     * * `normal` - NORMAL
+    * `critical` - CRITICAL
+     */
+    export type SendTestNotificationPriorityEnum = typeof SendTestNotificationPriorityEnum[keyof typeof SendTestNotificationPriorityEnum];
+
+
+    export const SendTestNotificationPriorityEnum = {
+      Normal: 'normal',
+      Critical: 'critical',
+    } as const;
+
+    export interface SendTestNotification {
+      notification_type: NotificationTypeEnum;
+      priority?: SendTestNotificationPriorityEnum;
     }
 
     export type SentimentResultScores = {[key: string]: number};

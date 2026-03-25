@@ -5006,6 +5006,7 @@ dependencies = [
     { name = "glom" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
+    { name = "google-cloud-bigquery-storage" },
     { name = "google-cloud-iam" },
     { name = "google-genai" },
     { name = "google-re2" },
@@ -5084,11 +5085,8 @@ dependencies = [
     { name = "simple-salesforce" },
     { name = "slack-sdk" },
     { name = "snowflake-connector-python" },
-    { name = "snowflake-sqlalchemy" },
     { name = "social-auth-app-django" },
     { name = "social-auth-core" },
-    { name = "sqlalchemy" },
-    { name = "sqlalchemy-bigquery", extra = ["bqstorage"] },
     { name = "sqlparse" },
     { name = "sshtunnel" },
     { name = "statshog" },
@@ -5158,7 +5156,6 @@ dev = [
     { name = "requests-mock" },
     { name = "responses" },
     { name = "ruff" },
-    { name = "sqlalchemy" },
     { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'linux'" },
     { name = "syrupy" },
     { name = "tach" },
@@ -5264,6 +5261,7 @@ requires-dist = [
     { name = "glom", specifier = "~=24.11.0" },
     { name = "google-ads", specifier = "==29.2.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
+    { name = "google-cloud-bigquery-storage", specifier = "==2.32.0" },
     { name = "google-cloud-iam", specifier = "==2.21" },
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "google-re2", specifier = ">=1.1.20251105" },
@@ -5342,11 +5340,8 @@ requires-dist = [
     { name = "simple-salesforce", specifier = "~=1.12.9" },
     { name = "slack-sdk", specifier = "==3.39.0" },
     { name = "snowflake-connector-python", specifier = "==4.1.1" },
-    { name = "snowflake-sqlalchemy", specifier = "==1.8.2" },
     { name = "social-auth-app-django", specifier = "~=5.4.3" },
     { name = "social-auth-core", specifier = "~=4.8.3" },
-    { name = "sqlalchemy", specifier = "==2.0.38" },
-    { name = "sqlalchemy-bigquery", extras = ["bqstorage"], specifier = "==1.12.1" },
     { name = "sqlparse", specifier = "==0.5.0" },
     { name = "sshtunnel", specifier = "==0.4.0" },
     { name = "statshog", specifier = "==1.0.6" },
@@ -5416,7 +5411,6 @@ dev = [
     { name = "requests-mock", specifier = "~=1.12.1" },
     { name = "responses", specifier = "==0.23.1" },
     { name = "ruff", specifier = "~=0.14.11" },
-    { name = "sqlalchemy", specifier = "==2.0.38" },
     { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'linux'", specifier = "==13.1.201.22" },
     { name = "syrupy", specifier = "~=4.9.1" },
     { name = "tach", specifier = "~=0.20.0" },
@@ -6933,19 +6927,6 @@ wheels = [
 ]
 
 [[package]]
-name = "snowflake-sqlalchemy"
-version = "1.8.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "snowflake-connector-python" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/66/0b/5e90eb28191ad6e0318254394c7e2902c4037fd566aa299dc8b5b16238f8/snowflake_sqlalchemy-1.8.2.tar.gz", hash = "sha256:91ca38719e117f94dd195ba94c22dd22f69c585b136ed129ba4e2dd93252b0c2", size = 122603, upload-time = "2025-12-10T08:33:49.116Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/77/c3af74a84eb00c1004a8e3c8a98627a3eecb2563f4ee01e621326c947bce/snowflake_sqlalchemy-1.8.2-py3-none-any.whl", hash = "sha256:13ad79bf51654cdaaedfbcc60d20bee417c0a128f8710eabbf4aba65b50f6d3d", size = 72726, upload-time = "2025-12-10T08:33:48.106Z" },
-]
-
-[[package]]
 name = "social-auth-app-django"
 version = "5.4.3"
 source = { registry = "https://pypi.org/simple" }
@@ -7012,29 +6993,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/13/8f/8cfe2ba5ba6d8090f4de0e658330c53be6b7bf430a8df1b141c2b180dcdf/SQLAlchemy-2.0.38-cp312-cp312-win32.whl", hash = "sha256:a5645cd45f56895cfe3ca3459aed9ff2d3f9aaa29ff7edf557fa7a23515a3725", size = 2075254, upload-time = "2025-02-06T20:25:21.863Z" },
     { url = "https://files.pythonhosted.org/packages/c2/5c/e3c77fae41862be1da966ca98eec7fbc07cdd0b00f8b3e1ef2a13eaa6cca/SQLAlchemy-2.0.38-cp312-cp312-win_amd64.whl", hash = "sha256:1052723e6cd95312f6a6eff9a279fd41bbae67633415373fdac3c430eca3425d", size = 2100865, upload-time = "2025-02-06T20:25:27.686Z" },
     { url = "https://files.pythonhosted.org/packages/aa/e4/592120713a314621c692211eba034d09becaf6bc8848fabc1dc2a54d8c16/SQLAlchemy-2.0.38-py3-none-any.whl", hash = "sha256:63178c675d4c80def39f1febd625a6333f44c0ba269edd8a468b156394b27753", size = 1896347, upload-time = "2025-02-06T22:08:29.784Z" },
-]
-
-[[package]]
-name = "sqlalchemy-bigquery"
-version = "1.12.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "google-api-core" },
-    { name = "google-auth" },
-    { name = "google-cloud-bigquery" },
-    { name = "packaging" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/3c/04dc925d0729a687f5a74adfe2f057189637600a79f9967dc2b34a47c88a/sqlalchemy_bigquery-1.12.1.tar.gz", hash = "sha256:f73165c40b4767ca2025b2c759b7619ef47b07fcd3bd8eb0246f7498bbba7cef", size = 117014, upload-time = "2025-01-21T20:39:43.298Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/89/1eebfcdb0006072982a20aafd5a4a7e400e0be38da159c10f2f7f0703ffc/sqlalchemy_bigquery-1.12.1-py2.py3-none-any.whl", hash = "sha256:93ae66d94405c457ae111ad4ef170b152e5b3b659ae00af21c1326bbeb253b20", size = 40159, upload-time = "2025-01-21T20:39:41.668Z" },
-]
-
-[package.optional-dependencies]
-bqstorage = [
-    { name = "google-cloud-bigquery-storage" },
-    { name = "grpcio" },
-    { name = "pyarrow" },
 ]
 
 [[package]]

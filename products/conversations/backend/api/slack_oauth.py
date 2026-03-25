@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
+from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.support_slack import clear_supporthog_slack_token, save_supporthog_slack_token
 
 STATE_SALT = "conversations.supporthog.slack.oauth"
@@ -68,7 +69,7 @@ def _error_response(next_path: str | None, error_message: str, status_code: int)
 
 
 class SupportSlackAuthorizeView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
         support_settings = get_instance_settings(["SUPPORT_SLACK_APP_CLIENT_ID"])
@@ -105,7 +106,7 @@ class SupportSlackAuthorizeView(APIView):
 
 
 class SupportSlackDisconnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         user = request.user
