@@ -693,6 +693,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
     }
 
     @staticmethod
+    def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
+        tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
+        return DashboardTile.objects.update_or_create(
+            id=tile_data.get("id", None),
+            dashboard=instance,
+            defaults={**tile_defaults, **extra_defaults, "dashboard": instance},
+        )
+
+    @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[str | None, bool]:
         """Returns (tile_type, created) for new tile creation, or (None, False) for updates."""
         tile_data.pop("is_cached", None)  # read only field
@@ -737,13 +747,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     raise serializers.ValidationError({"text": "Text tile not found in this team."})
             else:
                 text = Text.objects.create(**validated_data)
-            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-            tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
-            _, created = DashboardTile.objects.update_or_create(
-                id=tile_data.get("id", None),
-                dashboard=instance,
-                defaults={**tile_defaults, "text": text, "dashboard": instance},
-            )
+            _, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
             return "text", created
         elif tile_data.get("button_tile", None):
             button_tile_json: dict = tile_data.get("button_tile", {})
@@ -784,13 +788,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
             else:
                 button_tile = ButtonTile.objects.create(**validated_data)
-            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-            tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
-            _, created = DashboardTile.objects.update_or_create(
-                id=tile_data.get("id", None),
-                dashboard=instance,
-                defaults={**tile_defaults, "button_tile": button_tile, "dashboard": instance},
-            )
+            _, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
             return "button", created
         elif (
             "deleted" in tile_data
@@ -801,14 +799,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
-
-            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-            tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
-            DashboardTile.objects.update_or_create(
-                id=tile_data.get("id", None),
-                dashboard=instance,
-                defaults={**tile_defaults, "dashboard": instance},
-            )
+            DashboardSerializer._upsert_tile(instance, tile_data)
 
         return None, False
 
