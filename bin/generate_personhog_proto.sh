@@ -17,7 +17,7 @@ echo "Cleaning old generated files..."
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-PROTO_FILES=$(find "$PROTO_DIR/personhog" -name '*.proto')
+PROTO_FILES=$(find "$PROTO_DIR/personhog/service" "$PROTO_DIR/personhog/types" -name '*.proto')
 
 echo "Generating Python protobuf and gRPC stubs..."
 python -m grpc_tools.protoc \
