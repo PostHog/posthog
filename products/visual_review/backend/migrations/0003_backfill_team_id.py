@@ -12,6 +12,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql="""
+                -- migration-analyzer: safe reason=visual_review tables are new and near-empty
                 UPDATE visual_review_run
                 SET team_id = visual_review_repo.team_id
                 FROM visual_review_repo
