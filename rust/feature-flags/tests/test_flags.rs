@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
+use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
     insert_config_in_hypercache, insert_flags_for_team_in_redis, insert_new_team_in_redis,
@@ -5858,6 +5859,116 @@ async fn test_api_cohort_flag_integration_no_match() -> Result<()> {
     );
     assert_eq!(flag_result["key"], "api-cohort-flag-no-match");
     assert_eq!(flag_result["reason"]["code"], "no_condition_match");
+
+    Ok(())
+}
+
+/// A Realtime cohort without a backfill timestamp should fall through to dynamic
+/// filter evaluation rather than querying the cohort_membership table. This test
+/// inserts such a cohort with person-property filters, a person whose properties
+/// match, and a flag targeting that cohort, then verifies the flag evaluates to true.
+#[tokio::test]
+async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+
+    let distinct_id = "user_realtime_fallback".to_string();
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // Insert a Realtime cohort with person-property filters but NO backfill timestamp.
+    // Without last_backfill_person_properties_at, the cohort should not be treated as
+    // realtime and should instead fall through to dynamic filter evaluation.
+    let cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "plan",
+                        "type": "person",
+                        "value": ["enterprise"],
+                        "operator": "exact",
+                        "negation": false
+                    }
+                ]
+            }]
+        }
+    });
+
+    let cohort = context
+        .insert_cohort_with_type(
+            team.id,
+            Some("Realtime No Backfill".to_string()),
+            cohort_filters,
+            false,
+            Some(CohortType::Realtime),
+            None, // no backfill timestamp
+        )
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "realtime-fallback-flag",
+        "name": "Realtime Fallback Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({ "plan": "enterprise" })),
+        )
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "realtime-fallback-flag": {
+                    "key": "realtime-fallback-flag",
+                    "enabled": true
+                }
+            }
+        })
+    );
 
     Ok(())
 }

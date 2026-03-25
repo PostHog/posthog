@@ -1527,6 +1527,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),
         evaluation_metadata: Some(eval_metadata),
+        cohorts: None,
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
     let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
@@ -1791,6 +1792,7 @@ async fn test_parallel_path_matches_sequential_results() {
             flags: flags.clone(),
             filtered_out_flag_ids: filtered_out_flag_ids.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         },
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),
@@ -1823,6 +1825,7 @@ async fn test_parallel_path_matches_sequential_results() {
             flags,
             filtered_out_flag_ids,
             evaluation_metadata: None,
+            cohorts: None,
         },
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),

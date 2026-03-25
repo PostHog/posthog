@@ -1387,6 +1387,8 @@ class FeatureFlagSerializer(
         self._update_filters(validated_data)
 
         # TRICKY: Update super_groups if key is changing, since the super groups depend on the key name.
+        # Note: feature_enrollment is a boolean and doesn't need updating on key change —
+        # the enrollment property key ($feature_enrollment/{flag_key}) is derived at evaluation time.
         if validated_key and validated_key != old_key:
             filters = validated_data.get("filters", instance.filters) or {}
             validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
@@ -3127,14 +3129,12 @@ class FeatureFlagViewSet(
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
 
-        item_id = kwargs["pk"]
-        if not FeatureFlag.objects_including_soft_deleted.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_ids=[str(item_id)],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )

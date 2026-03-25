@@ -26,15 +26,13 @@ export function withBatchRetry<T, U>(
     step: BatchProcessingStep<T, U>,
     options: BatchRetryOptions = {}
 ): BatchProcessingStep<T, U> {
-    const stepName = step.name || 'anonymousBatchStep'
-
-    return async (values: T[]) => {
+    const wrappedStep: BatchProcessingStep<T, U> = async (values: T[]) => {
         try {
             return await retryIfRetriable(() => step(values), options.tries ?? 3, options.sleepMs ?? 100)
         } catch (error) {
             const isRetriable = (error as any)?.isRetriable
 
-            logger.error('🔥', `Batch step ${stepName} failed`, {
+            logger.error('🔥', `Batch step ${step.name} failed`, {
                 error: error instanceof Error ? error.message : String(error),
                 stack: (error as Error).stack,
                 batchSize: values.length,
@@ -49,4 +47,7 @@ export function withBatchRetry<T, U>(
             throw error
         }
     }
+
+    Object.defineProperty(wrappedStep, 'name', { value: step.name })
+    return wrappedStep
 }
