@@ -3,14 +3,7 @@ import { Message } from 'node-rdkafka'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { logDroppedMessage, produceMessageToDLQ, redirectMessageToTopic } from '../../worker/ingestion/pipeline-helpers'
-import {
-    DLQ_OUTPUT,
-    DlqOutput,
-    INGESTION_WARNINGS_OUTPUT,
-    IngestionWarningsOutput,
-    REDIRECT_OUTPUT,
-    RedirectOutput,
-} from '../common/outputs'
+import { DlqOutput, IngestionWarningsOutput, REDIRECT_OUTPUT, RedirectOutput } from '../common/outputs'
 import { IngestionOutput, IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import {
@@ -39,17 +32,13 @@ export class ResultHandlingPipeline<
     COutput extends { message: Message } = CInput,
 > implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
-    private dlqOutput: IngestionOutput
     private redirectOutput: IngestionOutput
-    private ingestionWarningsOutput: IngestionOutput
 
     constructor(
         private pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
         private config: PipelineConfig
     ) {
-        this.dlqOutput = config.outputs.resolve(DLQ_OUTPUT)
         this.redirectOutput = config.outputs.resolve(REDIRECT_OUTPUT)
-        this.ingestionWarningsOutput = config.outputs.resolve(INGESTION_WARNINGS_OUTPUT)
     }
 
     feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
@@ -99,13 +88,10 @@ export class ResultHandlingPipeline<
 
         if (isDlqResult(result)) {
             const dlqPromise = produceMessageToDLQ(
-                this.dlqOutput.producer,
-                this.ingestionWarningsOutput.producer,
-                this.ingestionWarningsOutput.topic,
+                this.config.outputs,
                 originalMessage,
                 result.error || new Error(result.reason),
-                stepName,
-                this.dlqOutput.topic
+                stepName
             )
             sideEffects.push(dlqPromise)
         } else if (isDropResult(result)) {

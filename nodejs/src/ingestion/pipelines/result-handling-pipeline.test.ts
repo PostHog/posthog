@@ -282,15 +282,7 @@ describe('ResultHandlingPipeline', () => {
             await Promise.all(sideEffects)
 
             // Now verify the mock was called
-            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
-                mockDlqProducer,
-                mockIngestionWarningsProducer,
-                'ingestion_warnings_test',
-                messages[1],
-                testError,
-                'unknown',
-                'test-dlq'
-            )
+            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(config.outputs, messages[1], testError, 'unknown')
         })
 
         it('should send DLQ messages with event and uuid headers', async () => {
@@ -335,17 +327,14 @@ describe('ResultHandlingPipeline', () => {
 
             // Now verify the mock was called
             expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
-                mockDlqProducer,
-                mockIngestionWarningsProducer,
-                'ingestion_warnings_test',
+                config.outputs,
                 messagesWithHeaders[0],
                 testError,
-                'unknown',
-                'test-dlq'
+                'unknown'
             )
 
             // Verify the message passed to DLQ has the correct headers
-            const calledMessage = (mockProduceMessageToDLQ as jest.Mock).mock.calls[0][3]
+            const calledMessage = (mockProduceMessageToDLQ as jest.Mock).mock.calls[0][1]
             expect(calledMessage.headers).toEqual([
                 { distinct_id: Buffer.from('user-123') },
                 { token: Buffer.from('test-token') },
@@ -383,16 +372,13 @@ describe('ResultHandlingPipeline', () => {
 
             // Now verify the mock was called
             expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
-                mockDlqProducer,
-                mockIngestionWarningsProducer,
-                'ingestion_warnings_test',
+                config.outputs,
                 messages[0],
                 expect.any(Error),
-                'unknown',
-                'test-dlq'
+                'unknown'
             )
 
-            const errorArg = (mockProduceMessageToDLQ as jest.Mock).mock.calls[0][4]
+            const errorArg = (mockProduceMessageToDLQ as jest.Mock).mock.calls[0][2]
             expect(errorArg.message).toBe('test dlq reason')
         })
 
@@ -450,13 +436,10 @@ describe('ResultHandlingPipeline', () => {
                 true
             )
             expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
-                mockDlqProducer,
-                mockIngestionWarningsProducer,
-                'ingestion_warnings_test',
+                config.outputs,
                 messages[4],
                 expect.any(Error),
-                'unknown',
-                'test-dlq'
+                'unknown'
             )
         })
     })
@@ -719,14 +702,6 @@ describe('Integration tests', () => {
             await Promise.all(sideEffects)
         }
 
-        expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
-            mockDlqProducer,
-            mockIngestionWarningsProducer,
-            'ingestion_warnings_test',
-            messages[0],
-            expect.any(Error),
-            'unknown',
-            'test-dlq'
-        )
+        expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(config.outputs, messages[0], expect.any(Error), 'unknown')
     })
 })

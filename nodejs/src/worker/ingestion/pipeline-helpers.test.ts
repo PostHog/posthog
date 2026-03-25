@@ -1,32 +1,40 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { emitIngestionWarning } from '../../ingestion/common/ingestion-warnings'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { logDroppedMessage, produceMessageToDLQ, redirectMessageToTopic } from './pipeline-helpers'
-import { produceIngestionWarning } from './utils'
 
 // Mock all dependencies
 jest.mock('../../utils/logger')
 jest.mock('../../utils/posthog')
 
-// Mock only specific functions from utils, not the whole module
-jest.mock('./utils', () => {
-    const actual = jest.requireActual('./utils')
+jest.mock('../../ingestion/common/ingestion-warnings', () => {
+    const actual = jest.requireActual('../../ingestion/common/ingestion-warnings')
     return {
         ...actual,
-        produceIngestionWarning: jest.fn(),
+        emitIngestionWarning: jest.fn(),
     }
 })
 
 const mockLogger = logger as jest.Mocked<typeof logger>
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
-const mockProduceIngestionWarning = produceIngestionWarning as jest.MockedFunction<typeof produceIngestionWarning>
+const mockEmitIngestionWarning = emitIngestionWarning as jest.MockedFunction<typeof emitIngestionWarning>
+
+function createMockOutputs(mockKafkaProducer: KafkaProducerWrapper) {
+    return new IngestionOutputs({
+        [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockKafkaProducer },
+        [INGESTION_WARNINGS_OUTPUT]: { topic: 'test-ingestion-warnings', producer: mockKafkaProducer },
+    })
+}
 
 describe('produceMessageToDLQ', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockOutputs: IngestionOutputs<'dlq' | 'ingestion_warnings'>
     let mockMessage: Message
 
     beforeEach(() => {
@@ -36,6 +44,8 @@ describe('produceMessageToDLQ', () => {
             queueMessages: jest.fn() as any,
             produce: jest.fn() as any,
         } as any
+
+        mockOutputs = createMockOutputs(mockKafkaProducer)
 
         mockMessage = {
             value: Buffer.from('test message'),
@@ -52,23 +62,14 @@ describe('produceMessageToDLQ', () => {
             ],
         } as Message
 
-        mockProduceIngestionWarning.mockResolvedValue(true)
+        mockEmitIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send message to DLQ with proper headers and logging', async () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await produceMessageToDLQ(
-            mockKafkaProducer,
-            mockKafkaProducer,
-            KAFKA_INGESTION_WARNINGS,
-            mockMessage,
-            error,
-            stepName,
-            dlqTopic
-        )
+        await produceMessageToDLQ(mockOutputs, mockMessage, error, stepName)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -79,9 +80,8 @@ describe('produceMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockProduceIngestionWarning).toHaveBeenCalledWith(
-            mockKafkaProducer,
-            KAFKA_INGESTION_WARNINGS,
+        expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
+            mockOutputs,
             42,
             'pipeline_step_dlq',
             {
@@ -95,7 +95,7 @@ describe('produceMessageToDLQ', () => {
         )
 
         expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-            topic: dlqTopic,
+            topic: 'test-dlq',
             value: mockMessage.value,
             key: mockMessage.key,
             headers: expect.objectContaining({
@@ -116,17 +116,8 @@ describe('produceMessageToDLQ', () => {
         const messageWithoutHeaders = { ...mockMessage, headers: undefined } as Message
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await produceMessageToDLQ(
-            mockKafkaProducer,
-            mockKafkaProducer,
-            KAFKA_INGESTION_WARNINGS,
-            messageWithoutHeaders,
-            error,
-            stepName,
-            dlqTopic
-        )
+        await produceMessageToDLQ(mockOutputs, messageWithoutHeaders, error, stepName)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -136,7 +127,7 @@ describe('produceMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockProduceIngestionWarning).not.toHaveBeenCalled()
+        expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
     })
 
     it('should handle different header value types', async () => {
@@ -153,20 +144,11 @@ describe('produceMessageToDLQ', () => {
 
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await produceMessageToDLQ(
-            mockKafkaProducer,
-            mockKafkaProducer,
-            KAFKA_INGESTION_WARNINGS,
-            messageWithMixedHeaders,
-            error,
-            stepName,
-            dlqTopic
-        )
+        await produceMessageToDLQ(mockOutputs, messageWithMixedHeaders, error, stepName)
 
         expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-            topic: dlqTopic,
+            topic: 'test-dlq',
             value: messageWithMixedHeaders.value,
             key: messageWithMixedHeaders.key,
             headers: expect.objectContaining({
@@ -182,17 +164,8 @@ describe('produceMessageToDLQ', () => {
     it('should handle non-Error objects', async () => {
         const error = 'String error'
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await produceMessageToDLQ(
-            mockKafkaProducer,
-            mockKafkaProducer,
-            KAFKA_INGESTION_WARNINGS,
-            mockMessage,
-            error,
-            stepName,
-            dlqTopic
-        )
+        await produceMessageToDLQ(mockOutputs, mockMessage, error, stepName)
 
         expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -206,20 +179,11 @@ describe('produceMessageToDLQ', () => {
     it('should handle DLQ failures gracefully', async () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
         const dlqError = new Error('DLQ failed')
 
         mockKafkaProducer.produce = jest.fn().mockRejectedValue(dlqError)
 
-        await produceMessageToDLQ(
-            mockKafkaProducer,
-            mockKafkaProducer,
-            KAFKA_INGESTION_WARNINGS,
-            mockMessage,
-            error,
-            stepName,
-            dlqTopic
-        )
+        await produceMessageToDLQ(mockOutputs, mockMessage, error, stepName)
 
         expect(mockLogger.error).toHaveBeenCalledWith('Failed to send event to DLQ', {
             step: stepName,
@@ -450,15 +414,9 @@ describe('Header processing utilities', () => {
             produce: jest.fn().mockResolvedValue(undefined),
         } as unknown as KafkaProducerWrapper
 
-        await produceMessageToDLQ(
-            mockKafkaProducer,
-            mockKafkaProducer,
-            KAFKA_INGESTION_WARNINGS,
-            mockMessage,
-            new Error('test'),
-            'test-step',
-            'dlq-topic'
-        )
+        const mockOutputs = createMockOutputs(mockKafkaProducer)
+
+        await produceMessageToDLQ(mockOutputs, mockMessage, new Error('test'), 'test-step')
 
         expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
             expect.objectContaining({
