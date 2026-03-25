@@ -35,6 +35,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
+from posthog.event_usage import groups
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import (
@@ -46,7 +47,6 @@ from posthog.models.integration import (
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
-from posthog.event_usage import groups
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
