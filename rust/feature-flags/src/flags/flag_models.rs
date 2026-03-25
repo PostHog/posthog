@@ -185,7 +185,7 @@ pub struct FeatureFlag {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "evaluation_contexts")]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
@@ -215,7 +215,7 @@ pub struct FeatureFlagRow {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "evaluation_contexts")]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,

@@ -50,7 +50,7 @@ def backfill_condition_aggregation(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1067_add_dashboardtemplate_is_featured"),
+        ("posthog", "1068_remove_deprecated_evaluation_tag_models"),
     ]
 
     operations = [
