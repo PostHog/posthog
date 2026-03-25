@@ -2068,12 +2068,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // instead of reloading defaults (e.g. when switching browser tabs)
                     if (props.id === 'new' && values.featureFlag.id == null) {
                         const flag = values.featureFlag
+                        const defaultGroup = NEW_FLAG.filters.groups[0]
+                        const groups = flag.filters?.groups ?? []
+                        const groupsChanged =
+                            groups.length !== 1 ||
+                            groups[0]?.rollout_percentage !== defaultGroup.rollout_percentage ||
+                            (groups[0]?.properties?.length ?? 0) > 0
+
                         const hasDraftChanges =
                             flag.key !== '' ||
                             flag.name !== '' ||
                             (flag.tags?.length ?? 0) > 0 ||
                             flag.filters?.multivariate != null ||
-                            Object.keys(flag.filters?.payloads ?? {}).length > 0
+                            Object.keys(flag.filters?.payloads ?? {}).length > 0 ||
+                            groupsChanged
                         if (hasDraftChanges) {
                             return
                         }

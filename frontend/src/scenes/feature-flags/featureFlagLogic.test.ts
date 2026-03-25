@@ -74,7 +74,53 @@ describe('featureFlagLogic', () => {
     })
 
     describe('draft preservation on tab switch', () => {
-        it('preserves new flag drafts when the URL is pushed', async () => {
+        it.each([
+            {
+                name: 'key and name filled in',
+                edits: { key: 'my-draft-key', name: 'Draft' },
+                check: (flag: FeatureFlagType) => {
+                    expect(flag.key).toEqual('my-draft-key')
+                    expect(flag.name).toEqual('Draft')
+                },
+            },
+            {
+                name: 'rollout percentage changed',
+                edits: {
+                    filters: {
+                        ...NEW_FLAG.filters,
+                        groups: [{ properties: [], rollout_percentage: 50, variant: null }],
+                    },
+                },
+                check: (flag: FeatureFlagType) => {
+                    expect(flag.filters.groups[0].rollout_percentage).toEqual(50)
+                },
+            },
+            {
+                name: 'property filter added to group',
+                edits: {
+                    filters: {
+                        ...NEW_FLAG.filters,
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'email',
+                                        type: PropertyFilterType.Person,
+                                        value: '@example.com',
+                                        operator: PropertyOperator.IContains,
+                                    },
+                                ],
+                                rollout_percentage: 0,
+                                variant: null,
+                            },
+                        ],
+                    },
+                },
+                check: (flag: FeatureFlagType) => {
+                    expect(flag.filters.groups[0].properties).toHaveLength(1)
+                },
+            },
+        ])('preserves draft when $name', async ({ edits, check }) => {
             const newLogic = featureFlagLogic({ id: 'new' })
             newLogic.mount()
 
@@ -87,20 +133,14 @@ describe('featureFlagLogic', () => {
 
             await expectLogic(newLogic).toFinishAllListeners()
 
-            // Simulate user filling in the form
             await expectLogic(newLogic, () => {
-                newLogic.actions.setFeatureFlag({ ...newLogic.values.featureFlag, key: 'my-draft-key', name: 'Draft' })
-            }).toMatchValues({
-                featureFlag: partial({ key: 'my-draft-key', name: 'Draft' }),
+                newLogic.actions.setFeatureFlag({ ...newLogic.values.featureFlag, ...edits })
             })
 
-            // Simulate tab switch triggering a URL push
             router.actions.push(urls.featureFlag('new'))
             await expectLogic(newLogic).toFinishAllListeners()
 
-            // Draft should be preserved
-            expect(newLogic.values.featureFlag.key).toEqual('my-draft-key')
-            expect(newLogic.values.featureFlag.name).toEqual('Draft')
+            check(newLogic.values.featureFlag)
 
             newLogic.unmount()
         })
@@ -118,7 +158,6 @@ describe('featureFlagLogic', () => {
 
             await expectLogic(newLogic).toFinishAllListeners()
 
-            // Without any user edits, a URL push should trigger a reload
             router.actions.push(urls.featureFlag('new'))
 
             await expectLogic(newLogic).toDispatchActions(['loadFeatureFlag'])
