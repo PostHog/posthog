@@ -287,7 +287,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }
             }
         },
-        '/experiments/:id/:formMode': ({ id, formMode }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id/:formMode': ({ id, formMode }, query, __, currentLocation, previousLocation) => {
             // Ignore routes where id is not a valid experiment identifier (number or 'new')
             // This prevents matching routes like /experiments/shared-metrics/new
             if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {

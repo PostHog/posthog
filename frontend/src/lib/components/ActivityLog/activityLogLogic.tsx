@@ -247,27 +247,30 @@ export const activityLogLogic = kea<activityLogLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        [router.actionTypes.locationChanged]: ({ searchParams }) => {
-            const activityId = searchParams?.activity
-            if (activityId && activityId !== values.highlightedActivityId) {
-                actions.setHighlightedActivityId(activityId)
-            } else if (!activityId && values.highlightedActivityId !== null) {
-                actions.setHighlightedActivityId(null)
-            }
-        },
+    listeners(({ actions }) => ({
         setPage: async (_, breakpoint) => {
             breakpoint()
             actions.fetchActivity()
         },
     })),
     urlToAction(({ values, actions, props }) => {
+        const syncActivityHighlight = (searchParams: Record<string, any>): void => {
+            const activityId = searchParams?.activity
+            if (activityId && activityId !== values.highlightedActivityId) {
+                actions.setHighlightedActivityId(activityId)
+            } else if (!activityId && values.highlightedActivityId !== null) {
+                actions.setHighlightedActivityId(null)
+            }
+        }
+
         const onPageChange = (
             searchParams: Record<string, any>,
             hashParams: Record<string, any>,
             pageScope: ActivityScope,
             forceUsePageParam?: boolean
         ): void => {
+            syncActivityHighlight(searchParams)
+
             const pageInURL = searchParams['page']
             const firstScope = Array.isArray(props.scope) ? props.scope[0] : props.scope
 
@@ -303,6 +306,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
+            '*': (_, searchParams) => syncActivityHighlight(searchParams),
         }
     }),
     events(({ actions, values }) => ({
