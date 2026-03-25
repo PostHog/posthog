@@ -189,6 +189,26 @@ mod tests {
     }
 
     #[test]
+    fn test_feature_enrollment_requires_db_properties_when_override_missing() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.feature_enrollment = Some(true);
+
+        assert!(filters.requires_db_properties(&HashMap::new(), "my-flag"));
+    }
+
+    #[test]
+    fn test_feature_enrollment_skips_db_when_override_present() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.feature_enrollment = Some(true);
+
+        let overrides = HashMap::from([(
+            "$feature_enrollment/my-flag".to_string(),
+            Value::String("true".to_string()),
+        )]);
+        assert!(!filters.requires_db_properties(&overrides, "my-flag"));
+    }
+
+    #[test]
     fn test_does_not_require_db_properties_when_super_groups_empty() {
         let mut filters = create_simple_flag_filters(vec![]);
         filters.super_groups = Some(vec![]);

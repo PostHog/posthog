@@ -8810,8 +8810,15 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case("true", true, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case("false", false, FeatureFlagMatchReason::SuperConditionValue)]
     #[tokio::test]
-    async fn test_feature_enrollment_matches_enrolled_person() {
+    async fn test_feature_enrollment_match_by_property_value(
+        #[case] property_value: &str,
+        #[case] expected_match: bool,
+        #[case] expected_reason: FeatureFlagMatchReason,
+    ) {
         // New feature_enrollment format: flag has `feature_enrollment: true` instead of super_groups.
         // The enrollment property key is derived as `$feature_enrollment/{flag_key}`.
         let context = TestContext::new(None).await;
@@ -8846,34 +8853,79 @@ mod tests {
             None,
         );
 
-        // Person enrolled in the feature
         context
             .insert_person(
                 team.id,
-                "enrolled_user".to_string(),
-                Some(json!({"$feature_enrollment/my-feature": "true"})),
+                "test_user".to_string(),
+                Some(json!({"$feature_enrollment/my-feature": property_value})),
             )
             .await
             .unwrap();
 
-        // Person not enrolled
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+
+        assert_eq!(result.matches, expected_match);
+        assert_eq!(result.reason, expected_reason);
+    }
+
+    #[tokio::test]
+    async fn test_feature_enrollment_no_property_falls_through() {
+        // Person without the enrollment property falls through to regular conditions.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Feature Enrollment Flag".to_string()),
+            Some("my-feature".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: Some(true),
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
         context
             .insert_person(team.id, "not_enrolled_user".to_string(), None)
             .await
             .unwrap();
 
         let router = context.create_postgres_router();
-        let mut matcher_enrolled = FeatureFlagMatcher::new(
-            "enrolled_user".to_string(),
-            None,
-            team.id,
-            router.clone(),
-            cohort_cache.clone(),
-            empty_group_type_cache(),
-            None,
-        );
-
-        let mut matcher_not_enrolled = FeatureFlagMatcher::new(
+        let mut matcher = FeatureFlagMatcher::new(
             "not_enrolled_user".to_string(),
             None,
             team.id,
@@ -8883,36 +8935,16 @@ mod tests {
             None,
         );
 
-        matcher_enrolled
+        matcher
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
-        matcher_not_enrolled
-            .prepare_flag_evaluation_state(&[&flag])
-            .await
-            .unwrap();
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
 
-        let result_enrolled = matcher_enrolled
-            .get_match(&flag, None, None, &None)
-            .unwrap();
-        let result_not_enrolled = matcher_not_enrolled
-            .get_match(&flag, None, None, &None)
-            .unwrap();
-
-        // Enrolled person should match via feature enrollment
-        assert!(result_enrolled.matches);
-        assert_eq!(
-            result_enrolled.reason,
-            FeatureFlagMatchReason::SuperConditionValue
-        );
-
-        // Non-enrolled person falls through to regular conditions (0% rollout → no match)
-        assert!(!result_not_enrolled.matches);
-        assert_eq!(
-            result_not_enrolled.reason,
-            FeatureFlagMatchReason::OutOfRolloutBound
-        );
+        // Falls through to regular conditions (0% rollout → no match)
+        assert!(!result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::OutOfRolloutBound);
     }
 
     #[tokio::test]
@@ -8996,73 +9028,6 @@ mod tests {
 
         // Should match via feature_enrollment (not super_groups which uses wrong_key)
         assert!(result.matches);
-        assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
-    }
-
-    #[tokio::test]
-    async fn test_feature_enrollment_false_value_does_not_match() {
-        // Person has the enrollment property set to "false" — should not match
-        let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(
-            context.non_persons_reader.clone(),
-            None,
-            None,
-        ));
-        let team = context.insert_new_team(None).await.unwrap();
-
-        let flag = create_test_flag(
-            Some(1),
-            Some(team.id),
-            Some("Feature Enrollment Flag".to_string()),
-            Some("my-feature".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: None,
-                    rollout_percentage: Some(0.0),
-                    variant: None,
-                    ..Default::default()
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                feature_enrollment: Some(true),
-                holdout: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        context
-            .insert_person(
-                team.id,
-                "unenrolled_user".to_string(),
-                Some(json!({"$feature_enrollment/my-feature": "false"})),
-            )
-            .await
-            .unwrap();
-
-        let router = context.create_postgres_router();
-        let mut matcher = FeatureFlagMatcher::new(
-            "unenrolled_user".to_string(),
-            None,
-            team.id,
-            router,
-            cohort_cache.clone(),
-            empty_group_type_cache(),
-            None,
-        );
-
-        matcher
-            .prepare_flag_evaluation_state(&[&flag])
-            .await
-            .unwrap();
-
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
-
-        // Property exists but value is "false" — should not match
-        assert!(!result.matches);
         assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
     }
 
