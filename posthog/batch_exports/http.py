@@ -1360,7 +1360,9 @@ class BatchExportBackfillViewSet(
         try:
             batch_export = BatchExport.objects.get(
                 id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
-            )
+batch_export = BatchExport.objects.select_related("destination").get(
+id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
+)
         except BatchExport.DoesNotExist:
             raise NotFound("BatchExport not found.")
 
