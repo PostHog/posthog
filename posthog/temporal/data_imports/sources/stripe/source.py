@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
     WebhookCreationResult,
+    WebhookDeletionResult,
     WebhookSource,
 )
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -44,6 +45,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     StripeResumeConfig,
     create_webhook,
+    delete_webhook,
     get_external_webhook_info,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
@@ -258,6 +260,9 @@ Once created, copy the **Signing secret** from the webhook details page and add 
 
     def get_external_webhook_info(self, config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
         return get_external_webhook_info(config, webhook_url)
+
+    def delete_webhook(self, config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
+        return delete_webhook(config, webhook_url)
 
     def source_for_pipeline(
         self,

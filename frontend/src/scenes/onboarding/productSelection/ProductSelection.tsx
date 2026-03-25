@@ -1,12 +1,10 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconArrowRight, IconChevronDown, IconCursor, IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
@@ -38,26 +36,14 @@ function BrowsingHistoryBanner(): JSX.Element | null {
 }
 
 function ChoosePathStep(): JSX.Element {
-    const {
-        useCases,
-        aiDescription,
-        aiRecommendationLoading,
-        aiRecommendationError,
-        hasBrowsingHistory,
-        browsingHistoryLabels,
-    } = useValues(productSelectionLogic)
-    const { selectUseCase, setAiDescription, submitAiRecommendation, selectPickMyself } =
-        useActions(productSelectionLogic)
+    const { useCases } = useValues(productSelectionLogic)
+    const { selectUseCase, selectPickMyself } = useActions(productSelectionLogic)
 
-    const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
     const headingCopy = getFeatureFlagPayload('onboarding-product-selection-heading') as
         | { heading?: string; subheading?: string }
         | undefined
     const heading = headingCopy?.heading ?? 'What do you want to do with PostHog?'
-    const defaultSubheading = aiRecommendationsEnabled
-        ? "Describe your goals and we'll recommend the right products for you"
-        : 'Pick a goal to get started with the right products'
-    const subheading = headingCopy?.subheading ?? defaultSubheading
+    const subheading = headingCopy?.subheading ?? 'Pick a goal to get started with the right products'
 
     return (
         <div className="max-w-6xl w-full">
@@ -67,73 +53,14 @@ function ChoosePathStep(): JSX.Element {
             <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
             <p className="text-center text-muted mb-8">{subheading}</p>
 
-            {/* AI Input - Full width and prominent (behind feature flag) */}
-            {aiRecommendationsEnabled && (
-                <>
-                    <div className="mb-8">
-                        <LemonTextArea
-                            placeholder="e.g., I want to understand why users drop off during checkout and run experiments to improve conversion..."
-                            value={aiDescription}
-                            onChange={(value) => setAiDescription(value)}
-                            onPressEnter={() => {
-                                if (aiDescription.trim()) {
-                                    submitAiRecommendation()
-                                }
-                            }}
-                            rows={3}
-                        />
-                        <div className="flex items-center justify-between mt-3">
-                            <p className="text-muted text-xs mb-0">
-                                {hasBrowsingHistory && (
-                                    <>
-                                        We'll also consider your interest in{' '}
-                                        <em>{browsingHistoryLabels.slice(0, 2).join(' and ')}</em> based on your docs
-                                        browsing history.
-                                    </>
-                                )}
-                            </p>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => submitAiRecommendation()}
-                                loading={aiRecommendationLoading}
-                                disabledReason={
-                                    !aiDescription.trim() ? 'Please describe what you want to achieve' : undefined
-                                }
-                                icon={<IconSparkles />}
-                                data-attr="ai-recommend-products"
-                            >
-                                Get recommendations
-                            </LemonButton>
-                        </div>
-                    </div>
-
-                    {/* Error banner */}
-                    {aiRecommendationError && (
-                        <LemonBanner type="error" className="mb-4">
-                            Failed to get recommendations. Please try again or pick a goal below.
-                        </LemonBanner>
-                    )}
-
-                    {/* Divider */}
-                    <div className="flex items-center gap-4 mb-8">
-                        <div className="flex-1 border-t border-border" />
-                        <span className="text-muted text-sm">or pick a common goal</span>
-                        <div className="flex-1 border-t border-border" />
-                    </div>
-                </>
-            )}
-
             {/* Use cases grid - 2 rows x 3 columns */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {useCases.map((useCase: UseCaseDefinition) => (
                     <LemonCard
                         key={useCase.key}
-                        className={clsx(
-                            'p-4',
-                            aiRecommendationLoading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
-                        )}
-                        onClick={() => !aiRecommendationLoading && selectUseCase(useCase.key)}
-                        hoverEffect={!aiRecommendationLoading}
+                        className="p-4 cursor-pointer"
+                        onClick={() => selectUseCase(useCase.key)}
+                        hoverEffect
                         data-attr={`use-case-${useCase.key}`}
                     >
                         <div className="flex flex-col items-center text-center gap-3">
@@ -153,12 +80,9 @@ function ChoosePathStep(): JSX.Element {
 
                 {/* Pick myself option */}
                 <LemonCard
-                    className={clsx(
-                        'p-4',
-                        aiRecommendationLoading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
-                    )}
-                    onClick={() => !aiRecommendationLoading && selectPickMyself()}
-                    hoverEffect={!aiRecommendationLoading}
+                    className="p-4 cursor-pointer"
+                    onClick={() => selectPickMyself()}
+                    hoverEffect
                     data-attr="pick-myself-card"
                 >
                     <div className="flex flex-col items-center text-center gap-3">
@@ -220,7 +144,6 @@ function ProductSelectionStep(): JSX.Element {
         showAllProducts,
         canContinue,
         recommendationSourceLabel,
-        aiRecommendation,
         recommendationSource,
     } = useValues(productSelectionLogic)
     const { toggleProduct, setFirstProductOnboarding, handleStartOnboarding, setShowAllProducts, setStep } =
@@ -243,13 +166,6 @@ function ProductSelectionStep(): JSX.Element {
                     <>Select all that apply — you can pick more than one!</>
                 )}
             </p>
-
-            {/* AI reasoning banner */}
-            {recommendationSource === 'ai' && aiRecommendation?.reasoning && (
-                <LemonBanner type="ai" className="mb-6">
-                    {aiRecommendation.reasoning}
-                </LemonBanner>
-            )}
 
             {/* Browsing history banner */}
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
