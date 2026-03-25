@@ -85,6 +85,10 @@
             "items": {
                 "type": "string"
             }
+        },
+        "is_featured": {
+            "description": "Whether this template is manually marked as featured in the UI",
+            "type": "boolean"
         }
     }
 }

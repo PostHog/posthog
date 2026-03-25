@@ -83,7 +83,7 @@ This is the feature flag used on the endpoints and in the temporal worker.
 
 ## 5. Temporal worker
 
-Temporal and the temporal-django-worker start automatically via mprocs when you run `./bin/start`.
+Temporal and the temporal-django-worker start automatically via phrocs when you run `./bin/start`.
 
 The `process-task` workflow defined in `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox, starts an agent inside it, and waits for the agent to finish. The workflow orchestrates these activities:
 

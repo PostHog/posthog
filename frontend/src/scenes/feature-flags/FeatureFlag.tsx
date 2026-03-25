@@ -374,7 +374,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonBanner type="warning">
                                     This feature flag is linked to{' '}
                                     <Link target="_blank" to={urls.experiment(featureFlag.experiment_set[0])}>
-                                        {experiment?.name || `experiment ${featureFlag.experiment_set[0]}`}
+                                        {experiment?.name ||
+                                            featureFlag.experiment_set_metadata?.[0]?.name ||
+                                            `experiment ${featureFlag.experiment_set[0]}`}
                                     </Link>
                                     . Make changes from the experiment page unless you need advanced flag settings.
                                 </LemonBanner>

@@ -135,7 +135,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response(response)
 
-    @action(methods=["PATCH"], detail=False, url_path="/")
+    @action(
+        methods=["PATCH"],
+        detail=False,
+        url_path="/",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
         license = get_cached_instance_license()
@@ -186,7 +191,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
-    @action(methods=["POST"], detail=False)
+    @action(
+        methods=["POST"],
+        detail=False,
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
@@ -196,7 +205,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     class DeactivateSerializer(serializers.Serializer):
         products = serializers.CharField()
 
-    @action(methods=["POST"], detail=False)
+    @action(
+        methods=["POST"],
+        detail=False,
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
 
@@ -225,14 +238,23 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
-    @action(methods=["POST"], detail=False, url_path="subscription/switch-plan")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="subscription/switch-plan",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def subscription_switch_plan(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
         res = billing_manager.switch_plan(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=False)
+    @action(
+        methods=["GET"],
+        detail=False,
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -302,7 +324,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.credits_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="credits/purchase")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="credits/purchase",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -317,14 +344,24 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.purchase_credits(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="trials/activate")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="trials/activate",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
         res = billing_manager.activate_trial(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="trials/cancel")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="trials/cancel",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def cancel_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
@@ -390,7 +427,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         BillingManager(license).update_license_details(data)
         return Response({"success": True})
 
-    @action(methods=["POST"], detail=False, url_path="startups/apply")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="startups/apply",
+        permission_classes=[permissions.IsAuthenticated],
+    )
     def apply_startup_program(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         user = self.request.user
         if not isinstance(user, AbstractUser):
@@ -404,8 +446,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not organization:
             raise ValidationError({"organization_id": "Organization not found."})
 
-        membership = OrganizationMembership.objects.get(user=user, organization=organization)
-        if membership.level < OrganizationMembership.Level.ADMIN:
+        if not OrganizationMembership.objects.filter(
+            user=user, organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists():
             raise PermissionDenied("You need to be an organization admin or owner to apply for the startup program")
 
         billing_manager = self.get_billing_manager()
@@ -439,21 +482,14 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-    @action(methods=["POST"], detail=False, url_path="coupons/claim")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="coupons/claim",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        user = self.request.user
-        if not isinstance(user, AbstractUser):
-            raise PermissionDenied("You must be logged in to claim a coupon")
-
         organization = self._get_org_required()
-
-        try:
-            membership = OrganizationMembership.objects.get(user=user, organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise PermissionDenied("You need to be a member of this organization to claim coupons")
-
-        if membership.level < OrganizationMembership.Level.ADMIN:
-            raise PermissionDenied("You need to be an organization admin or owner to claim coupons")
 
         code = request.data.get("code")
         if not code:

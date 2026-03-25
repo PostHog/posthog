@@ -13,6 +13,7 @@ import {
     NuxtInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     ShopifyInstallation,
     SvelteInstallation,
@@ -26,11 +27,13 @@ import {
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations for web analytics
 const WEB_SNIPPETS = {
     WebFinalSteps,
+    ...JS_WEB_SNIPPETS,
 }
 
 const MOBILE_SNIPPETS = {
@@ -78,6 +81,10 @@ const WebAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: WEB_SNIPPETS,
     wizardIntegrationName: 'Nuxt',
+})
+const WebAnalyticsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: WEB_SNIPPETS,
 })
 const WebAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
@@ -152,6 +159,7 @@ export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: WebAnalyticsNextJSInstructionsWrapper,
     [SDKKey.NUXT_JS]: WebAnalyticsNuxtJSInstructionsWrapper,
     [SDKKey.REACT]: WebAnalyticsReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: WebAnalyticsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: WebAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.SHOPIFY]: WebAnalyticsShopifyInstructionsWrapper,
     [SDKKey.SVELTE]: WebAnalyticsSvelteInstructionsWrapper,

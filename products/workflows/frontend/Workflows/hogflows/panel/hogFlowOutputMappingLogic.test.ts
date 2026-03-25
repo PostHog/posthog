@@ -94,6 +94,7 @@ describe('hogFlowOutputMappingLogic', () => {
                         updated_at: '',
                     },
                     '/api/environments/:team_id/messaging_categories/': { results: [], count: 0 },
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
                 },
             })
             initKeaTests()
