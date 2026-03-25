@@ -61,6 +61,8 @@ You typically run phrocs via `hogli dev` rather than directly.
 | `r`    | Restart selected process                        |
 | `s`    | Stop selected process                           |
 | `c`    | Enter copy mode                                 |
+| `i`    | Show process info in pager                      |
+| `o`    | Sort processes by <name/CPU/RAM/status>         |
 | `/`    | Enter search mode                               |
 | `esc`  | Exit copy and search modes                      |
 | `?`    | Toggle full help                                |

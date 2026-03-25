@@ -1,6 +1,7 @@
 import './AggregationColumn.scss'
 
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
@@ -18,7 +19,7 @@ import { TrendsFilterType } from '~/types'
 
 import { CalcColumnState } from '../InsightsTable'
 
-const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
+export const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
     average: 'Average',
     median: 'Median',
@@ -71,6 +72,25 @@ type AggregationColumnItemProps = {
     trendsFilter: TrendsFilter | null | undefined
 }
 
+export function getAggregatedValue(
+    item: IndexedTrendResult,
+    aggregation: CalcColumnState,
+    isNonTimeSeriesDisplay: boolean
+): number | undefined {
+    if (aggregation === 'total' || isNonTimeSeriesDisplay) {
+        let value = item.count ?? item.aggregated_value
+        if (item.aggregated_value > item.count || (item.aggregated_value < 0 && item.aggregated_value < item.count)) {
+            value = item.aggregated_value
+        }
+        return value
+    } else if (aggregation === 'average') {
+        return average(item.data)
+    } else if (aggregation === 'median') {
+        return median(item.data)
+    }
+    return undefined
+}
+
 export function AggregationColumnItem({
     item,
     isNonTimeSeriesDisplay,
@@ -80,29 +100,17 @@ export function AggregationColumnItem({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    let value: number | undefined = undefined
-    if (aggregation === 'total' || isNonTimeSeriesDisplay) {
-        value = item.count ?? item.aggregated_value
-        if (item.aggregated_value > item.count || (item.aggregated_value < 0 && item.aggregated_value < item.count)) {
-            value = item.aggregated_value
-        }
-    } else if (aggregation === 'average') {
-        value = average(item.data)
-    } else if (aggregation === 'median') {
-        value = median(item.data)
-    }
+    const value = getAggregatedValue(item, aggregation, isNonTimeSeriesDisplay)
 
-    return (
-        <span>
-            {value !== undefined
-                ? formatAggregationValue(
-                      item.action?.math_property,
-                      value,
-                      (value) =>
-                          formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
-                      formatPropertyValueForDisplay
-                  )
-                : 'Unknown'}
-        </span>
-    )
+    const formattedValue: ReactNode =
+        value !== undefined
+            ? formatAggregationValue(
+                  item.action?.math_property,
+                  value,
+                  (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
+                  formatPropertyValueForDisplay
+              )
+            : 'Unknown'
+
+    return <span>{formattedValue}</span>
 }

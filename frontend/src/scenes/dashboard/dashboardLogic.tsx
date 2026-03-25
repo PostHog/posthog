@@ -66,7 +66,9 @@ import {
     DashboardPlacement,
     DashboardTemplateEditorType,
     DashboardTile,
+    DashboardTileBasicType,
     DashboardType,
+    DashboardWidgetType,
     InsightColor,
     InsightModel,
     InsightShortId,
@@ -77,6 +79,7 @@ import {
 } from '~/types'
 
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
+import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
@@ -93,6 +96,7 @@ import {
     combineDashboardFilters,
     encodeURLFilters,
     encodeURLVariables,
+    getDashboardWidgetType,
     getInsightWithRetry,
     layoutsByTile,
     parseURLFilters,
@@ -305,6 +309,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             toDashboard,
             toDashboardName,
             allowUndo: allowUndo === undefined ? true : allowUndo,
+        }),
+        copyToDashboard: (
+            tile: DashboardTile<QueryBasedInsightModel>,
+            fromDashboard: number,
+            toDashboard: number,
+            toDashboardName: string
+        ) => ({
+            tile,
+            fromDashboard,
+            toDashboard,
+            toDashboardName,
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         setButtonTileId: (buttonTileId: number | 'new' | null) => ({ buttonTileId }),
@@ -544,6 +559,71 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                     )
                     return getQueryBasedDashboard(dashboard)
+                },
+                copyToDashboard: async ({ tile, fromDashboard, toDashboard, toDashboardName }) => {
+                    if (!tile?.insight && !tile?.text && !tile?.button_tile) {
+                        return values.dashboard
+                    }
+                    if (tile.button_tile && !tile.insight && !tile.text) {
+                        lemonToast.error('Copying button tiles to another dashboard is not supported')
+                        return values.dashboard
+                    }
+                    if (fromDashboard === toDashboard) {
+                        return values.dashboard
+                    }
+
+                    if (fromDashboard !== props.id) {
+                        return values.dashboard
+                    }
+
+                    const widgetType = getDashboardWidgetType(tile)
+
+                    const copyToastLabel: Record<DashboardWidgetType, string> = {
+                        insight: 'Insight',
+                        text: 'Text card',
+                        button_tile: 'Button',
+                    }
+                    const copyErrorPrefix: Record<DashboardWidgetType, string> = {
+                        insight: 'Could not copy insight',
+                        text: 'Could not copy text card',
+                        button_tile: 'Could not copy button tile',
+                    }
+
+                    try {
+                        await api.create(
+                            `api/environments/${teamLogic.values.currentTeamId}/dashboards/${toDashboard}/copy_tile`,
+                            { fromDashboardId: fromDashboard, tileId: tile.id }
+                        )
+
+                        if (tile.insight) {
+                            const insight = tile.insight
+                            const nextDashboards = insight.dashboards?.includes(toDashboard)
+                                ? insight.dashboards
+                                : [...(insight.dashboards || []), toDashboard]
+                            dashboardsModel.actions.updateDashboardInsight({ ...insight, dashboards: nextDashboards }, [
+                                toDashboard,
+                            ])
+                        }
+
+                        eventUsageLogic.actions.reportCopiedDashboardTileToDashboard(
+                            fromDashboard,
+                            toDashboard,
+                            widgetType
+                        )
+
+                        lemonToast.success(
+                            <>
+                                {copyToastLabel[widgetType]} copied to{' '}
+                                <b>
+                                    <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
+                                </b>
+                            </>
+                        )
+                    } catch (e) {
+                        lemonToast.error(`${copyErrorPrefix[widgetType]} to dashboard: ${String(e)}`)
+                    }
+
+                    return values.dashboard
                 },
             },
         ],
@@ -1161,10 +1241,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             Boolean(n.query) && Boolean(n.title)
                     )
 
-                const usedVariables = dataVizNodes
-                    .map((n) => n.query.source.variables)
-                    .filter((n): n is Record<string, HogQLVariable> => Boolean(n))
-                    .flatMap((n) => Object.values(n))
+                const usedVariables = dataVizNodes.flatMap((n) =>
+                    filterVariablesReferencedInQuery(
+                        n.query.source.query,
+                        Object.values(n.query.source.variables ?? {})
+                    )
+                )
                 const uniqueVariables = uniqBy(usedVariables, (n) => n.variableId)
 
                 const effectiveVariables = uniqueVariables
@@ -1204,12 +1286,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // get insights using variable
                         const insightsUsingVariable = dataVizNodes
                             .filter((n) => {
-                                const vars = n.query.source.variables
-                                if (!vars) {
-                                    return false
-                                }
-
-                                return !!vars[v.variableId]
+                                return filterVariablesReferencedInQuery(
+                                    n.query.source.query,
+                                    Object.values(n.query.source.variables ?? {})
+                                ).some((variable) => variable.variableId === v.variableId)
                             })
                             .map((n) => n.title)
 
@@ -1779,25 +1859,55 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
-            const updatedTile = { ...payload.tile }
-            if (updatedTile.insight !== undefined && updatedTile.insight !== null) {
-                updatedTile.insight.dashboards =
-                    payload.tile.insight?.dashboards?.filter((d) => d !== payload.fromDashboard) || []
-                updatedTile.insight.dashboards.push(payload.toDashboard)
-            }
-            if (updatedTile) {
-                dashboardsModel.actions.tileMovedToDashboard(updatedTile, payload.toDashboard)
+            const { tile, fromDashboard, toDashboard, toDashboardName } = payload
+            const updatedTile: DashboardTile<QueryBasedInsightModel> = { ...tile }
 
-                lemonToast.success(
-                    <>
-                        Insight moved to{' '}
-                        <b>
-                            <Link to={urls.dashboard(payload?.toDashboard)}>{payload?.toDashboardName}</Link>
-                        </b>
-                    </>
-                    // TODO implement undo for move to dashboard
-                )
+            const nextTilePlacement = (
+                existing: DashboardTileBasicType[] | null | undefined
+            ): DashboardTileBasicType[] => [
+                ...(existing || []).filter((t) => t.dashboard_id !== fromDashboard),
+                { id: tile.id, dashboard_id: toDashboard },
+            ]
+
+            if (updatedTile.insight) {
+                const ins = updatedTile.insight
+                const nextDashboardTiles = nextTilePlacement(ins.dashboard_tiles ?? undefined)
+                const nextDashboards = [...(ins.dashboards?.filter((d) => d !== fromDashboard) || []), toDashboard]
+                updatedTile.insight = {
+                    ...ins,
+                    dashboards: nextDashboards,
+                    dashboard_tiles: nextDashboardTiles,
+                }
+                dashboardsModel.actions.updateDashboardInsight(updatedTile.insight, [toDashboard])
             }
+
+            if (updatedTile.text) {
+                const txt = updatedTile.text
+                updatedTile.text = {
+                    ...txt,
+                    dashboard_tiles: nextTilePlacement(txt.dashboard_tiles ?? undefined),
+                }
+            }
+
+            if (updatedTile.button_tile) {
+                const btn = updatedTile.button_tile
+                updatedTile.button_tile = {
+                    ...btn,
+                    dashboard_tiles: nextTilePlacement(btn.dashboard_tiles ?? undefined),
+                }
+            }
+
+            dashboardsModel.actions.tileMovedToDashboard(updatedTile, toDashboard)
+
+            lemonToast.success(
+                <>
+                    Insight moved to{' '}
+                    <b>
+                        <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
+                    </b>
+                </>
+                // TODO implement undo for move to dashboard
+            )
         },
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {

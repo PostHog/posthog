@@ -1,20 +1,33 @@
 """Celery tasks for the conversations product."""
 
+import html as html_mod
+from email.utils import formataddr, make_msgid
 from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
+from django.core import mail
 from django.core.cache import cache
 
 import requests
 import structlog
 from celery import shared_task
 
+from posthog.models.comment import Comment as CommentModel
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
 
-from products.conversations.backend.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
+from products.conversations.backend.formatting import (
+    extract_images_from_rich_content,
+    rich_content_to_html,
+    rich_content_to_markdown,
+    rich_content_to_slack_payload,
+)
+from products.conversations.backend.mailgun import get_smtp_connection
+from products.conversations.backend.models import EmailMessageMapping, TeamConversationsEmailConfig
+from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.slack import get_slack_client
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
@@ -356,3 +369,117 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
         bytes_size=len(payload),
     )
     return payload
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=10)
+def send_email_reply(
+    ticket_id: str,
+    team_id: int,
+    comment_id: str,
+    content: str,
+    rich_content: dict | None,
+    author_name: str,
+) -> None:
+    """Send a team member's reply to the customer via SMTP email."""
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning("email_reply_team_not_found", team_id=team_id)
+        return
+
+    try:
+        config = TeamConversationsEmailConfig.objects.get(team=team)
+    except TeamConversationsEmailConfig.DoesNotExist:
+        logger.warning("email_reply_no_config", team_id=team_id)
+        return
+
+    if not config.domain_verified:
+        logger.warning("email_reply_domain_not_verified", team_id=team_id, domain=config.domain)
+        return
+
+    try:
+        ticket = Ticket.objects.get(id=ticket_id, team=team)
+    except Ticket.DoesNotExist:
+        logger.warning("email_reply_ticket_not_found", ticket_id=ticket_id)
+        return
+
+    if not ticket.email_from:
+        logger.warning("email_reply_no_customer_email", ticket_id=ticket_id)
+        return
+
+    # Build threading headers from the latest inbound message on this ticket
+    latest_mapping = EmailMessageMapping.objects.filter(ticket=ticket, team=team).order_by("-created_at").first()
+    headers: dict[str, str] = {}
+    if latest_mapping:
+        headers["In-Reply-To"] = latest_mapping.message_id
+        # Collect all message IDs for References header
+        all_ids = list(
+            EmailMessageMapping.objects.filter(ticket=ticket, team=team)
+            .order_by("created_at")
+            .values_list("message_id", flat=True)
+        )
+        if all_ids:
+            headers["References"] = " ".join(all_ids)
+
+    # Generate a new Message-ID for the outbound email
+    inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or config.domain
+    outbound_message_id = make_msgid(domain=inbound_domain)
+    headers["Message-ID"] = outbound_message_id
+
+    # Build email body
+    if rich_content:
+        html_body = rich_content_to_html(rich_content)
+        txt_body = rich_content_to_markdown(rich_content, include_images=False)
+    else:
+        txt_body = content
+        html_body = f"<p>{html_mod.escape(content)}</p>"
+
+    subject = ticket.email_subject or "Re: Your support request"
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+
+    from_email = formataddr((config.from_name or author_name, config.from_email))
+
+    email_message = mail.EmailMultiAlternatives(
+        subject=subject,
+        body=txt_body,
+        from_email=from_email,
+        to=[ticket.email_from],
+        headers=headers,
+    )
+    email_message.attach_alternative(html_body, "text/html")
+
+    connection = None
+    try:
+        connection = get_smtp_connection()
+        connection.open()
+        connection.send_messages([email_message])
+    except Exception as e:
+        logger.exception("email_reply_send_failed", ticket_id=ticket_id, error=str(e))
+        raise cast(Any, send_email_reply).retry(exc=e)
+    finally:
+        if connection:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    # Record the outbound message mapping for threading (best-effort, don't retry on failure)
+    try:
+        comment_obj = CommentModel.objects.get(id=comment_id, team=team)
+        EmailMessageMapping.objects.create(
+            message_id=outbound_message_id,
+            team=team,
+            ticket=ticket,
+            comment=comment_obj,
+        )
+    except Exception:
+        logger.exception("email_reply_mapping_failed", ticket_id=ticket_id, message_id=outbound_message_id)
+
+    logger.info(
+        "email_reply_sent",
+        ticket_id=ticket_id,
+        team_id=team_id,
+        to=ticket.email_from,
+        message_id=outbound_message_id,
+    )

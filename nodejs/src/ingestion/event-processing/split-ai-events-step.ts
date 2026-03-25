@@ -1,8 +1,8 @@
 import { ProcessedEvent } from '../../types'
+import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '../analytics/outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventToEmit } from './emit-event-step'
-import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from './ingestion-outputs'
 
 const LARGE_AI_PROPERTIES = new Set([
     '$ai_input',

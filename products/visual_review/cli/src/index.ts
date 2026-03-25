@@ -37,12 +37,11 @@ program
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         try {
-            const exitCode = await runSubmit(options)
-            process.exit(exitCode)
+            await runSubmit(options)
         } catch (error) {
             console.error('Error:', error)
-            process.exit(1)
         }
+        process.exit(0)
     })
 
 // --- verify command ---
@@ -262,10 +261,12 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // 3. Read baseline hashes (signed format — sent as-is, backend verifies)
     const baselinePath = resolve(options.baseline)
     const baselineHashes = readBaselineHashes(baselinePath)
+    log(`Loaded ${Object.keys(baselineHashes).length} baseline hashes from ${baselinePath}`)
 
     // 4. Create run with manifest
     const branch = options.branch ?? getCurrentBranch()
     const commit = options.commit ?? getCurrentCommit()
+    log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
 
     const result = await client.createRun({
         repoId: repo,
@@ -283,28 +284,42 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     })
 
     log(`Run created: ${result.run_id}`)
+    log(
+        `Backend requested ${result.uploads.length} upload(s), ${snapshots.length - result.uploads.length} already exist`
+    )
 
-    // 5. Upload missing artifacts
+    // 5. Upload missing artifacts (10 concurrent uploads)
     if (result.uploads.length > 0) {
-        log(`Uploading ${result.uploads.length} artifacts...`)
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
+        const CONCURRENCY = 10
+        let uploaded = 0
+        let failed = 0
 
-        for (const upload of result.uploads) {
+        const uploadOne = async (upload: (typeof result.uploads)[number]): Promise<void> => {
             const snapshot = hashToSnapshot.get(upload.content_hash)
             if (!snapshot) {
-                continue
+                return
             }
-
             try {
                 await client.uploadToS3(upload, snapshot.data)
+                uploaded++
             } catch (error) {
-                console.error(`  ✗ Upload failed: ${error}`)
+                failed++
+                console.error(`  upload failed ${snapshot.identifier}: ${error}`)
             }
         }
+
+        // Process in batches of CONCURRENCY
+        for (let i = 0; i < result.uploads.length; i += CONCURRENCY) {
+            const batch = result.uploads.slice(i, i + CONCURRENCY)
+            await Promise.all(batch.map(uploadOne))
+        }
+        log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
     }
 
     // 6. Complete run
     let run = await client.completeRun(result.run_id)
+    log(`Run status after complete: ${run.status}`)
 
     // 7. Wait for diff processing if still running
     if (run.status !== 'completed' && run.status !== 'failed') {
@@ -324,17 +339,17 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         const approveResult = await client.autoApproveRun(result.run_id)
         const baselinePath = resolve(options.baseline)
         writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
-        log(`Baseline written to ${baselinePath}`)
+        log(`Baseline written to ${baselinePath} (${approveResult.baseline_content.length} bytes)`)
         return 0
     }
 
-    // 10. Exit code
+    // 10. Exit code — always 0 during migration (VR is observational)
+    // When VR becomes the gate, change this to exit 1 on changes
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
         log('Visual changes detected — review required')
-        return 1
+    } else {
+        log('No visual changes')
     }
-
-    log('No visual changes')
     return 0
 }

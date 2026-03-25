@@ -274,12 +274,14 @@ export class MCP extends McpAgent<Env> {
                     $ai_is_error: true,
                     ai_product: 'mcp',
                 })
-                return [
-                    {
-                        type: 'text',
-                        text: errorOutput,
-                    },
-                ]
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: errorOutput,
+                        },
+                    ],
+                }
             }
 
             await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {

@@ -472,7 +472,7 @@ export class HogExecutorService {
                                 : null
                         },
                         postHogCapture: (event) => {
-                            const distinctId = event.distinct_id || globals.event?.distinct_id
+                            const distinctId = event.distinct_id || globals.event?.distinct_id || globals.person?.id
                             const eventName = event.event
                             const eventProperties = event.properties || {}
 

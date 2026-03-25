@@ -1,1 +1,1 @@
-1062_migrate_links_models
+1066_alter_insight_saved

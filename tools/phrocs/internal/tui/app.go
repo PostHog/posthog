@@ -2,6 +2,7 @@ package tui
 
 import (
 	"log"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -9,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/docker"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
@@ -20,6 +22,31 @@ const (
 	focusOutput
 	focusContainers
 )
+
+type SortMode int
+
+const (
+	SortName SortMode = iota
+	SortCPU
+	SortRAM
+	SortStatus
+	sortModeCount // sentinel for cycling
+)
+
+func (s SortMode) String() string {
+	switch s {
+	case SortName:
+		return "name"
+	case SortCPU:
+		return "CPU"
+	case SortRAM:
+		return "RAM"
+	case SortStatus:
+		return "status"
+	default:
+		return "name"
+	}
+}
 
 type Model struct {
 	mgr *process.Manager
@@ -45,6 +72,7 @@ type Model struct {
 	services       []*process.Process
 	servicesCursor int
 	servicesOffset int
+	sortMode       SortMode
 
 	// Docker container sidebar (visible when docker-compose proc is selected)
 	containers         []docker.DockerContainer
@@ -75,13 +103,15 @@ type Model struct {
 	ready  bool
 
 	mouseScrollSpeed int
+	hideHelp         bool // hide_keymap_window from config
+	procListWidth    int  // proc_list_width from config (0 = use default)
 
 	// Writes go to /tmp/phrocs-debug.log
 	log *log.Logger
 }
 
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.)
-func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
+func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
 	return Model{
@@ -91,7 +121,9 @@ func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
 		servicesOffset:   0,
 		focusedPane:      focusServices,
 		viewportAtBottom: true,
-		mouseScrollSpeed: mouseScrollSpeed,
+		mouseScrollSpeed: cfg.MouseScrollSpeed,
+		hideHelp:         cfg.HideKeymapWindow,
+		procListWidth:    cfg.ProcListWidth,
 		keys:             keys,
 		help:             help.New(),
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
@@ -153,21 +185,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
 			}
-			// Incrementally update search matches to avoid rescanning the full
-			// scrollback on every new line — O(M) per line instead of O(N).
 			if m.searchQuery != "" {
-				m.updateSearchForNewLine(msg)
+				m.recomputeSearch()
 			}
 		}
 
 	case process.StatusMsg:
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
+		// Capture the active name before re-fetching so sortServices
+		// can restore the cursor to the same process.
+		activeName := ""
+		if p := m.activeProc(); p != nil {
+			activeName = p.Name
+		}
 		// Re-fetch the process slice so status icons refresh on next render
 		m.services = m.mgr.Procs()
-		if m.servicesCursor >= len(m.services) {
-			m.servicesCursor = max(0, len(m.services)-1)
+		// Restore cursor to the same process in the new (unsorted) slice
+		m.servicesCursor = 0
+		for i, p := range m.services {
+			if p.Name == activeName {
+				m.servicesCursor = i
+				break
+			}
 		}
-		m.ensureSidebarCursorVisible()
+		m.sortServices()
 
 	// Container-related messages only relevant in docker mode
 	case docker.ContainerListMsg:
@@ -287,18 +328,33 @@ func (m Model) activeProc() *process.Process {
 	return m.services[m.servicesCursor]
 }
 
+// Returns the configured proc_list_width, or the default.
+func (m Model) effectiveSidebarWidth() int {
+	if m.procListWidth > 0 {
+		return m.procListWidth
+	}
+	return sidebarWidth
+}
+
+func (m Model) footerHeight() int {
+	if m.hideHelp {
+		return 1
+	}
+	if m.showHelp {
+		return footerHeightFull
+	}
+	return footerHeightShort
+}
+
 // Recalculates viewport/sidebar dimensions whenever the terminal resizes
 // or the footer height changes
 func (m Model) applySize() Model {
-	fh := footerHeightShort
-	if m.showHelp {
-		fh = footerHeightFull
-	}
+	fh := m.footerHeight()
 	contentH := max(m.height-headerHeight-fh, 1)
 	// In copy mode the sidebar is hidden, so the viewport fills the full width.
 	// The PTY width is always the sidebar-adjusted value so processes don't
 	// receive a spurious resize when the user enters or exits copy mode
-	ptyW := m.width - sidebarWidth
+	ptyW := m.width - m.effectiveSidebarWidth()
 	if m.isDockerMode() && !m.isFullScreen() {
 		ptyW -= containerSidebarWidth
 	}
@@ -364,11 +420,15 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
+		m.keys.LazyDocker.SetEnabled(true)
+		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
 		cmds = append(cmds, docker.FetchContainerList(m.composeArgs), docker.PollContainersTick())
 	} else {
 		m.focusedPane = focusServices
 		m.containers = nil
+		m.keys.LazyDocker.SetEnabled(false)
+		m.keys.ProcViewer.SetEnabled(true)
 		m.viewport.SetContent(m.buildContent())
 	}
 
@@ -389,4 +449,70 @@ func (m Model) buildContent() string {
 		return ""
 	}
 	return strings.Join(p.Lines(), "\n")
+}
+
+// statusSortOrder returns a numeric rank for sorting by status.
+// Running/pending processes sort first, done last.
+func statusSortOrder(s process.Status) int {
+	switch s {
+	case process.StatusRunning:
+		return 0
+	case process.StatusPending:
+		return 1
+	case process.StatusCrashed:
+		return 2
+	case process.StatusStopped:
+		return 3
+	case process.StatusDone:
+		return 4
+	default:
+		return 5
+	}
+}
+
+// sortServices re-sorts m.services by the current sortMode, preserving
+// the cursor on the same process.
+func (m *Model) sortServices() {
+	if len(m.services) == 0 {
+		return
+	}
+	activeName := ""
+	if m.servicesCursor < len(m.services) {
+		activeName = m.services[m.servicesCursor].Name
+	}
+
+	sort.SliceStable(m.services, func(i, j int) bool {
+		a, b := m.services[i], m.services[j]
+
+		switch m.sortMode {
+		case SortCPU:
+			return a.CPUPercent() > b.CPUPercent()
+		case SortRAM:
+			return a.MemRSSMB() > b.MemRSSMB()
+		case SortStatus:
+			sa, sb := statusSortOrder(a.Status()), statusSortOrder(b.Status())
+			if sa != sb {
+				return sa < sb
+			}
+			return a.Name < b.Name
+		default:
+			// Always place info at the top of the list
+			if a.Name == "info" {
+				return true
+			}
+			if b.Name == "info" {
+				return false
+			}
+			return a.Name < b.Name
+		}
+	})
+
+	// Restore cursor to the same process
+	for i, p := range m.services {
+		if p.Name == activeName {
+			m.servicesCursor = i
+			break
+		}
+	}
+	m.ensureSidebarCursorVisible()
 }

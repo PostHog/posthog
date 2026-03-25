@@ -291,10 +291,11 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Postmark` - Postmark
  * `Granola` - Granola
  * `BuildBetter` - BuildBetter
+ * `Convex` - Convex
  */
-export type SourceTypeE09EnumApi = (typeof SourceTypeE09EnumApi)[keyof typeof SourceTypeE09EnumApi]
+export type SourceType432EnumApi = (typeof SourceType432EnumApi)[keyof typeof SourceType432EnumApi]
 
-export const SourceTypeE09EnumApi = {
+export const SourceType432EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -435,6 +436,7 @@ export const SourceTypeE09EnumApi = {
     Postmark: 'Postmark',
     Granola: 'Granola',
     BuildBetter: 'BuildBetter',
+    Convex: 'Convex',
 } as const
 
 /**
@@ -447,6 +449,21 @@ export const AccessMethodEnumApi = {
     Warehouse: 'warehouse',
     Direct: 'direct',
 } as const
+
+/**
+ * * `duckdb` - duckdb
+ * `postgres` - postgres
+ */
+export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
+
+export const EngineEnumApi = {
+    Duckdb: 'duckdb',
+    Postgres: 'postgres',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
@@ -466,7 +483,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeE09EnumApi
+    readonly source_type: SourceType432EnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -480,6 +497,11 @@ export interface ExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method: AccessMethodEnumApi
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine: EngineEnumApi | NullEnumApi | null
     readonly last_run_at: string
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
@@ -489,6 +511,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    readonly supports_webhooks: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -513,7 +536,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeE09EnumApi
+    readonly source_type?: SourceType432EnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -527,6 +550,11 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine?: EngineEnumApi | NullEnumApi | null
     readonly last_run_at?: string
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
@@ -536,6 +564,27 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    readonly supports_webhooks?: boolean
+}
+
+export interface ExternalDataSourceConnectionOptionApi {
+    readonly id: string
+    /** @nullable */
+    readonly prefix: string | null
+    /** Backend engine detected for the direct connection.
+
+* `duckdb` - duckdb
+* `postgres` - postgres */
+    readonly engine: EngineEnumApi | NullEnumApi | null
+}
+
+export interface PaginatedExternalDataSourceConnectionOptionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSourceConnectionOptionApi[]
 }
 
 export interface QueryTabStateApi {
@@ -597,10 +646,6 @@ export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 export const BlankEnumApi = {
     '': '',
 } as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
 
 /**
  * @nullable
@@ -718,6 +763,13 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    readonly is_test: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -786,6 +838,13 @@ export interface DataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
@@ -845,6 +904,13 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin?: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at?: string | null
 }
 
 /**
@@ -882,7 +948,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeE09EnumApi
+    readonly source_type: SourceType432EnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }
@@ -1003,6 +1069,21 @@ export type ExternalDataSchemasListParams = {
 }
 
 export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
      */
