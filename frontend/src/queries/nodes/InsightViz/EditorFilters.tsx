@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
@@ -490,165 +489,167 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
 
     return (
-        <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-            <div className="EditorFiltersWrapper">
-                {shouldShowSessionAnalysisWarning ? (
-                    <LemonBanner type="info" className="mb-4">
-                        When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.{' '}
-                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
-                    </LemonBanner>
-                ) : null}
+        <div
+            className={clsx(
+                'EditorFiltersWrapper transition-all duration-300 ease-out',
+                showing
+                    ? 'w-[30%] min-w-[26rem] max-w-[34rem] opacity-100'
+                    : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden'
+            )}
+        >
+            {shouldShowSessionAnalysisWarning ? (
+                <LemonBanner type="info" className="mb-4">
+                    When using sessions and session properties, events without session IDs will be excluded from the set
+                    of results.{' '}
+                    <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
+                </LemonBanner>
+            ) : null}
 
-                <div>
-                    <MaxTool
-                        identifier="create_insight"
-                        context={{
-                            current_query: querySource,
-                        }}
-                        contextDescription={{
-                            text: 'Current query',
-                            icon: <QueryTypeIcon />,
-                        }}
-                        callback={(
-                            toolOutput:
-                                | AssistantTrendsQuery
-                                | AssistantFunnelsQuery
-                                | AssistantRetentionQuery
-                                | AssistantHogQLQuery
-                        ) => {
-                            const source = castAssistantQuery(toolOutput)
-                            if (!source) {
-                                return
-                            }
+            <div>
+                <MaxTool
+                    identifier="create_insight"
+                    context={{
+                        current_query: querySource,
+                    }}
+                    contextDescription={{
+                        text: 'Current query',
+                        icon: <QueryTypeIcon />,
+                    }}
+                    callback={(
+                        toolOutput:
+                            | AssistantTrendsQuery
+                            | AssistantFunnelsQuery
+                            | AssistantRetentionQuery
+                            | AssistantHogQLQuery
+                    ) => {
+                        const source = castAssistantQuery(toolOutput)
+                        if (!source) {
+                            return
+                        }
 
-                            let node: QuerySchema
-                            if (isHogQLQuery(source)) {
-                                node = {
-                                    kind: NodeKind.DataVisualizationNode,
-                                    source,
-                                } satisfies DataVisualizationNode
-                            } else if (isInsightQueryNode(source)) {
-                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                            } else {
-                                node = source
-                            }
+                        let node: QuerySchema
+                        if (isHogQLQuery(source)) {
+                            node = {
+                                kind: NodeKind.DataVisualizationNode,
+                                source,
+                            } satisfies DataVisualizationNode
+                        } else if (isInsightQueryNode(source)) {
+                            node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                        } else {
+                            node = source
+                        }
 
-                            handleInsightSuggested(node)
-                            setQuery(node)
-                        }}
-                        initialMaxPrompt="Show me users who "
-                        className="EditorFiltersWrapper__max-tool"
-                        active={maxToolActive}
+                        handleInsightSuggested(node)
+                        setQuery(node)
+                    }}
+                    initialMaxPrompt="Show me users who "
+                    className="EditorFiltersWrapper__max-tool"
+                    active={maxToolActive}
+                >
+                    <div
+                        className={clsx(
+                            '@container/editor',
+                            editorPanelsEnabled
+                                ? 'flex flex-col gap-2'
+                                : 'flex flex-row flex-wrap gap-8 bg-surface-primary',
+                            { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
+                        )}
                     >
-                        <div
-                            className={clsx(
-                                '@container/editor',
-                                editorPanelsEnabled
-                                    ? 'flex flex-col gap-2'
-                                    : 'flex flex-row flex-wrap gap-8 bg-surface-primary',
-                                { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
-                            )}
-                        >
-                            {editorPanelsEnabled && (
-                                <div className="border rounded bg-surface-primary group/colorful-product-icons colorful-product-icons-true">
-                                    <div className="px-3 py-2">
-                                        <span className="text-[13px] font-semibold text-secondary">Insight type</span>
-                                    </div>
-                                    <div className="px-3 pb-3 pt-1">
-                                        <LemonSelect
-                                            value={activeView}
-                                            onChange={(newKey) => setActiveView(newKey)}
-                                            options={tabs.map(({ label, type }) => {
-                                                const fsType = INSIGHT_TYPE_TO_ICON_TYPE[type]
-                                                return {
-                                                    value: type,
-                                                    label,
-                                                    icon: fsType
-                                                        ? iconForType(fsType)
-                                                        : INSIGHT_TYPES_METADATA[type]?.icon
-                                                          ? (() => {
-                                                                const Icon = INSIGHT_TYPES_METADATA[type].icon
-                                                                return <Icon />
-                                                            })()
-                                                          : undefined,
-                                                }
-                                            })}
-                                            dropdownMatchSelectWidth={false}
-                                            fullWidth
-                                        />
-                                    </div>
+                        {editorPanelsEnabled && (
+                            <div className="border rounded bg-surface-primary group/colorful-product-icons colorful-product-icons-true">
+                                <div className="px-3 py-2">
+                                    <span className="text-[13px] font-semibold text-secondary">Insight type</span>
                                 </div>
-                            )}
-                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div
-                                    key={title}
-                                    className={clsx(
-                                        'flex flex-col max-w-full',
-                                        editorPanelsEnabled ? 'gap-2' : 'gap-4 grow shrink basis-[28rem]'
-                                    )}
-                                >
-                                    {editorFilterGroups.map((editorFilterGroup) => (
-                                        <EditorFilterGroup
-                                            key={editorFilterGroup.title}
-                                            editorFilterGroup={editorFilterGroup}
-                                            insightProps={insightProps}
-                                            query={query}
-                                            asTile={editorPanelsEnabled}
-                                        />
-                                    ))}
+                                <div className="px-3 pb-3 pt-1">
+                                    <LemonSelect
+                                        value={activeView}
+                                        onChange={(newKey) => setActiveView(newKey)}
+                                        options={tabs.map(({ label, type }) => {
+                                            const fsType = INSIGHT_TYPE_TO_ICON_TYPE[type]
+                                            return {
+                                                value: type,
+                                                label,
+                                                icon: fsType
+                                                    ? iconForType(fsType)
+                                                    : INSIGHT_TYPES_METADATA[type]?.icon
+                                                      ? (() => {
+                                                            const Icon = INSIGHT_TYPES_METADATA[type].icon
+                                                            return <Icon />
+                                                        })()
+                                                      : undefined,
+                                            }
+                                        })}
+                                        dropdownMatchSelectWidth={false}
+                                        fullWidth
+                                    />
                                 </div>
-                            ))}
-                        </div>
-                    </MaxTool>
-
-                    {previousQuery && (
-                        <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
-                            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
-                                <div className="text-sm text-muted flex items-center gap-2 no-wrap">
-                                    <span className="size-2 bg-accent-active rounded-full" />
-                                    {(() => {
-                                        const changedLabels = compareInsightTopLevelSections(
-                                            previousQuery,
-                                            suggestedQuery
-                                        )
-                                        const diffString = `🔍 ${pluralize(
-                                            changedLabels.length,
-                                            'section'
-                                        )} changed: \n${changedLabels.join('\n')}`
-
-                                        return (
-                                            <div className="flex items-center gap-1">
-                                                <span>{pluralize(changedLabels.length, 'change')}</span>
-                                                {diffString && (
-                                                    <Tooltip
-                                                        title={<div className="whitespace-pre-line">{diffString}</div>}
-                                                    >
-                                                        <IconInfo className="text-sm text-muted cursor-help" />
-                                                    </Tooltip>
-                                                )}
-                                            </div>
-                                        )
-                                    })()}
-                                </div>
-
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        onRejectSuggestedInsight()
-                                    }}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                    icon={<IconX />}
-                                >
-                                    Reject changes
-                                </LemonButton>
                             </div>
+                        )}
+                        {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                            <div
+                                key={title}
+                                className={clsx(
+                                    'flex flex-col max-w-full',
+                                    editorPanelsEnabled ? 'gap-2' : 'gap-4 grow shrink basis-[28rem]'
+                                )}
+                            >
+                                {editorFilterGroups.map((editorFilterGroup) => (
+                                    <EditorFilterGroup
+                                        key={editorFilterGroup.title}
+                                        editorFilterGroup={editorFilterGroup}
+                                        insightProps={insightProps}
+                                        query={query}
+                                        asTile={editorPanelsEnabled}
+                                    />
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                </MaxTool>
+
+                {previousQuery && (
+                    <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
+                        <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
+                            <div className="text-sm text-muted flex items-center gap-2 no-wrap">
+                                <span className="size-2 bg-accent-active rounded-full" />
+                                {(() => {
+                                    const changedLabels = compareInsightTopLevelSections(previousQuery, suggestedQuery)
+                                    const diffString = `🔍 ${pluralize(
+                                        changedLabels.length,
+                                        'section'
+                                    )} changed: \n${changedLabels.join('\n')}`
+
+                                    return (
+                                        <div className="flex items-center gap-1">
+                                            <span>{pluralize(changedLabels.length, 'change')}</span>
+                                            {diffString && (
+                                                <Tooltip
+                                                    title={<div className="whitespace-pre-line">{diffString}</div>}
+                                                >
+                                                    <IconInfo className="text-sm text-muted cursor-help" />
+                                                </Tooltip>
+                                            )}
+                                        </div>
+                                    )
+                                })()}
+                            </div>
+
+                            <LemonButton
+                                status="danger"
+                                onClick={() => {
+                                    onRejectSuggestedInsight()
+                                }}
+                                tooltipPlacement="top"
+                                size="small"
+                                icon={<IconX />}
+                            >
+                                Reject changes
+                            </LemonButton>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
-        </CSSTransition>
+        </div>
     )
 }
 

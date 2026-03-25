@@ -146,13 +146,11 @@ export function InsightViz({
                                         : 'InsightCard__viz'
                                 }
                             >
-                                {!readOnly && (
-                                    <EditorFilters
-                                        query={query.source}
-                                        showing={showingFilters}
-                                        embedded={isEmbedded}
-                                    />
-                                )}
+                                <EditorFilters
+                                    query={query.source}
+                                    showing={!readOnly && showingFilters}
+                                    embedded={isEmbedded}
+                                />
                                 {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
                             </div>
                         </BindLogic>

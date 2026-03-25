@@ -3,6 +3,7 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -21,7 +22,6 @@ import { InsightShortId, ItemMode } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -99,7 +99,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
                     </LemonBanner>
                 )}
 
-                {insightMode === ItemMode.Edit && <InsightsNav />}
+                {insightMode === ItemMode.Edit && insight?.short_id && <AlertDeletionWarning />}
 
                 {showDebugPanel && (
                     <div className="mb-4">
