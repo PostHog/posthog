@@ -245,6 +245,16 @@ def _fetch_persons_by_distinct_ids_via_personhog(
             "personhog_team_mismatch", operation="get_persons_by_distinct_ids", team_id=team_id, dropped=mismatched
         )
 
+    # The RPC returns one result per distinct_id, so the same person can
+    # appear multiple times.  Deduplicate by person_id to return unique persons.
+    seen_person_ids: set[int] = set()
+    unique_results = []
+    for r in valid_results:
+        if r.person.id not in seen_person_ids:
+            seen_person_ids.add(r.person.id)
+            unique_results.append(r)
+    valid_results = unique_results
+
     person_ids = [r.person.id for r in valid_results]
     if not person_ids:
         return []

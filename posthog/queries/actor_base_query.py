@@ -21,7 +21,6 @@ from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.gate import use_personhog
 from posthog.personhog_client.metrics import (
     PERSONHOG_ROUTING_ERRORS_TOTAL,
     PERSONHOG_ROUTING_TOTAL,
@@ -308,6 +307,8 @@ def get_people(
     distinct_id_limit: int | None = 1000,
 ) -> tuple[Union[QuerySet[Person], list[Person]], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
+    from posthog.personhog_client.gate import use_personhog
+
     if use_personhog():
         try:
             persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)

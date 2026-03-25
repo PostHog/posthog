@@ -997,15 +997,12 @@ class TestGetPersonsMappedByDistinctIdIntegration(PersonhogTestMixin, BaseTest):
         result = get_persons_mapped_by_distinct_id(self.team.pk, ["did-1", "did-2"])
 
         # Both distinct_ids should map to the same person
+        assert len(result) == 2
         assert str(result["did-1"].uuid) == str(person.uuid)
+        assert str(result["did-2"].uuid) == str(person.uuid)
         # Each entry should carry only the distinct_id that was used as the key
         assert result["did-1"].distinct_ids == ["did-1"]
-        if self.personhog:
-            # Personhog path deduplicates by person_id, so only one entry
-            assert len(result) == 1
-        else:
-            assert len(result) == 2
-            assert result["did-2"].distinct_ids == ["did-2"]
+        assert result["did-2"].distinct_ids == ["did-2"]
 
     def test_multiple_persons(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["alice"], properties={"name": "Alice"})

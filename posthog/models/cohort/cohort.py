@@ -27,7 +27,6 @@ from posthog.models.person.util import get_person_by_uuid, get_persons_by_distin
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-from posthog.personhog_client.gate import use_personhog
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
@@ -391,6 +390,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
         # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
         # don't insert people that are already in the cohort efficiently.
+        from posthog.personhog_client.gate import use_personhog
+
         if use_personhog():
             persons = get_persons_by_distinct_ids(team_id, list(distinct_ids))
             return [str(person.uuid) for person in persons]
