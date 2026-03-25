@@ -201,7 +201,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <div className="w-16 h-16 mx-auto mb-3 rounded-full border border-border bg-bg-light p-3 flex items-center justify-center">
                             <img
                                 src={oauthApplication.logo_uri}
-                                alt=""
+                                alt={`${oauthApplication.name} logo`}
                                 className="w-full h-full object-contain"
                                 referrerPolicy="no-referrer"
                             />

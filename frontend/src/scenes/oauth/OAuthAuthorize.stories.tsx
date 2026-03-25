@@ -18,18 +18,6 @@ const meta: Meta = {
         },
     },
     decorators: [
-        // Inject OAuth application metadata into the app context (matches how the Django authorize view works)
-        (Story) => {
-            if (window.POSTHOG_APP_CONTEXT) {
-                window.POSTHOG_APP_CONTEXT.oauth_application = {
-                    client_id: 'test-client-id',
-                    name: 'Test OAuth Application',
-                    is_verified: false,
-                    logo_uri: null,
-                }
-            }
-            return <Story />
-        },
         mswDecorator({
             get: {
                 '/api/projects/': {
