@@ -32,7 +32,7 @@ export const IssueListTitleHeader = ({
     const allSelected = results.length == selectedIssueIds.length && selectedIssueIds.length > 0
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-3 items-center -ml-1">
             <LemonCheckbox
                 checked={allSelected}
                 onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
@@ -106,8 +106,8 @@ export const IssueListTitleColumn = (props: {
     }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record.last_seen, record.id])
 
     return (
-        <div className="flex items-start gap-x-2 group my-1 [--line-height:1.3rem]">
-            <LemonCheckbox className="h-(--line-height)" checked={checked} onChange={handleSelectionChange} />
+        <div className="flex items-start gap-x-2 group my-1 [--line-height:1.3rem] -ml-2">
+            <LemonCheckbox className="h-(--line-height) mx-1" checked={checked} onChange={handleSelectionChange} />
             <div className="flex flex-col gap-[2px]">
                 <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} />
                 <div
