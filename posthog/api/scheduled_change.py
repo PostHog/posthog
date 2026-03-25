@@ -153,7 +153,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-@extend_schema(tags=["core"])
+@extend_schema(tags=["feature_flags"])
 class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete scheduled changes.
