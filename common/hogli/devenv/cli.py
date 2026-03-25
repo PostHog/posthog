@@ -100,7 +100,7 @@ def dev_generate(
     if process_manager:
         from hogli import telemetry
 
-        # Normalize "*/bin/phrocs" -> "phrocs"
+        # Normalize "*/bin/script" -> "script"
         pm_name = os.path.basename(process_manager)
         telemetry.track(
             "devenv_started",
