@@ -1027,13 +1027,13 @@ class TestGetExperimentQueryDebug:
         assert "SELECT" in clickhouse_sql
 
     @pytest.mark.django_db
-    def test_uses_display_substitution(self, team):
-        """Test that function uses substitute_params_for_display."""
-        from unittest.mock import patch
+    def test_masks_sensitive_parameters(self, team):
+        """Test that parameters marked _sensitive are masked as [HIDDEN] in output."""
+        from unittest.mock import MagicMock, patch
 
         from posthog.hogql import ast
+        from posthog.hogql.context import HogQLContext
 
-        # Create a simple query
         select_query = ast.SelectQuery(
             select=[ast.Constant(value=1)],
             select_from=ast.JoinExpr(
@@ -1041,14 +1041,29 @@ class TestGetExperimentQueryDebug:
             ),
         )
 
-        # Patch substitute_params_for_display to verify it's called
-        with patch("posthog.hogql_queries.experiments.utils.substitute_params_for_display") as mock_display:
-            mock_display.return_value = "SELECT 1 FROM events WHERE key = '[HIDDEN]'"
+        # Mock the executor's generate_clickhouse_sql to return params with _sensitive suffix
+        with patch("posthog.hogql_queries.experiments.utils.HogQLQueryExecutor") as mock_executor_class:
+            mock_executor = MagicMock()
+            mock_executor_class.return_value = mock_executor
+            mock_executor.hogql = "SELECT 1"
+
+            # Simulate query with sensitive parameters
+            mock_context = HogQLContext()
+            mock_context.values = {
+                "hogql_val_0": "s3://bucket/path",
+                "hogql_val_1_sensitive": "SECRETKEY123",
+                "hogql_val_2_sensitive": "SECRETTOKEN456",
+            }
+            mock_executor.generate_clickhouse_sql.return_value = (
+                "SELECT * FROM s3(%(hogql_val_0)s, %(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s)",
+                mock_context,
+            )
 
             hogql, clickhouse_sql = get_experiment_query_debug(select_query, team)
 
-            # Verify that substitute_params_for_display was called (not the unsafe substitute_params)
-            mock_display.assert_called_once()
-
-            # Verify the result is what was returned by our mock
-            assert clickhouse_sql == "SELECT 1 FROM events WHERE key = '[HIDDEN]'"
+            # Verify URL is visible
+            assert "s3://bucket/path" in clickhouse_sql
+            # Verify secrets are hidden
+            assert "SECRETKEY123" not in clickhouse_sql
+            assert "SECRETTOKEN456" not in clickhouse_sql
+            assert clickhouse_sql.count("[HIDDEN]") == 2
