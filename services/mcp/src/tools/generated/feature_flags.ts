@@ -321,7 +321,13 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
     },
 })
 
-const ScheduledChangesListSchema = ScheduledChangesListQueryParams
+const ScheduledChangesListSchema = ScheduledChangesListQueryParams.extend({
+    model_name: z
+        .string()
+        .optional()
+        .describe('Filter by model type. Use "FeatureFlag" to see feature flag schedules.'),
+    record_id: z.string().optional().describe('Filter by the ID of a specific feature flag.'),
+})
 
 const scheduledChangesList = (): ToolBase<
     typeof ScheduledChangesListSchema,
@@ -337,6 +343,8 @@ const scheduledChangesList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                model_name: params.model_name,
+                record_id: params.record_id,
             },
         })
         return {
@@ -400,7 +408,7 @@ const scheduledChangesCreate = (): ToolBase<typeof ScheduledChangesCreateSchema,
 })
 
 const ScheduledChangesUpdateSchema = ScheduledChangesPartialUpdateParams.omit({ project_id: true }).extend(
-    ScheduledChangesPartialUpdateBody.shape
+    ScheduledChangesPartialUpdateBody.omit({ executed_at: true }).shape
 )
 
 const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema, Schemas.ScheduledChange> => ({
@@ -420,9 +428,6 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
         }
         if (params.scheduled_at !== undefined) {
             body['scheduled_at'] = params.scheduled_at
-        }
-        if (params.executed_at !== undefined) {
-            body['executed_at'] = params.executed_at
         }
         if (params.is_recurring !== undefined) {
             body['is_recurring'] = params.is_recurring
