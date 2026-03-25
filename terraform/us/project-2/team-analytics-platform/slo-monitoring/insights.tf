@@ -10,6 +10,11 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
+    alert_check = {
+      name    = "Alert checks"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
   }
 
   # ---------------------------------------------------------------------------
@@ -181,7 +186,7 @@ resource "posthog_insight" "slo_burn_rate" {
       seriesBreakdownColumn = "metric"
       showLegend            = true
       goalLines = [
-        { label = "Budget rate", value = 1.0 }
+        { label = "Budget rate", value = 1.0, position = "start" }
       ]
     }
     tableSettings = {

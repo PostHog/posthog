@@ -26,7 +26,8 @@ from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.tasks.alerts.checks import check_alert
+from posthog.slo.types import SloArea, SloOperation, SloOutcome, SloStartedProperties
+from posthog.tasks.alerts.checks import check_alert, check_alert_task, check_alerts_task
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
@@ -1127,3 +1128,117 @@ class TestGetSubscribedUsersEmails(APIBaseTest):
 
         emails = self.alert.get_subscribed_users_emails()
         assert emails == []
+
+
+class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin):
+    def setUp(self) -> None:
+        super().setUp()
+        dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        ).model_dump()
+        insight = dashboard_api.create_insight(data={"name": "insight", "query": query_dict})[1]
+        alert_resp = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "slo test alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "hourly",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+            },
+        ).json()
+        self.alert_id = alert_resp["id"]
+
+    @parameterized.expand(
+        [
+            (
+                "success",
+                None,
+                "hourly",
+                SloOutcome.SUCCESS,
+                None,
+            ),
+            (
+                "failure",
+                RuntimeError("CH failure"),
+                "daily",
+                SloOutcome.FAILURE,
+                {"error_type": "RuntimeError", "error_message": "CH failure"},
+            ),
+        ]
+    )
+    @patch("posthog.tasks.alerts.checks.emit_slo_completed")
+    @patch("posthog.tasks.alerts.checks.emit_slo_started")
+    @patch("posthog.tasks.alerts.checks.check_alert")
+    def test_slo_emits_correct_events(
+        self,
+        _name,
+        side_effect,
+        calculation_interval,
+        expected_outcome,
+        expected_error_extra,
+        mock_check_alert,
+        mock_slo_started,
+        mock_slo_completed,
+    ):
+        mock_check_alert.return_value = None
+        mock_check_alert.side_effect = side_effect
+
+        if side_effect is not None:
+            with pytest.raises(type(side_effect)):
+                check_alert_task(self.alert_id, self.team.id, calculation_interval)
+        else:
+            check_alert_task(self.alert_id, self.team.id, calculation_interval)
+
+        mock_slo_started.assert_called_once_with(
+            distinct_id=self.alert_id,
+            properties=SloStartedProperties(
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_CHECK,
+                team_id=self.team.id,
+                resource_id=self.alert_id,
+            ),
+            extra_properties={"calculation_interval": calculation_interval},
+        )
+        mock_slo_completed.assert_called_once()
+        completed_props = mock_slo_completed.call_args.kwargs["properties"]
+        assert completed_props.outcome == expected_outcome
+        assert completed_props.duration_ms is not None
+        assert completed_props.duration_ms >= 0
+        completed_extra = mock_slo_completed.call_args.kwargs["extra_properties"]
+        assert completed_extra["calculation_interval"] == calculation_interval
+        if expected_error_extra:
+            for key, value in expected_error_extra.items():
+                assert completed_extra[key] == value
+        else:
+            assert "error_type" not in completed_extra
+
+    @patch("posthog.tasks.alerts.checks.check_alert_task")
+    def test_check_alerts_task_passes_team_id_to_check_alert_task(self, mock_task):
+        # check_alert_task.si(...) returns a signature; we need to capture what .si is called with
+        captured_si_args: list[tuple] = []
+
+        def fake_si(*args, **kwargs):
+            captured_si_args.append(args)
+            sig = MagicMock()
+            sig.set.return_value = sig
+            return sig
+
+        mock_task.si = fake_si
+
+        check_alerts_task()
+
+        # check_alerts_task queries all due alerts across all teams; find the one for our alert
+        matching = [
+            (alert_id, team_id, interval)
+            for alert_id, team_id, interval in captured_si_args
+            if alert_id == self.alert_id
+        ]
+        assert len(matching) == 1, f"Expected our alert to be scheduled once, got: {matching}"
+        _, team_id, interval = matching[0]
+        assert team_id == self.team.id
+        assert interval == "hourly"
