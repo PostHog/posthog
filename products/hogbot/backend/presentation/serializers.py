@@ -1,8 +1,17 @@
-"""
-DRF serializers for hogbot.
+from products.hogbot.backend.api import (
+    AppendLogRequestSerializer,
+    FilesystemContentQuerySerializer,
+    FilesystemPathQuerySerializer,
+    LogQuerySerializer,
+    ResearchRequestSerializer,
+    SendMessageRequestSerializer,
+)
 
-Converts frozen dataclasses to/from JSON. Can be auto-generated from
-dataclasses using DataclassSerializer.
-"""
-
-# from ..facade.contracts import ...
+__all__ = [
+    "AppendLogRequestSerializer",
+    "FilesystemContentQuerySerializer",
+    "FilesystemPathQuerySerializer",
+    "LogQuerySerializer",
+    "ResearchRequestSerializer",
+    "SendMessageRequestSerializer",
+]

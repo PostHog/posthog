@@ -34,7 +34,8 @@ from .activities import (
 @dataclass
 class HogbotWorkflowInput:
     team_id: int
-    server_command: str
+    user_id: int | None = None
+    server_command: str | None = None
     repository: str | None = None
     github_integration_id: int | None = None
     branch: str | None = None
@@ -68,7 +69,8 @@ class HogbotWorkflow(PostHogWorkflow):
         loaded = json.loads(inputs[0])
         return HogbotWorkflowInput(
             team_id=loaded["team_id"],
-            server_command=loaded["server_command"],
+            user_id=loaded.get("user_id"),
+            server_command=loaded.get("server_command"),
             repository=loaded.get("repository"),
             github_integration_id=loaded.get("github_integration_id"),
             branch=loaded.get("branch"),
@@ -95,6 +97,7 @@ class HogbotWorkflow(PostHogWorkflow):
                 create_hogbot_sandbox,
                 CreateHogbotSandboxInput(
                     team_id=input.team_id,
+                    user_id=input.user_id,
                     repository=input.repository,
                     github_integration_id=input.github_integration_id,
                     branch=input.branch,
@@ -110,6 +113,7 @@ class HogbotWorkflow(PostHogWorkflow):
                 start_hogbot_server,
                 StartHogbotServerInput(
                     sandbox_id=sandbox_output.sandbox_id,
+                    team_id=input.team_id,
                     sandbox_url=sandbox_output.sandbox_url,
                     connect_token=sandbox_output.connect_token,
                     server_command=input.server_command,

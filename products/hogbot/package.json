@@ -1,7 +1,33 @@
 {
     "name": "@posthog/products-hogbot",
+    "private": true,
+    "version": "1.0.0",
+    "bin": {
+        "hogbot-server": "./server/dist/bin.js"
+    },
     "scripts": {
+        "build": "tsup --config server/tsup.config.ts",
+        "dev": "tsx watch server/src/bin.ts",
+        "typecheck": "tsc -p server/tsconfig.json --noEmit",
+        "manual:sandbox": "python3 scripts/run_local_sandbox.py",
+        "manual:sandbox:real": "python3 scripts/run_local_sandbox.py --real-sdk",
+        "test": "vitest run --config server/vitest.config.ts",
+        "test:integration": "HOGBOT_SOCKET_TESTS=1 vitest run --config server/vitest.config.ts server/src/__tests__/runtime.test.ts",
+        "test:docker": "HOGBOT_SOCKET_TESTS=1 HOGBOT_DOCKER_TESTS=1 vitest run --config server/vitest.config.ts server/src/__tests__/docker.test.ts",
+        "test:full": "pnpm run test && pnpm run test:integration && pnpm run test:docker && pnpm run backend:test",
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
         "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "@anthropic-ai/claude-agent-sdk": "0.2.71",
+        "@hono/node-server": "^1.19.9",
+        "hono": "^4.11.8"
+    },
+    "devDependencies": {
+        "@types/node": "^24.3.0",
+        "tsup": "^8.5.1",
+        "tsx": "^4.20.6",
+        "typescript": "5.5.4",
+        "vitest": "^3.2.4"
     }
 }

@@ -2,15 +2,20 @@ import shlex
 import logging
 from dataclasses import dataclass
 
+from django.conf import settings
 from temporalio import activity
 
+from posthog.models import Team, User
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.common.utils import asyncify
 
 from products.hogbot.backend.models import HogbotRuntime
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user
+from products.tasks.backend.temporal.process_task.utils import get_sandbox_api_url
 
 HOGBOT_SANDBOX_TTL_SECONDS = 60 * 60 * 24 * 7
+HOGBOT_API_SCOPES = ["project:write", "project:read", "organization:read", "user:read"]
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CreateHogbotSandboxInput:
     team_id: int
+    user_id: int | None = None
     repository: str | None = None
     github_integration_id: int | None = None
     branch: str | None = None
@@ -45,6 +51,17 @@ def _get_github_token(github_integration_id: int | None) -> str:
 def _get_repository_path(repository: str) -> str:
     org, repo = repository.lower().split("/")
     return f"/tmp/workspace/repos/{org}/{repo}"
+
+
+def _get_token_user(team_id: int, user_id: int | None) -> User:
+    if user_id is not None:
+        return User.objects.get(pk=user_id)
+
+    team = Team.objects.select_related("organization").get(pk=team_id)
+    fallback_user = team.organization.members.order_by("id").first()
+    if fallback_user is None:
+        raise RuntimeError(f"Cannot start hogbot for team {team_id} without a user context")
+    return fallback_user
 
 
 def _checkout_branch(
@@ -88,11 +105,24 @@ def create_hogbot_sandbox(input: CreateHogbotSandboxInput) -> CreateHogbotSandbo
     snapshot_external_id = runtime.latest_snapshot_external_id
     has_snapshot = bool(snapshot_external_id)
     github_token = _get_github_token(input.github_integration_id)
+    access_token = create_oauth_access_token_for_user(
+        _get_token_user(input.team_id, input.user_id),
+        input.team_id,
+        scopes=HOGBOT_API_SCOPES,
+    )
 
-    environment_variables = {"GITHUB_TOKEN": github_token} if github_token else None
+    environment_variables = {
+        "POSTHOG_PERSONAL_API_KEY": access_token,
+        "POSTHOG_API_URL": get_sandbox_api_url(),
+        "POSTHOG_PROJECT_ID": str(input.team_id),
+    }
+    if github_token:
+        environment_variables["GITHUB_TOKEN"] = github_token
+    if settings.SANDBOX_LLM_GATEWAY_URL:
+        environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
     config = SandboxConfig(
         name=f"hogbot-team-{input.team_id}",
-        template=SandboxTemplate.DEFAULT_BASE,
+        template=SandboxTemplate.HOGBOT_BASE,
         environment_variables=environment_variables,
         snapshot_external_id=snapshot_external_id,
         ttl_seconds=HOGBOT_SANDBOX_TTL_SECONDS,

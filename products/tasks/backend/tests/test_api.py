@@ -1269,6 +1269,9 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/filesystem/stat/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/filesystem/list/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/filesystem/content/", "GET"),
         ]
 
         for url, method in endpoints:
@@ -2022,3 +2025,205 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertNotIn("secret-host", response.json()["error"])
         self.assertNotIn("DNS", response.json()["error"])
         self.assertEqual(response.json()["error"], "Failed to send command to agent server")
+
+
+class TestTaskRunFilesystemAPI(BaseTaskAPITest):
+    def _filesystem_url(self, task, run, endpoint):
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/filesystem/{endpoint}/"
+
+    def _create_run_with_sandbox(self, task, sandbox_url="http://localhost:9999", connect_token=None):
+        state = {"sandbox_url": sandbox_url, "mode": "interactive"}
+        if connect_token:
+            state["sandbox_connect_token"] = connect_token
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=state,
+        )
+
+    def _mock_agent_response(self, mock_get, body, status_code=200):
+        mock_resp = MagicMock()
+        mock_resp.status_code = status_code
+        mock_resp.ok = 200 <= status_code < 300
+        mock_resp.json.return_value = body
+        mock_get.return_value = mock_resp
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.get")
+    def test_filesystem_stat_proxies_metadata(self, mock_get):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_get,
+            {
+                "entry": {
+                    "path": "/src/index.ts",
+                    "name": "index.ts",
+                    "type": "file",
+                    "size": 21,
+                    "ctime_ms": 1000,
+                    "mtime_ms": 2000,
+                    "is_symbolic_link": False,
+                }
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.get(
+            self._filesystem_url(task, run, "stat"),
+            {"path": "/src/index.ts"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["entry"]["path"], "/src/index.ts")
+        call_kwargs = mock_get.call_args[1]
+        self.assertEqual(call_kwargs["params"]["path"], "/src/index.ts")
+        self.assertIn("Bearer ", call_kwargs["headers"]["Authorization"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.get")
+    def test_filesystem_list_proxies_directory_listing(self, mock_get):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_get,
+            {
+                "directory": {
+                    "path": "/src",
+                    "name": "src",
+                    "type": "directory",
+                    "size": 0,
+                    "ctime_ms": 1000,
+                    "mtime_ms": 2000,
+                    "is_symbolic_link": False,
+                },
+                "entries": [
+                    {
+                        "path": "/src/index.ts",
+                        "name": "index.ts",
+                        "type": "file",
+                        "size": 21,
+                        "ctime_ms": 1000,
+                        "mtime_ms": 2000,
+                        "is_symbolic_link": False,
+                    }
+                ],
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.get(
+            self._filesystem_url(task, run, "list"),
+            {"path": "/src"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["directory"]["path"], "/src")
+        self.assertEqual(response.json()["entries"][0]["name"], "index.ts")
+        self.assertEqual(mock_get.call_args[0][0], "http://localhost:9999/filesystem/list")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.get")
+    def test_filesystem_content_forwards_encoding_and_max_bytes(self, mock_get):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_get,
+            {
+                "file": {
+                    "path": "/src/index.ts",
+                    "name": "index.ts",
+                    "type": "file",
+                    "size": 21,
+                    "ctime_ms": 1000,
+                    "mtime_ms": 2000,
+                    "is_symbolic_link": False,
+                },
+                "encoding": "base64",
+                "content": "Y29uc29sZS5sb2coJ2hlbGxvJyk7",
+                "truncated": True,
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.get(
+            self._filesystem_url(task, run, "content"),
+            {"path": "/src/index.ts", "encoding": "base64", "max_bytes": "12"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["encoding"], "base64")
+        call_kwargs = mock_get.call_args[1]
+        self.assertEqual(call_kwargs["params"]["encoding"], "base64")
+        self.assertEqual(call_kwargs["params"]["max_bytes"], 12)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.get")
+    def test_filesystem_passes_modal_connect_token_as_query_param(self, mock_get):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_get, {"entry": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(
+            task,
+            sandbox_url="https://sandbox.modal.run",
+            connect_token="modal-token-abc123",
+        )
+
+        response = self.client.get(
+            self._filesystem_url(task, run, "stat"),
+            {"path": "/src/index.ts"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get.call_args[1]["params"]["_modal_connect_token"], "modal-token-abc123")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.get")
+    def test_filesystem_forwards_404_from_agent_server(self, mock_get):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_get, {"error": "Path not found: /missing.ts"}, status_code=404)
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.get(
+            self._filesystem_url(task, run, "stat"),
+            {"path": "/missing.ts"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("Path not found", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.get")
+    def test_filesystem_returns_502_on_connection_error(self, mock_get):
+        get_sandbox_jwt_public_key.cache_clear()
+        mock_get.side_effect = __import__("requests").ConnectionError("Connection refused")
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.get(
+            self._filesystem_url(task, run, "list"),
+            {"path": "/src"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("not reachable", response.json()["error"])
+
+    def test_filesystem_blocks_ssrf_urls(self):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url="http://169.254.169.254/latest/meta-data/")
+
+        response = self.client.get(
+            self._filesystem_url(task, run, "stat"),
+            {"path": "/src/index.ts"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid sandbox URL", response.json()["error"])

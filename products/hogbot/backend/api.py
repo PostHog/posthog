@@ -1,374 +1,438 @@
-"""
-Hogbot API viewsets.
+from __future__ import annotations
 
-Serves admin agent logs, sandbox filesystem access, and message ingestion.
-Log and file endpoints return stub data until the sandbox is live.
-The send-message endpoint ensures a Temporal-managed sandbox session is
-running and forwards messages to the appropriate agent inside it.
-"""
-
+import fnmatch
 import json
-import logging
 from typing import Any
+from urllib.parse import urlparse
 
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests as http_requests
-from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
 from rest_framework.response import Response
 
+from ee.hogai.utils.asgi import SyncIterableToAsync
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
+from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-from products.hogbot.backend.gateway import get_or_start_hogbot
+from products.hogbot.backend import gateway, logic
 
-logger = logging.getLogger(__name__)
-
-# Default server command for the hogbot sandbox
-HOGBOT_SERVER_COMMAND = "npx agent-server"
-
-# ---------------------------------------------------------------------------
-# Stub data — will be replaced by S3 reads / sandbox filesystem access
-# ---------------------------------------------------------------------------
-
-STUB_ADMIN_LOGS = "\n".join(
-    [
-        json.dumps(
-            {
-                "type": "notification",
-                "timestamp": "2026-03-25T10:00:00Z",
-                "notification": {
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {
-                                "type": "text",
-                                "text": "Hello! I'm Hogbot, your AI research assistant. I can help you investigate your product data, run analyses, and proactively surface insights. What would you like me to look into?",
-                            },
-                        }
-                    },
-                },
-            }
-        ),
-        json.dumps(
-            {
-                "type": "notification",
-                "timestamp": "2026-03-25T10:01:00Z",
-                "notification": {
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "user_message_chunk",
-                            "content": {
-                                "type": "text",
-                                "text": "Can you analyze our funnel conversion rates for the last 30 days?",
-                            },
-                        }
-                    },
-                },
-            }
-        ),
-        json.dumps(
-            {
-                "type": "notification",
-                "timestamp": "2026-03-25T10:01:05Z",
-                "notification": {
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "tool_call",
-                            "toolCallId": "tc-1",
-                            "title": "posthog_query_funnel",
-                            "status": "completed",
-                            "rawInput": {"date_from": "-30d", "events": ["$pageview", "$signup"]},
-                            "rawOutput": {"conversion_rate": 0.42},
-                            "_meta": {"claudeCode": {"toolName": "posthog_query_funnel"}},
-                        }
-                    },
-                },
-            }
-        ),
-        json.dumps(
-            {
-                "type": "notification",
-                "timestamp": "2026-03-25T10:01:10Z",
-                "notification": {
-                    "jsonrpc": "2.0",
-                    "method": "_posthog/console",
-                    "params": {"level": "info", "message": "Funnel query completed. Analyzing conversion rates."},
-                },
-            }
-        ),
-        json.dumps(
-            {
-                "type": "notification",
-                "timestamp": "2026-03-25T10:01:30Z",
-                "notification": {
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {
-                                "type": "text",
-                                "text": "I've analyzed your funnel conversion rates.\n\nYour signup-to-activation funnel has a **42% conversion rate** over the last 30 days, which is up 3% from the previous period.\n\nKey findings:\n- Step 1 → Step 2 (Sign up → Onboarding): 78% conversion\n- Step 2 → Step 3 (Onboarding → First event): 54% conversion\n- The biggest drop-off is between onboarding completion and sending the first event",
-                            },
-                        }
-                    },
-                },
-            }
-        ),
-    ]
-)
-
-STUB_SANDBOX_FILES = [
-    {
-        "path": "/research/mobile-retention-drop.md",
-        "filename": "mobile-retention-drop.md",
-        "size": 1240,
-        "modified_at": "2026-03-25T10:30:00Z",
-    },
-    {
-        "path": "/research/funnel-conversion-analysis.md",
-        "filename": "funnel-conversion-analysis.md",
-        "size": 890,
-        "modified_at": "2026-03-25T10:01:30Z",
-    },
-    {
-        "path": "/research/weekly-insights-summary.md",
-        "filename": "weekly-insights-summary.md",
-        "size": 720,
-        "modified_at": "2026-03-24T08:00:00Z",
-    },
-]
-
-STUB_FILE_CONTENTS: dict[str, str] = {
-    "/research/mobile-retention-drop.md": '# Mobile retention drop investigation\n\n## Summary\n\n7-day retention for mobile users dropped from 32% to 19% in the week of March 17-23, 2026.\n\n## Root cause analysis\n\n### Timeline\n- **March 16**: Mobile SDK v2.4.1 released\n- **March 17**: Retention begins declining\n- **March 19**: First user reports of "blank screen after onboarding"\n\n### Key findings\n\n1. **SDK update correlation**: The drop coincides exactly with the v2.4.1 SDK release\n2. **Affected flow**: The onboarding completion event fires, but the subsequent `app_home_viewed` event is missing for 61% of mobile users\n3. **Platform breakdown**: iOS affected (23% → 11% retention), Android less impacted (38% → 29%)\n\n## Recommendations\n\n- Roll back mobile SDK to v2.4.0 or hotfix the onboarding navigation bug\n- Add monitoring alert for onboarding completion → home view drop-off rate\n- Consider a re-engagement campaign for affected users',
-    "/research/funnel-conversion-analysis.md": "# Funnel conversion rate analysis - March 2026\n\n## Overview\n\nAnalysis of the primary signup-to-activation funnel for the 30-day period ending March 25, 2026.\n\n## Metrics\n\n| Step | Conversion | Change vs. prior period |\n|------|-----------|------------------------|\n| Sign up → Onboarding | 78% | +2% |\n| Onboarding → First event | 54% | -1% |\n| First event → Retained (7d) | 42% | +3% |\n\n## Observations\n\n- Overall funnel health is improving, driven by better sign-up-to-onboarding conversion\n- The onboarding → first event step remains the weakest link\n- Users who complete onboarding within 5 minutes have 2.3x higher retention",
-    "/research/weekly-insights-summary.md": "# Weekly insights summary\n\n## Week of March 17-23, 2026\n\n### Highlights\n\n- **Active users**: 12,450 (+5% WoW)\n- **New signups**: 1,230 (+8% WoW)\n- **Feature adoption**: Dashboard sharing feature used by 34% of teams (up from 28%)\n\n### Anomalies detected\n\n1. Mobile retention drop (see dedicated research document)\n2. Unusual spike in API errors on March 20 (resolved — was a dependency timeout)\n3. Feature flag evaluation latency increased 15ms on average\n\n### Recommendations\n\n- Prioritize mobile SDK fix\n- Review API dependency timeout settings\n- Investigate feature flag evaluation performance",
-}
-
-# ---------------------------------------------------------------------------
-# Serializers
-# ---------------------------------------------------------------------------
+UPSTREAM_COMMAND_TIMEOUT_SECONDS = 600
+UPSTREAM_GET_TIMEOUT_SECONDS = 30
+ALLOWED_MODAL_SUFFIXES = (".modal.run", ".modal.host")
 
 
-class SignalPayloadSerializer(serializers.Serializer):
-    """Matches the shape of a document_embeddings row for product='signals'."""
-
-    product = serializers.CharField(help_text="Source product, e.g. 'signals'.")
-    document_type = serializers.CharField(help_text="Type of document, e.g. 'issue_fingerprint'.")
-    model_name = serializers.CharField(help_text="Embedding model name, e.g. 'text-embedding-3-small-1536'.")
-    rendering = serializers.CharField(help_text="How the document was rendered, e.g. 'plain'.")
-    document_id = serializers.CharField(help_text="Unique document identifier.")
-    timestamp = serializers.DateTimeField(help_text="Document creation time.")
-    inserted_at = serializers.DateTimeField(help_text="When the embedding was inserted.", required=False)
-    content = serializers.CharField(help_text="The text content that was embedded.")
-    metadata = serializers.CharField(help_text="JSON metadata string.", required=False, default="{}")
+class SendMessageRequestSerializer(serializers.Serializer):
+    content = serializers.CharField()
 
 
-class SendMessageSerializer(serializers.Serializer):
-    MESSAGE_TYPE_CHOICES = [
-        ("user_message", "User message"),
-        ("signal", "Signal from document_embeddings"),
-    ]
-
-    type = serializers.ChoiceField(
-        choices=MESSAGE_TYPE_CHOICES,
-        help_text="Message type: 'user_message' for chat input, 'signal' for a document_embeddings signal.",
-    )
-    content = serializers.CharField(
-        help_text="Message text. Required for user_message, optional for signal.",
-        required=False,
-        default="",
-    )
-    signal = SignalPayloadSerializer(
-        help_text="Signal payload from document_embeddings. Required when type='signal'.",
-        required=False,
-    )
-
-    def validate(self, data: dict) -> dict:
-        if data["type"] == "user_message" and not data.get("content"):
-            raise serializers.ValidationError({"content": "Content is required for user_message type."})
-        if data["type"] == "signal" and not data.get("signal"):
-            raise serializers.ValidationError({"signal": "Signal payload is required for signal type."})
-        return data
+class SendMessageCompatRequestSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["user_message"])
+    content = serializers.CharField()
 
 
-class SandboxFileSerializer(serializers.Serializer):
-    path = serializers.CharField(help_text="Full path on the sandbox filesystem.")
-    filename = serializers.CharField(help_text="Basename of the file.")
-    size = serializers.IntegerField(help_text="File size in bytes.")
-    modified_at = serializers.DateTimeField(help_text="Last modification time.")
+class ResearchRequestSerializer(serializers.Serializer):
+    signal_id = serializers.CharField(max_length=255)
+    prompt = serializers.CharField()
 
 
-class SandboxFileListSerializer(serializers.Serializer):
-    results = SandboxFileSerializer(many=True)
+class FilesystemPathQuerySerializer(serializers.Serializer):
+    path = serializers.CharField(default="/", required=False)
 
 
-# ---------------------------------------------------------------------------
-# ViewSets
-# ---------------------------------------------------------------------------
+class FilesystemListCompatQuerySerializer(serializers.Serializer):
+    glob = serializers.CharField(default="/research/*.md", required=False)
 
 
-@extend_schema(tags=["hogbot"])
-class HogbotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """
-    Hogbot agent endpoints — admin agent logs, messages, and sandbox file access.
-    """
+class FilesystemContentQuerySerializer(FilesystemPathQuerySerializer):
+    encoding = serializers.ChoiceField(choices=["utf-8", "base64"], default="utf-8", required=False)
+    max_bytes = serializers.IntegerField(min_value=1, max_value=5 * 1024 * 1024, default=1024 * 1024, required=False)
 
-    authentication_classes = [SessionAuthentication]
+
+class AppendLogRequestSerializer(serializers.Serializer):
+    entries = serializers.ListField(child=serializers.JSONField())
+
+
+class LogQuerySerializer(serializers.Serializer):
+    after = serializers.DateTimeField(required=False)
+    event_types = serializers.CharField(required=False, allow_blank=True)
+    exclude_types = serializers.CharField(required=False, allow_blank=True)
+    limit = serializers.IntegerField(min_value=1, max_value=5000, default=1000, required=False)
+
+
+class HogbotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "INTERNAL"
+    scope_object = "project"
+    read_actions = {
+        "health",
+        "filesystem_stat",
+        "filesystem_list",
+        "filesystem_content",
+        "files",
+        "read_file",
+        "logs",
+        "admin_logs",
+        "research_logs",
+    }
+    write_actions = {
+        "send_message",
+        "send_message_compat",
+        "cancel",
+        "research",
+        "append_admin_log",
+        "append_research_log",
+        "register_server",
+        "heartbeat_server",
+        "unregister_server",
+    }
 
-    def _get_connection_info(self):
-        """Ensure a hogbot session is running and return connection info."""
-        return get_or_start_hogbot(
-            team_id=self.team_id,
-            server_command=HOGBOT_SERVER_COMMAND,
+    def _validate_serializer(self, serializer_class, data: dict[str, Any], *, partial: bool = False):
+        serializer = serializer_class(data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        action = getattr(view, "action", None)
+        if action in self.read_actions:
+            return ["project:read"]
+        if action in self.write_actions:
+            return ["project:write"]
+        return None
+
+    @staticmethod
+    def _is_valid_sandbox_url(url: str) -> bool:
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        if parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1"):
+            return True
+
+        return bool(
+            parsed.scheme == "https" and parsed.hostname and any(parsed.hostname.endswith(suffix) for suffix in ALLOWED_MODAL_SUFFIXES)
         )
 
-    def _post_to_sandbox(self, server_url: str, path: str, payload: dict, connect_token: str | None = None) -> None:
-        """POST JSON to the sandbox HTTP server."""
-        url = f"{server_url.rstrip('/')}/{path.lstrip('/')}"
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if connect_token:
-            headers["Authorization"] = f"Bearer {connect_token}"
-        resp = http_requests.post(url, json=payload, headers=headers, timeout=10)
-        resp.raise_for_status()
+    def _coerce_connection(self, connection: gateway.HogbotConnectionInfo | None) -> gateway.HogbotConnectionInfo | Response:
+        if not connection or not connection.ready or not connection.server_url:
+            return Response({"error": "No active hogbot server for this team"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not self._is_valid_sandbox_url(connection.server_url):
+            return Response({"error": "Invalid sandbox URL"}, status=status.HTTP_400_BAD_REQUEST)
+        return connection
 
-    # ── Admin agent logs (GET /api/projects/:team_id/hogbot/admin/logs/) ──
+    def _get_connection(self) -> gateway.HogbotConnectionInfo | Response:
+        return self._coerce_connection(gateway.get_hogbot_connection(self.team.pk))
 
-    @extend_schema(
-        responses={200: OpenApiResponse(description="JSONL log content for the admin agent")},
-        summary="Get admin agent logs",
-        description="Returns JSONL formatted log entries for the admin agent. Polled by the frontend every 2 seconds.",
-    )
-    @action(detail=False, methods=["get"], url_path="admin/logs")
-    def admin_logs(self, request: Request, **kwargs: Any) -> HttpResponse:
-        # TODO: Replace stub with S3 read when sandbox is wired up
-        # from posthog.storage import object_storage
-        # team_id = self.team_id
-        # log_content = object_storage.read(f"hogbot/{team_id}/admin.jsonl", missing_ok=True) or ""
-        log_content = STUB_ADMIN_LOGS
+    def _ensure_connection(self, request) -> gateway.HogbotConnectionInfo | Response:
+        current = gateway.get_hogbot_connection(self.team.pk)
+        if current and current.ready and current.server_url:
+            return self._coerce_connection(current)
 
-        response = HttpResponse(log_content, content_type="application/jsonl")
+        try:
+            started = gateway.get_or_start_hogbot(
+                team_id=self.team.pk,
+                user_id=getattr(request.user, "pk", None),
+            )
+        except Exception as err:
+            return Response(
+                {"error": f"Failed to start hogbot server: {err}"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return self._coerce_connection(started)
+
+    def _proxy_upstream(
+        self,
+        *,
+        connection: gateway.HogbotConnectionInfo,
+        method: str,
+        path: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        stream: bool = False,
+        timeout: int,
+    ) -> http_requests.Response:
+        request_params = dict(params or {})
+        if connection.connect_token:
+            request_params["_modal_connect_token"] = connection.connect_token
+
+        url = f"{connection.server_url.rstrip('/')}/{path.lstrip('/')}"
+        return http_requests.request(
+            method=method,
+            url=url,
+            json=json,
+            params=request_params or None,
+            stream=stream,
+            timeout=timeout,
+        )
+
+    def _proxy_json_endpoint(self, request, *, path: str, payload: dict[str, Any], start_if_needed: bool = False) -> Response:
+        connection = self._ensure_connection(request) if start_if_needed else self._get_connection()
+        if isinstance(connection, Response):
+            return connection
+
+        try:
+            upstream = self._proxy_upstream(
+                connection=connection,
+                method="POST",
+                path=path,
+                json=payload,
+                timeout=UPSTREAM_COMMAND_TIMEOUT_SECONDS,
+            )
+        except http_requests.ConnectionError:
+            return Response({"error": "Hogbot server is not reachable"}, status=status.HTTP_502_BAD_GATEWAY)
+        except http_requests.Timeout:
+            return Response({"error": "Hogbot server request timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+
+        try:
+            data = upstream.json()
+        except ValueError:
+            data = {"error": f"Hogbot server returned {upstream.status_code}"}
+        return Response(data, status=upstream.status_code)
+
+    def _proxy_get_endpoint(self, *, path: str, query_params: dict[str, Any]) -> Response:
+        connection = self._get_connection()
+        if isinstance(connection, Response):
+            return connection
+
+        try:
+            upstream = self._proxy_upstream(
+                connection=connection,
+                method="GET",
+                path=path,
+                params=query_params,
+                timeout=UPSTREAM_GET_TIMEOUT_SECONDS,
+            )
+        except http_requests.ConnectionError:
+            return Response({"error": "Hogbot server is not reachable"}, status=status.HTTP_502_BAD_GATEWAY)
+        except http_requests.Timeout:
+            return Response({"error": "Hogbot server request timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+
+        try:
+            data = upstream.json()
+        except ValueError:
+            data = {"error": f"Hogbot server returned {upstream.status_code}"}
+        return Response(data, status=upstream.status_code)
+
+    def _read_log_response(self, *, key: str, validated: dict[str, Any]) -> JsonResponse:
+        entries, total_count = self._read_log_entries(key=key, validated=validated)
+        response = JsonResponse(entries, safe=False)
+        response["X-Total-Count"] = str(total_count)
+        response["X-Filtered-Count"] = str(len(entries))
         response["Cache-Control"] = "no-cache"
         return response
 
-    # ── Send message (POST /api/projects/:team_id/hogbot/send-message/) ──
+    def _read_log_entries(self, *, key: str, validated: dict[str, Any]) -> tuple[list[dict], int]:
+        event_types = (
+            {part.strip() for part in validated["event_types"].split(",") if part.strip()}
+            if validated.get("event_types")
+            else None
+        )
+        exclude_types = (
+            {part.strip() for part in validated["exclude_types"].split(",") if part.strip()}
+            if validated.get("exclude_types")
+            else None
+        )
+        entries, total_count = logic.read_log_entries(
+            key,
+            after=validated.get("after"),
+            event_types=event_types,
+            exclude_types=exclude_types,
+            limit=validated["limit"],
+        )
+        return entries, total_count
 
-    @extend_schema(
-        request=SendMessageSerializer,
-        responses={
-            202: OpenApiResponse(description="Message accepted and forwarded to sandbox"),
-            503: OpenApiResponse(description="Hogbot session not available"),
-        },
-        summary="Send message to Hogbot",
-        description=(
-            "Sends a message to Hogbot. Ensures a sandbox session is running via "
-            "the Temporal workflow, then forwards the message to the sandbox HTTP server. "
-            "type='user_message' is routed to the admin agent. "
-            "type='signal' is routed to the research agent."
-        ),
-    )
-    @action(detail=False, methods=["post"], url_path="send-message")
-    def send_message(self, request: Request, **kwargs: Any) -> Response:
-        serializer = SendMessageSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def _read_log_text_response(self, *, key: str, validated: dict[str, Any]) -> HttpResponse:
+        entries, total_count = self._read_log_entries(key=key, validated=validated)
+        body = "\n".join(json.dumps(entry) for entry in entries)
+        response = HttpResponse(body, content_type="text/plain; charset=utf-8")
+        response["X-Total-Count"] = str(total_count)
+        response["X-Filtered-Count"] = str(len(entries))
+        response["Cache-Control"] = "no-cache"
+        return response
 
-        # Ensure the sandbox session is running
-        try:
-            conn = self._get_connection_info()
-        except Exception:
-            logger.exception("Failed to start/resume hogbot session", extra={"team_id": self.team_id})
-            return Response(
-                {"error": "Failed to start hogbot session. Please try again."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        if not conn.ready or not conn.server_url:
-            return Response(
-                {"error": "Hogbot session is starting up. Please try again in a moment."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        message_type = serializer.validated_data["type"]
+    @action(detail=False, methods=["get"], url_path="health", required_scopes=["project:read"])
+    def health(self, request, **kwargs):
+        connection = self._get_connection()
+        if isinstance(connection, Response):
+            return connection
 
         try:
-            if message_type == "user_message":
-                self._post_to_sandbox(
-                    server_url=conn.server_url,
-                    path="/admin/message",
-                    payload={"content": serializer.validated_data["content"]},
-                    connect_token=conn.connect_token,
-                )
-            elif message_type == "signal":
-                self._post_to_sandbox(
-                    server_url=conn.server_url,
-                    path="/research/signal",
-                    payload=serializer.validated_data["signal"],
-                    connect_token=conn.connect_token,
-                )
-        except http_requests.RequestException:
-            logger.exception(
-                "Failed to forward message to hogbot sandbox",
-                extra={"team_id": self.team_id, "type": message_type, "server_url": conn.server_url},
+            upstream = self._proxy_upstream(
+                connection=connection,
+                method="GET",
+                path="/health",
+                timeout=UPSTREAM_GET_TIMEOUT_SECONDS,
             )
-            return Response(
-                {"error": "Failed to deliver message to hogbot. The sandbox may be restarting."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+        except http_requests.ConnectionError:
+            return Response({"error": "Hogbot server is not reachable"}, status=status.HTTP_502_BAD_GATEWAY)
+        except http_requests.Timeout:
+            return Response({"error": "Hogbot server health request timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
 
-        return Response(status=status.HTTP_202_ACCEPTED)
+        try:
+            data = upstream.json()
+        except ValueError:
+            data = {}
+        return Response(data, status=upstream.status_code)
 
-    # ── List sandbox files (GET /api/projects/:team_id/hogbot/files/) ──
+    @action(detail=False, methods=["post"], url_path="send_message", required_scopes=["project:write"])
+    def send_message(self, request, **kwargs):
+        validated = self._validate_serializer(SendMessageRequestSerializer, request.data)
+        return self._proxy_json_endpoint(request, path="/send_message", payload=validated, start_if_needed=True)
 
-    @extend_schema(
-        responses={200: SandboxFileListSerializer},
-        summary="List sandbox files",
-        description="Lists files on the sandbox filesystem. Accepts an optional `glob` query parameter.",
-    )
-    @action(detail=False, methods=["get"], url_path="files")
-    def files_list(self, request: Request, **kwargs: Any) -> Response:
-        # TODO: Replace stub with sandbox filesystem listing
-        # glob_pattern = request.query_params.get("glob", "*")
-        # files = sandbox.list_files(team_id=self.team_id, glob=glob_pattern)
-        files = STUB_SANDBOX_FILES
+    @action(detail=False, methods=["post"], url_path="send-message", required_scopes=["project:write"])
+    def send_message_compat(self, request, **kwargs):
+        validated = self._validate_serializer(SendMessageCompatRequestSerializer, request.data)
+        return self._proxy_json_endpoint(
+            request,
+            path="/send_message",
+            payload={"content": validated["content"]},
+            start_if_needed=True,
+        )
 
-        return Response({"results": files})
+    @action(detail=False, methods=["post"], url_path="cancel", required_scopes=["project:write"])
+    def cancel(self, request, **kwargs):
+        return self._proxy_json_endpoint(request, path="/cancel", payload={})
 
-    # ── Read sandbox file (GET /api/projects/:team_id/hogbot/files/read/) ──
+    @action(detail=False, methods=["post"], url_path="research", required_scopes=["project:write"])
+    def research(self, request, **kwargs):
+        validated = self._validate_serializer(ResearchRequestSerializer, request.data)
+        return self._proxy_json_endpoint(request, path="/research", payload=validated, start_if_needed=True)
 
-    @extend_schema(
-        responses={
-            200: OpenApiResponse(description="File content as plain text"),
-            400: OpenApiResponse(description="Missing path parameter"),
-            404: OpenApiResponse(description="File not found"),
-        },
-        summary="Read sandbox file",
-        description="Reads a single file from the sandbox filesystem. Requires a `path` query parameter.",
-    )
-    @action(detail=False, methods=["get"], url_path="files/read")
-    def files_read(self, request: Request, **kwargs: Any) -> HttpResponse:
-        file_path = request.query_params.get("path")
-        if not file_path:
-            return HttpResponse("Missing `path` query parameter", status=400, content_type="text/plain")
+    @action(detail=False, methods=["get"], url_path="filesystem/stat", required_scopes=["project:read"])
+    def filesystem_stat(self, request, **kwargs):
+        validated = self._validate_serializer(FilesystemPathQuerySerializer, request.query_params)
+        return self._proxy_get_endpoint(path="/filesystem/stat", query_params=validated)
 
-        # TODO: Replace stub with sandbox filesystem read
-        # content = sandbox.read_file(team_id=self.team_id, path=file_path)
-        content = STUB_FILE_CONTENTS.get(file_path)
+    @action(detail=False, methods=["get"], url_path="filesystem/list", required_scopes=["project:read"])
+    def filesystem_list(self, request, **kwargs):
+        validated = self._validate_serializer(FilesystemPathQuerySerializer, request.query_params)
+        return self._proxy_get_endpoint(path="/filesystem/list", query_params=validated)
 
-        if content is None:
-            return HttpResponse("File not found", status=404, content_type="text/plain")
+    @action(detail=False, methods=["get"], url_path="filesystem/content", required_scopes=["project:read"])
+    def filesystem_content(self, request, **kwargs):
+        validated = self._validate_serializer(FilesystemContentQuerySerializer, request.query_params)
+        return self._proxy_get_endpoint(path="/filesystem/content", query_params=validated)
 
+    @action(detail=False, methods=["get"], url_path="files", required_scopes=["project:read"])
+    def files(self, request, **kwargs):
+        validated = self._validate_serializer(FilesystemListCompatQuerySerializer, request.query_params)
+        pattern = validated["glob"] or "/research/*.md"
+        root = pattern.rsplit("/", 1)[0] or "/"
+        upstream = self._proxy_get_endpoint(path="/filesystem/list", query_params={"path": root})
+        if upstream.status_code != status.HTTP_200_OK:
+            return upstream
+
+        entries = upstream.data.get("entries", []) if isinstance(upstream.data, dict) else []
+        results = [
+            {
+                "path": entry["path"],
+                "filename": entry["name"],
+                "size": entry["size"],
+                "modified_at": entry.get("mtime_ms"),
+            }
+            for entry in entries
+            if entry.get("type") == "file" and fnmatch.fnmatch(entry.get("path", ""), pattern)
+        ]
+        results.sort(key=lambda entry: entry["path"])
+        return Response({"results": results})
+
+    @action(detail=False, methods=["get"], url_path="files/read", required_scopes=["project:read"])
+    def files_read(self, request, **kwargs):
+        validated = self._validate_serializer(FilesystemPathQuerySerializer, request.query_params)
+        upstream = self._proxy_get_endpoint(
+            path="/filesystem/content",
+            query_params={
+                "path": validated["path"],
+                "encoding": "utf-8",
+                "max_bytes": 1024 * 1024,
+            },
+        )
+        if upstream.status_code != status.HTTP_200_OK:
+            error = upstream.data.get("error") if isinstance(upstream.data, dict) else "File read failed"
+            return HttpResponse(error, status=upstream.status_code, content_type="text/plain")
+
+        content = upstream.data.get("content", "") if isinstance(upstream.data, dict) else ""
         return HttpResponse(content, content_type="text/plain; charset=utf-8")
+
+    @action(detail=False, methods=["get"], url_path="logs", required_scopes=["project:read"])
+    def logs(self, request, **kwargs):
+        connection = self._get_connection()
+        if isinstance(connection, Response):
+            return connection
+
+        try:
+            upstream = self._proxy_upstream(
+                connection=connection,
+                method="GET",
+                path="/logs",
+                params=request.query_params.dict(),
+                stream=True,
+                timeout=UPSTREAM_COMMAND_TIMEOUT_SECONDS,
+            )
+        except http_requests.ConnectionError:
+            return Response({"error": "Hogbot server is not reachable"}, status=status.HTTP_502_BAD_GATEWAY)
+        except http_requests.Timeout:
+            return Response({"error": "Hogbot server stream timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+
+        if upstream.status_code >= 400:
+            try:
+                data = upstream.json()
+            except ValueError:
+                data = {"error": f"Hogbot server returned {upstream.status_code}"}
+            upstream.close()
+            return Response(data, status=upstream.status_code)
+
+        def stream_chunks():
+            try:
+                yield from upstream.iter_content(chunk_size=4096)
+            finally:
+                upstream.close()
+
+        content = SyncIterableToAsync(stream_chunks()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream_chunks()
+        response = StreamingHttpResponse(content, content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    @action(detail=False, methods=["get"], url_path="admin/logs", required_scopes=["project:read"])
+    def admin_logs(self, request, **kwargs):
+        validated = self._validate_serializer(LogQuerySerializer, request.query_params)
+        return self._read_log_text_response(key=logic.get_admin_log_key(self.team.pk), validated=validated)
+
+    @action(detail=False, methods=["post"], url_path="admin/append_log", required_scopes=["project:write"])
+    def append_admin_log(self, request, **kwargs):
+        validated = self._validate_serializer(AppendLogRequestSerializer, request.data)
+        logic.append_log_entries(logic.get_admin_log_key(self.team.pk), self.team.pk, validated["entries"])
+        return Response({"ok": True})
+
+    @action(detail=False, methods=["get"], url_path=r"research/(?P<signal_id>[^/.]+)/logs", required_scopes=["project:read"])
+    def research_logs(self, request, signal_id: str | None = None, **kwargs):
+        validated = self._validate_serializer(LogQuerySerializer, request.query_params)
+        assert signal_id is not None
+        return self._read_log_response(key=logic.get_research_log_key(self.team.pk, signal_id), validated=validated)
+
+    @action(detail=False, methods=["post"], url_path=r"research/(?P<signal_id>[^/.]+)/append_log", required_scopes=["project:write"])
+    def append_research_log(self, request, signal_id: str | None = None, **kwargs):
+        validated = self._validate_serializer(AppendLogRequestSerializer, request.data)
+        assert signal_id is not None
+        logic.append_log_entries(logic.get_research_log_key(self.team.pk, signal_id), self.team.pk, validated["entries"])
+        return Response({"ok": True})
+
+    @action(detail=False, methods=["post"], url_path="server/register", required_scopes=["project:write"])
+    def register_server(self, request, **kwargs):
+        return Response({"ok": True, "deprecated": True})
+
+    @action(detail=False, methods=["post"], url_path="server/heartbeat", required_scopes=["project:write"])
+    def heartbeat_server(self, request, **kwargs):
+        return Response({"ok": True, "deprecated": True})
+
+    @action(detail=False, methods=["post"], url_path="server/unregister", required_scopes=["project:write"])
+    def unregister_server(self, request, **kwargs):
+        return Response({"ok": True, "deprecated": True})

@@ -36,8 +36,10 @@ logger = logging.getLogger(__name__)
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
+HOGBOT_MODAL_APP_NAME = "posthog-sandbox-hogbot"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_HOGBOT_IMAGE = "ghcr.io/posthog/posthog-sandbox-hogbot"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 
@@ -109,6 +111,17 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
         else:
             return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_NOTEBOOK_IMAGE))
 
+    if template == SandboxTemplate.HOGBOT_BASE:
+        if settings.DEBUG:
+            dockerfile_path = os.path.join(settings.BASE_DIR, "products/hogbot/server/images/Dockerfile.hogbot-local")
+
+            if not os.path.exists(dockerfile_path):
+                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
+
+            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
+        else:
+            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_HOGBOT_IMAGE))
+
     raise ValueError(f"Unknown template: {template}")
 
 
@@ -144,6 +157,8 @@ class ModalSandbox:
     def _get_app_for_template(template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(NOTEBOOK_MODAL_APP_NAME, create_if_missing=True)
+        if template == SandboxTemplate.HOGBOT_BASE:
+            return modal.App.lookup(HOGBOT_MODAL_APP_NAME, create_if_missing=True)
         return ModalSandbox._get_default_app()
 
     @staticmethod

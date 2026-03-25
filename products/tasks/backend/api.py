@@ -49,6 +49,11 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunFilesystemContentQuerySerializer,
+    TaskRunFilesystemContentResponseSerializer,
+    TaskRunFilesystemListResponseSerializer,
+    TaskRunFilesystemPathQuerySerializer,
+    TaskRunFilesystemStatResponseSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -279,6 +284,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "relay_message",
             "session_logs",
             "command",
+            "filesystem_stat",
+            "filesystem_list",
+            "filesystem_content",
             "stream",
         ]
     }
@@ -795,6 +803,181 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+    @validated_request(
+        query_serializer=TaskRunFilesystemPathQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunFilesystemStatResponseSerializer,
+                description="Filesystem entry metadata",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid path or no active sandbox"),
+            404: OpenApiResponse(response=ErrorResponseSerializer, description="Path not found"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+        },
+        summary="Stat sandbox filesystem entry",
+        description="Fetch metadata for a file or directory inside the sandbox repository workspace.",
+    )
+    @action(detail=True, methods=["get"], url_path="filesystem/stat", required_scopes=["task:read"])
+    def filesystem_stat(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        return self._proxy_filesystem_get(
+            request=request,
+            task_run=task_run,
+            agent_path="/filesystem/stat",
+            query_params={"path": request.validated_query_data["path"]},
+            action_name="stat filesystem entry",
+        )
+
+    @validated_request(
+        query_serializer=TaskRunFilesystemPathQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunFilesystemListResponseSerializer,
+                description="Directory listing",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid path or no active sandbox"),
+            404: OpenApiResponse(response=ErrorResponseSerializer, description="Path not found"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+        },
+        summary="List sandbox directory",
+        description="List the immediate children of a directory inside the sandbox repository workspace.",
+    )
+    @action(detail=True, methods=["get"], url_path="filesystem/list", required_scopes=["task:read"])
+    def filesystem_list(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        return self._proxy_filesystem_get(
+            request=request,
+            task_run=task_run,
+            agent_path="/filesystem/list",
+            query_params={"path": request.validated_query_data["path"]},
+            action_name="list filesystem directory",
+        )
+
+    @validated_request(
+        query_serializer=TaskRunFilesystemContentQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunFilesystemContentResponseSerializer,
+                description="File contents",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid path or content request"),
+            404: OpenApiResponse(response=ErrorResponseSerializer, description="Path not found"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+        },
+        summary="Read sandbox file",
+        description="Read a file from the sandbox repository workspace as UTF-8 text or base64 bytes.",
+    )
+    @action(detail=True, methods=["get"], url_path="filesystem/content", required_scopes=["task:read"])
+    def filesystem_content(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        return self._proxy_filesystem_get(
+            request=request,
+            task_run=task_run,
+            agent_path="/filesystem/content",
+            query_params={
+                "path": request.validated_query_data["path"],
+                "encoding": request.validated_query_data["encoding"],
+                "max_bytes": request.validated_query_data["max_bytes"],
+            },
+            action_name="read filesystem file",
+        )
+
+    def _proxy_filesystem_get(
+        self,
+        request,
+        task_run: TaskRun,
+        agent_path: str,
+        query_params: dict[str, str | int],
+        action_name: str,
+    ) -> Response:
+        proxy_context = self._get_sandbox_proxy_context(request, task_run)
+        if isinstance(proxy_context, Response):
+            return proxy_context
+
+        sandbox_url, connection_token, sandbox_connect_token = proxy_context
+
+        try:
+            agent_response = self._proxy_get_to_agent_server(
+                sandbox_url=sandbox_url,
+                connection_token=connection_token,
+                sandbox_connect_token=sandbox_connect_token,
+                path=agent_path,
+                query_params=query_params,
+            )
+        except http_requests.ConnectionError:
+            logger.warning(f"Agent server unreachable while trying to {action_name} for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except http_requests.Timeout:
+            logger.warning(f"Agent server request timed out while trying to {action_name} for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except Exception:
+            logger.exception(f"Failed to {action_name} via agent server for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": f"Failed to {action_name}"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if agent_response.ok:
+            return Response(agent_response.json())
+
+        try:
+            error_body = agent_response.json()
+        except Exception:
+            error_body = {}
+
+        error_msg = error_body.get("error", f"Agent server returned {agent_response.status_code}")
+        if agent_response.status_code in {400, 404}:
+            logger.warning(
+                f"Agent server rejected filesystem request while trying to {action_name} for task run {task_run.id}: {error_msg}"
+            )
+            return Response(
+                ErrorResponseSerializer({"error": error_msg}).data,
+                status=agent_response.status_code,
+            )
+
+        if agent_response.status_code == 401:
+            logger.warning(f"Agent server auth failed while trying to {action_name} for task run {task_run.id}: {error_msg}")
+        else:
+            logger.warning(
+                f"Agent server returned {agent_response.status_code} while trying to {action_name} for task run {task_run.id}: {error_msg}"
+            )
+
+        return Response(
+            ErrorResponseSerializer({"error": error_msg}).data,
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    def _get_sandbox_proxy_context(self, request, task_run: TaskRun) -> tuple[str, str, str | None] | Response:
+        state = task_run.state or {}
+
+        sandbox_url = state.get("sandbox_url")
+        if not sandbox_url:
+            return Response(
+                ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not self._is_valid_sandbox_url(sandbox_url):
+            logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        connection_token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=request.user.id,
+            distinct_id=request.user.distinct_id,
+        )
+
+        return sandbox_url, connection_token, state.get("sandbox_connect_token")
+
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:
         """Validate sandbox URL against allowlist to prevent SSRF.
@@ -852,6 +1035,32 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             headers=headers,
             params=params,
             timeout=600,
+        )
+
+    @staticmethod
+    def _proxy_get_to_agent_server(
+        sandbox_url: str,
+        connection_token: str,
+        sandbox_connect_token: str | None,
+        path: str,
+        query_params: dict[str, str | int],
+        timeout: int = 30,
+    ) -> http_requests.Response:
+        headers = {
+            "Authorization": f"Bearer {connection_token}",
+        }
+
+        params = dict(query_params)
+        if sandbox_connect_token:
+            params["_modal_connect_token"] = sandbox_connect_token
+
+        url = f"{sandbox_url.rstrip('/')}/{path.lstrip('/')}"
+
+        return http_requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=timeout,
         )
 
     @validated_request(

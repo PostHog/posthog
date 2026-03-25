@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
+HOGBOT_IMAGE_NAME = "posthog-hogbot-local"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
@@ -189,6 +190,15 @@ class DockerSandbox:
             )
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
+
+        if template == SandboxTemplate.HOGBOT_BASE:
+            base_dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+            )
+            hogbot_dockerfile_path = os.path.join(settings.BASE_DIR, "products/hogbot/server/images/Dockerfile.hogbot-local")
+            DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, base_dockerfile_path)
+            DockerSandbox._build_image_if_needed(HOGBOT_IMAGE_NAME, hogbot_dockerfile_path)
+            return HOGBOT_IMAGE_NAME
 
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"

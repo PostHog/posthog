@@ -41,13 +41,15 @@ def hogbot_workflow_id(team_id: int) -> str:
 
 def get_or_start_hogbot(
     team_id: int,
-    server_command: str,
+    user_id: int | None = None,
+    server_command: str | None = None,
     repository: str | None = None,
     github_integration_id: int | None = None,
     branch: str | None = None,
 ) -> HogbotConnectionInfo:
     return async_to_sync(_get_or_start_hogbot)(
         team_id=team_id,
+        user_id=user_id,
         server_command=server_command,
         repository=repository,
         github_integration_id=github_integration_id,
@@ -55,15 +57,25 @@ def get_or_start_hogbot(
     )
 
 
+def get_hogbot_connection(team_id: int) -> HogbotConnectionInfo | None:
+    try:
+        return async_to_sync(_get_hogbot_connection)(team_id=team_id)
+    except Exception:
+        logger.exception("Failed to query hogbot Temporal workflow connection info", extra={"team_id": team_id})
+        return None
+
+
 def start_or_restart_hogbot(
     team_id: int,
-    server_command: str,
+    user_id: int | None = None,
+    server_command: str | None = None,
     repository: str | None = None,
     github_integration_id: int | None = None,
     branch: str | None = None,
 ) -> HogbotConnectionInfo:
     return get_or_start_hogbot(
         team_id=team_id,
+        user_id=user_id,
         server_command=server_command,
         repository=repository,
         github_integration_id=github_integration_id,
@@ -74,7 +86,8 @@ def start_or_restart_hogbot(
 async def _get_or_start_hogbot(
     *,
     team_id: int,
-    server_command: str,
+    user_id: int | None,
+    server_command: str | None,
     repository: str | None,
     github_integration_id: int | None,
     branch: str | None,
@@ -82,6 +95,7 @@ async def _get_or_start_hogbot(
     client = await async_connect()
     workflow_input = HogbotWorkflowInput(
         team_id=team_id,
+        user_id=user_id,
         server_command=server_command,
         repository=repository,
         github_integration_id=github_integration_id,
@@ -137,6 +151,13 @@ async def _get_or_start_hogbot(
     raise RuntimeError(
         f"Hogbot workflow did not become ready (phase={last_info.phase}, error={last_info.error or 'unknown'})"
     )
+
+
+async def _get_hogbot_connection(*, team_id: int) -> HogbotConnectionInfo:
+    client = await async_connect()
+    handle = client.get_workflow_handle(hogbot_workflow_id(team_id))
+    raw_info = await handle.query(HogbotWorkflow.get_connection_info)
+    return HogbotConnectionInfo(**raw_info)
 
 
 async def _wait_for_connection_info(handle: WorkflowHandle) -> HogbotConnectionInfo:

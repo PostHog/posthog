@@ -1,7 +1,7 @@
 from django.core.cache import cache
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -14,6 +14,7 @@ from .services.title_generator import generate_task_title
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 
 
+@extend_schema_serializer(component_name="ProjectTask")
 class TaskSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
     latest_run = serializers.SerializerMethodField()
@@ -342,6 +343,62 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token for direct sandbox connection"""
 
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class TaskRunFilesystemPathQuerySerializer(serializers.Serializer):
+    path = serializers.CharField(
+        required=False,
+        default="/",
+        help_text="Workspace-relative path rooted at the sandbox repository. '/' addresses the repository root.",
+    )
+
+
+class TaskRunFilesystemContentQuerySerializer(TaskRunFilesystemPathQuerySerializer):
+    encoding = serializers.ChoiceField(
+        choices=["utf-8", "base64"],
+        required=False,
+        default="utf-8",
+        help_text="Response encoding for file content. Use base64 for binary files.",
+    )
+    max_bytes = serializers.IntegerField(
+        required=False,
+        default=1024 * 1024,
+        min_value=1,
+        max_value=5 * 1024 * 1024,
+        help_text="Maximum number of bytes to return from the file. Larger files are truncated.",
+    )
+
+
+class SandboxFilesystemEntrySerializer(serializers.Serializer):
+    path = serializers.CharField(help_text="Workspace-relative path with a leading slash.")
+    name = serializers.CharField(help_text="Base name of the entry.")
+    type = serializers.ChoiceField(
+        choices=["file", "directory", "symlink"],
+        help_text="Entry type in the sandbox filesystem.",
+    )
+    size = serializers.IntegerField(help_text="Entry size in bytes.")
+    ctime_ms = serializers.FloatField(help_text="Creation time as Unix epoch milliseconds.")
+    mtime_ms = serializers.FloatField(help_text="Modification time as Unix epoch milliseconds.")
+    is_symbolic_link = serializers.BooleanField(help_text="Whether the entry is a symbolic link.")
+
+
+class TaskRunFilesystemStatResponseSerializer(serializers.Serializer):
+    entry = SandboxFilesystemEntrySerializer(help_text="Metadata for the requested filesystem entry.")
+
+
+class TaskRunFilesystemListResponseSerializer(serializers.Serializer):
+    directory = SandboxFilesystemEntrySerializer(help_text="Metadata for the requested directory.")
+    entries = SandboxFilesystemEntrySerializer(many=True, help_text="Immediate children of the requested directory.")
+
+
+class TaskRunFilesystemContentResponseSerializer(serializers.Serializer):
+    file = SandboxFilesystemEntrySerializer(help_text="Metadata for the requested file.")
+    encoding = serializers.ChoiceField(
+        choices=["utf-8", "base64"],
+        help_text="Encoding used for the content payload.",
+    )
+    content = serializers.CharField(help_text="File contents encoded according to the requested encoding.")
+    truncated = serializers.BooleanField(help_text="Whether the response was truncated at max_bytes.")
 
 
 class TaskRunCreateRequestSerializer(serializers.Serializer):
