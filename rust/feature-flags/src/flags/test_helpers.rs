@@ -32,6 +32,7 @@ pub fn create_simple_property_filter(
         group_type_index: None,
         negation: None,
         prop_type,
+        compiled_regex: None,
     }
 }
 

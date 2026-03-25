@@ -45,7 +45,6 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
-    ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
@@ -506,7 +505,6 @@ class AssistantTool(StrEnum):
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
-    RECOMMEND_PRODUCTS = "recommend_products"
     SEARCH_LLM_TRACES = "search_llm_traces"
 
 
@@ -1779,6 +1777,7 @@ class ExternalDataSourceType(StrEnum):
     POSTMARK = "Postmark"
     GRANOLA = "Granola"
     BUILD_BETTER = "BuildBetter"
+    CONVEX = "Convex"
 
 
 class ExternalQueryErrorCode(StrEnum):

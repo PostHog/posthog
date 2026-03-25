@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,6 +16,9 @@ class TestLogsViewAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/environments/{self.team.pk}/logs/views/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
 
     def _valid_payload(self, **overrides) -> dict:
         defaults = {
@@ -194,6 +198,13 @@ class TestLogsViewAPI(APIBaseTest):
         client = APIClient()
         response = client.get(self.base_url)
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # --- Feature flag ---
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_returns_403_when_feature_flag_disabled(self, _mock_feature_enabled):
+        response = self.client.get(self.base_url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # --- Pinned ---
 

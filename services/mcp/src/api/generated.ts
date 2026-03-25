@@ -4199,7 +4199,6 @@ export namespace Schemas {
     * `plan` - plan
     * `execution` - execution
     * `survey` - survey
-    * `onboarding` - onboarding
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
@@ -4216,7 +4215,6 @@ export namespace Schemas {
       Plan: 'plan',
       Execution: 'execution',
       Survey: 'survey',
-      Onboarding: 'onboarding',
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
@@ -14401,11 +14399,12 @@ export namespace Schemas {
     * `Postmark` - Postmark
     * `Granola` - Granola
     * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
      */
-    export type SourceTypeE09Enum = typeof SourceTypeE09Enum[keyof typeof SourceTypeE09Enum];
+    export type SourceType432Enum = typeof SourceType432Enum[keyof typeof SourceType432Enum];
 
 
-    export const SourceTypeE09Enum = {
+    export const SourceType432Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -14546,6 +14545,7 @@ export namespace Schemas {
       Postmark: 'Postmark',
       Granola: 'Granola',
       BuildBetter: 'BuildBetter',
+      Convex: 'Convex',
     } as const;
 
     /**
@@ -14559,7 +14559,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -14613,6 +14613,8 @@ export namespace Schemas {
 
     export type FeatureFlagFilters = {[key: string]: unknown};
 
+    export type FeatureFlagExperimentSetMetadataItem = {[key: string]: unknown};
+
     export type FeatureFlagSurveys = {[key: string]: unknown};
 
     export type FeatureFlagFeatures = {[key: string]: unknown};
@@ -14658,6 +14660,7 @@ export namespace Schemas {
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       readonly experiment_set: readonly number[];
+      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown | null;
@@ -20387,7 +20390,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -22254,7 +22257,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeE09Enum;
+      readonly source_type?: SourceType432Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
