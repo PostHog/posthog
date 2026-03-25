@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
-import { LemonDropdown } from '@posthog/lemon-ui'
+import { Popover } from 'lib/lemon-ui/Popover'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -28,6 +28,7 @@ export function PathNodeCard({
     onMouseLeave,
 }: PathNodeCardProps): JSX.Element | null {
     const cardRef = useRef<HTMLDivElement>(null)
+    const [popoverVisible, setPopoverVisible] = useState(false)
     const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
 
@@ -48,8 +49,19 @@ export function PathNodeCard({
           node.targetLinks.length
         : null
 
+    const handleMouseEnter = (): void => {
+        setPopoverVisible(true)
+        onMouseEnter?.()
+    }
+
+    const handleMouseLeave = (): void => {
+        setPopoverVisible(false)
+        onMouseLeave?.()
+    }
+
     return (
-        <LemonDropdown
+        <Popover
+            visible={popoverVisible}
             overlay={
                 <PathNodeCardMenu
                     name={node.name}
@@ -62,15 +74,10 @@ export function PathNodeCard({
                     openPersonsModal={openPersonsModal}
                 />
             }
-            trigger="hover"
             placement="bottom"
             padded={false}
             matchWidth
-            onVisibilityChange={(visible) => {
-                if (!visible && !cardRef.current?.matches(':hover')) {
-                    onMouseLeave?.()
-                }
-            }}
+            onMouseLeaveInside={handleMouseLeave}
         >
             <div
                 ref={cardRef}
@@ -96,7 +103,8 @@ export function PathNodeCard({
                     opacity: node.active ? 1 : undefined,
                 }}
                 data-attr="path-node-card-button"
-                onMouseEnter={onMouseEnter}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
             >
                 <PathNodeCardButton
                     name={node.name}
@@ -110,6 +118,6 @@ export function PathNodeCard({
                     tooltipContent={pageUrl(node, true, true)}
                 />
             </div>
-        </LemonDropdown>
+        </Popover>
     )
 }
