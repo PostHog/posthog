@@ -1,1 +1,1 @@
-1065_add_cohort_kind
+1066_alter_insight_saved
