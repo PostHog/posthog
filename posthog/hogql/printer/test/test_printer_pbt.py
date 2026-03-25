@@ -22,44 +22,22 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.parse_string import parse_string_literal_text
 
-# Characters that, when preceded by a backslash, form escape sequences
-# recognized by replace_common_escape_characters. Because that function
-# uses sequential str.replace (rather than left-to-right single-pass
-# parsing), a literal backslash followed by one of these chars in the
-# original string doesn't survive a round-trip through escape → parse.
-_ESCAPE_SEQUENCE_LETTERS = frozenset("bfrnt0av")
-
-
-def _has_backslash_before_escape_letter(s: str) -> bool:
-    """True if s contains '\\' immediately followed by an escape letter.
-
-    This is conservative — it also rejects cases like '\\\\n' where
-    the backslash is itself escaped. This is intentional: it matches
-    the lossy behavior of replace_common_escape_characters.
-    """
-    for i in range(len(s) - 1):
-        if s[i] == "\\" and s[i + 1] in _ESCAPE_SEQUENCE_LETTERS:
-            return True
-    return False
-
-
 # ---------------------------------------------------------------------------
 # Reusable strategies
 # ---------------------------------------------------------------------------
 
-# Strings that are expected to round-trip through escape → parse:
-#   - no NUL (parse_string_literal_text maps \\0 → empty, so NUL is lossy)
-#   - no backslash + escape-letter combos (see docstring above)
+# Strings that are expected to round-trip through escape → parse.
+# NUL is excluded because parse_string_literal_text maps \0 → "" (lossy).
 _roundtrip_safe_text = st.text(
     alphabet=st.characters(blacklist_characters="\0"),
-).filter(lambda s: not _has_backslash_before_escape_letter(s))
+)
 
 # Like _roundtrip_safe_text but also excludes '%' (rejected by
 # escape_hogql_identifier / escape_clickhouse_identifier).
 _roundtrip_safe_identifier_text = st.text(
     min_size=1,
     alphabet=st.characters(blacklist_characters="\0%"),
-).filter(lambda s: not _has_backslash_before_escape_letter(s))
+)
 
 # Strings guaranteed to contain at least one '%' — built by
 # concatenating a random prefix, a '%', and a random suffix so
@@ -121,19 +99,18 @@ class TestStringEscapingKnownAsymmetries:
     def test_nul_chars_are_dropped_by_parser(self) -> None:
         escaped = escape_hogql_string("hello\0world")
         result = parse_string_literal_text(escaped)
-        # parse_string_literal_text maps \\0 → "" (NUL is discarded)
+        # parse_string_literal_text maps \0 → "" (NUL is discarded)
         assert result == "helloworld"
 
-    def test_backslash_before_escape_letter_is_lossy(self) -> None:
-        # Literal backslash + 'n' (two chars, NOT a newline)
+    def test_backslash_before_escape_letter_roundtrips_correctly(self) -> None:
+        # Literal backslash + 'n' (two chars, NOT a newline).
+        # This previously failed due to sequential str.replace in
+        # replace_common_escape_characters — the fix to single-pass
+        # parsing means this now round-trips correctly.
         s = "\\n"
         escaped = escape_hogql_string(s)
         result = parse_string_literal_text(escaped)
-        # replace_common_escape_characters sees the \\n at the boundary
-        # between the escaped backslash and the literal 'n', and
-        # interprets it as a newline escape sequence.
-        assert result != s
-        assert result == "\\\n"  # backslash + newline, not backslash + 'n'
+        assert result == s
 
 
 class TestHogQLIdentifier:

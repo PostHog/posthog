@@ -2,19 +2,38 @@ from antlr4 import ParserRuleContext
 
 from posthog.hogql.errors import SyntaxError
 
+_BACKSLASH_ESCAPE_MAP: dict[str, str] = {
+    "b": "\b",
+    "f": "\f",
+    "r": "\r",
+    "n": "\n",
+    "t": "\t",
+    "0": "",  # NUL characters are ignored
+    "a": "\a",
+    "v": "\v",
+    "\\": "\\",
+}
 
-def replace_common_escape_characters(text):
-    # copied from clickhouse_driver/util/escape.py
-    text = text.replace("\\b", "\b")
-    text = text.replace("\\f", "\f")
-    text = text.replace("\\r", "\r")
-    text = text.replace("\\n", "\n")
-    text = text.replace("\\t", "\t")
-    text = text.replace("\\0", "")  # NUL characters are ignored
-    text = text.replace("\\a", "\a")
-    text = text.replace("\\v", "\v")
-    text = text.replace("\\\\", "\\")
-    return text
+
+def replace_common_escape_characters(text: str) -> str:
+    # Single-pass left-to-right scan so that an escaped backslash (\\)
+    # is consumed before the next character is inspected.  The previous
+    # sequential-str.replace implementation processed \\\\ last, which
+    # meant \\n was mis-parsed as \<newline> instead of \n.
+    parts: list[str] = []
+    i = 0
+    length = len(text)
+    while i < length:
+        if text[i] == "\\" and i + 1 < length:
+            next_char = text[i + 1]
+            replacement = _BACKSLASH_ESCAPE_MAP.get(next_char)
+            if replacement is not None:
+                parts.append(replacement)
+                i += 2
+                continue
+        parts.append(text[i])
+        i += 1
+    return "".join(parts)
 
 
 def parse_string_literal_text(text: str) -> str:
