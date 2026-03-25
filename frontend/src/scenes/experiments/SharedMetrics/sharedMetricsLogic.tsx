@@ -56,6 +56,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                 actions.loadSharedMetrics()
             } catch {
                 lemonToast.error('Failed to save tags')
+                actions.loadSharedMetrics()
             }
         },
     })),

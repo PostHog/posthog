@@ -14,6 +14,7 @@ import { Experiment } from '~/types'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
+import { matchesSharedMetricSearch } from '../utils'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
@@ -86,12 +87,7 @@ export function SharedMetricModal({
 
     const searchLower = searchTerm.toLowerCase()
     const filteredMetrics = searchTerm
-        ? availableSharedMetrics.filter(
-              (metric: SharedMetric) =>
-                  metric.name.toLowerCase().includes(searchLower) ||
-                  metric.description?.toLowerCase().includes(searchLower) ||
-                  metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower))
-          )
+        ? availableSharedMetrics.filter((metric) => matchesSharedMetricSearch(metric, searchLower))
         : availableSharedMetrics
 
     const availableTags = Array.from(

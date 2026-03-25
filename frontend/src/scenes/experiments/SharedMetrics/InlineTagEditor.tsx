@@ -58,7 +58,7 @@ export function InlineTagEditor({
                             onClick={() => setIsEditing(!isEditing)}
                             icon={hasTags ? <IconPencil /> : <IconPlus />}
                             className="border border-dashed cursor-pointer"
-                            size="xsmall"
+                            size="small"
                         >
                             {hasTags ? 'Edit' : 'Add tag'}
                         </LemonTag>

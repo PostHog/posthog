@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { isLegacySharedMetric } from '../utils'
+import { isLegacySharedMetric, matchesSharedMetricSearch } from '../utils'
 import { InlineTagEditor } from './InlineTagEditor'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
@@ -39,12 +39,7 @@ export function SharedMetrics(): JSX.Element {
 
     const searchLower = searchTerm.toLowerCase()
     const filteredMetrics = searchTerm
-        ? (sharedMetrics || []).filter(
-              (metric: SharedMetric) =>
-                  metric.name.toLowerCase().includes(searchLower) ||
-                  metric.description?.toLowerCase().includes(searchLower) ||
-                  metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower))
-          )
+        ? (sharedMetrics || []).filter((metric) => matchesSharedMetricSearch(metric, searchLower))
         : sharedMetrics || []
 
     const columns: LemonTableColumns<SharedMetric> = [
