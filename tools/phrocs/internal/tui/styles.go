@@ -81,6 +81,11 @@ var (
 				PaddingLeft(1).
 				Foreground(colorGrey)
 
+	scrollArrowStyle = lipgloss.NewStyle().
+				PaddingLeft(1).
+				Foreground(colorGrey).
+				Align(lipgloss.Center)
+
 	// Footer
 	footerStyle = lipgloss.NewStyle().
 			Foreground(colorGrey).

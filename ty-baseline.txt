@@ -564,7 +564,6 @@ posthog/api/integration.py:0: error: Object of type `Unknown | None` is not assi
 posthog/api/integration.py:0: warning: Attribute `id` may be missing on object of type `AbstractBaseUser | AnonymousUser`  [possibly-missing-attribute]
 posthog/api/llm_prompt.py:0: error: Invalid override of method `validate`: Definition is incompatible with `Serializer.validate`  [invalid-method-override]
 posthog/api/oauth/views.py:0: error: Invalid override of method `error_response`: Definition is incompatible with `OAuthLibMixin.error_response`  [invalid-method-override]
-posthog/api/onboarding.py:0: error: Argument `model` does not match any known parameter  [unknown-argument]
 posthog/api/organization.py:0: error: Invalid override of method `has_object_permission`: Definition is incompatible with `BasePermission.has_object_permission`  [invalid-method-override]
 posthog/api/organization.py:0: error: Invalid override of method `has_object_permission`: Definition is incompatible with `BasePermission.has_object_permission`  [invalid-method-override]
 posthog/api/organization.py:0: error: Invalid override of method `perform_destroy`: Definition is incompatible with `DestroyModelMixin.perform_destroy`  [invalid-method-override]

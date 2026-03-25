@@ -221,7 +221,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 20
         name: Discover product tests
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}

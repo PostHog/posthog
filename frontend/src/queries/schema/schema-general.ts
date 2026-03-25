@@ -3847,7 +3847,15 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort' | 'revenue_analytics'
+    | 'person'
+    | 'event'
+    | 'event_metadata'
+    | 'group'
+    | 'session'
+    | 'hogql'
+    | 'cohort'
+    | 'revenue_analytics'
+    | 'data_warehouse_person_property'
 >
 
 export interface Breakdown {
@@ -5327,6 +5335,7 @@ export const externalDataSources = [
     'Postmark',
     'Granola',
     'BuildBetter',
+    'Convex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

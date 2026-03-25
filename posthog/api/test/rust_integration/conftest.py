@@ -188,6 +188,14 @@ class TestDB:
             (person_id, cohort_id, version),
         )
 
+    def set_cohort_type(self, cohort_id: int, cohort_type: str | None) -> None:
+        """Override the cohort_type for a cohort (e.g. to 'realtime' or 'behavioral')."""
+        cur = self.main_conn.cursor()
+        cur.execute(
+            "UPDATE posthog_cohort SET cohort_type = %s WHERE id = %s",
+            (cohort_type, cohort_id),
+        )
+
     def cleanup(self) -> None:
         # posthog_cohortpeople has no team_id — delete via cohort_id from the main DB
         persons_cur = self.persons_conn.cursor()

@@ -24,11 +24,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
 
+import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -46,9 +46,9 @@ export function BatchExportConfiguration(): JSX.Element {
         runningStep,
         isDatabaseDestination,
         service,
-    } = useValues(batchExportConfigurationLogic)
+    } = useValues(batchExportConfigFormLogic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
-        useActions(batchExportConfigurationLogic)
+        useActions(batchExportConfigFormLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
@@ -66,7 +66,7 @@ export function BatchExportConfiguration(): JSX.Element {
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
 
     return (
-        <Form logic={batchExportConfigurationLogic} formKey="configuration" className="flex flex-col gap-3">
+        <Form logic={batchExportConfigFormLogic} formKey="configuration" className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">

@@ -9,9 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
     DashboardsAnalyzeRefreshResultCreateParams,
+    DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
@@ -440,6 +442,44 @@ export const dashboardsAnalyzeRefreshResultCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dashboardApi),
+    })
+}
+
+/**
+ * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
+ */
+export const getDashboardsCopyTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsCopyTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/copy_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/copy_tile/`
+}
+
+export const dashboardsCopyTileCreate = async (
+    projectId: string,
+    id: number,
+    copyDashboardTileRequestApi: CopyDashboardTileRequestApi,
+    params?: DashboardsCopyTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsCopyTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyDashboardTileRequestApi),
     })
 }
 

@@ -373,6 +373,7 @@ const featureFlagActionsMapping: Record<
     created_by: () => null,
     updated_at: () => null,
     experiment_set: () => null,
+    experiment_set_metadata: () => null,
     features: () => null,
     usage_dashboard: () => null,
     can_edit: () => null,
