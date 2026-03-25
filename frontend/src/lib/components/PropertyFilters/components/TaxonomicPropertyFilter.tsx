@@ -72,6 +72,7 @@ export function TaxonomicPropertyFilter({
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
+    hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
@@ -170,6 +171,7 @@ export function TaxonomicPropertyFilter({
             propertyAllowList={propertyAllowList}
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
+            hideBehavioralCohorts={hideBehavioralCohorts}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}

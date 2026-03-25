@@ -61,6 +61,7 @@ export interface PropertyFilterInternalProps {
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     exactMatchFeatureFlagCohortOperators?: boolean
+    hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>

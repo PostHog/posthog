@@ -210,6 +210,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                                 : undefined,
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
                         ...(props.showNumericalPropsOnly ? { is_numerical: 'true' } : {}),
+                        // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
+                        // used in the feature flag property filter UI
+                        ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
                     }
 
                     const start = performance.now()

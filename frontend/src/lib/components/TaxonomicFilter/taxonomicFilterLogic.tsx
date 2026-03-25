@@ -29,6 +29,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
 import {
@@ -40,6 +41,7 @@ import {
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
@@ -367,6 +369,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        hideBehavioralCohorts: [
+            () => [(_, props) => props.hideBehavioralCohorts],
+            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
+        ],
         hogQLGlobals: [
             () => [(_, props) => props.hogQLGlobals],
             (hogQLGlobals: Record<string, any> | undefined) => hogQLGlobals,
@@ -387,6 +393,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
                 s.maxContextOptions,
+                s.hideBehavioralCohorts,
                 s.endpointFilters,
                 s.hogQLGlobals,
                 s.featureFlags,
@@ -402,6 +409,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
+                hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
                 hogQLGlobals: Record<string, any> | undefined,
                 featureFlags: Record<string, boolean | string | undefined>
@@ -807,6 +815,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        footerMessage: hideBehavioralCohorts ? (
+                            <>
+                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL} target="_blank">
+                                    Some cohorts excluded due to containing behavioral filters.
+                                </Link>
+                            </>
+                        ) : undefined,
                     },
                     {
                         name: 'Cohorts',

@@ -146,6 +146,7 @@ export function FeatureFlagReleaseConditions({
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const showBucketingIdentifierUI = useFeatureFlag('FLAG_BUCKETING_IDENTIFIER')
+    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
@@ -378,6 +379,7 @@ export function FeatureFlagReleaseConditions({
                                         : null
                                 }
                                 exactMatchFeatureFlagCohortOperators={true}
+                                hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
                     )}

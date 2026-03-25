@@ -52,6 +52,7 @@ export interface PropertyFiltersProps {
     allowRelativeDateOptions?: boolean
     disabledReason?: string
     exactMatchFeatureFlagCohortOperators?: boolean
+    hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
@@ -88,6 +89,7 @@ export function PropertyFilters({
     allowRelativeDateOptions,
     disabledReason = undefined,
     exactMatchFeatureFlagCohortOperators = false,
+    hideBehavioralCohorts,
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
@@ -158,6 +160,7 @@ export function PropertyFilters({
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
+                                            hideBehavioralCohorts={hideBehavioralCohorts}
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
