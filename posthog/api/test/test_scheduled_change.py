@@ -139,13 +139,12 @@ class TestScheduledChange(APIBaseTest):
         assert "recurrence_interval" in str(response_data)
         assert "required when is_recurring is true" in str(response_data)
 
-    def test_recurring_schedule_only_allows_update_status_operation(self):
-        """Test that recurring schedules only support the update_status operation"""
+    def test_recurring_schedule_blocks_add_release_condition(self):
+        """Recurring add_release_condition is blocked because it appends duplicates on each run."""
         feature_flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="recurring-op-test-flag", name="Recurring Op Test Flag"
         )
 
-        # Try with add_release_condition operation
         payload = {
             "operation": "add_release_condition",
             "value": {"groups": [{"properties": [], "rollout_percentage": 100}]},
@@ -166,7 +165,49 @@ class TestScheduledChange(APIBaseTest):
         response_data = response.json()
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert "Recurring schedules only support the update_status operation" in str(response_data)
+        assert "not supported for add_release_condition" in str(response_data)
+
+    def test_recurring_schedule_allows_update_variants(self):
+        """Recurring update_variants is allowed because it replaces (not appends) the variant config."""
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="recurring-variants-flag",
+            name="Recurring Variants Flag",
+            filters={
+                "groups": [{"rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
+            },
+        )
+
+        payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "payloads": {},
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": payload,
+                "scheduled_at": "2024-01-15T09:00:00Z",
+                "is_recurring": True,
+                "recurrence_interval": "weekly",
+            },
+        )
+
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["is_recurring"] is True
+        assert response_data["recurrence_interval"] == "weekly"
 
     def test_can_create_valid_recurring_schedule(self):
         """Test that valid recurring schedules can be created"""
