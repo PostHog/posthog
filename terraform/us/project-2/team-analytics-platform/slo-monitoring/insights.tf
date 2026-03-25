@@ -28,9 +28,12 @@ locals {
   ]...)
 
   # Row budgets for queries (with 2x margin for safety).
-  slo_burn_rate_limit      = 168 * 4 * 2            # 7 days * 24h * 4 metrics * margin
-  slo_duration_limit       = 28 * 3 * 2             # 28 days * 3 percentiles * margin
-  slo_success_rate_limit   = length(local.slo_operations) * 28 * 2  # 28 days * N operations * margin
+  slo_burn_rate_limit    = 168 * 4 * 2 # 7 days * 24h * 4 metrics * margin
+  slo_duration_limit     = 28 * 3 * 2  # 28 days * 3 percentiles * margin
+  slo_success_rate_limit = length(local.slo_operations) * 28 * 2
+
+  # Explicit operation list for the success rate query (avoids DISTINCT drift).
+  slo_operation_list = join(", ", [for k, _ in local.slo_operations : "'${k}'"])
 
   # ---------------------------------------------------------------------------
   # Burn rate query template (hourly granularity, 4 windows).
@@ -255,6 +258,7 @@ resource "posthog_insight" "slo_success_rate" {
                 countIf(properties.outcome = 'failure') AS failures
             FROM events
             WHERE event = 'slo_operation_completed'
+              AND properties.operation IN (${local.slo_operation_list})
               AND timestamp >= now() - INTERVAL 56 DAY
             GROUP BY date, operation
         ),
@@ -262,7 +266,7 @@ resource "posthog_insight" "slo_success_rate" {
             SELECT toDate(now()) - number AS date FROM numbers(28)
         ),
         operations AS (
-            SELECT DISTINCT operation FROM daily
+            SELECT arrayJoin([${local.slo_operation_list}]) AS operation
         ),
         base AS (
             SELECT
