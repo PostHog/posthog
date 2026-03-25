@@ -2,7 +2,7 @@ use crate::cohorts::cohort_models::Cohort;
 use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, Holdout, MultivariateFlagVariant,
 };
-use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
+use crate::properties::property_models::{OperatorType, PropertyFilter};
 use serde_json::json;
 
 /// Like `Default`, but for test contexts. Provides sensible test defaults
@@ -21,6 +21,68 @@ pub trait Mock {
 /// `FeatureFlagRow` from a `FeatureFlag` for database insertion tests).
 pub trait MockFrom<T> {
     fn mock_from(source: &T) -> Self;
+}
+
+// ---------------------------------------------------------------------------
+// Blanket implementations
+// ---------------------------------------------------------------------------
+
+/// Every type that implements `Mock` can trivially create itself from `()`.
+impl<T: Mock> MockFrom<()> for T {
+    fn mock_from(_: &()) -> Self {
+        T::mock()
+    }
+}
+
+/// Create a `Vec` of `count` mock items.
+///
+/// ```rust,ignore
+/// let flags: Vec<FeatureFlag> = MockFrom::mock_from(&3);
+/// ```
+impl<T: Mock> MockFrom<usize> for Vec<T> {
+    fn mock_from(count: &usize) -> Self {
+        (0..*count).map(|_| T::mock()).collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Primitive / standard-library Mock implementations
+// ---------------------------------------------------------------------------
+
+impl Mock for String {
+    fn mock() -> Self {
+        "test_value".to_string()
+    }
+}
+
+impl Mock for i32 {
+    fn mock() -> Self {
+        1
+    }
+}
+
+impl Mock for i64 {
+    fn mock() -> Self {
+        1
+    }
+}
+
+impl Mock for f64 {
+    fn mock() -> Self {
+        1.0
+    }
+}
+
+impl Mock for bool {
+    fn mock() -> Self {
+        true
+    }
+}
+
+impl Mock for serde_json::Value {
+    fn mock() -> Self {
+        json!({})
+    }
 }
 
 /// Creates a mock instance of a type implementing [`Mock`], with optional field overrides.
@@ -78,22 +140,12 @@ impl Mock for FeatureFlag {
             team_id: 1,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
-            deleted: false,
+            filters: Mock::mock(),
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
+            ..Default::default()
         }
     }
 }
@@ -101,7 +153,6 @@ impl Mock for FeatureFlag {
 impl Mock for FeatureFlagRow {
     fn mock() -> Self {
         FeatureFlagRow {
-            id: 0,
             team_id: 1,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
@@ -111,13 +162,11 @@ impl Mock for FeatureFlagRow {
                     "rollout_percentage": 100
                 }]
             }),
-            deleted: false,
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
+            ..Default::default()
         }
     }
 }
@@ -128,9 +177,7 @@ impl Mock for PropertyFilter {
             key: "test_prop".to_string(),
             value: Some(json!("test_value")),
             operator: Some(OperatorType::Exact),
-            prop_type: PropertyType::Person,
-            negation: None,
-            group_type_index: None,
+            ..Default::default()
         }
     }
 }
@@ -142,19 +189,9 @@ impl Mock for Cohort {
             name: Some("Test Cohort".to_string()),
             description: Some("Test cohort description".to_string()),
             team_id: 1,
-            deleted: false,
-            filters: None,
-            query: None,
             version: Some(1),
-            pending_version: None,
-            count: None,
-            is_calculating: false,
-            is_static: false,
-            errors_calculating: 0,
             groups: json!({}),
-            created_by_id: None,
-            cohort_type: None,
-            last_backfill_person_properties_at: None,
+            ..Default::default()
         }
     }
 }
@@ -164,6 +201,7 @@ impl Mock for Holdout {
         Holdout {
             id: 1,
             exclusion_percentage: 10.0,
+            ..Default::default()
         }
     }
 }
@@ -174,6 +212,7 @@ impl Mock for MultivariateFlagVariant {
             key: "control".to_string(),
             name: Some("Control".to_string()),
             rollout_percentage: 100.0,
+            ..Default::default()
         }
     }
 }
@@ -183,7 +222,6 @@ impl Mock for FlagPropertyGroup {
         FlagPropertyGroup {
             properties: Some(vec![]),
             rollout_percentage: Some(100.0),
-            variant: None,
             ..Default::default()
         }
     }
@@ -192,12 +230,7 @@ impl Mock for FlagPropertyGroup {
 impl Mock for FlagFilters {
     fn mock() -> Self {
         FlagFilters {
-            groups: vec![FlagPropertyGroup {
-                properties: Some(vec![]),
-                rollout_percentage: Some(100.0),
-                variant: None,
-                ..Default::default()
-            }],
+            groups: vec![Mock::mock()],
             ..Default::default()
         }
     }
@@ -223,6 +256,7 @@ impl MockFrom<FeatureFlag> for FeatureFlagRow {
             evaluation_runtime: flag.evaluation_runtime.clone(),
             evaluation_tags: flag.evaluation_tags.clone(),
             bucketing_identifier: flag.bucketing_identifier.clone(),
+            ..Default::default()
         }
     }
 }
@@ -256,6 +290,7 @@ pub fn mock_flag_filters_with_property(property: PropertyFilter) -> FlagFilters 
 mod tests {
     use super::*;
     use crate::mock;
+    use crate::properties::property_models::PropertyType;
     use serde_json::json;
 
     #[test]
@@ -679,5 +714,35 @@ mod tests {
 
         let pf = mock!(PropertyFilter, key: "x".to_string(),);
         assert_eq!(pf.key, "x");
+    }
+
+    #[test]
+    fn test_primitive_mocks() {
+        assert_eq!(String::mock(), "test_value");
+        assert_eq!(i32::mock(), 1);
+        assert_eq!(i64::mock(), 1);
+        assert_eq!(f64::mock(), 1.0);
+        assert!(bool::mock());
+        assert_eq!(serde_json::Value::mock(), json!({}));
+    }
+
+    #[test]
+    fn test_mock_from_unit_blanket() {
+        // MockFrom<()> delegates to Mock::mock()
+        let flag: FeatureFlag = MockFrom::mock_from(&());
+        assert_eq!(flag.key, "test_flag");
+    }
+
+    #[test]
+    fn test_vec_mock_from_count() {
+        let flags: Vec<FeatureFlag> = MockFrom::mock_from(&3);
+        assert_eq!(flags.len(), 3);
+        for flag in &flags {
+            assert_eq!(flag.key, "test_flag");
+            assert!(flag.active);
+        }
+
+        let empty: Vec<PropertyFilter> = MockFrom::mock_from(&0);
+        assert!(empty.is_empty());
     }
 }

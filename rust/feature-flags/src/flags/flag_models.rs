@@ -79,7 +79,7 @@ pub struct HypercacheFlagsWrapper {
 /// Replaces the legacy `holdout_groups` array which reused `FlagPropertyGroup` with
 /// confusing semantics (rollout_percentage meant exclusion, variant was just "holdout-{id}").
 /// See holdout-migration-plan.md for the full migration plan.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Holdout {
     pub id: i64,
     pub exclusion_percentage: f64,
@@ -100,7 +100,7 @@ pub struct FlagPropertyGroup {
     pub aggregation_group_type_index: Option<i32>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MultivariateFlagVariant {
     pub key: String,
     pub name: Option<String>,
@@ -163,7 +163,7 @@ pub enum BucketingIdentifier {
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: FeatureFlagId,
     pub team_id: i32,
@@ -197,7 +197,7 @@ impl FeatureFlag {
     }
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Default, Serialize, sqlx::FromRow)]
 pub struct FeatureFlagRow {
     pub id: i32,
     pub team_id: i32,

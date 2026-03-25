@@ -14,7 +14,7 @@ pub enum CohortType {
     Analytical,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
     pub name: Option<String>,
