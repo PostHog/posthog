@@ -370,7 +370,7 @@ async def test_bigquery_source_full_refresh_table(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -436,7 +436,7 @@ async def test_bigquery_source_full_refresh_view(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -505,7 +505,7 @@ async def test_bigquery_source_incremental_integer(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -552,7 +552,7 @@ async def test_bigquery_source_incremental_integer(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 3
 
@@ -626,7 +626,7 @@ async def test_bigquery_source_incremental_timestamp(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -674,7 +674,7 @@ async def test_bigquery_source_incremental_timestamp(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 3
 
@@ -752,7 +752,7 @@ async def test_bigquery_source_incremental_custom_primary_key(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -800,7 +800,7 @@ async def test_bigquery_source_incremental_custom_primary_key(
 
     function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 3
 
