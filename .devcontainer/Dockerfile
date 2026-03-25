@@ -11,19 +11,19 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # System packages required by PostHog Python deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    libxml2-dev \
-    libxmlsec1-dev \
-    libxmlsec1-openssl \
-    pkg-config \
-    libssl-dev \
-    libffi-dev \
-    postgresql-client \
-    netcat-openbsd \
-    brotli \
-    curl \
-    unzip \
+    build-essential=12.9ubuntu3 \
+    libpq-dev=14.22-0ubuntu0.22.04.1 \
+    libxml2-dev=2.9.13+dfsg-1ubuntu0.11 \
+    libxmlsec1-dev=1.2.33-1build2 \
+    libxmlsec1-openssl=1.2.33-1build2 \
+    pkg-config=0.29.2-1ubuntu3 \
+    libssl-dev=3.0.2-0ubuntu1.21 \
+    libffi-dev=3.4.2-4 \
+    postgresql-client=14+238 \
+    netcat-openbsd=1.218-4ubuntu1 \
+    brotli=1.0.9-2build6 \
+    curl=7.81.0-1ubuntu1.23 \
+    unzip=6.0-26ubuntu3.2 \
     && rm -rf /var/lib/apt/lists/*
 
 # uv — Python package manager
