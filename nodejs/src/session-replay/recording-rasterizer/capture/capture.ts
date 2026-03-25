@@ -114,7 +114,7 @@ export async function capturePlayback(
             }
             ffmpeg.on('start', (cmd: string) => log.info({ cmd }, 'ffmpeg started'))
             ffmpeg.on('stderr', (line: string) => log.debug({ ffmpeg: line }, 'ffmpeg'))
-            ffmpeg.on('error', (err: Error) => log.error({ err: err.message }, 'ffmpeg error'))
+            ffmpeg.on('error', (err: Error) => log.error({ err }, 'ffmpeg error'))
         },
         ffmpeg: process.env.FFMPEG_PATH || undefined,
     })
