@@ -99,6 +99,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['modalMode'],
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
+            postOnboardingModalLogic,
+            ['modalShown'],
         ],
         actions: [
             billingLogic,
@@ -349,7 +351,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     values.receivedFeatureFlags &&
                     values.featureFlags[FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT] === 'test'
 
-                if (isVariant) {
+                if (isVariant && !values.modalShown) {
                     actions.openPostOnboardingModal(values.productKey)
                 } else {
                     actions.openGlobalSetup()
