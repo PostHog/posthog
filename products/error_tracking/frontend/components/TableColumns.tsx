@@ -124,6 +124,7 @@ export const IssueListTitleColumn = (props: {
                 )}
                 <IssueMetadata
                     record={record}
+                    orderBy={orderBy}
                     onStatusChange={(status) => updateIssueStatus(record.id, status)}
                     onAssigneeChange={(assignee) => updateIssueAssignee(record.id, assignee)}
                 />
@@ -162,10 +163,12 @@ const IssueTitle = ({
 
 const IssueMetadata = ({
     record,
+    orderBy,
     onStatusChange,
     onAssigneeChange,
 }: {
     record: ErrorTrackingIssue
+    orderBy: string
     onStatusChange: (status: ErrorTrackingIssue['status']) => void
     onAssigneeChange: (assignee: ErrorTrackingIssue['assignee']) => void
 }): JSX.Element => (
@@ -189,12 +192,21 @@ const IssueMetadata = ({
             )}
         </AssigneeSelect>
         <CustomSeparator />
-        <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
-        <IconChevronRight className="text-quaternary mx-1" />
+        {orderBy === 'first_seen' && (
+            <>
+                <TZLabel
+                    time={record.first_seen}
+                    className="border-dotted border-b text-xs ml-1"
+                    suffix="old"
+                    delayMs={750}
+                />
+                <IconChevronRight className="text-quaternary mx-0.5" fontSize="0.75rem" />
+            </>
+        )}
         {record.last_seen ? (
-            <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
+            <TZLabel time={record.last_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
         ) : (
-            <LemonSkeleton />
+            <LemonSkeleton className="ml-1" />
         )}
     </div>
 )
