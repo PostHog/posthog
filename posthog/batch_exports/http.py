@@ -1358,11 +1358,9 @@ class BatchExportBackfillViewSet(
     def create(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Create a new backfill for a BatchExport."""
         try:
-            batch_export = BatchExport.objects.get(
+            batch_export = BatchExport.objects.select_related("destination").get(
                 id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
-batch_export = BatchExport.objects.select_related("destination").get(
-id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
-)
+            )
         except BatchExport.DoesNotExist:
             raise NotFound("BatchExport not found.")
 
@@ -1376,20 +1374,23 @@ id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
             end_at,
         )
 
-        user = cast(User, request.user)
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event="batch export backfill created",
-            properties={
-                "backfill_id": backfill_id,
-                "batch_export_id": str(batch_export.pk),
-                "destination_type": batch_export.destination.type,
-                "has_start_at": start_at is not None,
-                "has_end_at": end_at is not None,
-                "team_id": self.team_id,
-            },
-            groups=groups(self.team.organization, self.team),
-        )
+        if isinstance(request.user, User):
+            try:
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event="batch export backfill created",
+                    properties={
+                        "backfill_id": backfill_id,
+                        "batch_export_id": str(batch_export.pk),
+                        "destination_type": batch_export.destination.type,
+                        "has_start_at": start_at is not None,
+                        "has_end_at": end_at is not None,
+                        "team_id": self.team_id,
+                    },
+                    groups=groups(self.team.organization, self.team),
+                )
+            except Exception:
+                logger.exception("Failed to capture batch export backfill created event")
 
         return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
