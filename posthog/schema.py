@@ -231,6 +231,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     REVENUE_ANALYTICS = "revenue_analytics"
 
 
@@ -1778,6 +1779,7 @@ class ExternalDataSourceType(StrEnum):
     POSTMARK = "Postmark"
     GRANOLA = "Granola"
     BUILD_BETTER = "BuildBetter"
+    CONVEX = "Convex"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3032,6 +3034,7 @@ class MultipleBreakdownType(StrEnum):
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     REVENUE_ANALYTICS = "revenue_analytics"
 
 

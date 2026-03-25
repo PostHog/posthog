@@ -661,4 +661,84 @@ describe('TaxonomicFilter', () => {
         })
         expect(onChangeMock.mock.calls[0][1]).toBe(expectedFirstProperty)
     })
+
+    describe('autocapture context', () => {
+        it.each([
+            {
+                eventNames: ['$autocapture'],
+                expectedItems: ['Text', 'CSS selector'],
+            },
+            {
+                eventNames: ['$pageview'],
+                expectedItems: [],
+            },
+        ])(
+            'SuggestedFilters shows $expectedItems.length items when eventNames=$eventNames',
+            async ({ eventNames, expectedItems }) => {
+                renderFilter({
+                    eventNames,
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.Elements,
+                    ],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toBeInTheDocument()
+                })
+
+                if (expectedItems.length > 0) {
+                    expectActiveTab('taxonomic-tab-suggested_filters')
+
+                    await waitFor(() => {
+                        for (let i = 0; i < expectedItems.length; i++) {
+                            const el = screen.getByTestId(`prop-filter-suggested_filters-${i}`)
+                            expect(el).toHaveTextContent(expectedItems[i])
+                        }
+                    })
+                } else {
+                    expect(screen.queryByTestId('prop-filter-suggested_filters-0')).not.toBeInTheDocument()
+                }
+            }
+        )
+
+        it.each([
+            {
+                description: 'Elements tab is promoted when eventNames includes $autocapture',
+                eventNames: ['$autocapture'],
+                expectElementsPromoted: true,
+            },
+            {
+                description: 'Elements tab stays in default position when eventNames does not include $autocapture',
+                eventNames: ['$pageview'],
+                expectElementsPromoted: false,
+            },
+        ])('$description', async ({ eventNames, expectElementsPromoted }) => {
+            renderFilter({
+                eventNames,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-elements')).toBeInTheDocument()
+            })
+
+            const allTabs = screen.getAllByTestId(/^taxonomic-tab-/).map((el) => el.getAttribute('data-attr'))
+
+            const elementsIndex = allTabs.indexOf('taxonomic-tab-elements')
+            const eventPropsIndex = allTabs.indexOf('taxonomic-tab-event_properties')
+
+            if (expectElementsPromoted) {
+                expect(elementsIndex).toBeLessThan(eventPropsIndex)
+            } else {
+                expect(elementsIndex).toBeGreaterThan(eventPropsIndex)
+            }
+        })
+    })
 })

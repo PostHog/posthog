@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { CorsPlugin, WindowTitlePlugin } from './index'
+import { CorsPlugin, HLSPlayerPlugin, WindowTitlePlugin } from './index'
 
 describe('CorsPlugin', () => {
     it.each(['https://some-external.js'])('should replace JS urls', (jsUrl) => {
@@ -36,6 +36,67 @@ describe('CorsPlugin', () => {
         el.href = 'https://app.posthog.com/my-image.js'
         CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
         expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.js`)
+    })
+})
+
+const mockHlsInstance = {
+    loadSource: jest.fn(),
+    attachMedia: jest.fn(),
+    on: jest.fn(),
+    destroy: jest.fn(),
+}
+
+const mockHlsClass = Object.assign(
+    jest.fn(() => mockHlsInstance),
+    {
+        isSupported: jest.fn(() => true),
+        Events: { ERROR: 'hlsError' },
+        ErrorTypes: { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError' },
+    }
+)
+
+jest.mock('hls.js', () => ({ __esModule: true, default: mockHlsClass }))
+
+describe('HLSPlayerPlugin', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mockHlsClass.isSupported.mockReturnValue(true)
+    })
+
+    it('does nothing for non-video elements', async () => {
+        const div = document.createElement('div')
+        await HLSPlayerPlugin.onBuild?.(div, { id: 1, replayer: null as any })
+        expect(mockHlsClass).not.toHaveBeenCalled()
+    })
+
+    it('does nothing for video elements without hls-src', async () => {
+        const video = document.createElement('video')
+        await HLSPlayerPlugin.onBuild?.(video, { id: 1, replayer: null as any })
+        expect(mockHlsClass).not.toHaveBeenCalled()
+    })
+
+    it('dynamically imports hls.js and attaches to video with hls-src', async () => {
+        const video = document.createElement('video')
+        video.setAttribute('hls-src', 'https://example.com/stream.m3u8')
+
+        await HLSPlayerPlugin.onBuild?.(video, { id: 1, replayer: null as any })
+
+        expect(mockHlsClass).toHaveBeenCalled()
+        expect(mockHlsInstance.loadSource).toHaveBeenCalledWith('https://example.com/stream.m3u8')
+        expect(mockHlsInstance.attachMedia).toHaveBeenCalledWith(video)
+        expect(mockHlsInstance.on).toHaveBeenCalledWith('hlsError', expect.any(Function))
+    })
+
+    it('falls back to native HLS when Hls.isSupported() is false', async () => {
+        mockHlsClass.isSupported.mockReturnValue(false)
+        const video = document.createElement('video')
+        video.setAttribute('hls-src', 'https://example.com/stream.m3u8')
+        video.canPlayType = jest.fn(() => 'maybe') as any
+
+        await HLSPlayerPlugin.onBuild?.(video, { id: 1, replayer: null as any })
+
+        expect(mockHlsInstance.loadSource).not.toHaveBeenCalled()
+        expect(video.src).toContain('https://example.com/stream.m3u8')
     })
 })
 

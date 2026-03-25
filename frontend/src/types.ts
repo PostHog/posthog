@@ -835,7 +835,11 @@ export interface ToolbarProps extends ToolbarParams {
     disableExternalStyles?: boolean
 }
 
-export type PathCleaningFilter = { alias?: string; regex?: string; order?: number }
+export type PathCleaningFilter = {
+    alias?: string
+    regex?: string
+    order?: number
+}
 
 export type PropertyFilterBaseValue = string | number | bigint | boolean
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
@@ -1423,7 +1427,11 @@ export type SearchableEntity =
     | 'property_definition'
     | 'survey'
 
-export type SearchListParams = { q: string; entities?: SearchableEntity[]; include_counts?: boolean }
+export type SearchListParams = {
+    q: string
+    entities?: SearchableEntity[]
+    include_counts?: boolean
+}
 
 export type SearchResultType = {
     result_id: string
@@ -1437,7 +1445,11 @@ export type SearchResponse = {
     counts?: Record<SearchableEntity, number | null>
 }
 
-export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
+export type GroupListParams = {
+    group_type_index: GroupTypeIndex
+    search: string
+    limit?: number
+}
 
 export type CreateGroupParams = {
     group_type_index: GroupTypeIndex
@@ -2201,28 +2213,34 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     transparent_background?: boolean | null
 }
 
+export type DashboardWidgetType = 'insight' | 'text' | 'button_tile'
+
 export interface DashboardTileBasicType {
     id: number
     dashboard_id: number
     deleted?: boolean
 }
 
-export interface TextModel {
-    body: string
+/** Shared fields for simple dashboard content models (text card, button tile, etc.). */
+export interface DashboardWidgetInterface {
+    id?: number
+    /** Placements on dashboards (same shape as insight `dashboard_tiles`; preferred over legacy `dashboards` on insights where applicable). */
+    dashboard_tiles?: DashboardTileBasicType[] | null
     created_by?: UserBasicType
     last_modified_by?: UserBasicType
+    last_modified_at?: string
+}
+
+export interface TextModel extends DashboardWidgetInterface {
+    body: string
     last_modified_at: string
 }
 
-export interface ButtonTileModel {
-    id?: number
+export interface ButtonTileModel extends DashboardWidgetInterface {
     url: string
     text: string
     placement: 'left' | 'right'
     style: 'primary' | 'secondary'
-    created_by?: UserBasicType
-    last_modified_by?: UserBasicType
-    last_modified_at?: string
     team?: number
 }
 
@@ -2408,7 +2426,10 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
-    private_project_access?: Array<{ id: number; level: AccessControlLevel.Member | AccessControlLevel.Admin }>
+    private_project_access?: Array<{
+        id: number
+        level: AccessControlLevel.Member | AccessControlLevel.Admin
+    }>
 }
 
 export enum PluginInstallationType {
@@ -3895,6 +3916,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
+    experiment_set_metadata: { id: number; name: string }[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
@@ -4016,10 +4038,16 @@ export enum RecurrenceInterval {
 
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
-    | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+    | {
+          operation: ScheduledChangeOperationType.AddReleaseCondition
+          value: FeatureFlagFilters
+      }
     | {
           operation: ScheduledChangeOperationType.UpdateVariants
-          value: { variants: MultivariateFlagVariant[]; payloads?: Record<string, any> }
+          value: {
+              variants: MultivariateFlagVariant[]
+              payloads?: Record<string, any>
+          }
       }
 
 export interface ScheduledChangeType {
@@ -4355,7 +4383,10 @@ export interface Experiment {
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     primary_metrics_ordered_uuids: string[] | null
     secondary_metrics_ordered_uuids: string[] | null
-    saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
+    saved_metrics_ids: {
+        id: number
+        metadata: { type: 'primary' | 'secondary' }
+    }[]
     saved_metrics: any[]
     parameters: {
         exposure_estimate_config?: {
@@ -5120,6 +5151,7 @@ export type APIScopeObject =
     | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
+    | 'tracing'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5134,7 +5166,12 @@ export type APIScope = {
     warnings?: Partial<Record<APIScopeAction, string | JSX.Element>>
 }
 
-export type APIScopePreset = { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }
+export type APIScopePreset = {
+    value: string
+    label: string
+    scopes: string[]
+    isCloudOnly?: boolean
+}
 
 export enum AccessControlLevel {
     None = 'none',
@@ -5490,6 +5527,32 @@ export interface ExternalDataSource {
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
+    supports_webhooks?: boolean
+}
+
+export interface WebhookExternalStatus {
+    exists: boolean
+    url?: string
+    enabled_events?: string[]
+    status?: string
+    description?: string
+    created_at?: string
+    error?: string
+}
+
+export interface WebhookInfo {
+    supports_webhooks: boolean
+    exists: boolean
+    hog_function?: {
+        id: string
+        name: string
+        enabled: boolean
+        created_at: string
+        status: { state: number; tokens: number }
+    }
+    webhook_url?: string
+    schema_mapping?: Record<string, string>
+    external_status?: WebhookExternalStatus | null
 }
 
 export interface DataModelingJob {
@@ -5911,6 +5974,7 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: SDKTag[]
+    searchTerms?: string[]
     image:
         | string
         | JSX.Element
@@ -5982,6 +6046,7 @@ export enum SDKKey {
     PYTHON = 'python',
     REACT = 'react',
     REACT_NATIVE = 'react_native',
+    REACT_ROUTER = 'react_router',
     REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
@@ -6258,6 +6323,7 @@ export type HogFunctionConfigurationContextId =
     | 'discussion-mention'
     | 'insight-alerts'
     | 'experiment-alerts'
+    | 'logs-alerting'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6269,6 +6335,7 @@ export type HogFunctionSubTemplateIdType =
     | 'discussion-mention'
     | 'insight-alert-firing'
     | 'experiment-significant'
+    | 'logs-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

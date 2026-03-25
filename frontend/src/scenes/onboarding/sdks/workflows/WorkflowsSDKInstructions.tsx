@@ -24,6 +24,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
@@ -121,6 +122,10 @@ const WorkflowsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     modifySteps: workflowsModifySteps,
     wizardIntegrationName: 'Nuxt',
+})
+const WorkflowsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    modifySteps: workflowsModifySteps,
 })
 const WorkflowsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
@@ -298,6 +303,7 @@ export const WorkflowsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: WorkflowsPythonInstructionsWrapper,
     [SDKKey.REACT]: WorkflowsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: WorkflowsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: WorkflowsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: WorkflowsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: WorkflowsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: WorkflowsRubyInstructionsWrapper,

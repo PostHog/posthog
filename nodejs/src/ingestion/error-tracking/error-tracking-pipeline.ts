@@ -7,6 +7,8 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { EVENTS_OUTPUT, EventOutput, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -18,8 +20,8 @@ import {
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '../pipelines/extensions/tophog'
@@ -113,10 +115,14 @@ export function createErrorTrackingPipeline(
     const topHogWrapper = createTopHogWrapper(topHog)
 
     // Create outputs configuration for the emit step
-    const outputs = new IngestionOutputs<EventOutput>({
+    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput>({
         [EVENTS_OUTPUT]: {
             topic: outputTopic,
             producer: kafkaProducer,
+        },
+        [INGESTION_WARNINGS_OUTPUT]: {
+            topic: KAFKA_INGESTION_WARNINGS,
+            producer: ingestionWarningProducer,
         },
     })
 
@@ -214,7 +220,7 @@ export function createErrorTrackingPipeline(
                                             )
                                     )
                             )
-                            .handleIngestionWarnings(ingestionWarningProducer)
+                            .handleIngestionWarnings(outputs)
                 )
         )
         .handleResults(pipelineConfig)
