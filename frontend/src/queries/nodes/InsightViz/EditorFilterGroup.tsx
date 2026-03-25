@@ -40,7 +40,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: E
 
     if (asTile) {
         return (
-            <div className="border rounded bg-surface-primary">
+            <div className="border rounded bg-surface-primary min-w-0">
                 {isExpandable ? (
                     <LemonButton
                         fullWidth
@@ -67,7 +67,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: E
                     style={{ gridTemplateRows: isRowExpanded ? '1fr' : '0fr' }}
                 >
                     <div className="overflow-hidden">
-                        <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
+                        <div className="px-3 pb-3 pt-1 flex flex-col gap-2 min-w-0">
                             {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
                                 if (Component && Component.name === 'component') {
                                     throw new Error(

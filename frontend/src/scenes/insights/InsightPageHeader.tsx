@@ -93,9 +93,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 isGeneratingMetadata={canAccessAutoname && generatedInsightMetadataLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
-                forceEdit={!editorPanelsEnabled && insightMode === ItemMode.Edit}
-                noBorder={editorPanelsEnabled && insightMode === ItemMode.Edit}
-                noPadding={editorPanelsEnabled && insightMode === ItemMode.Edit}
+                forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
                 saveOnBlur
                 descriptionMaxLength={400}

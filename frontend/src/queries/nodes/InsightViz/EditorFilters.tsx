@@ -97,6 +97,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         querySource,
         shouldShowSessionAnalysisWarning,
         hasFormula,
+        series,
         breakdownFilter,
         properties,
     } = useValues(insightVizDataLogic(insightProps))
@@ -163,79 +164,106 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ))
 
     // Compute summaries for collapsible sections (used when editorPanelsEnabled)
-    const filterCount = editorPanelsEnabled ? countPropertyFilters(properties) : 0
-    const filtersSummary = filterCount > 0 ? pluralize(filterCount, 'filter') : null
+    const seriesSummary = editorPanelsEnabled ? getSeriesSummary(series) : null
+    const filtersSummary = editorPanelsEnabled ? getFiltersSummary(properties) : null
     const breakdownSummary = editorPanelsEnabled ? getBreakdownSummary(breakdownFilter) : null
     const exclusionCount = editorPanelsEnabled && isPaths ? (pathsFilter?.excludeEvents?.length ?? 0) : 0
     const exclusionsSummary = exclusionCount > 0 ? pluralize(exclusionCount, 'exclusion') : null
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
-        {
-            title: 'General',
-            editorFilters: filterFalsy([
-                ...(isRetention
-                    ? [
+        ...(editorPanelsEnabled && isRetention
+            ? [
+                  {
+                      title: 'Retention condition',
+                      defaultExpanded: true,
+                      editorFilters: [
                           {
                               key: 'retention-condition',
-                              label: 'Retention condition',
                               component: RetentionCondition,
                           },
+                      ],
+                  },
+                  {
+                      title: 'Calculation options',
+                      defaultExpanded: false,
+                      editorFilters: [
                           {
                               key: 'retention-options',
-                              label: 'Calculation options',
                               component: RetentionOptions,
                           },
-                      ]
-                    : []),
-                isFunnels
-                    ? {
-                          key: 'query-steps',
-                          component: FunnelsQuerySteps,
-                      }
-                    : null,
-                ...(isPaths
-                    ? [
-                          {
-                              key: 'event-types',
-                              label: 'Event Types',
-                              component: PathsEventsTypes,
-                          },
-                          hasPathsHogQL && {
-                              key: 'hogql',
-                              label: 'SQL Expression',
-                              component: PathsHogQL,
-                          },
-                          hasPathsAdvanced && {
-                              key: 'wildcard-groups',
-                              label: 'Wildcard Groups',
-                              showOptional: true,
-                              component: PathsWildcardGroups,
-                              tooltip: (
-                                  <>
-                                      Use wildcard matching to group events by unique values in path item names. Use an
-                                      asterisk (*) in place of unique values. For example, instead of
-                                      /merchant/1234/payment, replace the unique value with an asterisk
-                                      /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
-                                  </>
-                              ),
-                          },
-                          {
-                              key: 'start-target',
-                              label: 'Starts at',
-                              component: PathsTargetStart,
-                          },
-                          hasPathsAdvanced && {
-                              key: 'ends-target',
-                              label: 'Ends at',
-                              component: PathsTargetEnd,
-                          },
-                      ]
-                    : []),
-            ]),
-        },
+                      ],
+                  },
+              ]
+            : [
+                  {
+                      title: 'General',
+                      ...(editorPanelsEnabled ? { defaultExpanded: true } : {}),
+                      editorFilters: filterFalsy([
+                          ...(!editorPanelsEnabled && isRetention
+                              ? [
+                                    {
+                                        key: 'retention-condition',
+                                        label: 'Retention condition',
+                                        component: RetentionCondition,
+                                    },
+                                    {
+                                        key: 'retention-options',
+                                        label: 'Calculation options',
+                                        component: RetentionOptions,
+                                    },
+                                ]
+                              : []),
+                          isFunnels
+                              ? {
+                                    key: 'query-steps',
+                                    component: FunnelsQuerySteps,
+                                }
+                              : null,
+                          ...(isPaths
+                              ? [
+                                    {
+                                        key: 'event-types',
+                                        label: 'Event Types',
+                                        component: PathsEventsTypes,
+                                    },
+                                    hasPathsHogQL && {
+                                        key: 'hogql',
+                                        label: 'SQL Expression',
+                                        component: PathsHogQL,
+                                    },
+                                    hasPathsAdvanced && {
+                                        key: 'wildcard-groups',
+                                        label: 'Wildcard Groups',
+                                        showOptional: true,
+                                        component: PathsWildcardGroups,
+                                        tooltip: (
+                                            <>
+                                                Use wildcard matching to group events by unique values in path item
+                                                names. Use an asterisk (*) in place of unique values. For example,
+                                                instead of /merchant/1234/payment, replace the unique value with an
+                                                asterisk /merchant/*/payment.{' '}
+                                                <b>Use a comma to separate multiple wildcards.</b>
+                                            </>
+                                        ),
+                                    },
+                                    {
+                                        key: 'start-target',
+                                        label: 'Starts at',
+                                        component: PathsTargetStart,
+                                    },
+                                    hasPathsAdvanced && {
+                                        key: 'ends-target',
+                                        label: 'Ends at',
+                                        component: PathsTargetEnd,
+                                    },
+                                ]
+                              : []),
+                      ]),
+                  },
+              ]),
         {
             title: 'Series',
-            ...(editorPanelsEnabled ? { defaultExpanded: true } : {}),
+            ...(editorPanelsEnabled ? { defaultExpanded: true, collapsedSummary: seriesSummary } : {}),
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
@@ -265,6 +293,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                       ? 'Path settings'
                       : 'Advanced options'
                 : 'Advanced options',
+            ...(editorPanelsEnabled ? { defaultExpanded: false } : {}),
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
@@ -281,7 +310,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-    ]
+    ].filter((g): g is InsightEditorFilterGroup => !!g)
 
     const rightEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -602,7 +631,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         <div
             ref={panelRef}
             className={clsx(
-                'EditorFiltersWrapper relative self-stretch bg-surface-secondary',
+                'EditorFiltersWrapper relative self-stretch',
                 isResizing ? '' : 'transition-all duration-300 ease-out',
                 showing ? 'opacity-100' : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
             )}
@@ -630,15 +659,18 @@ function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): Ins
     return a.filter((e): e is InsightEditorFilter => !!e)
 }
 
-function countPropertyFilters(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined | null): number {
+function getFiltersSummary(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined | null): string | null {
     if (!properties) {
-        return 0
+        return null
     }
-    if (Array.isArray(properties)) {
-        return properties.length
+    const filters: AnyPropertyFilter[] = Array.isArray(properties)
+        ? properties
+        : properties.values.flatMap((group) => (group.values as AnyPropertyFilter[]) ?? [])
+    if (filters.length === 0) {
+        return null
     }
-    // PropertyGroupFilter — count across all groups
-    return properties.values.reduce((count, group) => count + (group.values?.length ?? 0), 0)
+    const names = filters.map((f) => ('key' in f && f.key ? String(f.key) : null)).filter(Boolean)
+    return names.length > 0 ? names.join(', ') : pluralize(filters.length, 'filter')
 }
 
 function getBreakdownSummary(
@@ -660,4 +692,14 @@ function getBreakdownSummary(
         return Array.isArray(bd) ? bd.join(', ') : String(bd)
     }
     return null
+}
+
+function getSeriesSummary(
+    series: { custom_name?: string; name?: string; event?: string | null }[] | null | undefined
+): string | null {
+    if (!series || series.length === 0) {
+        return null
+    }
+    const names = series.map((s) => s.custom_name || ('event' in s && s.event) || s.name).filter(Boolean)
+    return names.length > 0 ? names.join(', ') : pluralize(series.length, 'series')
 }

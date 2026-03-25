@@ -138,7 +138,7 @@ export function InsightViz({
                                 }
                             >
                                 {context?.sceneHeader && (
-                                    <div className="w-full shrink-0 px-4 pt-2 [&_.-mt-4]:mt-0">
+                                    <div className="w-full shrink-0 px-4 pt-2 [&_.-mt-4]:mt-0 bg-surface-secondary z-10 relative">
                                         {context.sceneHeader}
                                     </div>
                                 )}
