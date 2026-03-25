@@ -19,7 +19,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
             eventUsageLogic,
             ['reportExperimentSharedMetricAssigned'],
         ],
-        values: [sharedMetricsLogic, ['sharedMetrics', 'sharedMetricsLoading', 'savingTagsMetricId']],
+        values: [sharedMetricsLogic, ['sharedMetrics', 'sharedMetricsLoading']],
     })),
 
     actions({

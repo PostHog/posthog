@@ -14,6 +14,7 @@ import { Experiment } from '~/types'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
 import { matchesSharedMetricSearch } from '../utils'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
@@ -50,17 +51,10 @@ export function SharedMetricModal({
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
     onDelete: (metric: SharedMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const {
-        isModalOpen,
-        context,
-        compatibleSharedMetrics,
-        sharedMetricId,
-        isCreateMode,
-        isEditMode,
-        searchTerm,
-        savingTagsMetricId,
-    } = useValues(sharedMetricModalLogic)
+    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode, searchTerm } =
+        useValues(sharedMetricModalLogic)
     const { closeSharedMetricModal, setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricModalLogic)
+    const { savingTagsMetricId } = useValues(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
