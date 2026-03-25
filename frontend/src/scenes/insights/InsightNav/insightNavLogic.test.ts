@@ -262,7 +262,7 @@ describe('insightNavLogic', () => {
             })
 
             it('does not restore removed global filters when switching insight types', async () => {
-                const trendsQueryWithGlobalFilters: InsightVizNode = {
+                const trendsQueryWithGlobalFilters: InsightVizNode<TrendsQuery> = {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -299,7 +299,7 @@ describe('insightNavLogic', () => {
                 })
 
                 await expectLogic(logic, () => {
-                    const trendsQueryWithoutGlobalFilters: InsightVizNode = {
+                    const trendsQueryWithoutGlobalFilters: InsightVizNode<TrendsQuery> = {
                         ...trendsQueryWithGlobalFilters,
                         source: {
                             ...trendsQueryWithGlobalFilters.source,
