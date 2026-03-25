@@ -26,16 +26,18 @@ class Migration(migrations.Migration):
             database_operations=[
                 # Drop FK constraints so TransactionTestCase TRUNCATE doesn't fail
                 # on the orphaned tables referencing User/Team/FeatureFlag/Tag.
+                # Constraint names are Django's auto-generated truncated names with
+                # CRC32 hash suffixes (found via pg_constraint catalog).
                 migrations.RunSQL(
                     sql=(
                         "ALTER TABLE IF EXISTS posthog_featureflagevaluationtag "
-                        "DROP CONSTRAINT IF EXISTS posthog_featureflagevaluationtag_feature_flag_id_fkey;"
+                        "DROP CONSTRAINT IF EXISTS posthog_featureflage_feature_flag_id_bb76119f_fk_posthog_f;"
                         "ALTER TABLE IF EXISTS posthog_featureflagevaluationtag "
-                        "DROP CONSTRAINT IF EXISTS posthog_featureflagevaluationtag_tag_id_fkey;"
+                        "DROP CONSTRAINT IF EXISTS posthog_featureflage_tag_id_fe214962_fk_posthog_t;"
                         "ALTER TABLE IF EXISTS posthog_teamdefaultevaluationtag "
-                        "DROP CONSTRAINT IF EXISTS posthog_teamdefaultevaluationtag_team_id_fkey;"
+                        "DROP CONSTRAINT IF EXISTS posthog_teamdefaulte_team_id_35acacc0_fk_posthog_t;"
                         "ALTER TABLE IF EXISTS posthog_teamdefaultevaluationtag "
-                        "DROP CONSTRAINT IF EXISTS posthog_teamdefaultevaluationtag_tag_id_fkey;"
+                        "DROP CONSTRAINT IF EXISTS posthog_teamdefaulte_tag_id_8d3cc3e0_fk_posthog_t;"
                     ),
                     reverse_sql=migrations.RunSQL.noop,
                 ),
