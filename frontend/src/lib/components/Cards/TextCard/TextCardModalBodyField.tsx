@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from 'react'
+import { lazy, Suspense } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
@@ -8,28 +8,23 @@ export interface TextCardModalBodyFieldProps {
     onChange: (value: string) => void
 }
 
-// useMemo defers lazy() until mount so only one chunk loads per mode, and Jest can spyOn(React.lazy)
-// without jest.resetModules() (which duplicates React and breaks hooks in children like Spinner).
+const LazyLegacyMarkdownEditor = lazy(() =>
+    import('lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown').then((m) => ({
+        default: m.LemonTextAreaMarkdown,
+    }))
+)
+
+const LazyRichMarkdownEditor = lazy(() =>
+    import('lib/components/Cards/TextCard/TextCardMarkdownEditor').then((m) => ({
+        default: m.TextCardMarkdownEditor,
+    }))
+)
+
 export function TextCardModalBodyField({
     shouldUseLegacyMarkdownEditor,
     value,
     onChange,
 }: TextCardModalBodyFieldProps): JSX.Element {
-    const LazyEditor = useMemo(() => {
-        if (shouldUseLegacyMarkdownEditor) {
-            return lazy(() =>
-                import('lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown').then((m) => ({
-                    default: m.LemonTextAreaMarkdown,
-                }))
-            )
-        }
-        return lazy(() =>
-            import('lib/components/Cards/TextCard/TextCardMarkdownEditor').then((m) => ({
-                default: m.TextCardMarkdownEditor,
-            }))
-        )
-    }, [shouldUseLegacyMarkdownEditor])
-
     return (
         <Suspense
             fallback={
@@ -43,7 +38,7 @@ export function TextCardModalBodyField({
             }
         >
             {shouldUseLegacyMarkdownEditor ? (
-                <LazyEditor
+                <LazyLegacyMarkdownEditor
                     value={value}
                     onChange={onChange}
                     maxLength={4000}
@@ -52,7 +47,7 @@ export function TextCardModalBodyField({
                     data-attr="text-card-edit-area"
                 />
             ) : (
-                <LazyEditor value={value} onChange={onChange} minRows={8} maxRows={36} />
+                <LazyRichMarkdownEditor value={value} onChange={onChange} minRows={8} maxRows={36} />
             )}
         </Suspense>
     )

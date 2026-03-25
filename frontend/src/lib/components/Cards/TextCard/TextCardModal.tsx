@@ -52,7 +52,7 @@ export function TextCardModal({
         >
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-primary py-2 pl-4 pr-2">
                 <DialogPrimitiveTitle className="min-w-0 flex-1 text-base font-semibold">
-                    Edit text card
+                    {resolvedTileId === 'new' ? 'Add text card' : 'Edit text card'}
                 </DialogPrimitiveTitle>
                 <DialogClose className="shrink-0" />
             </div>
