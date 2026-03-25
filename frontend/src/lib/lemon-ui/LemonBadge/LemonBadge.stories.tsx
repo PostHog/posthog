@@ -22,7 +22,7 @@ const Template: StoryFn<typeof LemonBadge> = (props) => (
 )
 
 export const Standard: Story = Template.bind({})
-Standard.args = { content: '#' }
+Standard.args = { content: '@' }
 
 export const Positioning: StoryFn<typeof LemonBadge> = () => {
     return (
