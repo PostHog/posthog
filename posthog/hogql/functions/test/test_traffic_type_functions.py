@@ -345,3 +345,50 @@ class TestBotDefinitionsDataStructure:
         }
         for pattern, bot_def in BOT_DEFINITIONS.items():
             assert bot_def.category in valid_categories, f"Invalid category for {pattern}: {bot_def.category}"
+
+    @pytest.mark.parametrize(
+        "pattern,expected_name,expected_category,expected_type",
+        [
+            # AI Agents
+            ("GPTBot", "GPTBot", "llm_crawler", "AI Agent"),
+            ("OAI-SearchBot", "OpenAI Search", "llm_crawler", "AI Agent"),
+            ("ChatGPT-User", "ChatGPT", "llm_crawler", "AI Agent"),
+            ("ClaudeBot", "Claude", "llm_crawler", "AI Agent"),
+            ("Claude-Web", "Claude Web", "llm_crawler", "AI Agent"),
+            ("PerplexityBot", "Perplexity", "llm_crawler", "AI Agent"),
+            ("Amazonbot", "Amazon", "llm_crawler", "AI Agent"),
+            ("Meta-ExternalFetcher", "Meta Fetcher", "llm_crawler", "AI Agent"),
+            ("FacebookBot", "Facebook AI", "llm_crawler", "AI Agent"),
+            ("Diffbot", "Diffbot", "llm_crawler", "AI Agent"),
+            ("Timpibot", "Timpi", "llm_crawler", "AI Agent"),
+            # Search Crawlers
+            ("Googlebot", "Googlebot", "search_crawler", "Bot"),
+            ("Applebot", "Applebot", "search_crawler", "Bot"),
+            # SEO Tools
+            ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
+            # Social Crawlers
+            ("facebookexternalhit", "Facebook", "social_crawler", "Bot"),
+            # Monitoring
+            ("Datadog", "Datadog", "monitoring", "Bot"),
+            # HTTP Clients
+            ("curl/", "curl", "http_client", "Automation"),
+            # Headless Browsers
+            ("HeadlessChrome", "Headless Chrome", "headless_browser", "Automation"),
+        ],
+    )
+    def test_specific_bot_definitions(self, pattern, expected_name, expected_category, expected_type):
+        assert pattern in BOT_DEFINITIONS, f"Missing bot definition for {pattern}"
+        bot_def = BOT_DEFINITIONS[pattern]
+        assert bot_def.name == expected_name
+        assert bot_def.category == expected_category
+        assert bot_def.traffic_type == expected_type
+
+    def test_applebot_extended_comes_before_applebot(self):
+        patterns = list(BOT_DEFINITIONS.keys())
+        extended_idx = patterns.index("Applebot-Extended")
+        regular_idx = patterns.index("Applebot")
+        assert extended_idx < regular_idx, "Applebot-Extended must come before Applebot for correct matching"
+
+    def test_ai_agent_count(self):
+        ai_agents = [bd for bd in BOT_DEFINITIONS.values() if bd.category == "llm_crawler"]
+        assert len(ai_agents) >= 20
