@@ -5,7 +5,11 @@ use serde_json::Value;
 use crate::flags::flag_models::FlagFilters;
 
 impl FlagFilters {
-    pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>, flag_key: &str) -> bool {
+    pub fn requires_db_properties(
+        &self,
+        overrides: &HashMap<String, Value>,
+        flag_key: &str,
+    ) -> bool {
         self.aggregation_group_type_index.is_some()
             || (self.feature_enrollment == Some(true) && {
                 let enrollment_key = format!("$feature_enrollment/{}", flag_key);

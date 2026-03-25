@@ -8893,7 +8893,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result_enrolled = matcher_enrolled.get_match(&flag, None, None, &None).unwrap();
+        let result_enrolled = matcher_enrolled
+            .get_match(&flag, None, None, &None)
+            .unwrap();
         let result_not_enrolled = matcher_not_enrolled
             .get_match(&flag, None, None, &None)
             .unwrap();
@@ -8993,10 +8995,7 @@ mod tests {
 
         // Should match via feature_enrollment (not super_groups which uses wrong_key)
         assert!(result.matches);
-        assert_eq!(
-            result.reason,
-            FeatureFlagMatchReason::SuperConditionValue
-        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
     }
 
     #[tokio::test]
@@ -9063,10 +9062,7 @@ mod tests {
 
         // Property exists but value is "false" — should not match
         assert!(!result.matches);
-        assert_eq!(
-            result.reason,
-            FeatureFlagMatchReason::SuperConditionValue
-        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
     }
 
     #[tokio::test]
