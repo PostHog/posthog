@@ -90,7 +90,7 @@ export function copyIndexHtml(
             } catch (error) {
                 console.error('Error loading chunk: "' + file + '"')
                 console.error(error)
-                if (file !== ${JSON.stringify(jsFileFallback)}) {
+                if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
                     await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
                 }
             }
