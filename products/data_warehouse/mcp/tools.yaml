@@ -399,3 +399,6 @@ tools:
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
         enabled: false
+    external-data-sources-delete-webhook-create:
+        operation: external_data_sources_delete_webhook_create
+        enabled: false

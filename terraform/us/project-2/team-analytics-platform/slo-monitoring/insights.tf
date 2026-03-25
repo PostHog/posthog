@@ -1,8 +1,8 @@
 locals {
   # ===========================================================================
   # SLO operation config. Add new operations here to auto-generate insights.
-  # Each operation must emit slo_operation_completed events with matching
-  # properties.operation value (see posthog/slo/types.py:SloOperation).
+  # Each operation must emit slo_operation_started and slo_operation_completed
+  # events with matching properties.operation value (see posthog/slo/types.py).
   # ===========================================================================
   slo_operations = {
     subscription_delivery = {
@@ -43,10 +43,11 @@ locals {
     WITH hourly AS (
         SELECT
             toStartOfHour(timestamp) AS hour,
-            count() AS total,
-            countIf(properties.outcome = 'failure') AS failures
+            countIf(event = 'slo_operation_started') AS total,
+            countIf(event = 'slo_operation_started')
+              - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
         FROM events
-        WHERE event = 'slo_operation_completed'
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND timestamp >= now() - INTERVAL 35 DAY
@@ -156,7 +157,7 @@ resource "posthog_insight" "slo_burn_rate" {
   for_each = local.slo_operation_regions
 
   name        = "SLO: Burn Rates - ${each.value.name} (${each.value.slo}%) — ${each.value.region}"
-  description = "[Investigate failures with AI](/ai?ask=Investigate+${each.value.operation}+failures+in+${each.value.region}+region+slo_operation_completed+events+last+24h)"
+  description = "[Investigate failures with AI](/ai?ask=Investigate+${each.value.operation}+failures+in+${each.value.region}+region.+Check+slo_operation_started+events+without+matching+slo_operation_completed+success+outcomes+in+the+last+24h)"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -252,10 +253,11 @@ resource "posthog_insight" "slo_success_rate" {
             SELECT
                 toDate(timestamp) AS date,
                 properties.operation AS operation,
-                count() AS total,
-                countIf(properties.outcome = 'failure') AS failures
+                countIf(event = 'slo_operation_started') AS total,
+                countIf(event = 'slo_operation_started')
+                  - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
             FROM events
-            WHERE event = 'slo_operation_completed'
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
               AND properties.operation IN (${local.slo_operation_list})
               AND timestamp >= now() - INTERVAL 56 DAY
             GROUP BY date, operation
@@ -331,12 +333,19 @@ resource "posthog_insight" "slo_volume" {
         SELECT
             properties.operation AS operation,
             properties.region AS region,
-            count() AS total,
-            countIf(properties.outcome = 'success') AS successes,
-            countIf(properties.outcome = 'failure') AS failures,
-            round(countIf(properties.outcome = 'success') / count() * 100, 2) AS success_rate
+            countIf(event = 'slo_operation_started') AS started,
+            countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
+            countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
+            countIf(event = 'slo_operation_started')
+              - countIf(event = 'slo_operation_completed') AS never_completed,
+            if(
+                countIf(event = 'slo_operation_started') > 0,
+                round(countIf(event = 'slo_operation_completed' AND properties.outcome = 'success')
+                  / countIf(event = 'slo_operation_started') * 100, 2),
+                NULL
+            ) AS success_rate
         FROM events
-        WHERE event = 'slo_operation_completed'
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND timestamp >= now() - INTERVAL 28 DAY
         GROUP BY operation, region
         ORDER BY operation, region

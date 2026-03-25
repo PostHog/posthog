@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { objectsEqual } from 'lib/utils'
@@ -396,7 +396,4 @@ export const variablesLogic = kea<variablesLogicType>([
             actions.updateSourceQuery()
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getVariables()
-    }),
 ])
