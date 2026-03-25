@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
     `max_lag` SimpleAggregateFunction(max, UInt64)
 )
-ENGINE = {MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
+ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (_topic, _partition)
 """
 
