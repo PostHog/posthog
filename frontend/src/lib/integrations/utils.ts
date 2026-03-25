@@ -36,6 +36,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
+    'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
@@ -69,6 +70,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Cloud Storage'
         case 'google-ads':
             return 'Google Ads'
+        case 'google-cloud-service-account':
+            return 'Google Cloud service account'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
         case 'reddit-ads':

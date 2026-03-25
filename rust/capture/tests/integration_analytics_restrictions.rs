@@ -17,8 +17,7 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use health::HealthRegistry;
-use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
+use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -68,7 +67,8 @@ async fn setup_analytics_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
 ) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("analytics_restriction_tests");
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -99,8 +99,9 @@ async fn setup_analytics_router_with_restriction(
 
     let router = router(
         timesource,
+        readiness,
         liveness,
-        sink,
+        Arc::new(sink),
         redis,
         None, // global_rate_limiter_token_distinctid
         None, // global_rate_limiter_token
@@ -404,7 +405,8 @@ async fn setup_analytics_router_with_redirect_to_topic(
     token: &str,
     topic: &str,
 ) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("analytics_redirect_topic_tests");
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -435,8 +437,9 @@ async fn setup_analytics_router_with_redirect_to_topic(
 
     let router = router(
         timesource,
+        readiness,
         liveness,
-        sink,
+        Arc::new(sink),
         redis,
         None, // global_rate_limiter_token_distinctid
         None, // global_rate_limiter_token

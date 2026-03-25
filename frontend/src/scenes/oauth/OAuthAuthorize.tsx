@@ -1,12 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icons'
 
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
+
+import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
@@ -34,13 +42,66 @@ export const OAuthAuthorizeSuccess = ({ appName }: { appName: string }): JSX.Ele
     )
 }
 
+const InlineCreateForm = ({
+    label,
+    placeholder,
+    loading,
+    onSubmit,
+    onCancel,
+}: {
+    label: string
+    placeholder: string
+    loading: boolean
+    onSubmit: (name: string) => void
+    onCancel: () => void
+}): JSX.Element => {
+    const [name, setName] = useState('')
+
+    return (
+        <div className="flex flex-col gap-2 p-3 border border-border rounded bg-bg-light">
+            <LemonLabel>{label}</LemonLabel>
+            <div className="flex gap-2">
+                <LemonInput
+                    autoFocus
+                    fullWidth
+                    placeholder={placeholder}
+                    maxLength={64}
+                    value={name}
+                    onChange={setName}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && name.trim()) {
+                            onSubmit(name.trim())
+                        }
+                        if (e.key === 'Escape') {
+                            onCancel()
+                        }
+                    }}
+                    disabled={loading}
+                />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={loading}
+                    disabledReason={!name.trim() ? 'Enter a name' : undefined}
+                    onClick={() => onSubmit(name.trim())}
+                >
+                    Create
+                </LemonButton>
+                <LemonButton type="secondary" size="small" onClick={onCancel} disabled={loading}>
+                    Cancel
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export const OAuthAuthorize = (): JSX.Element => {
     const {
         scopeDescriptions,
         oauthApplication,
         oauthApplicationLoading,
         allOrganizations,
-        allTeams,
+        filteredTeams,
         oauthAuthorization,
         isOauthAuthorizationSubmitting,
         isCanceling,
@@ -50,8 +111,66 @@ export const OAuthAuthorize = (): JSX.Element => {
         scopesWereDefaulted,
         isMcpResource,
         resourceScopesLoading,
+        showCreateProject,
+        newProjectLoading,
+        selectedOrganization,
+        user,
     } = useValues(oauthAuthorizeLogic)
-    const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
+    const {
+        cancel,
+        submitOauthAuthorization,
+        createNewProject,
+        setShowCreateProject,
+        setSelectedOrganization,
+        setOauthAuthorizationValue,
+    } = useActions(oauthAuthorizeLogic)
+
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+
+    const handleShowCreateProject = (): void => {
+        guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => setShowCreateProject(true), {
+            currentUsage: currentOrganization?.teams?.length,
+        })
+    }
+
+    const orgOptions = useMemo(() => {
+        const currentOrgId = user?.organization?.id
+        const sorted = [...allOrganizations].sort((a, b) => {
+            if (a.id === currentOrgId) {
+                return -1
+            }
+            if (b.id === currentOrgId) {
+                return 1
+            }
+            return a.name.localeCompare(b.name)
+        })
+        return sorted.map((org) => ({
+            value: org.id,
+            label: org.name,
+        }))
+    }, [allOrganizations, user?.organization?.id])
+
+    const projectOptions = useMemo(() => {
+        if (!filteredTeams) {
+            return []
+        }
+        const currentTeamId = user?.team?.id
+        return [...filteredTeams]
+            .sort((a, b) => {
+                if (a.id === currentTeamId) {
+                    return -1
+                }
+                if (b.id === currentTeamId) {
+                    return 1
+                }
+                return a.name.localeCompare(b.name)
+            })
+            .map((team) => ({
+                value: team.id,
+                label: team.name,
+            }))
+    }, [filteredTeams, user?.team?.id])
 
     if (oauthApplicationLoading) {
         return (
@@ -105,13 +224,83 @@ export const OAuthAuthorize = (): JSX.Element => {
 
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
                     <div className="flex flex-col gap-4 sm:gap-6 bg-bg-light border border-border rounded p-4 sm:p-6 shadow">
-                        <ScopeAccessSelector
-                            accessType={oauthAuthorization.access_type}
-                            organizations={allOrganizations}
-                            teams={allTeams ?? undefined}
-                            requiredAccessLevel={requiredAccessLevel}
-                            autoSelectFirst={true}
-                        />
+                        {requiredAccessLevel === 'team' ? (
+                            <>
+                                <div className="flex flex-col gap-2">
+                                    <LemonLabel>Organization</LemonLabel>
+                                    <LemonSelect
+                                        fullWidth
+                                        placeholder="Select organization"
+                                        options={orgOptions}
+                                        value={selectedOrganization}
+                                        onChange={(val) => {
+                                            if (val) {
+                                                setSelectedOrganization(val)
+                                            }
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="flex flex-col gap-2">
+                                    <LemonLabel>Project</LemonLabel>
+                                    {showCreateProject ? (
+                                        <InlineCreateForm
+                                            label="New project name"
+                                            placeholder="e.g. My App"
+                                            loading={newProjectLoading}
+                                            onSubmit={createNewProject}
+                                            onCancel={() => setShowCreateProject(false)}
+                                        />
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1 min-w-0">
+                                                <LemonSelect
+                                                    fullWidth
+                                                    placeholder={
+                                                        selectedOrganization
+                                                            ? 'Select project'
+                                                            : 'Select an organization first'
+                                                    }
+                                                    options={projectOptions}
+                                                    value={oauthAuthorization.scoped_teams[0] ?? null}
+                                                    onChange={(val) => {
+                                                        if (val) {
+                                                            setOauthAuthorizationValue('scoped_teams', [val])
+                                                        }
+                                                    }}
+                                                    disabledReason={
+                                                        !selectedOrganization
+                                                            ? 'Select an organization first'
+                                                            : undefined
+                                                    }
+                                                />
+                                            </div>
+                                            <LemonButton
+                                                className="shrink-0"
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconPlus />}
+                                                disabledReason={
+                                                    !selectedOrganization
+                                                        ? 'Select an organization first'
+                                                        : (projectCreationForbiddenReason ?? undefined)
+                                                }
+                                                onClick={handleShowCreateProject}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <ScopeAccessSelector
+                                accessType={oauthAuthorization.access_type}
+                                organizations={allOrganizations}
+                                teams={filteredTeams ?? undefined}
+                                requiredAccessLevel={requiredAccessLevel}
+                                autoSelectFirst={true}
+                            />
+                        )}
+
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
                             {resourceScopesLoading ? (

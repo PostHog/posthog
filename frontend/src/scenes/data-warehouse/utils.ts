@@ -78,6 +78,8 @@ export function syncIntervalToShorthand(syncInterval: DataWarehouseSyncInterval 
     switch (syncInterval) {
         case '5min':
             return '5m'
+        case '15min':
+            return '15m'
         case '30min':
             return '30m'
         case '1hour':

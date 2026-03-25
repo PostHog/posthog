@@ -19,6 +19,7 @@ import (
 )
 
 const metricsSampleInterval = 5 * time.Second
+const flushInterval = 16 * time.Millisecond
 
 type Status int
 
@@ -53,12 +54,12 @@ type StatusMsg struct {
 	Status Status
 }
 
-// New output line from process
+// Notification that a process has new output available.
+// Lines are batched (flushed every ~16ms) to avoid backpressure on the PTY
+// when a process produces output faster than the TUI can render it.
+// The TUI reads actual lines from p.Lines().
 type OutputMsg struct {
-	Name      string
-	Line      string
-	LineIndex int  // index of this line in the buffer after the append
-	Evicted   bool // true when the oldest buffered line was dropped to make room
+	Name string
 }
 
 // Metrics holds the most recent sampled resource usage for a process tree.
@@ -140,6 +141,26 @@ func (p *Process) Status() Status {
 	return p.status
 }
 
+// CPUPercent returns the most recently sampled CPU usage, or 0 if not yet sampled.
+func (p *Process) CPUPercent() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.metrics == nil {
+		return 0
+	}
+	return p.metrics.CPUPercent
+}
+
+// MemRSSMB returns the most recently sampled RSS in MB, or 0 if not yet sampled.
+func (p *Process) MemRSSMB() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.metrics == nil {
+		return 0
+	}
+	return p.metrics.MemRSSMB
+}
+
 // Returns a copy of the output lines
 func (p *Process) Lines() []string {
 	p.mu.Lock()
@@ -203,6 +224,23 @@ func (p *Process) Snapshot() Snapshot {
 	return snap
 }
 
+// buildEnv constructs the environment for the child process.
+func (p *Process) buildEnv() []string {
+	env := os.Environ()
+	for k, v := range p.Cfg.Env {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
+	return env
+}
+
+// buildCmd creates the exec.Cmd from either the shell or cmd config.
+func (p *Process) buildCmd() *exec.Cmd {
+	if len(p.Cfg.Cmd) > 0 {
+		return exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
+	}
+	return exec.Command("bash", "-c", p.Cfg.Shell)
+}
+
 // It's safe to call Start concurrently as running process is a no-op
 func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
@@ -221,12 +259,8 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.ready = p.readyPattern == nil
 	p.mu.Unlock()
 
-	env := os.Environ()
-	for k, v := range p.Cfg.Env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	cmd := exec.Command("bash", "-c", p.Cfg.Shell)
+	env := p.buildEnv()
+	cmd := p.buildCmd()
 	cmd.Env = env
 	// Give child its own process group so Stop() can kill the entire tree,
 	// preventing zombie tsx/node/vite processes when phrocs exits.
@@ -295,6 +329,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		// (process was restarted) or if an explicit Stop() was called
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
+			p.metrics = nil
 			code := cmd.ProcessState.ExitCode()
 			p.exitCode = &code
 		}
@@ -384,6 +419,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 		// (process was restarted) or if an explicit Stop() was called
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
+			p.metrics = nil
 			code := cmd.ProcessState.ExitCode()
 			p.exitCode = &code
 		}
@@ -401,39 +437,73 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	return nil
 }
 
-// Scans line by line, appending to the output buffer and sending OutputMsgs
+// Reads lines from the process output, buffering them internally and sending
+// batched OutputMsg notifications to the TUI. Lines are flushed every
+// ~flushInterval so burst output is coalesced into a single UI update,
+// preventing backpressure on the PTY that would throttle the child process.
 func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
-	// Larger buffer to handle long lines (like minified JS error traces)
+	// Scanner goroutine reads lines as fast as possible into a buffered
+	// channel, decoupling I/O from the (potentially slower) TUI send path.
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		p.mu.Lock()
-		evicted := len(p.lines) >= p.maxLines
-		if evicted {
-			// Discard oldest line to keep the buffer bounded.
-			p.lines = p.lines[1:]
+	lineCh := make(chan string, 4096)
+	go func() {
+		for scanner.Scan() {
+			lineCh <- scanner.Text()
 		}
-		p.lines = append(p.lines, line)
-		lineIndex := len(p.lines) - 1
+		close(lineCh)
+	}()
 
-		// Check if this line matches the ready pattern
-		shouldNotifyCh := false
-		if !p.ready && p.readyPattern != nil && p.readyPattern.MatchString(line) {
-			p.ready = true
-			p.readyAt = time.Now()
-			p.status = StatusRunning
-			shouldNotifyCh = true
+	for {
+		// Block until at least one line arrives
+		line, ok := <-lineCh
+		if !ok {
+			return
 		}
-		p.mu.Unlock()
+		p.bufferLine(line, send)
 
-		send(OutputMsg{Name: p.Name, Line: line, LineIndex: lineIndex, Evicted: evicted})
-
-		// Send status update if we just became ready
-		if shouldNotifyCh {
-			send(StatusMsg{Name: p.Name, Status: StatusRunning})
+		// Drain any additional lines that arrive within the flush interval
+		deadline := time.After(flushInterval)
+	drain:
+		for {
+			select {
+			case line, ok := <-lineCh:
+				if !ok {
+					// EOF — send final notification and return
+					send(OutputMsg{Name: p.Name})
+					return
+				}
+				p.bufferLine(line, send)
+			case <-deadline:
+				break drain
+			}
 		}
+
+		send(OutputMsg{Name: p.Name})
+	}
+}
+
+// bufferLine appends a single line to the scrollback buffer and checks the
+// ready pattern. Only sends a StatusMsg if the process just became ready.
+func (p *Process) bufferLine(line string, send func(tea.Msg)) {
+	p.mu.Lock()
+	if len(p.lines) >= p.maxLines {
+		p.lines = p.lines[1:]
+	}
+	p.lines = append(p.lines, line)
+
+	shouldNotify := false
+	if !p.ready && p.readyPattern != nil && p.readyPattern.MatchString(line) {
+		p.ready = true
+		p.readyAt = time.Now()
+		p.status = StatusRunning
+		shouldNotify = true
+	}
+	p.mu.Unlock()
+
+	if shouldNotify {
+		send(StatusMsg{Name: p.Name, Status: StatusRunning})
 	}
 }
 
@@ -524,10 +594,24 @@ func collectProcessTree(ps *gops.Process) []*gops.Process {
 	return all
 }
 
-// killProcessGroup sends SIGTERM to the process group. Must be called with
-// p.mu held. Falls back to signaling the direct child if the group kill fails.
-// Also walks the process tree to terminate descendants that escaped the group
-// (e.g. pnpm/node processes spawned with a detached process group).
+// stopSignal returns the syscall signal to use when stopping the process,
+// based on the stop config. Defaults to SIGTERM.
+func (p *Process) stopSignal() syscall.Signal {
+	switch p.Cfg.Stop {
+	case "SIGINT":
+		return syscall.SIGINT
+	case "SIGKILL", "hard-kill":
+		return syscall.SIGKILL
+	default:
+		return syscall.SIGTERM
+	}
+}
+
+// killProcessGroup sends the configured stop signal to the process group.
+// Must be called with p.mu held. Falls back to signaling the direct child
+// if the group kill fails. Also walks the process tree to terminate
+// descendants that escaped the group (e.g. pnpm/node processes spawned
+// with a detached process group).
 func (p *Process) killProcessGroup() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
@@ -537,22 +621,24 @@ func (p *Process) killProcessGroup() {
 	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
 		return
 	}
+
+	sig := p.stopSignal()
 	pid := p.cmd.Process.Pid
-	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
-		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	if err := syscall.Kill(-pid, sig); err != nil {
+		_ = p.cmd.Process.Signal(sig)
 	}
 	// Walk the full process tree to catch any descendants that escaped the
 	// process group (e.g. pnpm spawns node as a detached child).
 	if ps, err := gops.NewProcess(int32(pid)); err == nil {
 		for _, proc := range collectProcessTree(ps) {
-			_ = proc.SendSignal(syscall.SIGTERM)
+			_ = proc.SendSignal(sig)
 		}
 	}
 }
 
-// Sends SIGTERM to the process group and marks it as stopped.
-// Killing the process group (negative PID) ensures all descendants
-// (bash → tsx watch → node, etc.) are terminated, not just the shell.
+// Sends the configured stop signal (default SIGTERM) to the process group
+// and marks it as stopped. Killing the process group (negative PID) ensures
+// all descendants (bash → tsx watch → node, etc.) are terminated.
 func (p *Process) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

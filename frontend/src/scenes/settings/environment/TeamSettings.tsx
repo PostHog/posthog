@@ -124,7 +124,10 @@ function DebugInfoPanel(): JSX.Element | null {
 export function TeamVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
-
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const { preflight } = useValues(preflightLogic)
 
     const region = preflight?.region
@@ -172,7 +175,13 @@ export function TeamVariables(): JSX.Element {
                     thing="project token"
                     actions={
                         isTeamTokenResetAvailable ? (
-                            <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} tooltip="Reset token" />
+                            <LemonButton
+                                icon={<IconRefresh />}
+                                disabledReason={restrictedReason}
+                                noPadding
+                                onClick={openDialog}
+                                tooltip="Reset token"
+                            />
                         ) : undefined
                     }
                 >

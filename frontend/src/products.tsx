@@ -53,6 +53,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
     CustomerJourneyBuilder: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
+    CustomerJourneyTemplates: () =>
+        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
     DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
@@ -122,6 +124,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
+    '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
+    '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-ops': ['DataOps', 'dataOps'],
@@ -279,6 +283,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Customer analytics configuration',
     },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
+    CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
@@ -565,11 +570,15 @@ export const productUrls = {
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
+    customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
+    customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     dashboardTextTile: (id: string | number, textTileId: string | number): string =>
         `${urls.dashboard(id)}/text-tiles/${textTileId}`,
+    dashboardButtonTile: (id: string | number, buttonTileId: string | number): string =>
+        `${urls.dashboard(id)}/button-tiles/${buttonTileId}`,
     dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
@@ -1210,7 +1219,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyBuilder'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
     },
     {
         path: 'Dashboards',
@@ -1671,6 +1680,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: 'Unreleased',
         href: urls.visualReviewRuns(),
         iconType: 'visual_review' as FileSystemIconType,
+        flag: FEATURE_FLAGS.VISUAL_REVIEW,
         tags: ['alpha'],
         sceneKey: 'VisualReviewRuns',
         sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],

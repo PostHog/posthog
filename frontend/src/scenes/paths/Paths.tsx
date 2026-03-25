@@ -21,13 +21,28 @@ const DEFAULT_PATHS_ID = 'default_paths'
 export const HIDE_PATH_CARD_HEIGHT = 30
 export const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
+// Debounce delay for canvas resize to prevent rapid SVG recreation from ResizeObserver callbacks
+const CANVAS_RESIZE_DEBOUNCE_MS = 50
 
 export function Paths(): JSX.Element {
     const canvasRef = useRef<HTMLDivElement>(null)
     const canvasContainerRef = useRef<HTMLDivElement>(null)
-    const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
-        useResizeObserver({ ref: canvasRef })
+    const { width: rawCanvasWidth, height: rawCanvasHeight } = useResizeObserver({ ref: canvasRef })
+    const [canvasWidth, setCanvasWidth] = useState(FALLBACK_CANVAS_WIDTH)
+    const [canvasHeight, setCanvasHeight] = useState(FALLBACK_CANVAS_HEIGHT)
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
+
+    // Debounce canvas dimension updates to prevent rapid SVG recreation from ResizeObserver.
+    // We do NOT remove data-stable here — the render effect below removes it only when the SVG
+    // is actually being recreated. Removing it here would cause data-stable to disappear for the
+    // entire debounce window on every resize, making Playwright's waitForSelector time out.
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setCanvasWidth(rawCanvasWidth ?? FALLBACK_CANVAS_WIDTH)
+            setCanvasHeight(rawCanvasHeight ?? FALLBACK_CANVAS_HEIGHT)
+        }, CANVAS_RESIZE_DEBOUNCE_MS)
+        return () => clearTimeout(timer)
+    }, [rawCanvasWidth, rawCanvasHeight])
 
     const { insight, insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
@@ -45,6 +60,11 @@ export function Paths(): JSX.Element {
         const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
+        // Mark the canvas as not yet stable while we recreate the SVG
+        if (canvasRef.current) {
+            canvasRef.current.removeAttribute('data-stable')
+        }
+
         renderPaths(
             canvasRef,
             canvasWidth,
@@ -54,6 +74,11 @@ export function Paths(): JSX.Element {
             funnelPathsFilter || ({} as FunnelPathsFilter),
             setNodeCards
         )
+
+        // Mark the canvas as stable after SVG creation
+        if (canvasRef.current) {
+            canvasRef.current.setAttribute('data-stable', 'true')
+        }
 
         // Proper cleanup
         return () => {

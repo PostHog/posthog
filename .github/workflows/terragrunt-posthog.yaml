@@ -24,6 +24,7 @@ concurrency:
 jobs:
     setup:
         runs-on: ubuntu-22.04
+        timeout-minutes: 15
         outputs:
             matrix_data: ${{ steps.changes.outputs.matrix_data }}
         steps:
@@ -72,6 +73,7 @@ jobs:
         needs: [setup]
         name: ${{ matrix.service_name }}
         runs-on: ubuntu-22.04
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:

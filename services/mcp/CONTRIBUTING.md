@@ -27,7 +27,7 @@ services/mcp/
 │   │   ├── hooks/            # Shared React hooks (useToolResult)
 │   │   └── styles/           # Base CSS with CSS variables
 │   └── schema/               # Zod schemas for API types
-├── ui-apps-dist/             # Built UI apps (generated, gitignored)
+├── public/ui-apps/           # Built UI apps for Workers Static Assets (generated, gitignored)
 ├── dist/                     # npm package output (generated)
 ├── vite.ui-apps.config.ts    # Vite config for UI apps
 ├── tsup.config.ts            # tsup config for npm package
@@ -133,7 +133,7 @@ In mprocs, start both `mcp-ui-apps` and `mcp`:
 2. Navigate to `mcp-ui-apps` and press `s` to start (builds UI apps and watches for changes)
 3. Navigate to `mcp` and press `s` to start (runs wrangler dev server)
 
-The `mcp-ui-apps` process runs vite in watch mode. Changes to `src/ui-apps/` trigger rebuilds, and wrangler automatically reloads when `ui-apps-dist/` changes.
+The `mcp-ui-apps` process runs vite in watch mode. Changes to `src/ui-apps/` trigger rebuilds, and wrangler automatically reloads when `public/ui-apps/` changes.
 
 **Option 2: Manual terminals**
 
@@ -323,35 +323,18 @@ When you need a completely new visualization (not just adding a tool to an exist
 
 3. **Register the resource** (`src/resources/ui-apps.ts`):
 
+   Add an entry to the `UI_APPS` array:
+
    ```typescript
-   import myNewAppHtml from '../../ui-apps-dist/src/ui-apps/apps/my-new-app/index.html'
-   import { MY_NEW_APP_RESOURCE_URI } from './ui-apps-constants'
-
-   export async function registerUiAppResources(server: McpServer): Promise<void> {
-     registerQueryResultsApp(server)
-     registerMyNewApp(server) // Add this
-   }
-
-   function registerMyNewApp(server: McpServer): void {
-     server.registerResource(
-       'My New App',
-       MY_NEW_APP_RESOURCE_URI,
-       {
-         mimeType: RESOURCE_MIME_TYPE,
-         description: 'Description of what this visualizes',
-       },
-       async (uri) => ({
-         contents: [
-           {
-             uri: uri.toString(),
-             mimeType: RESOURCE_MIME_TYPE,
-             text: myNewAppHtml,
-           },
-         ],
-       })
-     )
-   }
+   {
+       name: 'My New App',
+       uri: MY_NEW_APP_RESOURCE_URI,
+       description: 'Description of what this visualizes',
+       appDir: 'my-new-app',
+   },
    ```
+
+   The stub HTML is generated at runtime, loading JS+CSS from Workers Static Assets.
 
 4. **Reference from your tool**:
 

@@ -40,9 +40,13 @@ import {
     createPosthogRedisConnectionConfig,
 } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { INGESTION_OUTPUT_DEFINITIONS } from './ingestion/analytics/config/outputs'
+import { PRODUCER_CONFIG_MAP, ProducerName } from './ingestion/analytics/config/producers'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
+import { KafkaProducerRegistry, resolveIngestionOutputs } from './ingestion/outputs'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
@@ -85,6 +89,7 @@ export class PluginServer {
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
     private kafkaMetricsProducer?: KafkaProducerWrapper
+    private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -132,7 +137,11 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
 
-        const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+        const needsIngestion = !!(
+            capabilities.ingestionV2Combined ||
+            capabilities.ingestionV2 ||
+            capabilities.errorTrackingIngestion
+        )
 
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
@@ -204,6 +213,19 @@ export class PluginServer {
 
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
+            // Resolve ingestion outputs — producer creation blocks until the broker
+            // is reachable (rdkafka retries indefinitely), so the server will hang
+            // here if a broker is down and the pod never becomes healthy.
+            if (needsIngestion) {
+                this.ingestionProducerRegistry = new KafkaProducerRegistry(
+                    this.config.KAFKA_CLIENT_RACK,
+                    PRODUCER_CONFIG_MAP
+                )
+            }
+            const ingestionOutputs = this.ingestionProducerRegistry
+                ? await resolveIngestionOutputs(this.ingestionProducerRegistry, INGESTION_OUTPUT_DEFINITIONS)
+                : undefined
+
             if (capabilities.ingestionV2Combined) {
                 // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
                 // in a single process. In production these are each separate Deployments of the standard ingestion consumer
@@ -212,6 +234,7 @@ export class PluginServer {
                     redisPool: this.redisPool!,
                     kafkaProducer: this.kafkaProducer!,
                     kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                    outputs: ingestionOutputs!,
                     teamManager,
                     groupTypeManager: ingestionServices!.groupTypeManager,
                     groupRepository: ingestionCdpServices!.groupRepository,
@@ -251,6 +274,7 @@ export class PluginServer {
                     redisPool: this.redisPool!,
                     kafkaProducer: this.kafkaProducer!,
                     kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                    outputs: ingestionOutputs!,
                     teamManager,
                     groupTypeManager: ingestionServices!.groupTypeManager,
                     groupRepository: ingestionCdpServices!.groupRepository,
@@ -453,6 +477,40 @@ export class PluginServer {
                         teamManager,
                         quotaLimiting: cdpLogsServices!.quotaLimiting,
                     })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.errorTrackingIngestion) {
+                serviceLoaders.push(async () => {
+                    const config = {
+                        groupId: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
+                        topic: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                        dlqTopic: this.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
+                        overflowTopic: this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
+                        outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                        cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
+                        cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+                        lane: this.config.INGESTION_LANE ?? 'main',
+                        overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
+                        overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                        statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
+                        statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                        statefulOverflowLocalCacheTTLSeconds:
+                            this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                        pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
+                    }
+                    const deps = {
+                        kafkaProducer: this.kafkaProducer!,
+                        kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                        teamManager,
+                        hogTransformer: createHogTransformerService(this.config, hogTransformerDeps!),
+                        groupTypeManager: ingestionServices!.groupTypeManager,
+                        redisPool: this.redisPool!,
+                        personRepository: ingestionCdpServices!.personRepository,
+                    }
+                    const consumer = new ErrorTrackingConsumer(config, deps)
                     await consumer.start()
                     return consumer.service
                 })
@@ -691,6 +749,7 @@ export class PluginServer {
 
         logger.info('💤', ' Shutting down infrastructure...')
         await Promise.allSettled([
+            this.ingestionProducerRegistry?.disconnectAll(),
             this.kafkaProducer?.disconnect(),
             this.kafkaMetricsProducer?.disconnect(),
             this.redisPool?.drain(),

@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "new_name": {
+            "description": "Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "prompt_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["prompt_name", "new_name"],
+    "type": "object"
+}

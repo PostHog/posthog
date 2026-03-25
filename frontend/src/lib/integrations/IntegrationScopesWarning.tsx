@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -13,6 +15,10 @@ export function IntegrationScopesWarning({
     integration: IntegrationType
     schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const getScopes = useMemo((): string[] => {
         const scopes: any[] = []
         const possibleScopeLocation = [integration.config.scope, integration.config.scopes]
@@ -48,6 +54,7 @@ export function IntegrationScopesWarning({
                         kind: integration.kind,
                         next: window.location.pathname,
                     }),
+                    disabledReason: restrictedReason,
                 }}
             >
                 <span>Required scopes are missing: [{missingScopes.join(', ')}].</span>

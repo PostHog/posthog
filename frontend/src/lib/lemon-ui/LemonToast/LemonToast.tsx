@@ -110,20 +110,39 @@ interface ToastError {
     message: string
 }
 
+// IDs dismissed before the deferred microtask has fired. Prevents a toast from
+// appearing if dismiss() is called synchronously after creation in the same tick.
+const cancelledIds = new Set<number | string>()
+
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'info', message)
-        return toast.info(<ToastContent type="info" message={message} button={button} id={options.toastId} />, {
-            icon: <IconInfo />,
-            ...options,
+        const id = options.toastId!
+        // Defer so React can flush the re-render with the updated theme on ToastContainer
+        queueMicrotask(() => {
+            if (cancelledIds.delete(id)) {
+                return
+            }
+            toast.info(<ToastContent type="info" message={message} button={button} id={id} />, {
+                icon: <IconInfo />,
+                ...options,
+            })
         })
+        return id
     },
     success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'success', message)
-        return toast.success(<ToastContent type="success" message={message} button={button} id={options.toastId} />, {
-            icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
-            ...options,
+        const id = options.toastId!
+        queueMicrotask(() => {
+            if (cancelledIds.delete(id)) {
+                return
+            }
+            toast.success(<ToastContent type="success" message={message} button={button} id={id} />, {
+                icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+                ...options,
+            })
         })
+        return id
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         posthog.capture('toast warning', {
@@ -132,10 +151,17 @@ export const lemonToast = {
             toastId: toastOptions.toastId,
         })
         const options = ensureToastId(toastOptions, 'warning', message)
-        return toast.warning(<ToastContent type="warning" message={message} button={button} id={options.toastId} />, {
-            icon: <IconWarning />,
-            ...options,
+        const id = options.toastId!
+        queueMicrotask(() => {
+            if (cancelledIds.delete(id)) {
+                return
+            }
+            toast.warning(<ToastContent type="warning" message={message} button={button} id={id} />, {
+                icon: <IconWarning />,
+                ...options,
+            })
         })
+        return id
     },
     error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
@@ -149,19 +175,26 @@ export const lemonToast = {
         }
 
         const options = ensureToastId(toastOptions, 'error', message)
-        return toast.error(
-            <ToastContent
-                type="error"
-                message={withIncidentNote(message)}
-                // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
-                button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
-                id={options.toastId}
-            />,
-            {
-                icon: <IconErrorOutline />,
-                ...options,
+        const id = options.toastId!
+        queueMicrotask(() => {
+            if (cancelledIds.delete(id)) {
+                return
             }
-        )
+            toast.error(
+                <ToastContent
+                    type="error"
+                    message={withIncidentNote(message)}
+                    // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
+                    button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
+                    id={id}
+                />,
+                {
+                    icon: <IconErrorOutline />,
+                    ...options,
+                }
+            )
+        })
+        return id
     },
     promise(
         promise: Promise<any>,
@@ -202,6 +235,11 @@ export const lemonToast = {
         )
     },
     dismiss(id?: number | string): void {
+        // If a toast was created in this tick but hasn't been registered yet (due to
+        // queueMicrotask deferral), mark the ID as cancelled so the microtask skips it.
+        if (id) {
+            cancelledIds.add(id)
+        }
         toast.dismiss(id)
     },
 }

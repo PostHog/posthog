@@ -306,6 +306,22 @@ export const EffectiveMembershipLevelEnumApi = {
 } as const
 
 /**
+ * * `30d` - 30 Days
+ * `90d` - 90 Days
+ * `1y` - 1 Year
+ * `5y` - 5 Years
+ */
+export type SessionRecordingRetentionPeriodEnumApi =
+    (typeof SessionRecordingRetentionPeriodEnumApi)[keyof typeof SessionRecordingRetentionPeriodEnumApi]
+
+export const SessionRecordingRetentionPeriodEnumApi = {
+    '30d': '30d',
+    '90d': '90d',
+    '1y': '1y',
+    '5y': '5y',
+} as const
+
+/**
  * * `0` - Sunday
  * `1` - Monday
  */
@@ -541,6 +557,20 @@ export interface ProjectBackwardCompatApi {
     session_recording_linked_flag?: unknown | null
     session_recording_network_payload_capture_config?: unknown | null
     session_recording_masking_config?: unknown | null
+    /** @nullable */
+    session_recording_url_trigger_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_event_trigger_config?: (string | null)[] | null
+    /**
+     * @maxLength 24
+     * @nullable
+     */
+    session_recording_trigger_match_type_config?: string | null
+    /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+    session_recording_trigger_groups?: unknown | null
+    session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
@@ -674,6 +704,20 @@ export interface PatchedProjectBackwardCompatApi {
     session_recording_linked_flag?: unknown | null
     session_recording_network_payload_capture_config?: unknown | null
     session_recording_masking_config?: unknown | null
+    /** @nullable */
+    session_recording_url_trigger_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_event_trigger_config?: (string | null)[] | null
+    /**
+     * @maxLength 24
+     * @nullable
+     */
+    session_recording_trigger_match_type_config?: string | null
+    /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+    session_recording_trigger_groups?: unknown | null
+    session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
@@ -1053,6 +1097,7 @@ export interface SharingConfigurationApi {
  * `google-cloud-storage` - Google Cloud Storage
  * `google-ads` - Google Ads
  * `google-sheets` - Google Sheets
+ * `google-cloud-service-account` - Google Cloud Service Account
  * `snapchat` - Snapchat
  * `linkedin-ads` - Linkedin Ads
  * `reddit-ads` - Reddit Ads
@@ -1073,9 +1118,9 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type KindBfbEnumApi = (typeof KindBfbEnumApi)[keyof typeof KindBfbEnumApi]
+export type Kind8d6EnumApi = (typeof Kind8d6EnumApi)[keyof typeof Kind8d6EnumApi]
 
-export const KindBfbEnumApi = {
+export const Kind8d6EnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -1084,6 +1129,7 @@ export const KindBfbEnumApi = {
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
     GoogleSheets: 'google-sheets',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
     Snapchat: 'snapchat',
     LinkedinAds: 'linkedin-ads',
     RedditAds: 'reddit-ads',
@@ -1110,7 +1156,7 @@ export const KindBfbEnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindBfbEnumApi
+    kind: Kind8d6EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1132,7 +1178,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindBfbEnumApi
+    kind?: Kind8d6EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1143,6 +1189,11 @@ export interface PatchedIntegrationApi {
 export interface GitHubBranchesResponseApi {
     /** List of branch names */
     branches: string[]
+    /**
+     * The default branch of the repository
+     * @nullable
+     */
+    default_branch?: string | null
 }
 
 export interface GitHubRepoApi {

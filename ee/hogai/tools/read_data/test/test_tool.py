@@ -17,15 +17,17 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Dashboard, DashboardTile, Experiment, Insight, Survey
+from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.models.feature_flag import FeatureFlag
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
+from products.experiments.backend.models.experiment import Experiment
 from products.llm_analytics.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
     SummaryBullet,
 )
+from products.surveys.backend.models import Survey
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError

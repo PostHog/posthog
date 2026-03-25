@@ -179,9 +179,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return self.get_filters().get("super_groups", []) or []
 
     @property
-    def holdout_conditions(self):
-        "Each feature flag can have multiple holdout conditions to match, they are OR-ed together."
-        return self.get_filters().get("holdout_groups", []) or []
+    def has_feature_enrollment(self) -> bool:
+        return bool(self.get_filters().get("feature_enrollment", False))
 
     @property
     def holdout(self):

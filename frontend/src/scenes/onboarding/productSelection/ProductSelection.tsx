@@ -254,8 +254,8 @@ function ProductSelectionStep(): JSX.Element {
             {/* Browsing history banner */}
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
 
-            {/* Products list - single unified grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 justify-items-center w-full">
+            {/* Products list */}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,190px))] gap-3 justify-center w-full">
                 {/* Recommended products first */}
                 {availableRecommendedProducts.map((productKey) => (
                     <ProductCard

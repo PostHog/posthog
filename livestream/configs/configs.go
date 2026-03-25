@@ -25,11 +25,13 @@ type SessionRecordingConfig struct {
 }
 
 type RedisConfig struct {
-	Address         string `mapstructure:"address"`
-	Port            string `mapstructure:"port"`
-	TLS             bool   `mapstructure:"tls"`
-	FlushIntervalMs int    `mapstructure:"flush_interval_ms"`
-	UsePubSub       bool   `mapstructure:"use_pub_sub"`
+	Address            string `mapstructure:"address"`
+	Port               string `mapstructure:"port"`
+	TLS                bool   `mapstructure:"tls"`
+	FlushIntervalMs    int    `mapstructure:"flush_interval_ms"`
+	UsePubSub          bool   `mapstructure:"use_pub_sub"`
+	PublishBufferSize  int    `mapstructure:"publish_buffer_size"`
+	PublishWorkers     int    `mapstructure:"publish_workers"`
 }
 
 type Config struct {
@@ -56,6 +58,8 @@ type KafkaConfig struct {
 	SessionTimeoutMs                 int    `mapstructure:"session_timeout_ms"`
 	HeartbeatIntervalMs              int    `mapstructure:"heartbeat_interval_ms"`
 	MaxPollIntervalMs                int    `mapstructure:"max_poll_interval_ms"`
+	NotificationEnabled              bool   `mapstructure:"notification_enabled"`
+	NotificationTopic                string `mapstructure:"notification_topic"`
 }
 
 func InitConfigs(filename, configPath string) {
@@ -64,6 +68,8 @@ func InitConfigs(filename, configPath string) {
 
 	viper.SetDefault("kafka.group_id", "livestream")
 	viper.SetDefault("kafka.session_recording_enabled", true)
+	viper.SetDefault("kafka.notification_enabled", false)
+	viper.SetDefault("kafka.notification_topic", "notification_events")
 	viper.SetDefault("session_recording.max_lru_entries", 2_000_000_000)
 	viper.SetDefault("redis.flush_interval_ms", 500)
 
@@ -99,6 +105,8 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("kafka.session_timeout_ms")                  // LIVESTREAM_KAFKA_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("kafka.heartbeat_interval_ms")               // LIVESTREAM_KAFKA_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("kafka.max_poll_interval_ms")                // LIVESTREAM_KAFKA_MAX_POLL_INTERVAL_MS
+	_ = viper.BindEnv("kafka.notification_enabled")                // LIVESTREAM_KAFKA_NOTIFICATION_ENABLED
+	_ = viper.BindEnv("kafka.notification_topic")                  // LIVESTREAM_KAFKA_NOTIFICATION_TOPIC
 
 	// Postgres settings
 	_ = viper.BindEnv("postgres.url") // LIVESTREAM_POSTGRES_URL
@@ -114,7 +122,9 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("redis.port")              // LIVESTREAM_REDIS_PORT
 	_ = viper.BindEnv("redis.tls")               // LIVESTREAM_REDIS_TLS
 	_ = viper.BindEnv("redis.flush_interval_ms") // LIVESTREAM_REDIS_FLUSH_INTERVAL_MS
-	_ = viper.BindEnv("redis.use_pub_sub")       // LIVESTREAM_REDIS_USE_PUB_SUB
+	_ = viper.BindEnv("redis.use_pub_sub")         // LIVESTREAM_REDIS_USE_PUB_SUB
+	_ = viper.BindEnv("redis.publish_buffer_size") // LIVESTREAM_REDIS_PUBLISH_BUFFER_SIZE
+	_ = viper.BindEnv("redis.publish_workers")     // LIVESTREAM_REDIS_PUBLISH_WORKERS
 }
 
 func LoadConfig() (*Config, error) {
@@ -161,6 +171,13 @@ func LoadConfig() (*Config, error) {
 	}
 	if config.Kafka.GroupID == "" {
 		return nil, errors.New("kafka.group_id must be set")
+	}
+
+	if config.Redis.PublishBufferSize == 0 {
+		config.Redis.PublishBufferSize = 10000
+	}
+	if config.Redis.PublishWorkers == 0 {
+		config.Redis.PublishWorkers = 256
 	}
 
 	if config.Redis.FlushIntervalMs < 50 {

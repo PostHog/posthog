@@ -7,6 +7,7 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ExternalDataSourceSchema } from '~/types'
 
 export const SyncProgressStep = (): JSX.Element => {
@@ -17,7 +18,8 @@ export const SyncProgressStep = (): JSX.Element => {
     const schemas = source?.schemas ?? []
     const isDirectQuerySource = source?.access_method === 'direct'
 
-    const getPreviewQuery = (tableName: string): string => `SELECT * FROM ${tableName} LIMIT 100`
+    const getPreviewQuery = (tableName: string): string =>
+        `SELECT * FROM ${escapePropertyAsHogQLIdentifier(tableName)} LIMIT 100`
 
     const getSyncStatus = (schema: ExternalDataSourceSchema): { status: string; tagType: LemonTagType } => {
         if (isDirectQuerySource) {

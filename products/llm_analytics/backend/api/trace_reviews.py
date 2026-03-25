@@ -30,6 +30,7 @@ from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
+from products.llm_analytics.backend.models.review_queues import ReviewQueueItem
 from products.llm_analytics.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.llm_analytics.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.llm_analytics.backend.score_definition_configs import (
@@ -220,6 +221,14 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         many=True,
         required=False,
         help_text="Full desired score set for this review. Omit scorers you want to leave blank.",
+    )
+    queue_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional review queue ID for queue-context saves. When provided, the matching pending queue item "
+            "is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared."
+        ),
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -447,6 +456,15 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             ]
         )
 
+    def _clear_pending_queue_item(self, *, team: Team, trace_id: str, queue_id: str | None) -> None:
+        pending_items = ReviewQueueItem.objects.select_for_update().filter(team=team, trace_id=trace_id, deleted=False)
+        if queue_id:
+            pending_items = pending_items.filter(queue_id=queue_id)
+
+        pending_item = pending_items.first()
+        if pending_item is not None:
+            pending_item.soft_delete()
+
     @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> TraceReview:
         request = cast(Request, self.context["request"])
@@ -454,11 +472,15 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         review_user = cast(User, request.user)
         resolved_scores = cast(list[dict[str, Any]], validated_data.pop("_resolved_scores", []))
         validated_data.pop("scores", None)
+        queue_id = str(validated_data.pop("queue_id", "") or "") or None
+        trace_id = validated_data["trace_id"]
+
+        Team.objects.select_for_update().get(id=team.id)
 
         try:
             review = TraceReview.objects.create(
                 team=team,
-                trace_id=validated_data["trace_id"],
+                trace_id=trace_id,
                 comment=validated_data.get("comment"),
                 created_by=review_user,
                 reviewed_by=review_user,
@@ -466,15 +488,18 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         except IntegrityError as err:
             raise serializers.ValidationError({"trace_id": "An active review already exists for this trace."}) from err
 
+        self._clear_pending_queue_item(team=team, trace_id=review.trace_id, queue_id=queue_id)
         self._replace_scores(review, resolved_scores)
         return review
 
     @transaction.atomic
     def update(self, instance: TraceReview, validated_data: dict[str, Any]) -> TraceReview:
         request = cast(Request, self.context["request"])
+        team = cast(Team, self.context["team"])
         review_user = cast(User, request.user)
         resolved_scores = cast(list[dict[str, Any]] | None, validated_data.pop("_resolved_scores", None))
         validated_data.pop("scores", None)
+        queue_id = str(validated_data.pop("queue_id", "") or "") or None
         validated_data.pop("trace_id", None)
 
         if "comment" in validated_data:
@@ -482,6 +507,8 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
         instance.reviewed_by = review_user
         instance.save(update_fields=["comment", "reviewed_by", "updated_at"])
+
+        self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
 
         if resolved_scores is not None:
             self._replace_scores(instance, resolved_scores)

@@ -22,6 +22,7 @@ import type {
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesList2Params,
     ErrorTrackingReleasesListParams,
+    ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
     ErrorTrackingStackFramesListParams,
     ErrorTrackingSuppressionRuleApi,
@@ -35,6 +36,7 @@ import type {
     PaginatedErrorTrackingGroupingRuleListApi,
     PaginatedErrorTrackingIssueFullListApi,
     PaginatedErrorTrackingReleaseListApi,
+    PaginatedErrorTrackingSpikeEventListApi,
     PaginatedErrorTrackingStackFrameListApi,
     PaginatedErrorTrackingSuppressionRuleListApi,
     PaginatedErrorTrackingSymbolSetListApi,
@@ -935,6 +937,33 @@ export const errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate = async 
     return apiMutator<void>(getErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateUrl(projectId), {
         ...options,
         method: 'PATCH',
+    })
+}
+
+export const getErrorTrackingSpikeEventsListUrl = (projectId: string, params?: ErrorTrackingSpikeEventsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/spike_events/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/spike_events/`
+}
+
+export const errorTrackingSpikeEventsList = async (
+    projectId: string,
+    params?: ErrorTrackingSpikeEventsListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingSpikeEventListApi> => {
+    return apiMutator<PaginatedErrorTrackingSpikeEventListApi>(getErrorTrackingSpikeEventsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

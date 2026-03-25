@@ -134,6 +134,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
         if not self.context.breakdown:
             prop_selector = self._default_breakdown_selector()
+        elif self.context.breakdownType == BreakdownType.COHORT:
+            prop_selector = "prop_basic"
         elif self._query_has_array_breakdown():
             prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
         else:

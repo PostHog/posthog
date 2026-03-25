@@ -42,7 +42,7 @@ class ExecuteDAGInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
-    v2_only: bool = False
+    duckgres_only: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -292,7 +292,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             team_id=inputs.team_id,
                             dag_id=inputs.dag_id,
                             node_id=node_id,
-                            v2_only=inputs.v2_only,
+                            duckgres_only=inputs.duckgres_only,
                         ),
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,

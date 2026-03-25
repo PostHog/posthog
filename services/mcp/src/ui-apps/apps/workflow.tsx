@@ -1,0 +1,20 @@
+import '../styles/tailwind.css'
+
+import { createRoot } from 'react-dom/client'
+
+import { type WorkflowData, WorkflowView } from 'products/workflows/frontend/mcp-apps'
+
+import { AppWrapper } from '../components/AppWrapper'
+
+function WorkflowApp(): JSX.Element {
+    return (
+        <AppWrapper<WorkflowData> appName="PostHog Workflow">
+            {({ data }) => <WorkflowView workflow={data!} />}
+        </AppWrapper>
+    )
+}
+
+const container = document.getElementById('root')
+if (container) {
+    createRoot(container).render(<WorkflowApp />)
+}

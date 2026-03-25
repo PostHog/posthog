@@ -10,6 +10,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
@@ -40,22 +41,12 @@ export function TrendsSeries(): JSX.Element | null {
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
-    const propertiesTaxonomicGroupTypes = [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.EventFeatureFlags,
-        TaxonomicFilterGroupType.EventMetadata,
-        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-        TaxonomicFilterGroupType.EmailAddresses,
-        ...groupsTaxonomicTypes,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.SessionProperties,
-        TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.DataWarehouseProperties,
-        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-    ]
+    const propertiesTaxonomicGroupTypes = getInsightPropertyFilterGroupTypes({
+        groupsTaxonomicTypes,
+        hasPageview,
+        hasScreen,
+        includeDataWarehouseProperties: true,
+    })
 
     if (!isInsightQueryNode(querySource)) {
         return null

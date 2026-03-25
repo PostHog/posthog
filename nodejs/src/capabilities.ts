@@ -55,6 +55,11 @@ export const CAPABILITIES_LOGS: PluginServerCapabilities = {
     logsIngestion: true,
 }
 
+/** Error Tracking - exception event ingestion */
+export const CAPABILITIES_ERROR_TRACKING: PluginServerCapabilities = {
+    errorTrackingIngestion: true,
+}
+
 /** Traces - trace ingestion */
 export const CAPABILITIES_TRACES: PluginServerCapabilities = {
     tracesIngestion: true,
@@ -90,6 +95,7 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     session_replay: CAPABILITIES_SESSION_REPLAY,
     recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
+    error_tracking: CAPABILITIES_ERROR_TRACKING,
     traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
@@ -140,6 +146,7 @@ export function getPluginServerCapabilities(
                 { sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED },
                 CAPABILITIES_RECORDING_API,
                 CAPABILITIES_LOGS,
+                CAPABILITIES_ERROR_TRACKING,
                 CAPABILITIES_FEATURE_FLAGS
             )
 
@@ -211,6 +218,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.ingestion_logs:
             return {
                 logsIngestion: true,
+            }
+        case PluginServerMode.ingestion_error_tracking:
+            return {
+                errorTrackingIngestion: true,
             }
         case PluginServerMode.ingestion_traces:
             return {

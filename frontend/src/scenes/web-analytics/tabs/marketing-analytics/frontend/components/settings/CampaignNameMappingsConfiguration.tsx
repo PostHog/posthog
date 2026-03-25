@@ -276,6 +276,7 @@ export function CampaignNameMappingsConfiguration({
                                                 <Tooltip
                                                     title="Suggestions are based on string similarity (Levenshtein distance) between your utm_campaign value and campaign names from the integration."
                                                     placement="top"
+                                                    delayMs={0}
                                                 >
                                                     <IconInfo className="w-3 h-3 cursor-help" />
                                                 </Tooltip>

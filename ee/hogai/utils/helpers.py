@@ -43,7 +43,12 @@ from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
-from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import (
+    ArtifactRefMessage,
+    AssistantDispatcherEvent,
+    AssistantMessageUnion,
+    ConversationTitleAction,
+)
 
 
 def remove_line_breaks(line: str) -> str:
@@ -391,7 +396,7 @@ def extract_stream_update(update: Any) -> Any:
         # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
         update = update[2]
 
-    if isinstance(update, AssistantDispatcherEvent):
+    if isinstance(update, (AssistantDispatcherEvent, ConversationTitleAction)):
         return update
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name

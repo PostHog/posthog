@@ -233,10 +233,11 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
+        let limit = req.limit.filter(|&l| l > 0);
 
         let distinct_ids = self
             .storage
-            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency)
+            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_person"))?;
 
@@ -257,10 +258,16 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonsResponse>, Status> {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
+        let limit_per_person = req.limit_per_person.filter(|&l| l > 0);
 
         let mappings = self
             .storage
-            .get_distinct_ids_for_persons(req.team_id, &req.person_ids, consistency)
+            .get_distinct_ids_for_persons(
+                req.team_id,
+                &req.person_ids,
+                consistency,
+                limit_per_person,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_persons"))?;
 

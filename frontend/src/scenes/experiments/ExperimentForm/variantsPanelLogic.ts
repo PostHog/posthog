@@ -5,6 +5,7 @@ import { toParams } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
@@ -29,7 +30,14 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         tabId?: string
     },
     connect: {
-        values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
+        values: [
+            featureFlagsLogic,
+            ['featureFlags'],
+            experimentsLogic,
+            ['experiments'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
         actions: [],
     },
     actions: {
@@ -100,7 +108,9 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                     }
 
                     // Double-check with API for recently created flags
-                    const response = await api.get(`api/projects/@current/feature_flags/?${toParams({ search: key })}`)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: key })}`
+                    )
 
                     if (response.results.length > 0) {
                         const exactMatch = response.results.find((flag: FeatureFlagType) => flag.key === key)

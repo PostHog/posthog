@@ -285,7 +285,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject(
                 [
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -299,7 +299,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                     },
                     // Billing is per-event, not per-destination
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',

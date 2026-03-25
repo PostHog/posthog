@@ -33,10 +33,7 @@ use crate::{
         FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME,
     },
-    properties::{
-        property_matching::match_property,
-        property_models::{OperatorType, PropertyFilter},
-    },
+    properties::property_models::{OperatorType, PropertyFilter},
 };
 
 use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
@@ -240,9 +237,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
     let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
-    let (person_id, person_props) = person
-        .map(|p| (Some(p.id), Some(p.properties)))
-        .unwrap_or((None, None));
     person_query_timer.fin();
     let person_query_duration = person_query_start.elapsed();
     with_canonical_log(|log| {
@@ -268,9 +262,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         );
     }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
-    if let Some(person_id) = person_id {
-        // NB: this is where we actually set our person ID in the flag evaluation state.
-        flag_evaluation_state.set_person_id(person_id);
+    if let Some(ref person) = person {
+        // NB: this is where we actually set our person ID and UUID in the flag evaluation state.
+        flag_evaluation_state.set_person_id(person.id);
+        flag_evaluation_state.set_person_uuid(person.uuid);
         // If we have static cohort IDs to check and a valid person_id, do the cohort query
         if !static_cohort_ids.is_empty() {
             let cohort_query = r#"
@@ -290,7 +285,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &query_labels);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
-                .bind(person_id)
+                .bind(person.id)
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
@@ -303,7 +298,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
                     duration_ms = cohort_query_duration.as_millis(),
-                    person_id = person_id,
+                    person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
                     sql_summary =
                         "SELECT cohort membership with LEFT JOIN from UNNEST to cohortpeople",
@@ -312,7 +307,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             } else {
                 info!(
                     duration_ms = cohort_query_duration.as_millis(),
-                    person_id = person_id,
+                    person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
                     "Cohort query completed"
                 );
@@ -329,7 +324,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 })
                 .collect();
 
-            flag_evaluation_state.set_static_cohort_matches(cohort_results);
+            flag_evaluation_state.set_cohort_matches(cohort_results);
             cohort_processing_timer.fin();
         } else {
             // TRICKY: if there are no static cohorts to check, we want to return an empty map to show that
@@ -337,14 +332,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             // would indicate that that we had an error doing this evaluation in the first place.
             // i.e.: if there are no static cohort ID matches, it means we checked, and if there's None, it means something
             // went wrong.  This is handled in the caller.
-            flag_evaluation_state.set_static_cohort_matches(HashMap::new());
+            flag_evaluation_state.set_cohort_matches(HashMap::new());
         }
     }
 
     // if we have person properties, set them
-    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
-    {
-        person_props
+    let mut all_person_properties: HashMap<String, Value> = if let Some(ref person) = person {
+        person
+            .properties
             .as_object()
             .unwrap_or(&serde_json::Map::new())
             .iter()
@@ -529,25 +524,6 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
     }
 
     common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
-}
-
-/// Check if all properties match the given filters
-pub fn all_properties_match(
-    flag_condition_properties: &[PropertyFilter],
-    matching_property_values: &HashMap<String, Value>,
-) -> bool {
-    flag_condition_properties
-        .iter()
-        .all(|property| match_property(property, matching_property_values, false).unwrap_or(false))
-}
-
-pub fn all_flag_condition_properties_match(
-    flag_condition_properties: &[PropertyFilter],
-    flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
-) -> bool {
-    flag_condition_properties
-        .iter()
-        .all(|property| match_flag_value_to_flag_filter(property, flag_evaluation_results))
 }
 
 // Attempts to match a flag condition filter that depends on another flag
@@ -1430,7 +1406,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             Some(false), // not deleted

@@ -19,10 +19,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentTimeseriesRecalculation
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
@@ -32,7 +30,13 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentTimeseriesRecalculation,
+)
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -281,9 +285,98 @@ class EnterpriseExperimentsViewSet(
 
         return Response({"result": warning})
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def launch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Launch a draft experiment.
+
+        Validates the experiment is in draft state, activates its linked feature flag,
+        sets start_date to the current server time, and transitions the experiment to running.
+        Returns 400 if the experiment has already been launched or if the feature flag
+        configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        launched_experiment = service.launch_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Archive an ended experiment.
+
+        Hides the experiment from the default list view. The experiment can be
+        restored at any time by updating archived=false. Returns 400 if the
+        experiment is already archived or has not ended yet.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        archived_experiment = service.archive_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Pause a running experiment.
+
+        Deactivates the linked feature flag so it is no longer returned by the
+        /decide endpoint. Users fall back to the application default (typically
+        the control experience), and no new exposure events are recorded (i.e.
+        $feature_flag_called is not fired).
+        Returns 400 if the experiment is not running or is already paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        paused_experiment = service.pause_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(paused_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Resume a paused experiment.
+
+        Reactivates the linked feature flag so it is returned by /decide again.
+        Users are re-bucketed deterministically into the same variants they had
+        before the pause, and exposure tracking resumes.
+        Returns 400 if the experiment is not running or is not paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        resumed_experiment = service.resume_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
+
+        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
+        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
+        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
+        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
+            saved_metric__query__kind__in=legacy_kinds
+        ).exists()
+        if has_legacy_inline or has_legacy_saved:
+            return Response(
+                {"detail": "Duplication is not supported for experiments using legacy metrics."},
+                status=400,
+            )
+
         feature_flag_key = request.data.get("feature_flag_key")
 
         service = ExperimentService(team=self.team, user=request.user)

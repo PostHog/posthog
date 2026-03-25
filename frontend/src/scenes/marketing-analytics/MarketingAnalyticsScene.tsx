@@ -2,13 +2,15 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -73,7 +75,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { loadSources } = useActions(externalDataSourcesLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
-    const { showOnboarding } = useValues(marketingOnboardingLogic)
+    const { showOnboarding, currentStep } = useValues(marketingOnboardingLogic)
     const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
 
     // Reload sources on every navigation to this scene so newly configured
@@ -82,12 +84,19 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         loadSources()
     }, [loadSources])
 
-    // Auto-complete onboarding if user already has sources and conversion goals configured
+    // Auto-complete onboarding if user already has sources and conversion goals configured,
+    // but only when not actively on the conversion-goals step (let the user click "Continue")
     useEffect(() => {
-        if (!loading && hasSources && conversion_goals.length > 0 && showOnboarding) {
+        if (
+            !loading &&
+            hasSources &&
+            conversion_goals.length > 0 &&
+            showOnboarding &&
+            currentStep !== 'conversion-goals'
+        ) {
             completeOnboarding()
         }
-    }, [loading, hasSources, conversion_goals, showOnboarding, completeOnboarding])
+    }, [loading, hasSources, conversion_goals, showOnboarding, currentStep, completeOnboarding])
 
     // Reset onboarding if user truly has no configured sources (handles session/project changes).
     // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.
@@ -160,6 +169,28 @@ export function MarketingAnalyticsScene(): JSX.Element {
                         resourceType={{
                             type: sceneConfigurations[Scene.MarketingAnalytics]?.iconType || 'marketing_analytics',
                         }}
+                        actions={
+                            <>
+                                <LemonButton
+                                    to="https://posthog.com/docs/web-analytics/marketing-analytics"
+                                    type="secondary"
+                                    targetBlank
+                                    size="small"
+                                    data-attr="marketing-analytics-docs-button"
+                                >
+                                    Documentation
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconGear />}
+                                    to={urls.settings('environment-marketing-analytics', 'marketing-settings')}
+                                    data-attr="marketing-analytics-settings-button"
+                                >
+                                    Settings
+                                </LemonButton>
+                            </>
+                        }
                     />
                     <MarketingAnalyticsFilters tabs={<></>} />
                     <MarketingAnalyticsDashboard />
