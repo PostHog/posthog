@@ -1,0 +1,231 @@
+name: Build rust container images
+
+# Reusable workflow — not triggered directly.
+# Called by rust-docker-build.yml (production) and
+# rust-smoke-test-build.yml (smoke tests).
+# Image list lives in .github/rust-images.yml.
+
+on:
+    workflow_call:
+        inputs:
+            tag-rules:
+                description: 'Docker metadata tag rules (newline-separated)'
+                required: true
+                type: string
+            checkout-ref:
+                description: 'Git ref for checkout (leave empty for default)'
+                type: string
+                default: ''
+            timeout-minutes:
+                description: 'Per-image build timeout'
+                type: number
+                default: 30
+            event-name:
+                description: 'PostHog event name for failure reporting'
+                type: string
+                default: 'posthog-rust-image-build'
+            extra-failure-props:
+                description: 'Additional JSON properties for failure reporting (without outer braces)'
+                type: string
+                default: ''
+            image-filter:
+                description: 'Comma-separated list of images to build (empty = all)'
+                type: string
+                default: ''
+        outputs:
+            digests:
+                description: 'JSON object mapping image name to digest'
+                value: ${{ jobs.collect.outputs.digests }}
+
+jobs:
+    load-matrix:
+        name: load image matrix
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        permissions:
+            contents: read
+        outputs:
+            matrix: ${{ steps.set.outputs.matrix }}
+        steps:
+            - name: Check out rust-images.yml
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  sparse-checkout: .github/rust-images.yml
+                  sparse-checkout-cone-mode: false
+
+            - name: Read and filter matrix
+              id: set
+              env:
+                  IMAGE_FILTER: ${{ inputs.image-filter }}
+              run: |
+                  full=$(yq -o=json -I=0 '.' .github/rust-images.yml)
+                  if [ -n "$IMAGE_FILTER" ]; then
+                      matrix=$(echo "$full" | jq -c --arg f "$IMAGE_FILTER" \
+                        '[.[] | select(.image as $img | ($f | split(",") | map(ltrimstr(" ") | rtrimstr(" ")) | index($img)) != null)]')
+                  else
+                      matrix="$full"
+                  fi
+                  if [ "$matrix" = "[]" ]; then
+                      echo "::error::image-filter '$IMAGE_FILTER' matched no images in rust-images.yml"
+                      exit 1
+                  fi
+                  echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+    build:
+        name: build ${{ matrix.image }}
+        needs: load-matrix
+        strategy:
+            matrix:
+                include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
+        runs-on: depot-ubuntu-22.04
+        timeout-minutes: ${{ inputs.timeout-minutes }}
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            - name: Check Out Repo
+              # Use sparse checkout to only select files in rust directory
+              # Turning off cone mode ensures that files in the project root are not included during checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.checkout-ref || '' }}
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                  sparse-checkout-cone-mode: false
+
+            - name: Copy proto files into rust build context
+              working-directory: .
+              run: cp -r proto rust/proto
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+              with:
+                  image: tonistiigi/binfmt:qemu-v10.2.1@sha256:7c76af7ed8714b80e3fc6d6d1c748ebcac867ad6b631167d0a6d3d92952151ea
+                  platforms: all
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+              with:
+                  images: ghcr.io/posthog/posthog/${{ matrix.image }}
+                  tags: ${{ inputs.tag-rules }}
+
+            - name: Set up Docker Buildx
+              id: buildx
+              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+            - name: Retrieve sccache configuration
+              id: sccache
+              run: |
+                  echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
+                  echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
+                  echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
+
+            - name: Build and push image
+              id: docker_build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: ${{ matrix.project }}
+                  context: ./rust/
+                  file: ${{ matrix.dockerfile }}
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      SCCACHE_LOG=debug
+                      SCCACHE_NO_DAEMON=1
+                      BIN=${{ matrix.image }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+
+            - name: Build failure properties
+              if: failure()
+              id: failure-props
+              env:
+                  EXTRA: ${{ inputs.extra-failure-props }}
+              run: |
+                  props='{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"'
+                  if [ -n "$EXTRA" ]; then
+                      props="$props, $EXTRA"
+                  fi
+                  echo "json=${props}}" >> "$GITHUB_OUTPUT"
+
+            - name: Report failure
+              if: failure()
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: ${{ inputs.event-name }}
+                  properties: ${{ steps.failure-props.outputs.json }}
+
+            - name: Container image digest
+              env:
+                  DIGEST: ${{ steps.docker_build.outputs.digest }}
+              run: echo "$DIGEST" > /tmp/digest.txt
+
+            - name: Upload digest
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: digest-${{ matrix.image }}
+                  path: /tmp/digest.txt
+                  retention-days: 1
+
+    collect:
+        name: collect digests
+        needs: [load-matrix, build]
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        permissions:
+            contents: read
+        outputs:
+            digests: ${{ steps.aggregate.outputs.digests }}
+        steps:
+            - name: Download all digest artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: digest-*
+                  path: /tmp/digests
+                  merge-multiple: false
+
+            - name: Aggregate digests
+              id: aggregate
+              run: |
+                  shopt -s nullglob
+                  echo "Contents of /tmp/digests/:"
+                  ls -laR /tmp/digests/ 2>/dev/null || echo "/tmp/digests/ does not exist"
+                  digests='{}'
+                  found=0
+                  for dir in /tmp/digests/digest-*; do
+                      found=1
+                      name="${dir##*/digest-}"
+                      digest=$(cat "$dir/digest.txt")
+                      if [ -z "$digest" ]; then
+                          echo "::error::Empty digest for $name (file: $dir/digest.txt)"
+                          exit 1
+                      fi
+                      digests=$(echo "$digests" | jq -c --arg k "$name" --arg v "$digest" '. + {($k): $v}')
+                  done
+                  if [ "$found" -eq 0 ]; then
+                      echo "::error::No digest artifacts found under /tmp/digests/"
+                      exit 1
+                  fi
+                  echo "digests=$digests" >> "$GITHUB_OUTPUT"

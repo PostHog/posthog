@@ -36,6 +36,8 @@ jobs:
                         - 'common/hogvm/typescript/**'
                         - 'common/plugin_transpiler/**'
                         - 'common/esbuilder/**'
+                        - 'common/replay-shared/**'
+                        - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
                         - 'rust/cyclotron-core/**'
                         - 'Dockerfile.recording-rasterizer'
@@ -129,7 +131,7 @@ jobs:
                   file: Dockerfile.recording-rasterizer
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  platforms: linux/arm64,linux/amd64
+                  platforms: linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 

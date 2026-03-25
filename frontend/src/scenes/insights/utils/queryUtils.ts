@@ -1,7 +1,8 @@
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 import { isValidRE2 } from 'lib/utils/regexp'
 
-import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
+import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { DataNode, HogQLVariable, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -39,6 +40,43 @@ export const getVariablesFromQuery = (query: string): string[] => {
     }
 
     return results
+}
+
+export const filterVariablesReferencedInQuery = <T extends { code_name: string }>(
+    query: string | null | undefined,
+    variables: T[]
+): T[] => {
+    const queryCodeNames = new Set(getVariablesFromQuery(query ?? ''))
+
+    return variables.filter((variable) => queryCodeNames.has(variable.code_name))
+}
+
+export const syncSelectedVariablesToQuery = (
+    query: string | null | undefined,
+    variables: Pick<Variable, 'id' | 'code_name'>[],
+    selectedVariables: HogQLVariable[]
+): HogQLVariable[] => {
+    const queryCodeNames = Array.from(new Set(getVariablesFromQuery(query ?? '')))
+    const queryCodeNamesSet = new Set(queryCodeNames)
+    const variablesByCodeName = new Map(variables.map((variable) => [variable.code_name, variable]))
+
+    const syncedVariables = selectedVariables.filter((variable) => queryCodeNamesSet.has(variable.code_name))
+    const selectedVariableIds = new Set(syncedVariables.map((variable) => variable.variableId))
+
+    queryCodeNames.forEach((codeName) => {
+        const variable = variablesByCodeName.get(codeName)
+
+        if (!variable || selectedVariableIds.has(variable.id)) {
+            return
+        }
+
+        syncedVariables.push({
+            variableId: variable.id,
+            code_name: variable.code_name,
+        })
+    })
+
+    return syncedVariables
 }
 
 export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {

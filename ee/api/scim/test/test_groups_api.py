@@ -607,6 +607,59 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert not RoleMembership.objects.filter(role=role, user=user1).exists()
         assert RoleMembership.objects.filter(role=role, user=user2).exists()
 
+    # ── Nested group (non-user member) tests ──
+
+    def test_patch_add_silently_skips_non_user_member_ids(self):
+        """Entra ID sends nested group UUIDs as member values — these should be silently skipped."""
+        user = User.objects.create_user(
+            email="realuser@example.com", password=None, first_name="Real", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        nested_group_id = str(uuid.uuid4())
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {"op": "add", "path": "members", "value": [{"value": nested_group_id}, {"value": str(user.id)}]}
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+        assert RoleMembership.objects.filter(role=role).count() == 1
+
+    def test_put_silently_skips_non_user_member_ids(self):
+        """PUT with a members list containing a nested group UUID should succeed and only add valid users."""
+        user = User.objects.create_user(
+            email="putuser@example.com", password=None, first_name="Put", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        nested_group_id = str(uuid.uuid4())
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:Group"],
+            "displayName": "TestRole",
+            "members": [{"value": nested_group_id}, {"value": str(user.id)}],
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+        assert RoleMembership.objects.filter(role=role).count() == 1
+
     # ── Pagination tests ──
 
     def _create_groups(self, count: int) -> list[Role]:

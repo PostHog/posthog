@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { DataNode, LifecycleQuery, NodeKind, ResultCustomizationBy, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
@@ -24,6 +26,7 @@ async function initTrendsDataLogic(): Promise<void> {
     await expectLogic(dataNodeLogic).toFinishAllListeners()
 
     insightDataLogic(insightProps).mount()
+    insightLogic(insightProps).mount()
     insightVizDataLogic(insightProps).mount()
 
     logic = trendsDataLogic(insightProps)
@@ -235,6 +238,193 @@ describe('trendsDataLogic', () => {
                 }).toMatchValues({
                     labelGroupType: 1,
                 })
+            })
+        })
+    })
+
+    describe('legend series isolation selectors', () => {
+        it.each([
+            [
+                'single series',
+                [trendPieResult.result[0]],
+                {
+                    indexedResults: expect.arrayContaining([expect.any(Object)]),
+                    legendSeriesIsolationMenuEligible: false,
+                },
+            ],
+            [
+                'multiple series (default state)',
+                trendPieResult.result,
+                {
+                    areAllSeriesVisible: true,
+                    showLegendIsolateSeriesItem: true,
+                    legendSeriesIsolationMenuEligible: true,
+                },
+            ],
+        ] as const)('%s', async (_label, result, expectedValues) => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                },
+            }
+            const insight: Partial<InsightModel> = { result }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues(expectedValues)
+
+            if (result.length === 1) {
+                expect(logic.values.indexedResults).toHaveLength(1)
+            }
+        })
+
+        it('hides isolate menu item when every series is hidden', async () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                result: trendPieResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                indexedResults: expect.any(Array),
+            })
+
+            const indexedResults = logic.values.indexedResults
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleAllResultsHidden(indexedResults, true)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                areAllSeriesVisible: false,
+                showLegendIsolateSeriesItem: false,
+            })
+        })
+
+        it('getIsOnlyVisibleSeriesInLegend is true only for the sole visible series', async () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                result: trendPieResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const indexedResults = logic.values.indexedResults
+            const solo = indexedResults[0]
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleOtherSeriesHidden(solo)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                areAllSeriesVisible: false,
+                showLegendIsolateSeriesItem: true,
+            })
+
+            const { getIsOnlyVisibleSeriesInLegend } = logic.values
+            expect(indexedResults.map((r) => getIsOnlyVisibleSeriesInLegend(r))).toEqual([
+                true,
+                ...indexedResults.slice(1).map(() => false),
+            ])
+        })
+
+        it('toggleAllResultsHidden preserves per-series color when bulk hiding', async () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                result: trendPieResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const indexedResults = logic.values.indexedResults
+            const { resultCustomizationBy } = logic.values
+            const key0 = getTrendResultCustomizationKey(resultCustomizationBy, indexedResults[0])
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateInsightFilter({
+                    resultCustomizations: {
+                        [key0]: {
+                            assignmentBy: ResultCustomizationBy.Value,
+                            color: 'preset-5',
+                        },
+                    },
+                })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleAllResultsHidden(indexedResults, true)
+            }).toFinishAllListeners()
+
+            const resultCustomizations = logic.values.resultCustomizations as
+                | Record<string, { color?: string; hidden?: boolean }>
+                | undefined
+            expect(resultCustomizations?.[key0]?.color).toBe('preset-5')
+            expect(resultCustomizations?.[key0]?.hidden).toBe(true)
+        })
+
+        it('legendSeriesIsolationMenuEligible is false when filters override blocks editing', async () => {
+            const propsWithOverrides: InsightLogicProps = {
+                dashboardItemId: undefined,
+                filtersOverride: { date_from: '-7d' } as InsightLogicProps['filtersOverride'],
+            }
+
+            builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
+            builtDataNodeLogic.mount()
+            await expectLogic(dataNodeLogic).toFinishAllListeners()
+
+            insightDataLogic(propsWithOverrides).mount()
+            insightLogic(propsWithOverrides).mount()
+            insightVizDataLogic(propsWithOverrides).mount()
+
+            const logicWithOverrides = trendsDataLogic(propsWithOverrides)
+            logicWithOverrides.mount()
+            await expectLogic(logicWithOverrides).toFinishAllListeners()
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                result: trendPieResult.result,
+            }
+
+            await expectLogic(logicWithOverrides, () => {
+                insightVizDataLogic.findMounted(propsWithOverrides)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                legendSeriesIsolationMenuEligible: false,
             })
         })
     })

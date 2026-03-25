@@ -5,7 +5,12 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import {
+    ErrorEventProperties,
+    ErrorEventType,
+    ErrorTrackingFingerprint,
+    ErrorTrackingSpikeEvent,
+} from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
@@ -32,7 +37,7 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
-import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
 import {
     DEFAULT_CATEGORY,
     ErrorTrackingIssueSceneCategory,
@@ -278,6 +283,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
             },
         ],
+        spikeEvents: [
+            [] as ErrorTrackingSpikeEvent[],
+            {
+                loadSpikeEvents: async () => {
+                    const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
+                    const response = await api.errorTracking.getSpikeEvents({
+                        issueIds: [props.id],
+                        dateFrom,
+                        dateTo,
+                    })
+                    return response.results
+                },
+            },
+        ],
     })),
 
     selectors(({ actions }) => ({
@@ -383,7 +402,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ props, values, actions }) => {
         return {
-            setDateRange: actions.loadSummary,
+            setDateRange: () => {
+                actions.loadSummary()
+                actions.loadSpikeEvents()
+            },
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
@@ -438,6 +460,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
+            actions.loadSpikeEvents()
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),

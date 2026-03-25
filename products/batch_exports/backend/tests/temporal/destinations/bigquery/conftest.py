@@ -92,7 +92,7 @@ async def integration(
     match integration_type:
         case "impersonated":
             if not await has_valid_aws_credentials():
-                pytest.skip("AWS credentials not available")
+                pytest.skip("AWS credentials not available. Credentials are required to impersonate a service account")
 
             integration = await impersonated_integration(ateam, bigquery_config)
             await set_service_account_description_for_integration(integration, service_account_description)

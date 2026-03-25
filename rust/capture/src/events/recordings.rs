@@ -181,13 +181,14 @@ pub async fn process_replay_events(
     });
     let ignore_sent_at = events[0].properties.ignore_sent_at.unwrap_or(false);
 
-    let computed_timestamp = common_types::timestamp::parse_event_timestamp(
+    let parsed = common_types::timestamp::parse_event_timestamp(
         events[0].timestamp.as_deref(),
         events[0].offset,
         sent_at_utc,
         ignore_sent_at,
         context.now,
     );
+    let computed_timestamp = parsed.timestamp;
 
     // Extract metadata from first event by taking ownership (no clones!)
     // We split off the first event to extract metadata, then iterate over the rest

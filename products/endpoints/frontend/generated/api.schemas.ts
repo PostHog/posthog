@@ -889,6 +889,7 @@ export const MultipleBreakdownTypeApi = {
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
     RevenueAnalytics: 'revenue_analytics',
 } as const
 

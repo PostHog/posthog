@@ -118,6 +118,21 @@ export interface LinearIssueSignalInput {
     extra: LinearIssueSignalExtra
 }
 
+// Error tracking
+
+export interface ErrorTrackingSignalExtra {
+    fingerprint: string
+}
+
+export interface ErrorTrackingSignalInput {
+    source_type: 'issue_created' | 'issue_reopened' | 'issue_spiking'
+    source_product: 'error_tracking'
+    source_id: string
+    description: string
+    weight: number
+    extra: ErrorTrackingSignalExtra
+}
+
 // Discriminated union over all signal variants
 
 /** @discriminator source_product */
@@ -127,3 +142,4 @@ export type SignalInput =
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
+    | ErrorTrackingSignalInput

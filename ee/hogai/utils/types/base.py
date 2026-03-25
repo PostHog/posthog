@@ -560,6 +560,7 @@ class AssistantGraphName(StrEnum):
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"
+    SUPPORT = "support_graph"
 
 
 class AssistantMode(StrEnum):
@@ -602,7 +603,14 @@ class UpdateAction(BaseModel):
     content: str | AssistantToolCall
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+class ConversationTitleAction(BaseModel):
+    type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
+    title: str
+
+
+AssistantActionUnion = (
+    MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction | ConversationTitleAction
+)
 
 
 class NodePath(BaseModel):

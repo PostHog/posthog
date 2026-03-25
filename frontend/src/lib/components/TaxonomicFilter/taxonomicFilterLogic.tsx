@@ -1124,7 +1124,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.SuggestedFilters,
                         isLocalOnly: true,
-                        options: [],
+                        options: eventNames.includes('$autocapture')
+                            ? (['text', 'selector'] as const).map((name) => ({
+                                  name,
+                                  group: TaxonomicFilterGroupType.Elements,
+                              }))
+                            : [],
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
@@ -1158,8 +1163,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames],
+            (groupTypes, taxonomicGroups, eventNames): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
@@ -1191,6 +1196,31 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     !filtered.includes(TaxonomicFilterGroupType.RecentFilters)
                 ) {
                     filtered.splice(suggestedIndex + 1, 0, TaxonomicFilterGroupType.RecentFilters)
+                }
+
+                // Promote PageviewUrls, Screens, EmailAddresses to top positions
+                // (after SuggestedFilters/RecentFilters if present)
+                const shortcutGroups: TaxonomicFilterGroupType[] = [
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                    ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
+                ]
+
+                const toInsert: TaxonomicFilterGroupType[] = []
+                for (const groupType of shortcutGroups) {
+                    const idx = filtered.indexOf(groupType)
+                    if (idx !== -1) {
+                        filtered.splice(idx, 1)
+                        toInsert.push(groupType)
+                    }
+                }
+
+                if (toInsert.length > 0) {
+                    const recentsIdx = filtered.indexOf(TaxonomicFilterGroupType.RecentFilters)
+                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+                    const insertAt = recentsIdx !== -1 ? recentsIdx + 1 : suggestedIdx !== -1 ? suggestedIdx + 1 : 0
+                    filtered.splice(insertAt, 0, ...toInsert)
                 }
 
                 return filtered
