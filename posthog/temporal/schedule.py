@@ -109,8 +109,8 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
         # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
-        # Safe because child workflows use idempotent IDs (process-subscription-{id})
-        # so Temporal rejects duplicate starts for the same subscription.
+        # Safe because child workflows use deterministic IDs (process-subscription-{id})
+        # and Temporal guarantees no two open workflows can share the same ID.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
