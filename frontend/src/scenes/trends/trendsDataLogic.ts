@@ -25,6 +25,7 @@ import {
     InsightQueryNode,
     LifecycleQuery,
     MathType,
+    ResultCustomization,
     ResultCustomizationBy,
     TrendsFilter,
     TrendsQuery,
@@ -549,7 +550,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             } as Partial<TrendsFilter>)
         },
         toggleAllResultsHidden: ({ datasets, hidden }) => {
-            const resultCustomizations: Record<string, any> = { ...values.resultCustomizations }
+            const resultCustomizations: Record<string, ResultCustomization> = { ...values.resultCustomizations }
             for (const dataset of datasets) {
                 const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
                 const existing = getTrendResultCustomization(
@@ -580,7 +581,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             )
             const isSoloMode = others.length > 0 && !getTrendsHidden(dataset) && others.every((d) => getTrendsHidden(d))
 
-            const next: Record<string, any> = { ...resultCustomizations }
+            const next: Record<string, ResultCustomization> = { ...resultCustomizations }
 
             if (isSoloMode) {
                 for (const r of indexedResults) {
