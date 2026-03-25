@@ -223,6 +223,34 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
         {
+            key: 'scim',
+            title: 'SCIM',
+            render: function SCIM(_, { is_verified, scim_enabled }, index) {
+                if (!isSCIMAvailable) {
+                    return index === 0 ? (
+                        <Link to={urls.organizationBilling()} className="flex items-center">
+                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SCIM
+                        </Link>
+                    ) : (
+                        <></>
+                    )
+                }
+                return is_verified ? (
+                    scim_enabled ? (
+                        <div className="flex items-center text-success">
+                            <IconCheckCircle style={iconStyle} /> SCIM enabled
+                        </div>
+                    ) : (
+                        <div className="flex items-center">
+                            <IconOffline style={iconStyle} /> SCIM not set up
+                        </div>
+                    )
+                ) : (
+                    <i className="text-secondary">Verify domain to enable</i>
+                )
+            },
+        },
+        {
             key: 'verify',
             width: 32,
             align: 'center',
@@ -257,16 +285,16 @@ function VerifiedDomainsTable(): JSX.Element {
                                         >
                                             Configure SAML
                                         </LemonButton>
-                                        {/* TODO: After SCIM is fully rolled out, show the Configure SCIM button with 'Upgrade to enable SCIM' disabledReason */}
-                                        {isSCIMAvailable && (
-                                            <LemonButton
-                                                onClick={() => setConfigureSCIMModalId(id)}
-                                                fullWidth
-                                                disabledReason={restrictionReason}
-                                            >
-                                                Configure SCIM
-                                            </LemonButton>
-                                        )}
+                                        <LemonButton
+                                            onClick={() => setConfigureSCIMModalId(id)}
+                                            fullWidth
+                                            disabledReason={
+                                                restrictionReason ||
+                                                (!isSCIMAvailable ? 'Upgrade to enable SCIM' : undefined)
+                                            }
+                                        >
+                                            Configure SCIM
+                                        </LemonButton>
                                         {isSCIMAvailable && (
                                             <LemonButton
                                                 onClick={() => setScimLogsModalId(id)}
