@@ -466,6 +466,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=postgres_schema,
                 postgres_table_name=self.name,
                 external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
             )
 
         # Replace fields with any redefined fields if they exist

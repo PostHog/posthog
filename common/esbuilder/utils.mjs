@@ -204,11 +204,23 @@ export const commonConfig = {
         }),
         lessLoader({ javascriptEnabled: true }),
         polyfillNode({
+            globals: {
+                buffer: false,
+                process: true,
+            },
             polyfills: {
-                crypto: true,
+                buffer: false,
+                crypto: false,
+                process: true,
+                stream: false,
             },
         }),
     ],
+    alias: {
+        buffer: 'buffer',
+        crypto: 'crypto-browserify',
+        stream: 'stream-browserify',
+    },
     tsconfig: tsconfigPath,
     define: {
         global: 'globalThis',

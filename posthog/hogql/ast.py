@@ -57,7 +57,17 @@ VALID_JOIN_TYPES = frozenset(
         "RIGHT ASOF JOIN",
         "FULL ANY JOIN",
         "FULL ALL JOIN",
+        "FULL ASOF JOIN",
+        "ASOF FULL JOIN",
         "ASOF LEFT JOIN",
+        "ASOF RIGHT JOIN",
+        "ASOF ANTI JOIN",
+        "ASOF SEMI JOIN",
+        "ASOF ANTI LEFT JOIN",
+        "ASOF ANTI RIGHT JOIN",
+        "ASOF SEMI LEFT JOIN",
+        "ASOF SEMI RIGHT JOIN",
+        "POSITIONAL JOIN",
         "ANTI JOIN",
         "SEMI JOIN",
     }
@@ -915,6 +925,8 @@ class Call(Expr):
     """
     distinct: bool = False
     within_group: Optional[list["OrderExpr"]] = None
+    order_by: Optional[list["OrderExpr"]] = None
+    filter_expr: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)
@@ -944,6 +956,21 @@ class UnpivotColumn(Expr):
 class UnpivotExpr(Expr):
     table: Expr
     columns: list[UnpivotColumn]
+    include_nulls: bool = False
+
+
+@dataclass(kw_only=True)
+class PivotColumn(Expr):
+    column: Expr
+    values: list[Expr]
+
+
+@dataclass(kw_only=True)
+class PivotExpr(Expr):
+    table: Expr
+    aggregates: list[Expr]
+    columns: list[PivotColumn]
+    group_by: Optional[list[Expr]] = None
 
 
 @dataclass(kw_only=True)
@@ -953,7 +980,16 @@ class JoinExpr(Expr):
 
     join_type: Optional[str] = None
     table: Optional[
-        Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "UnpivotExpr", "Placeholder", "HogQLXTag", "Field"]
+        Union[
+            "SelectQuery",
+            "SelectSetQuery",
+            "ValuesQuery",
+            "UnpivotExpr",
+            "PivotExpr",
+            "Placeholder",
+            "HogQLXTag",
+            "Field",
+        ]
     ] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
@@ -1026,7 +1062,7 @@ class SelectQuery(Expr):
     having: Optional[Expr] = None
     qualify: Optional[Expr] = None
     group_by: Optional[list[Expr]] = None
-    group_by_mode: Optional[str] = None  # None, "grouping_sets", "cube", "rollup"
+    group_by_mode: Optional[str] = None  # None, "all", "grouping_sets", "cube", "rollup"
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None

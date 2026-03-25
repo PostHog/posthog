@@ -636,7 +636,9 @@ RESOURCE_SCHEMAS = {
             "customer.id",
             "segments.date",
         ],
+        "should_sync_default": False,
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "description": "This table can load hundreds of millions of rows for active campaigns. We don't recommend enabling this table unless you know you need it.",
         "extra_where": "metrics.impressions > 0",
         "partition_keys": ["segments.date", "campaign.id", "geographic_view.country_criterion_id"],
         "field_names": [

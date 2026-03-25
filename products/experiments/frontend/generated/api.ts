@@ -450,6 +450,30 @@ export const experimentsLaunchCreate = async (
     })
 }
 
+/**
+ * Pause a running experiment.
+
+Deactivates the linked feature flag so it is no longer returned by the
+/decide endpoint. Users fall back to the application default (typically
+the control experience), and no new exposure events are recorded (i.e.
+$feature_flag_called is not fired).
+Returns 400 if the experiment is not running or is already paused.
+ */
+export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/pause/`
+}
+
+export const experimentsPauseCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsPauseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
@@ -465,6 +489,29 @@ export const experimentsRecalculateTimeseriesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentApi),
+    })
+}
+
+/**
+ * Resume a paused experiment.
+
+Reactivates the linked feature flag so it is returned by /decide again.
+Users are re-bucketed deterministically into the same variants they had
+before the pause, and exposure tracking resumes.
+Returns 400 if the experiment is not running or is not paused.
+ */
+export const getExperimentsResumeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/resume/`
+}
+
+export const experimentsResumeCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -1,5 +1,7 @@
 import { Edge, Position } from '@xyflow/react'
-import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+
+import { getElk } from 'lib/elk'
 
 import {
     END_NODE_SIMPLE_HEIGHT,
@@ -24,8 +26,6 @@ function getElkPortSide(position: Position): string {
             return 'EAST'
     }
 }
-
-const elk = new ELK()
 
 export async function getLayoutedNodes(nodes: SurveyFlowNode[], edges: Edge[]): Promise<SurveyFlowNode[]> {
     if (nodes.length === 0) {
@@ -116,6 +116,7 @@ export async function getLayoutedNodes(nodes: SurveyFlowNode[], edges: Edge[]): 
         }),
     }
 
+    const elk = await getElk()
     const layoutedGraph = await elk.layout(graph)
 
     return (layoutedGraph.children?.map((node) => ({

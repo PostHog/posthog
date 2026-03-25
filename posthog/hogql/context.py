@@ -38,6 +38,8 @@ class HogQLContext:
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
+    # Metadata discovered for a direct Postgres connection, if one is selected
+    direct_postgres_connection_metadata: dict[str, Any] | None = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.

@@ -301,6 +301,7 @@ impl RawAppleFrame {
             lang: lang_from_filename(symbol_info.filename.as_deref()).to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             release: None,
             synthetic: self.meta.synthetic,
@@ -366,7 +367,7 @@ impl RawAppleFrame {
             resolved_name,
             lang: lang_from_filename(self.filename.as_deref()).to_string(),
             resolved: false,
-            resolve_failure: Some(err.to_string()),
+            resolve_failure: Some(FrameError::from(err)),
             junk_drawer: None,
             release: None,
             synthetic: self.meta.synthetic,
@@ -435,6 +436,7 @@ impl From<&RawAppleFrame> for Frame {
             lang: lang_from_filename(raw.filename.as_deref()).to_string(),
             resolved: raw.function.is_some(),
             resolve_failure: None,
+
             junk_drawer: None,
             release: None,
             synthetic: raw.meta.synthetic,
