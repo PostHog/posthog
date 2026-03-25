@@ -29,12 +29,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # uv — Python package manager
 COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /usr/local/bin/uv
 
-# mprocs — process manager used by bin/start
-ARG MPROCS_VERSION=0.7.2
+# phrocs — process manager used by bin/start
 RUN ARCH=$(dpkg --print-architecture) && \
-    case "${ARCH}" in amd64) MPROCS_ARCH='x86_64';; arm64) MPROCS_ARCH='aarch64';; *) echo "unsupported: ${ARCH}"; exit 1;; esac && \
-    curl -fsSL "https://github.com/pvolok/mprocs/releases/download/v${MPROCS_VERSION}/mprocs-${MPROCS_VERSION}-linux-${MPROCS_ARCH}-musl.tar.gz" \
-    | tar xz -C /usr/local/bin
+    curl -fsSL "https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-linux-${ARCH}" \
+    -o /usr/local/bin/phrocs && chmod +x /usr/local/bin/phrocs
 
 # Node.js via tarball (avoids a second apt-get update cycle from NodeSource)
 ARG NODE_VERSION=24.14.0

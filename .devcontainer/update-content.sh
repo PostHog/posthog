@@ -11,7 +11,7 @@ uv sync
 export COREPACK_ENABLE_AUTO_PIN=0
 pnpm install --frozen-lockfile
 
-# Regenerate mprocs config if it exists
+# Regenerate process manager config if it exists
 if [ -f bin/hogli ]; then
     uv run bin/hogli dev:generate 2>/dev/null || true
 fi

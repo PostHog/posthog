@@ -30,7 +30,7 @@ for intent in "${INTENT_ARRAY[@]}"; do
     [ -n "$intent" ] && WITH_FLAGS="$WITH_FLAGS --with $intent"
 done
 
-# Generate mprocs config using the intent system
+# Generate process manager config using the intent system
 echo "Generating dev environment config..."
 # shellcheck disable=SC2086
 uv run bin/hogli dev:generate $WITH_FLAGS
