@@ -3,7 +3,7 @@ import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import Papa from 'papaparse'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { compactNumber, dateStringToDayJs, wordPluralize } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
@@ -419,6 +419,24 @@ export const currencyFormatter = (value: number): string => {
         style: 'currency',
         currency: 'USD',
     }).format(value)
+}
+
+/**
+ * Returns the minimum membership level required to access billing.
+ * When ownerOnlyBilling is true (via the owner-only-billing feature flag), only org owners can access billing.
+ */
+export function getMinimumBillingAccessLevel(ownerOnlyBilling: boolean): OrganizationMembershipLevel {
+    return ownerOnlyBilling ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin
+}
+
+/**
+ * Determines if the user has sufficient permissions to access billing based on their org membership level.
+ */
+export function canAccessBilling(membershipLevel: number | null | undefined, ownerOnlyBilling: boolean): boolean {
+    if (!membershipLevel) {
+        return false
+    }
+    return membershipLevel >= getMinimumBillingAccessLevel(ownerOnlyBilling)
 }
 
 /**

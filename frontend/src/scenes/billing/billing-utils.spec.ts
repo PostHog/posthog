@@ -1,5 +1,6 @@
 import tk from 'timekeeper'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -8,12 +9,14 @@ import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json
 import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
+    canAccessBilling,
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
     formatDisplayUsage,
     formatProductNames,
     formatWithDecimals,
+    getMinimumBillingAccessLevel,
     getProration,
     getUsageLimitConsequence,
     projectUsage,
@@ -615,5 +618,30 @@ describe('buildUsageLimitApproachingMessage', () => {
             { name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' },
         ])
         expect(result.message).not.toContain('organization admin')
+    })
+})
+
+describe('getMinimumBillingAccessLevel', () => {
+    it('returns Admin when ownerOnlyBilling is false', () => {
+        expect(getMinimumBillingAccessLevel(false)).toBe(OrganizationMembershipLevel.Admin)
+    })
+
+    it('returns Owner when ownerOnlyBilling is true', () => {
+        expect(getMinimumBillingAccessLevel(true)).toBe(OrganizationMembershipLevel.Owner)
+    })
+})
+
+describe('canAccessBilling', () => {
+    it.each([
+        { level: OrganizationMembershipLevel.Owner, ownerOnly: false, expected: true },
+        { level: OrganizationMembershipLevel.Owner, ownerOnly: true, expected: true },
+        { level: OrganizationMembershipLevel.Admin, ownerOnly: false, expected: true },
+        { level: OrganizationMembershipLevel.Admin, ownerOnly: true, expected: false },
+        { level: OrganizationMembershipLevel.Member, ownerOnly: false, expected: false },
+        { level: OrganizationMembershipLevel.Member, ownerOnly: true, expected: false },
+        { level: null, ownerOnly: false, expected: false },
+        { level: null, ownerOnly: true, expected: false },
+    ])('returns $expected for level=$level, ownerOnly=$ownerOnly', ({ level, ownerOnly, expected }) => {
+        expect(canAccessBilling(level, ownerOnly)).toBe(expected)
     })
 })

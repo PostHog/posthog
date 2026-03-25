@@ -30,7 +30,12 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage } from './billing-utils'
+import {
+    buildUsageLimitApproachingMessage,
+    buildUsageLimitExceededMessage,
+    canAccessBilling as canAccessBillingUtil,
+    getMinimumBillingAccessLevel,
+} from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -515,14 +520,15 @@ export const billingLogic = kea<billingLogicType>([
         minimumBillingAccessLevel: [
             (s) => [s.featureFlags],
             (featureFlags): OrganizationMembershipLevel =>
-                featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
-                    ? OrganizationMembershipLevel.Owner
-                    : OrganizationMembershipLevel.Admin,
+                getMinimumBillingAccessLevel(!!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]),
         ],
         canAccessBilling: [
-            (s) => [s.currentOrganization, s.minimumBillingAccessLevel],
-            (currentOrganization, minimumLevel): boolean =>
-                !!currentOrganization?.membership_level && currentOrganization.membership_level >= minimumLevel,
+            (s) => [s.currentOrganization, s.featureFlags],
+            (currentOrganization, featureFlags): boolean =>
+                canAccessBillingUtil(
+                    currentOrganization?.membership_level,
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
         ],
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [
