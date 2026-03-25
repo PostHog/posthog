@@ -241,6 +241,21 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return service.update_experiment(instance, validated_data, serializer_context=self.context)
 
 
+class EndExperimentSerializer(serializers.Serializer):
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="The conclusion of the experiment.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional comment about the experiment conclusion.",
+    )
+
+
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
@@ -321,6 +336,48 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         archived_experiment = service.archive_experiment(experiment, request=request)
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=EndExperimentSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        End a running experiment without shipping a variant.
+
+        Sets end_date to now and marks the experiment as stopped. The feature
+        flag is NOT modified — users continue to see their assigned variants
+        and exposure events ($feature_flag_called) continue to be recorded.
+        However, only data up to end_date is included in experiment results.
+
+        Use this when:
+
+        - You want to freeze the results window without changing which variant
+          users see.
+        - A variant was already shipped manually via the feature flag UI and
+          the experiment just needs to be marked complete.
+
+        The end_date can be adjusted after ending via PATCH if it needs to be
+        backdated (e.g. to match when the flag was actually paused).
+
+        Other options:
+        - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+        - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+
+        Returns 400 if the experiment is not running.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = EndExperimentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        ended_experiment = service.end_experiment(
+            experiment,
+            conclusion=request_serializer.validated_data.get("conclusion"),
+            conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            request=request,
+        )
+        return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=None,
