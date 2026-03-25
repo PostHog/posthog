@@ -188,6 +188,8 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map([
                     ['Mobile', new Set(['device-1', 'device-2', 'device-3'])],
                     ['Desktop', new Set(['device-4', 'device-5'])],
@@ -200,6 +202,8 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map([
                     ['Mobile', new Set(['device-6', 'device-7', 'device-8'])],
                     ['Desktop', new Set(['device-9', 'device-10', 'device-11'])],
@@ -222,6 +226,8 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-2'])]]),
                 paths: new Map(),
                 browsers: new Map(),
@@ -230,6 +236,8 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-3'])]]),
                 paths: new Map(),
                 browsers: new Map(),
@@ -251,6 +259,8 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map([
                     ['Mobile', new Set(['device-1', 'device-2', 'device-3'])],
                     ['Desktop', new Set(['device-4', 'device-5', 'device-6', 'device-7'])],
@@ -276,6 +286,8 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map(),
                 paths: new Map([
                     ['/home', 10],
@@ -288,6 +300,8 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map(),
                 paths: new Map([
                     ['/home', 5],
@@ -317,6 +331,8 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map(),
                 paths: new Map([
                     ['/pricing', 20],
@@ -373,6 +389,8 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map(),
                 paths: new Map(),
                 browsers: new Map(),
@@ -381,6 +399,8 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
                 devices: new Map(),
                 paths: new Map(),
                 browsers: new Map(),
@@ -673,6 +693,191 @@ describe('LiveMetricsSlidingWindow', () => {
             expect(breakdown[0]).toEqual({ country: 'US', count: 3, percentage: 50 })
             expect(breakdown[1]).toEqual({ country: 'GB', count: 2, percentage: expect.closeTo(33.33, 1) })
             expect(breakdown[2]).toEqual({ country: 'DE', count: 1, percentage: expect.closeTo(16.67, 1) })
+        })
+    })
+
+    describe('incremental totalPageviews', () => {
+        it('tracks pageviews incrementally via addDataPoint', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { pageviews: 3 })
+            expect(window.getTotalPageviews()).toBe(3)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-2', { pageviews: 7 })
+            expect(window.getTotalPageviews()).toBe(10)
+        })
+
+        it('tracks pageviews incrementally via extendBucketData', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
+                pageviews: 10,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                browsers: new Map(),
+                paths: new Map(),
+                uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
+            })
+
+            expect(window.getTotalPageviews()).toBe(10)
+        })
+
+        it('decrements totalPageviews when buckets are pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-1', { pageviews: 5 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', { pageviews: 10 })
+
+            expect(window.getTotalPageviews()).toBe(15)
+
+            tickMinute()
+            window.prune()
+
+            expect(window.getTotalPageviews()).toBe(10)
+        })
+    })
+
+    describe('incremental globalPathCounts', () => {
+        it('tracks paths incrementally via addDataPoint', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { pageviews: 1, pathname: '/home' })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', { pageviews: 1, pathname: '/home' })
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-3', {
+                pageviews: 1,
+                pathname: '/about',
+            })
+
+            const topPaths = window.getTopPaths(10)
+            expect(topPaths).toEqual([
+                { path: '/home', views: 2 },
+                { path: '/about', views: 1 },
+            ])
+        })
+
+        it('decrements path counts when buckets are pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-1', {
+                pageviews: 1,
+                pathname: '/old-page',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-2', {
+                pageviews: 1,
+                pathname: '/home',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-3', {
+                pageviews: 1,
+                pathname: '/home',
+            })
+
+            expect(window.getTopPaths(10)).toEqual([
+                { path: '/home', views: 2 },
+                { path: '/old-page', views: 1 },
+            ])
+
+            tickMinute()
+            window.prune()
+
+            expect(window.getTopPaths(10)).toEqual([{ path: '/home', views: 1 }])
+        })
+
+        it('tracks paths incrementally via extendBucketData', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
+                pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                browsers: new Map(),
+                paths: new Map([
+                    ['/home', 10],
+                    ['/about', 5],
+                ]),
+                uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
+            })
+
+            expect(window.getTopPaths(10)).toEqual([
+                { path: '/home', views: 10 },
+                { path: '/about', views: 5 },
+            ])
+        })
+    })
+
+    describe('incremental new/returning user counts', () => {
+        it('classifies first-time users as new', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { pageviews: 1 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', { pageviews: 1 })
+
+            const buckets = window.getSortedBuckets()
+            expect(buckets[0][1].newUserCount).toBe(2)
+            expect(buckets[0][1].returningUserCount).toBe(0)
+        })
+
+        it('classifies users seen in earlier buckets as returning', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { pageviews: 1 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-1', { pageviews: 1 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-2', { pageviews: 1 })
+
+            const buckets = window.getSortedBuckets()
+            expect(buckets[0][1].newUserCount).toBe(1)
+            expect(buckets[0][1].returningUserCount).toBe(0)
+            expect(buckets[1][1].newUserCount).toBe(1)
+            expect(buckets[1][1].returningUserCount).toBe(1)
+        })
+
+        it('does not double-count duplicate users in same bucket', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { pageviews: 1 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { pageviews: 1 })
+
+            const buckets = window.getSortedBuckets()
+            expect(buckets[0][1].newUserCount).toBe(1)
+            expect(buckets[0][1].returningUserCount).toBe(0)
+            expect(buckets[0][1].uniqueUsers.size).toBe(1)
+        })
+
+        it('classifies users from extendBucketData correctly', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
+                pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                browsers: new Map(),
+                paths: new Map(),
+                uniqueUsers: new Set(['user-1', 'user-2']),
+                countries: new Map<string, Set<string>>(),
+            })
+
+            window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
+                pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                browsers: new Map(),
+                paths: new Map(),
+                uniqueUsers: new Set(['user-1', 'user-3']),
+                countries: new Map<string, Set<string>>(),
+            })
+
+            const buckets = window.getSortedBuckets()
+            // user-1 and user-2 are new in the first bucket
+            expect(buckets[0][1].newUserCount).toBe(2)
+            expect(buckets[0][1].returningUserCount).toBe(0)
+            // user-1 is returning, user-3 is new in the second bucket
+            expect(buckets[1][1].newUserCount).toBe(1)
+            expect(buckets[1][1].returningUserCount).toBe(1)
         })
     })
 })

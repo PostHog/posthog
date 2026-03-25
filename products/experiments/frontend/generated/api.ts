@@ -493,6 +493,32 @@ export const experimentsRecalculateTimeseriesCreate = async (
 }
 
 /**
+ * Reset an experiment back to draft state.
+
+Clears start/end dates, conclusion, and archived flag. The feature
+flag is left unchanged — users continue to see their assigned variants.
+
+Previously collected events still exist but won't be included in
+results unless the start date is manually adjusted after re-launch.
+
+Returns 400 if the experiment is already in draft state.
+ */
+export const getExperimentsResetCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/reset/`
+}
+
+export const experimentsResetCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Resume a paused experiment.
 
 Reactivates the linked feature flag so it is returned by /decide again.

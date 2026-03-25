@@ -1830,6 +1830,7 @@ export namespace Schemas {
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
       RevenueAnalytics: 'revenue_analytics',
     } as const;
 
@@ -4198,7 +4199,6 @@ export namespace Schemas {
     * `plan` - plan
     * `execution` - execution
     * `survey` - survey
-    * `onboarding` - onboarding
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
@@ -4215,7 +4215,6 @@ export namespace Schemas {
       Plan: 'plan',
       Execution: 'execution',
       Survey: 'survey',
-      Onboarding: 'onboarding',
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
@@ -14399,11 +14398,12 @@ export namespace Schemas {
     * `Postmark` - Postmark
     * `Granola` - Granola
     * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
      */
-    export type SourceTypeE09Enum = typeof SourceTypeE09Enum[keyof typeof SourceTypeE09Enum];
+    export type SourceType432Enum = typeof SourceType432Enum[keyof typeof SourceType432Enum];
 
 
-    export const SourceTypeE09Enum = {
+    export const SourceType432Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -14544,6 +14544,7 @@ export namespace Schemas {
       Postmark: 'Postmark',
       Granola: 'Granola',
       BuildBetter: 'BuildBetter',
+      Convex: 'Convex',
     } as const;
 
     /**
@@ -14557,7 +14558,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -14585,6 +14586,7 @@ export namespace Schemas {
        * @nullable
        */
       readonly user_access_level: string | null;
+      readonly supports_webhooks: boolean;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -14609,6 +14611,8 @@ export namespace Schemas {
     } as const;
 
     export type FeatureFlagFilters = {[key: string]: unknown};
+
+    export type FeatureFlagExperimentSetMetadataItem = {[key: string]: unknown};
 
     export type FeatureFlagSurveys = {[key: string]: unknown};
 
@@ -14655,6 +14659,7 @@ export namespace Schemas {
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       readonly experiment_set: readonly number[];
+      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown | null;
@@ -18272,6 +18277,26 @@ export namespace Schemas {
       created_at: string;
     }
 
+    /**
+     * * `comment_mention` - COMMENT_MENTION
+    * `alert_firing` - ALERT_FIRING
+    * `approval_requested` - APPROVAL_REQUESTED
+    * `approval_resolved` - APPROVAL_RESOLVED
+    * `pipeline_failure` - PIPELINE_FAILURE
+    * `issue_assigned` - ISSUE_ASSIGNED
+     */
+    export type NotificationTypeEnum = typeof NotificationTypeEnum[keyof typeof NotificationTypeEnum];
+
+
+    export const NotificationTypeEnum = {
+      CommentMention: 'comment_mention',
+      AlertFiring: 'alert_firing',
+      ApprovalRequested: 'approval_requested',
+      ApprovalResolved: 'approval_resolved',
+      PipelineFailure: 'pipeline_failure',
+      IssueAssigned: 'issue_assigned',
+    } as const;
+
     export interface NumericScoreDefinitionConfig {
       /**
        * Optional inclusive minimum score.
@@ -19943,6 +19968,7 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
+    * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -19953,6 +19979,7 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
@@ -19960,6 +19987,9 @@ export namespace Schemas {
     * `evaluation` - Evaluation
     * `issue` - Issue
     * `ticket` - Ticket
+    * `issue_created` - Issue created
+    * `issue_reopened` - Issue reopened
+    * `issue_spiking` - Issue spiking
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -19969,6 +19999,9 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Issue: 'issue',
       Ticket: 'ticket',
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
     } as const;
 
     export interface SignalSourceConfig {
@@ -20384,7 +20417,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -20606,10 +20639,10 @@ export namespace Schemas {
     * `medium` - Medium
     * `high` - High
      */
-    export type PriorityEnum = typeof PriorityEnum[keyof typeof PriorityEnum];
+    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
 
 
-    export const PriorityEnum = {
+    export const TicketPriorityEnum = {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
@@ -20662,7 +20695,7 @@ export namespace Schemas {
       readonly channel_detail: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id: string;
       status?: TicketStatusEnum;
-      priority?: PriorityEnum | BlankEnum | NullEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee: TicketAssignment;
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
@@ -22251,7 +22284,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeE09Enum;
+      readonly source_type?: SourceType432Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -22279,6 +22312,7 @@ export namespace Schemas {
        * @nullable
        */
       readonly user_access_level?: string | null;
+      readonly supports_webhooks?: boolean;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -24636,7 +24670,7 @@ export namespace Schemas {
       readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id?: string;
       status?: TicketStatusEnum;
-      priority?: PriorityEnum | BlankEnum | NullEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee?: TicketAssignment;
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
@@ -28220,6 +28254,23 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+    }
+
+    /**
+     * * `normal` - NORMAL
+    * `critical` - CRITICAL
+     */
+    export type SendTestNotificationPriorityEnum = typeof SendTestNotificationPriorityEnum[keyof typeof SendTestNotificationPriorityEnum];
+
+
+    export const SendTestNotificationPriorityEnum = {
+      Normal: 'normal',
+      Critical: 'critical',
+    } as const;
+
+    export interface SendTestNotification {
+      notification_type: NotificationTypeEnum;
+      priority?: SendTestNotificationPriorityEnum;
     }
 
     export type SentimentResultScores = {[key: string]: number};

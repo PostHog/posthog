@@ -789,6 +789,7 @@ class CompareOperation(Expr):
     right: Expr
     op: CompareOperationOp
     type: Optional[ConstantType] = None
+    is_null_comparison_style: Optional[bool] = None
 
 
 @dataclass(kw_only=True)

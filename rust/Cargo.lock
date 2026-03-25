@@ -2581,6 +2581,7 @@ dependencies = [
  "sqlx",
  "symbolic",
  "thiserror 2.0.18",
+ "tiktoken-rs",
  "tokio",
  "tower 0.4.13",
  "tracing",

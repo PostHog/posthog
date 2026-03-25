@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -1469,6 +1469,64 @@ class TestExperimentService(APIBaseTest):
 
         with self.assertRaises(ValidationError):
             service.resume_experiment(experiment)
+
+    # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("running",),
+            ("ended",),
+        ]
+    )
+    def test_reset_experiment_success(self, state: str):
+        if state == "running":
+            experiment = self._create_running_experiment(name="Reset Running", feature_flag_key=f"reset-{state}-flag")
+            assert experiment.is_running
+        else:
+            experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
+            assert experiment.is_stopped
+
+        reset = self._service().reset_experiment(experiment)
+
+        reset.refresh_from_db()
+        assert reset.is_draft
+        assert reset.start_date is None
+        assert reset.end_date is None
+        assert reset.archived is False
+        assert reset.conclusion is None
+        assert reset.conclusion_comment is None
+
+    def test_reset_experiment_leaves_feature_flag_unchanged(self):
+        experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
+
+        assert experiment.feature_flag.active is True
+
+        reset = self._service().reset_experiment(experiment)
+
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.active is True
+
+    def test_reset_draft_experiment_raises(self):
+        experiment = self._create_launchable_experiment(name="Reset Draft", feature_flag_key="reset-draft-flag")
+
+        assert experiment.is_draft
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().reset_experiment(experiment)
+
+        assert "already in draft state" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_reset_experiment_reports_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="Reset Analytics", feature_flag_key="reset-analytics-flag")
+        mock_request = MagicMock()
+
+        self._service().reset_experiment(experiment, request=mock_request)
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == "experiment reset"
 
     # ------------------------------------------------------------------
     # Exposure cohort

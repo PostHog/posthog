@@ -23,7 +23,7 @@
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
             <enable_analyzer>0</enable_analyzer>
-            <compatibility>25.12</compatibility>
+            <compatibility>25.10</compatibility>
             <distributed_product_mode>global</distributed_product_mode>
             <enable_parallel_replicas>0</enable_parallel_replicas>
             <max_parallel_replicas>1</max_parallel_replicas>
