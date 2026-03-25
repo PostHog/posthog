@@ -1253,10 +1253,8 @@ impl FeatureFlagMatcher {
             let enrollment_key = FlagFilters::enrollment_key(&flag.key);
             let person_properties = self.get_person_properties(property_overrides)?;
 
-            if person_properties.contains_key(&enrollment_key) {
-                let is_match = person_properties
-                    .get(&enrollment_key)
-                    .is_some_and(|v| v == "true" || v == &Value::Bool(true));
+            if let Some(v) = person_properties.get(&enrollment_key) {
+                let is_match = v == "true" || v == &Value::Bool(true);
                 let payload = self.get_matching_payload(None, flag);
                 return Ok(FeatureFlagMatch {
                     matches: is_match,
