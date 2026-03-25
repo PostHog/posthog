@@ -1360,7 +1360,16 @@ class GoogleCloudIntegration:
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
         }
-        self.integration.sensitive_config["access_token"] = credentials.token
+        # Migrate pre-migration integrations where sensitive_config contains the
+        # keyfile directly (not nested under "key_info"). Without this, setting
+        # access_token pollutes the keyfile dict and breaks subsequent refreshes.
+        if "key_info" not in self.integration.sensitive_config:
+            self.integration.sensitive_config = {
+                "key_info": self.integration.sensitive_config,
+                "access_token": credentials.token,
+            }
+        else:
+            self.integration.sensitive_config["access_token"] = credentials.token
         self.integration.save()
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
