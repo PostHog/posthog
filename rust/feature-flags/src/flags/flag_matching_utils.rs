@@ -181,7 +181,7 @@ async fn fetch_person_and_cohorts(
         Ok(conn) => {
             info!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-                "persons_reader connection acquired"
+                "persons_reader connection acquired for person+cohort query"
             );
             conn
         }
@@ -203,7 +203,7 @@ async fn fetch_person_and_cohorts(
                 pool_idle = pool_idle,
                 pool_in_use = pool_in_use,
                 error = ?e,
-                "Failed to acquire persons_reader connection"
+                "Failed to acquire persons_reader connection for person+cohort query"
             );
 
             return Err(FlagError::from(e));
@@ -459,7 +459,7 @@ async fn fetch_group_properties(
 fn apply_person_cohort_to_state(
     state: &mut FlagEvaluationState,
     result: PersonCohortResult,
-    distinct_id: &str,
+    distinct_id: String,
 ) {
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
 
@@ -484,10 +484,7 @@ fn apply_person_cohort_to_state(
 
     // Always add distinct_id to person properties to match Python implementation.
     // This allows flags to filter on distinct_id even when no other person properties exist.
-    all_person_properties.insert(
-        "distinct_id".to_string(),
-        Value::String(distinct_id.to_owned()),
-    );
+    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
 
     state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
@@ -530,23 +527,25 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     if !group_type_to_key.is_empty() {
-        // SAFETY: tokio::try_join! runs both futures on the same task via cooperative
+        // SAFETY: tokio::try_join! polls both futures on the same task via cooperative
         // scheduling. with_canonical_log borrows a task-local RefCell synchronously (no
-        // .await while borrowed), so double-borrow cannot occur. Do NOT refactor to
-        // tokio::spawn — that would create separate tasks and break task-local access.
+        // .await while borrowed), so double-borrow cannot occur. Do NOT refactor this
+        // to tokio::spawn: that would run the futures on separate tasks, which do not
+        // inherit the CANONICAL_LOG task-local scope (see handler/canonical_log.rs),
+        // causing with_canonical_log to silently no-op and drop canonical-log counters.
         let (person_cohort, group) = tokio::try_join!(
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids),
             fetch_group_properties(&reader, team_id, group_type_to_key),
         )?;
 
-        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, &distinct_id);
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
         for (idx, props) in group.group_properties {
             flag_evaluation_state.set_group_properties(idx, props);
         }
     } else {
         let person_cohort =
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;
-        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, &distinct_id);
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
     }
 
     Ok(())
