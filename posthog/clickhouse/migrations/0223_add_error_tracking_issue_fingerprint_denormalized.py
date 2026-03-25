@@ -8,12 +8,8 @@ from products.error_tracking.backend.sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(
-        ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL(on_cluster=False)
-    ),
-    run_sql_with_exceptions(
-        KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL(on_cluster=False)
-    ),
+    run_sql_with_exceptions(ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL(on_cluster=False)),
+    run_sql_with_exceptions(KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL(on_cluster=False)),
     run_sql_with_exceptions(
         ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_MV_SQL(
             on_cluster=False,
