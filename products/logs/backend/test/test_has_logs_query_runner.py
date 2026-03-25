@@ -16,16 +16,6 @@ from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-
     def test_has_logs_returns_false_when_no_logs(self):
         runner = HasLogsQueryRunner(self.team)
         self.assertFalse(runner.run())
@@ -65,23 +55,13 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-
     def setUp(self):
         super().setUp()
         cache.delete(f"team:{self.team.id}:has_logs")
 
     def test_has_logs_api_returns_false_when_no_logs(self):
         # Clean up any logs from previous tests
-        sync_execute(f"TRUNCATE TABLE IF EXISTS logs")
+        sync_execute(f"TRUNCATE TABLE IF EXISTS logs32")
         cache.delete(f"team:{self.team.id}:has_logs")
 
         response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")

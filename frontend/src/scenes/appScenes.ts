@@ -32,6 +32,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
+    [Scene.DebugNotifications]: () => import('./debug/NotificationsTester'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
 
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
