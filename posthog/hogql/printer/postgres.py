@@ -1,3 +1,4 @@
+import re
 import hashlib
 from typing import Literal
 
@@ -15,6 +16,10 @@ from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_RENAMES_LOWER,
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
+
+# Regex for validating function names — only alphanumeric and underscores allowed.
+# Prevents SQL injection via backtick-quoted identifiers in HogQL.
+_SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class PostgresPrinter(HogQLPrinter):
@@ -73,24 +78,42 @@ class PostgresPrinter(HogQLPrinter):
                 f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
             )
 
-        # No function call validation for postgres
+        if node.order_by:
+            # ORDER BY in function calls is only supported for passthrough functions.
+            func_name = node.name.lower()
+            if (
+                func_name not in POSTGRES_PASSTHROUGH_FUNCTIONS
+                and func_name not in POSTGRES_FUNCTION_HANDLERS_LOWER
+                and func_name not in POSTGRES_FUNCTION_RENAMES_LOWER
+            ):
+                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+
+        # Validate function name characters to prevent SQL injection via
+        # backtick-quoted identifiers that can contain arbitrary characters.
+        if not _SAFE_FUNCTION_NAME_RE.match(node.name):
+            raise QueryError(f"Unsupported function call '{node.name}': function name contains invalid characters.")
+
         args = [self.visit(arg) for arg in node.args]
+        order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
 
         func_name = node.name.lower()
 
         handler = POSTGRES_FUNCTION_HANDLERS_LOWER.get(func_name)
         if handler is not None:
+            if node.order_by:
+                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
             return handler(args)
 
         pg_name = POSTGRES_FUNCTION_RENAMES_LOWER.get(func_name)
         if pg_name is not None:
-            return f"{pg_name}({', '.join(args)})"
+            return f"{pg_name}({', '.join(args)}{order_by_part})"
 
         if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
-            return f"{func_name}({', '.join(args)})"
+            return f"{func_name}({', '.join(args)}{order_by_part})"
 
         if func_name in self._connection_supported_functions:
-            return f"{node.name}({', '.join(args)})"
+            # Use the validated name — never the raw node.name
+            return f"{func_name}({', '.join(args)})"
 
         raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
 
@@ -122,7 +145,11 @@ class PostgresPrinter(HogQLPrinter):
         if not isinstance(available_functions, list):
             return set()
 
-        return {function_name.lower() for function_name in available_functions if isinstance(function_name, str)}
+        return {
+            function_name.lower()
+            for function_name in available_functions
+            if isinstance(function_name, str) and _SAFE_FUNCTION_NAME_RE.match(function_name)
+        }
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:
@@ -208,6 +235,15 @@ class PostgresPrinter(HogQLPrinter):
             right = self._visit_in_values(node.right)
         else:
             right = self.visit(node.right)
+
+        if (
+            node.is_null_comparison_style
+            and isinstance(node.right, ast.Constant)
+            and node.right.value is None
+            and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)
+        ):
+            not_kw = " NOT" if node.op == ast.CompareOperationOp.NotEq else ""
+            return f"({left} IS{not_kw} NULL)"
 
         return self._get_compare_op(node.op, left, right)
 

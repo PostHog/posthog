@@ -1124,7 +1124,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.SuggestedFilters,
                         isLocalOnly: true,
-                        options: [],
+                        options: eventNames.includes('$autocapture')
+                            ? (['text', 'selector'] as const).map((name) => ({
+                                  name,
+                                  group: TaxonomicFilterGroupType.Elements,
+                              }))
+                            : [],
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
@@ -1158,8 +1163,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames],
+            (groupTypes, taxonomicGroups, eventNames): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
@@ -1199,6 +1204,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     TaxonomicFilterGroupType.PageviewUrls,
                     TaxonomicFilterGroupType.Screens,
                     TaxonomicFilterGroupType.EmailAddresses,
+                    ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
                 ]
 
                 const toInsert: TaxonomicFilterGroupType[] = []

@@ -32,7 +32,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookSource
+from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 
 from products.data_warehouse.backend.api.external_data_schema import (
@@ -54,6 +54,7 @@ from products.data_warehouse.backend.direct_postgres import (
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
+    get_webhook_url,
 )
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
@@ -224,6 +225,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source="revenue_analytics_config_safe", read_only=True
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
+    supports_webhooks = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -245,6 +247,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "job_inputs",
             "revenue_analytics_config",
             "user_access_level",
+            "supports_webhooks",
         ]
         read_only_fields = [
             "id",
@@ -259,6 +262,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "revenue_analytics_config",
             "user_access_level",
             "access_method",
+            "supports_webhooks",
         ]
 
     """
@@ -320,6 +324,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "shopify_store_id",
             # temporal
             "namespace",
+            # convex
+            "deploy_url",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -356,6 +362,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None
+
+    def get_supports_webhooks(self, instance: ExternalDataSource) -> bool:
+        try:
+            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+            return isinstance(source, WebhookSource)
+        except Exception as e:
+            capture_exception(e)
+            return False
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -961,6 +975,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
                 "description": schema.description,
+                "should_sync_default": schema.should_sync_default,
             }
             for schema in schemas
         ]
@@ -1085,10 +1100,72 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
         return Response(source_serializer.data)
 
+    @action(methods=["GET"], detail=True)
+    def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+
+        if not isinstance(source, WebhookSource):
+            return Response(
+                status=status.HTTP_200_OK,
+                data={
+                    "supports_webhooks": False,
+                    "exists": False,
+                    "webhook_url": None,
+                    "schema_mapping": {},
+                    "external_status": None,
+                },
+            )
+
+        hog_function = HogFunction.objects.filter(
+            team=self.team,
+            type="warehouse_source_webhook",
+            inputs__source_id__value=str(instance.pk),
+            deleted=False,
+        ).first()
+
+        if not hog_function:
+            return Response(
+                status=status.HTTP_200_OK,
+                data={"supports_webhooks": True, "exists": False},
+            )
+
+        webhook_url = get_webhook_url(hog_function.id)
+
+        external_status: ExternalWebhookInfo | None = None
+
+        if instance.job_inputs:
+            try:
+                config = source.parse_config(instance.job_inputs)
+                external_status = source.get_external_webhook_info(config, webhook_url)
+            except Exception as e:
+                capture_exception(e)
+
+        schema_mapping = {}
+        if hog_function.inputs:
+            schema_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "supports_webhooks": True,
+                "exists": True,
+                "hog_function": {
+                    "id": str(hog_function.id),
+                    "name": hog_function.name,
+                    "enabled": hog_function.enabled,
+                    "created_at": hog_function.created_at.isoformat(),
+                    "status": hog_function.status,
+                },
+                "webhook_url": webhook_url,
+                "schema_mapping": schema_mapping,
+                "external_status": dataclasses.asdict(external_status) if external_status else None,
+            },
+        )
+
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.temporal.data_imports.sources.common.base import WebhookSource
-
         instance: ExternalDataSource = self.get_object()
 
         if not instance.job_inputs:
@@ -1131,12 +1208,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         ).exclude(deleted=True)
 
         eligible_schemas = [s for s in db_schemas if s.name in webhook_source_schemas]
-
-        if not eligible_schemas:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "No webhook-eligible incremental schemas found for this source"},
-            )
 
         hog_fn_result = get_or_create_webhook_hog_function(
             team=self.team,

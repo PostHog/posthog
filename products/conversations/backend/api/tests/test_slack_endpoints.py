@@ -116,7 +116,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert response.status_code == 202
         mock_process.delay.assert_called_once()
 
-    @patch("products.conversations.backend.api.slack_events._proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_proxies_to_secondary_when_team_not_found_on_primary(
@@ -124,7 +124,7 @@ class TestSupportSlackEventsAPI(BaseTest):
     ):
         mock_validate.return_value = None
 
-        with patch("products.conversations.backend.api.slack_events.SUPPORTHOG_PRIMARY_REGION_DOMAIN", "testserver"):
+        with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=True):
             response = self._post(
                 {
                     "type": "event_callback",
@@ -138,7 +138,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         mock_process.delay.assert_not_called()
         mock_proxy.assert_called_once()
 
-    @patch("products.conversations.backend.api.slack_events._proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_drops_event_when_team_not_found_on_secondary(
@@ -146,9 +146,7 @@ class TestSupportSlackEventsAPI(BaseTest):
     ):
         mock_validate.return_value = None
 
-        with patch(
-            "products.conversations.backend.api.slack_events.SUPPORTHOG_PRIMARY_REGION_DOMAIN", "other.posthog.com"
-        ):
+        with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=False):
             response = self._post(
                 {
                     "type": "event_callback",

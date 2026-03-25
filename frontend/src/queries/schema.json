@@ -364,7 +364,6 @@
                 "plan",
                 "execution",
                 "survey",
-                "onboarding",
                 "research",
                 "flags",
                 "llm_analytics",
@@ -1184,7 +1183,16 @@
             ]
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql", "revenue_analytics"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "event_metadata",
+                "session",
+                "hogql",
+                "data_warehouse_person_property",
+                "revenue_analytics"
+            ],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2325,7 +2333,6 @@
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
-                "recommend_products",
                 "search_llm_traces"
             ],
             "type": "string"
@@ -16242,7 +16249,8 @@
                 "Brevo",
                 "Postmark",
                 "Granola",
-                "BuildBetter"
+                "BuildBetter",
+                "Convex"
             ],
             "type": "string"
         },
@@ -23383,7 +23391,17 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "event_metadata",
+                "group",
+                "session",
+                "hogql",
+                "data_warehouse_person_property",
+                "revenue_analytics"
+            ],
             "type": "string"
         },
         "NativeMarketingSource": {
