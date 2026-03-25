@@ -22,10 +22,14 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { discoverDefinitions } from './lib/definitions.mjs'
+import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
     CategoryConfigSchema,
     type EnabledToolConfig,
+    type EnabledQueryWrapperToolConfig,
+    type QueryWrappersConfig,
+    QueryWrappersConfigSchema,
     type ToolConfig,
 } from './yaml-config-schema'
 
@@ -39,6 +43,7 @@ const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definition
 const TOOL_DEFINITIONS_V1_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
 const TOOL_DEFINITIONS_V2_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-v2.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
+const SCHEMA_JSON_PATH = path.resolve(REPO_ROOT, 'frontend/src/queries/schema.json')
 
 interface OpenApiParam {
     in: 'path' | 'query' | 'header' | 'cookie'
@@ -119,19 +124,18 @@ function loadKnownSchemaTypes(spec: OpenApiSpec): Set<string> {
 /**
  * Find an operation by operationId. When the same endpoint exists at both
  * /api/environments/ and /api/projects/, prefers /api/projects/.
- * Also matches _N deduplicated variants (e.g. issues_list matches issues_list_2).
+ * Prefers an exact operationId match, then falls back to matching _N deduplicated
+ * variants (e.g. issues_list matches issues_list_2) for backward compatibility.
  */
 function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperation | undefined {
     const base = operationId.replace(/_\d+$/, '')
-    let fallback: ResolvedOperation | undefined
+    let exactFallback: ResolvedOperation | undefined
+    let baseFallback: ResolvedOperation | undefined
+    let baseProject: ResolvedOperation | undefined
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
             if (!op?.operationId) {
-                continue
-            }
-            const opBase = op.operationId.replace(/_\d+$/, '')
-            if (opBase !== base) {
                 continue
             }
             const resolved = {
@@ -139,15 +143,33 @@ function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperatio
                 path: urlPath,
                 operation: op,
             }
-            if (urlPath.startsWith('/api/projects/')) {
-                return resolved
+
+            if (op.operationId === operationId) {
+                if (urlPath.startsWith('/api/projects/')) {
+                    return resolved
+                }
+                if (!exactFallback) {
+                    exactFallback = resolved
+                }
+                continue
             }
-            if (!fallback) {
-                fallback = resolved
+
+            const opBase = op.operationId.replace(/_\d+$/, '')
+            if (opBase !== base) {
+                continue
+            }
+            if (urlPath.startsWith('/api/projects/')) {
+                if (!baseProject) {
+                    baseProject = resolved
+                }
+                continue
+            }
+            if (!baseFallback) {
+                baseFallback = resolved
             }
         }
     }
-    return fallback
+    return exactFallback ?? baseProject ?? baseFallback
 }
 
 function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: string }): OpenApiSchema | undefined {
@@ -181,7 +203,7 @@ function resolveResponseType(operation: OpenApiOperation, knownTypes: Set<string
         if (schema.type === 'array' && items && '$ref' in items && items.$ref) {
             const schemaName = (items.$ref as string).replace('#/components/schemas/', '')
             if (knownTypes.has(schemaName)) {
-                return `Schemas.${schemaName}`
+                return `Schemas.${schemaName}[]`
             }
         }
     }
@@ -528,9 +550,10 @@ function generateToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    // Soft-delete overrides the HTTP method: use PATCH { deleted: true } instead of DELETE.
-    // This is necessary for endpoints backed by ForbidDestroyModel (e.g. actions).
-    const isSoftDelete = config.soft_delete === true
+    // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
+    // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
+    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
     const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
     const hasQuery = composition.queryParamNames.length > 0
@@ -550,7 +573,7 @@ function generateToolCode(
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (isSoftDelete) {
-        handlerBody += `            body: { deleted: true },\n`
+        handlerBody += `            body: { ${softDeleteField}: true },\n`
     } else if (hasBody) {
         handlerBody += `            body,\n`
     }
@@ -771,18 +794,40 @@ ${mapEntries}
 // Generate tool definitions JSON
 // ------------------------------------------------------------------
 
+/**
+ * Resolve a tool description from either an inline `description` string or a
+ * `description_file` path (resolved relative to `yamlDir`). Returns the
+ * fallback when neither is set.
+ */
+function resolveDescription(
+    config: { description?: string | undefined; description_file?: string | undefined },
+    yamlDir: string,
+    fallback: string
+): string {
+    if (config.description_file) {
+        const filePath = path.resolve(yamlDir, config.description_file)
+        if (!fs.existsSync(filePath)) {
+            console.error(`description_file not found: ${filePath}`)
+            process.exit(1)
+        }
+        return fs.readFileSync(filePath, 'utf-8').trim()
+    }
+    return config.description?.trim() || fallback
+}
+
 function generateDefinitionsJson(
     categories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        yamlDir: string
     }[]
 ): Record<string, unknown> {
     const definitions: Record<string, unknown> = {}
-    for (const { config: category, enabledTools } of categories) {
+    for (const { config: category, enabledTools, yamlDir } of categories) {
         for (const [name, toolConfig, resolved] of enabledTools) {
             const opDescription = resolved.operation.description?.trim() || resolved.operation.summary?.trim() || ''
             definitions[name] = {
-                description: toolConfig.description?.trim() || opDescription,
+                description: resolveDescription(toolConfig, yamlDir, opDescription),
                 category: category.category,
                 feature: category.feature,
                 summary: toolConfig.title || opDescription.split('.')[0] || name,
@@ -797,6 +842,145 @@ function generateDefinitionsJson(
                 },
                 ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
             }
+        }
+    }
+    return definitions
+}
+
+// ------------------------------------------------------------------
+// Query wrapper generation — tools backed by schema.json definitions
+// ------------------------------------------------------------------
+
+function loadQuerySchema(): JsonSchemaRoot {
+    if (!fs.existsSync(SCHEMA_JSON_PATH)) {
+        console.error(`Query schema not found at ${SCHEMA_JSON_PATH}. Run schema:build:json first.`)
+        process.exit(1)
+    }
+    return JSON.parse(fs.readFileSync(SCHEMA_JSON_PATH, 'utf-8')) as JsonSchemaRoot
+}
+
+/**
+ * Returns true if the parsed YAML has the shape of a query wrapper config
+ * (has `wrappers` key instead of `tools`).
+ */
+function isQueryWrappersConfig(parsed: unknown): boolean {
+    return typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)
+}
+
+function generateQueryWrapperFile(
+    config: QueryWrappersConfig,
+    fileName: string,
+    querySchema: JsonSchemaRoot
+): {
+    code: string
+    enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
+} {
+    const enabledWrappers: [string, EnabledQueryWrapperToolConfig][] = []
+
+    for (const [name, toolConfig] of Object.entries(config.wrappers)) {
+        if (!toolConfig.enabled) {
+            continue
+        }
+        if (!toolConfig.scopes?.length) {
+            console.error(`Enabled query wrapper "${name}" is missing required "scopes"`)
+            process.exit(1)
+        }
+        if (!toolConfig.annotations) {
+            console.error(`Enabled query wrapper "${name}" is missing required "annotations"`)
+            process.exit(1)
+        }
+        if (!querySchema.definitions[toolConfig.schema_ref]) {
+            console.error(`Query wrapper "${name}": schema_ref "${toolConfig.schema_ref}" not found in schema.json`)
+            process.exit(1)
+        }
+        enabledWrappers.push([name, toolConfig as EnabledQueryWrapperToolConfig])
+    }
+
+    // Generate all Zod schemas first, collecting them to deduplicate shared definitions
+    const allZodBlocks: string[] = []
+    const emittedDefs = new Set<string>()
+
+    for (const [, toolConfig] of enabledWrappers) {
+        const zodCode = generateZodFromSchemaRef(
+            querySchema,
+            toolConfig.schema_ref,
+            toolConfig.exclude_properties ?? []
+        )
+        // Split into individual const declarations and only emit new ones
+        const lines = zodCode.split('\n\nconst ')
+        for (let i = 0; i < lines.length; i++) {
+            const block = i === 0 ? lines[i]! : `const ${lines[i]}`
+            const match = block.match(/^const (\w+) =/)
+            if (match && !emittedDefs.has(match[1]!)) {
+                emittedDefs.add(match[1]!)
+                allZodBlocks.push(block)
+            }
+        }
+    }
+
+    const schemasCode = allZodBlocks.join('\n\n')
+
+    // Generate tool registrations using the factory
+    const mapEntries = enabledWrappers
+        .map(([name, toolConfig]) => {
+            const entryVarName = getEntryVarName(toolConfig.schema_ref)
+            const kind = extractKindFromSchemaRef(querySchema, toolConfig.schema_ref)
+            const uiResourceUri = toolConfig.ui_resource_uri ? `, uiResourceUri: '${toolConfig.ui_resource_uri}'` : ''
+            return `    '${name}': createQueryWrapper({ name: '${name}', schema: ${entryVarName}, kind: '${kind}'${uiResourceUri} }),`
+        })
+        .join('\n')
+
+    const code = `// AUTO-GENERATED from ${fileName} + schema.json — do not edit
+import { z } from 'zod'
+
+import type { ZodObjectAny } from '@/tools/types'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+
+// --- Shared Zod schemas generated from schema.json ---
+
+${schemasCode}
+
+// --- Tool registrations ---
+
+export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
+${mapEntries}
+}
+`
+
+    return { code, enabledWrappers }
+}
+
+/** Extract the `kind` const value from a schema.json definition */
+function extractKindFromSchemaRef(querySchema: JsonSchemaRoot, schemaRef: string): string {
+    const schema = querySchema.definitions[schemaRef]
+    if (schema?.properties?.kind?.const) {
+        return schema.properties.kind.const as string
+    }
+    // Fallback: derive from the schema ref name (e.g. AssistantTrendsQuery → TrendsQuery)
+    return schemaRef.replace(/^Assistant/, '')
+}
+
+function generateQueryWrapperDefinitionsJson(
+    config: QueryWrappersConfig,
+    enabledWrappers: [string, EnabledQueryWrapperToolConfig][],
+    yamlDir: string
+): Record<string, unknown> {
+    const definitions: Record<string, unknown> = {}
+    for (const [name, toolConfig] of enabledWrappers) {
+        definitions[name] = {
+            description: resolveDescription(toolConfig, yamlDir, `Run a ${toolConfig.schema_ref} query`),
+            category: config.category,
+            feature: config.feature,
+            summary: toolConfig.title || name,
+            title: toolConfig.title || name,
+            required_scopes: toolConfig.scopes,
+            new_mcp: toolConfig.mcp_version !== undefined ? toolConfig.mcp_version >= 2 : true,
+            annotations: {
+                destructiveHint: toolConfig.annotations.destructive,
+                idempotentHint: toolConfig.annotations.idempotent,
+                openWorldHint: true,
+                readOnlyHint: toolConfig.annotations.readOnly,
+            },
         }
     }
     return definitions
@@ -822,12 +1006,50 @@ function main(): void {
     const allCategories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        yamlDir: string
     }[] = []
     const generatedModules: string[] = []
+
+    // Accumulate query wrapper definitions separately
+    const queryWrapperDefinitions: Record<string, unknown> = {}
+    let querySchema: JsonSchemaRoot | undefined
 
     for (const def of definitionSources) {
         const content = fs.readFileSync(def.filePath, 'utf-8')
         const parsed = parseYaml(content)
+
+        // Check if this is a query wrapper config
+        if (isQueryWrappersConfig(parsed)) {
+            const result = QueryWrappersConfigSchema.safeParse(parsed)
+            if (!result.success) {
+                console.error(`Invalid query wrappers YAML in ${def.filePath}:`)
+                for (const issue of result.error.issues) {
+                    console.error(`  ${issue.path.join('.')}: ${issue.message}`)
+                }
+                process.exit(1)
+            }
+
+            // Lazy-load query schema only when needed
+            if (!querySchema) {
+                querySchema = loadQuerySchema()
+            }
+
+            const config = result.data
+            const label = path.relative(REPO_ROOT, def.filePath)
+            const { code, enabledWrappers } = generateQueryWrapperFile(config, label, querySchema)
+
+            if (enabledWrappers.length > 0) {
+                generatedModules.push(def.moduleName)
+                fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
+                Object.assign(
+                    queryWrapperDefinitions,
+                    generateQueryWrapperDefinitionsJson(config, enabledWrappers, path.dirname(def.filePath))
+                )
+                process.stdout.write(`Generated ${enabledWrappers.length} query wrapper(s) from ${label}\n`)
+            }
+            continue
+        }
+
         const result = CategoryConfigSchema.safeParse(parsed)
         if (!result.success) {
             console.error(`Invalid YAML config in ${def.filePath}:`)
@@ -843,7 +1065,7 @@ function main(): void {
 
         if (enabledTools.length > 0) {
             generatedModules.push(def.moduleName)
-            allCategories.push({ config, enabledTools })
+            allCategories.push({ config, enabledTools, yamlDir: path.dirname(def.filePath) })
             fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
         }
     }
@@ -863,8 +1085,8 @@ ${spreads}
 `
     fs.writeFileSync(path.join(GENERATED_DIR, 'index.ts'), barrelCode)
 
-    // Tool definitions JSON
-    const definitions = generateDefinitionsJson(allCategories)
+    // Tool definitions JSON (merge OpenAPI-based + query wrapper definitions)
+    const definitions = { ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions }
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
     // Combined tool definitions for external consumers (docs site)
@@ -874,8 +1096,12 @@ ${spreads}
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
+    const totalQueryWrappers = Object.keys(queryWrapperDefinitions).length
     const totalAllTools = Object.keys(allDefinitions).length
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
+    if (totalQueryWrappers > 0) {
+        process.stdout.write(`Generated ${totalQueryWrappers} query wrapper tool(s)\n`)
+    }
     process.stdout.write(`Combined ${totalAllTools} total tool(s) into tool-definitions-all.json\n`)
 
     const generatedTsFiles = [
@@ -890,7 +1116,14 @@ ${spreads}
 }
 
 // Export for testing
-export { composeToolSchema, extractPathParams, generateCategoryFile, generateCustomSchemaToolCode, generateToolCode }
+export {
+    composeToolSchema,
+    extractPathParams,
+    generateCategoryFile,
+    generateCustomSchemaToolCode,
+    generateQueryWrapperFile,
+    generateToolCode,
+}
 export type { OpenApiSpec, ResolvedOperation }
 
 // Run main when executed directly

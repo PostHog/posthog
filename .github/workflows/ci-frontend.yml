@@ -71,6 +71,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
 
@@ -192,6 +193,7 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.frontend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@v6
 
@@ -259,6 +261,7 @@ jobs:
 
     jest:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
@@ -306,6 +309,7 @@ jobs:
         name: Calculate running time
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend == 'true' && (
@@ -327,6 +331,7 @@ jobs:
         needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

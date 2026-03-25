@@ -14,10 +14,31 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardLayoutSize,
+    DashboardTile,
+    DashboardWidgetType,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
+
+/** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
+export function getDashboardWidgetType(
+    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile'>
+): DashboardWidgetType {
+    if (tile.insight) {
+        return 'insight'
+    }
+    if (tile.text) {
+        return 'text'
+    }
+    if (tile.button_tile) {
+        return 'button_tile'
+    }
+
+    throw new Error(
+        'Dashboard tile has no widget payload. If a new widget type was added to `DashboardTile`, handle it in getDashboardWidgetType.'
+    )
+}
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 768,

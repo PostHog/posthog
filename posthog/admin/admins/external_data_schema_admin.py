@@ -24,6 +24,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
     list_filter = ("status", "should_sync", "sync_type")
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team",)
+    raw_id_fields = ("table", "source")
     readonly_fields = ("table", "source")
     ordering = ("-created_at",)
 

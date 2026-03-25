@@ -139,6 +139,10 @@ class PostHogSCIMGroup(SCIMGroup):
                     )
             except User.DoesNotExist:
                 continue
+            except ValueError:
+                # Skip non-user members (e.g., nested group references from IdPs)
+                logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
+                continue
 
         # Remove members no longer in the group
         RoleMembership.objects.filter(role=role, user__id__in=to_remove).delete()
@@ -232,6 +236,10 @@ class PostHogSCIMGroup(SCIMGroup):
                             role=self.obj, user=user, defaults={"organization_member": org_membership}
                         )
                     except User.DoesNotExist:
+                        continue
+                    except ValueError:
+                        # Skip non-user members (e.g., nested group references from IdPs)
+                        logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
                         continue
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:

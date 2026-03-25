@@ -1,1 +1,1 @@
-1060_alter_integration_kind
+1066_alter_insight_saved

@@ -156,6 +156,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 return new Fuse<DashboardBasicType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
                     threshold: 0.3,
+                    // Without this, Fuse favors matches near the start of each field; tail tokens on long titles often miss `threshold`.
+                    ignoreLocation: true,
                 })
             },
         ],

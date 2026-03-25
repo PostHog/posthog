@@ -58,6 +58,7 @@ from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
+    ExportRendererAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -702,6 +703,7 @@ def clean_referer_url(current_url: str | None) -> str:
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -1423,13 +1425,13 @@ class SessionRecordingViewSet(
 
         user = cast(User, request.user)
 
-        cache_key = f"summarize_recording_{self.team.pk}_{self.kwargs['pk']}"
+        recording = self.get_object()
+
+        cache_key = f"summarize_recording_{self.team.pk}_{recording.session_id}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:
             return Response(cached_response)
-
-        recording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
