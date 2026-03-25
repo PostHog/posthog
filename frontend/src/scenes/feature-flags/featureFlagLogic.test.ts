@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -68,6 +71,60 @@ describe('featureFlagLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    describe('draft preservation on tab switch', () => {
+        it('preserves new flag drafts when the URL is pushed', async () => {
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [200, { results: [] }],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/new/`]: () => [200, NEW_FLAG],
+                },
+            })
+
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            // Simulate user filling in the form
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setFeatureFlag({ ...newLogic.values.featureFlag, key: 'my-draft-key', name: 'Draft' })
+            }).toMatchValues({
+                featureFlag: partial({ key: 'my-draft-key', name: 'Draft' }),
+            })
+
+            // Simulate tab switch triggering a URL push
+            router.actions.push(urls.featureFlag('new'))
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            // Draft should be preserved
+            expect(newLogic.values.featureFlag.key).toEqual('my-draft-key')
+            expect(newLogic.values.featureFlag.name).toEqual('Draft')
+
+            newLogic.unmount()
+        })
+
+        it('reloads when no draft changes exist', async () => {
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [200, { results: [] }],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/new/`]: () => [200, NEW_FLAG],
+                },
+            })
+
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            // Without any user edits, a URL push should trigger a reload
+            router.actions.push(urls.featureFlag('new'))
+
+            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlag'])
+
+            newLogic.unmount()
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {

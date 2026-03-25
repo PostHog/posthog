@@ -2064,9 +2064,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.loadFeatureFlag()
                         return
                     }
-                    // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
-                    if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
-                        return
+                    // When pushing to `/new`, preserve any in-progress draft edits
+                    // instead of reloading defaults (e.g. when switching browser tabs)
+                    if (props.id === 'new' && values.featureFlag.id == null) {
+                        const flag = values.featureFlag
+                        const hasDraftChanges =
+                            flag.key !== '' ||
+                            flag.name !== '' ||
+                            (flag.tags?.length ?? 0) > 0 ||
+                            flag.filters?.multivariate != null ||
+                            Object.keys(flag.filters?.payloads ?? {}).length > 0
+                        if (hasDraftChanges) {
+                            return
+                        }
                     }
                     actions.loadFeatureFlag()
                 } else {
