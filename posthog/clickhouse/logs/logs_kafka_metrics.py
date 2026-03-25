@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 TABLE_NAME = "logs_kafka_metrics"
 
