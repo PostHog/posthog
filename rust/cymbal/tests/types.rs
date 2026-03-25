@@ -81,3 +81,72 @@ fn node_exceptions() {
 
     assert_eq!(frames.len(), 4);
 }
+
+#[test]
+fn php_exceptions() {
+    let props: RawErrProps = serde_json::from_str(
+        r#"{
+            "$exception_list": [{
+                "type": "RuntimeException",
+                "value": "boom",
+                "stacktrace": {
+                    "type": "raw",
+                    "frames": [
+                        {
+                            "platform": "php",
+                            "filename": "ExceptionCapture.php",
+                            "abs_path": "/app/lib/ExceptionCapture.php",
+                            "lineno": 42,
+                            "function": "PostHog\\ExceptionCapture::buildParsedException",
+                            "in_app": true,
+                            "context_line": "throw new \\RuntimeException('boom');",
+                            "pre_context": [
+                                "try {",
+                                "    $throwLine = __LINE__ + 1;"
+                            ],
+                            "post_context": [
+                                "} catch (\\RuntimeException $e) {",
+                                "    return [$e, $throwLine];"
+                            ]
+                        },
+                        {
+                            "platform": "php",
+                            "in_app": false
+                        }
+                    ]
+                }
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let frames = props
+        .exception_list
+        .iter()
+        .map(|e| e.stack.clone().unwrap())
+        .flat_map(|t| {
+            let Stacktrace::Raw { frames } = t else {
+                panic!("Expected a Raw stacktrace")
+            };
+            frames
+        })
+        .map(|f| {
+            let RawFrame::Php(f) = f else {
+                panic!("Expected a PHP frame")
+            };
+            let f: Frame = (&f).into();
+            f
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[0].lang, "php");
+    assert_eq!(frames[0].source.as_deref(), Some("ExceptionCapture.php"));
+    assert_eq!(
+        frames[0].resolved_name.as_deref(),
+        Some("PostHog\\ExceptionCapture::buildParsedException")
+    );
+    assert_eq!(frames[0].context.as_ref().unwrap().line.number, 42);
+    assert_eq!(frames[1].mangled_name, "<unknown>");
+    assert_eq!(frames[1].resolved_name, None);
+}
