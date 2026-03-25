@@ -532,23 +532,29 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["scope"] == "global"
 
-    def test_ordering_when_listing_templates_without_search(self) -> None:
+    @parameterized.expand(
+        [
+            ("template_name", ["Alpha", "Zebra"]),
+            ("-template_name", ["Zebra", "Alpha"]),
+        ]
+    )
+    def test_ordering_when_listing_templates_without_search(self, ordering: str, expected_names: list[str]) -> None:
         DashboardTemplate.objects.all().delete()
 
         self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Zebra"})
         self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Alpha"})
 
-        asc = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?ordering=template_name")
-        assert asc.status_code == status.HTTP_200_OK
-        asc_results = asc.json()["results"]
-        assert len(asc_results) == 2
-        assert [r["template_name"] for r in asc_results] == ["Alpha", "Zebra"]
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?ordering={ordering}")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        assert [r["template_name"] for r in results] == expected_names
 
-        desc = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?ordering=-template_name")
-        assert desc.status_code == status.HTTP_200_OK
-        desc_results = desc.json()["results"]
-        assert len(desc_results) == 2
-        assert [r["template_name"] for r in desc_results] == ["Zebra", "Alpha"]
+    def test_default_ordering_when_listing_templates(self) -> None:
+        DashboardTemplate.objects.all().delete()
+
+        self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Zebra"})
+        self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Alpha"})
 
         default_order = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert default_order.status_code == status.HTTP_200_OK
