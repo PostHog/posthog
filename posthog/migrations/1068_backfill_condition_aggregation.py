@@ -12,13 +12,22 @@ def backfill_condition_aggregation(apps, schema_editor):
     batch_size = 500
     updated = []
 
-    for flag in FeatureFlag.objects.filter(deleted=False).iterator(chunk_size=batch_size):
-        filters = flag.filters or {}
-        groups = filters.get("groups", [])
+    for flag in FeatureFlag.objects.exclude(filters=None).iterator(chunk_size=batch_size):
+        filters = flag.filters
+
+        if not isinstance(filters, dict):
+            continue
+
+        groups = filters.get("groups") or []
+        if not isinstance(groups, list):
+            groups = []
+
         flag_level = filters.get("aggregation_group_type_index")
         changed = False
 
         for group in groups:
+            if not isinstance(group, dict):
+                continue
             if "aggregation_group_type_index" not in group:
                 group["aggregation_group_type_index"] = flag_level
                 changed = True
