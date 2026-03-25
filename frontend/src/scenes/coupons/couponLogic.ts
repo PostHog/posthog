@@ -35,17 +35,20 @@ export const couponLogic = kea<couponLogicType>([
             billingLogic,
             ['billing', 'billingLoading'],
         ],
-        actions: [billingLogic, ['loadBillingSuccess']],
+        actions: [billingLogic, ['loadBillingSuccess'], organizationLogic, ['loadCurrentOrganizationSuccess']],
     })),
     actions({
         setClaimed: (claimed: boolean) => ({ claimed }),
         setClaimedDetails: (details: any) => ({ details }),
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         couponsOverview: [
             null as CouponsOverview | null,
             {
                 loadCouponsOverview: async () => {
+                    if (values.isAdminOrOwner === false && values.currentOrganization) {
+                        return null
+                    }
                     return await api.get('api/billing/coupons/overview')
                 },
             },
@@ -115,6 +118,11 @@ export const couponLogic = kea<couponLogicType>([
             // kea-forms errors() is a selector that only recalculates when form state changes.
             // Since we depend on external billing state, we force recalculation by re-setting a form value.
             actions.setCouponValue('code', values.coupon.code)
+        },
+        loadCurrentOrganizationSuccess: () => {
+            if (!values.couponsOverview && values.isAdminOrOwner) {
+                actions.loadCouponsOverview()
+            }
         },
     })),
     afterMount(({ actions }) => {

@@ -139,13 +139,9 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
-                // Databricks is currently behind a feature flag
-                const databricksEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_DATABRICKS]
 
-                const services = BATCH_EXPORT_SERVICE_NAMES.filter(
-                    (service) =>
-                        (httpEnabled ? true : service !== ('HTTP' as const)) &&
-                        (databricksEnabled ? true : service !== ('Databricks' as const))
+                const services = BATCH_EXPORT_SERVICE_NAMES.filter((service) =>
+                    httpEnabled ? true : service !== ('HTTP' as const)
                 )
 
                 return services.map(

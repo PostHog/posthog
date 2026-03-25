@@ -1,3 +1,4 @@
+// Form logic for the backfill creation modal — date range selection, schedule display, and submission.
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
@@ -12,7 +13,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 import { dayOptions } from './utils'
 
 export interface BatchExportBackfillModalLogicProps {
@@ -120,13 +121,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillModalLogic', key]),
     connect((props: BatchExportBackfillModalLogicProps) => ({
-        values: [
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig'],
-        ],
+        values: [batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
     })),
     actions({
         openBackfillModal: true,

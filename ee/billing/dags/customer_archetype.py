@@ -3,12 +3,20 @@
 Classifies Salesforce accounts as "AI Native", "Cloud Native", or "Unknown"
 using LLM-based classification, computes use case adoption from MRR data,
 and pushes results back to Salesforce.
+
+The pipeline uses a graph_asset with DynamicOutput to process accounts in
+batches (~1000 each). Each accounts batch classifies via LLM and pushes
+to Salesforce immediately, so partial progress survives failures. A
+Salesforce timestamp field (customer_archetype_classified_at__c) enables
+incremental processing on re-runs.
 """
 
+import os
 import json
-import hashlib
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Literal, cast
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, TypedDict
 
 import polars as pl
 import dagster
@@ -19,7 +27,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dags.common import JobOwners
-from posthog.dags.common.utils import compute_dataframe_hashes
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models import Team
 
@@ -36,7 +43,10 @@ MRR_THRESHOLD_ADOPTED = 100
 
 class ArchetypeClassificationConfig(dagster.Config):
     llm_max_workers: int = 20
+    llm_max_concurrent_requests: int = 5
     llm_batch_size: int = 10
+    accounts_batch_size: int = 1000
+    skip_classified_within_days: int = 7
 
 
 # All columns from the PostHog_Customer_Archetype saved query
@@ -155,6 +165,57 @@ class AccountClassification(BaseModel):
 
 class BatchClassificationResponse(BaseModel):
     classifications: list[AccountClassification]
+
+
+# --------------------------------------------------------------------------- #
+# TypedDicts for op payloads
+# --------------------------------------------------------------------------- #
+
+
+class AccountsBatchPayload(TypedDict):
+    accounts: list[dict[str, Any]]
+    use_case_lookup: dict[str, dict[str, Any]]
+    batch_index: int
+    total_batches: int
+
+
+class AccountsBatchResult(TypedDict):
+    classified: int
+    sf_succeeded: int
+    sf_failed: int
+    llm_batches_failed: int
+
+
+class PipelineSummary(TypedDict):
+    total: int
+    skipped: int
+    to_classify: int
+
+
+# Salesforce expects this specific format for DateTime fields
+SF_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S.000+0000"
+
+# Global semaphore for LLM gateway concurrency control. Shared across all accounts
+# batches running in parallel so the total in-flight LLM requests stays bounded
+# regardless of how many batches the executor runs concurrently.
+_llm_semaphore: threading.Semaphore | None = None
+_llm_semaphore_limit: int | None = None
+_llm_semaphore_lock = threading.Lock()
+
+
+def _get_llm_semaphore(max_concurrent: int) -> threading.Semaphore:
+    global _llm_semaphore, _llm_semaphore_limit
+    if _llm_semaphore is None:
+        with _llm_semaphore_lock:
+            if _llm_semaphore is None:
+                _llm_semaphore = threading.Semaphore(max_concurrent)
+                _llm_semaphore_limit = max_concurrent
+    elif _llm_semaphore_limit != max_concurrent:
+        dagster.get_dagster_logger().warning(
+            f"LLM semaphore already initialized with limit {_llm_semaphore_limit}; "
+            f"requested {max_concurrent}. Restart the process to apply the new value."
+        )
+    return _llm_semaphore
 
 
 # --------------------------------------------------------------------------- #
@@ -295,12 +356,6 @@ def build_salesforce_records(
     return records
 
 
-def _hash_sf_record(record: dict[str, Any]) -> str:
-    """Deterministic hash of a Salesforce update record for change detection."""
-    serialized = json.dumps(record, sort_keys=True, default=str)
-    return hashlib.sha256(serialized.encode()).hexdigest()[:16]
-
-
 # --------------------------------------------------------------------------- #
 # LLM classification with retry
 # --------------------------------------------------------------------------- #
@@ -339,7 +394,20 @@ def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountCla
 
 
 # --------------------------------------------------------------------------- #
-# Dagster assets
+# Salesforce timestamp-based incremental helpers
+# --------------------------------------------------------------------------- #
+
+
+def _query_recently_classified_ids(sf: Any, cutoff: datetime) -> set[str]:
+    """Query Salesforce for account IDs classified after the given cutoff."""
+    cutoff_str = cutoff.strftime(SF_DATETIME_FORMAT)
+    soql = f"SELECT Id FROM Account WHERE customer_archetype_classified_at__c >= {cutoff_str}"
+    result = sf.query_all(soql)
+    return {r["Id"] for r in result["records"]}
+
+
+# --------------------------------------------------------------------------- #
+# Dagster asset: account data fetch
 # --------------------------------------------------------------------------- #
 
 
@@ -351,26 +419,43 @@ def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountCla
 def archetype_account_data(
     context: dagster.AssetExecutionContext,
 ) -> pl.DataFrame:
-    """Fetch account data from the PostHog_Customer_Archetype saved query."""
-    context.log.info("Querying PostHog_Customer_Archetype saved query")
+    """Fetch account data from the PostHog_Customer_Archetype saved query.
 
-    team = Team.objects.get(id=ARCHETYPE_TEAM_ID)
-    query = f"SELECT {', '.join(COLUMNS)} FROM PostHog_Customer_Archetype"  # nosemgrep: hogql-fstring-audit -- COLUMNS are hardcoded constants
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="archetype_account_data",
-        limit_context=LimitContext.SAVED_QUERY,
-    )
+    Set ARCHETYPE_CSV_PATH to a local CSV file to skip the HogQL query and load
+    data directly. Useful for local development and testing with exported data.
+    """
+    csv_path = os.environ.get("ARCHETYPE_CSV_PATH")
+    if csv_path:
+        context.log.info(f"Loading account data from CSV: {csv_path}")
+        df = pl.read_csv(csv_path, infer_schema_length=10000)
 
-    if not response.results:
-        context.log.info("No data found in PostHog_Customer_Archetype")
-        return pl.DataFrame(schema=dict.fromkeys(COLUMNS, pl.Utf8))
+        # Align columns: add missing ones as null, drop extras
+        for col in COLUMNS:
+            if col not in df.columns:
+                df = df.with_columns(pl.lit(None).alias(col))
+        df = df.select(COLUMNS).cast(dict.fromkeys(COLUMNS, pl.Utf8))
+        source = "csv"
+    else:
+        context.log.info("Querying PostHog_Customer_Archetype saved query")
 
-    # HogQL returns mixed types (nulls, strings, numbers) so cast everything to
-    # strings to avoid schema inference failures on columns like tech_tag_c.
-    rows = [[str(v) if v is not None else None for v in row] for row in response.results]
-    df = pl.DataFrame(rows, schema=dict.fromkeys(COLUMNS, pl.Utf8), orient="row")
+        team = Team.objects.get(id=ARCHETYPE_TEAM_ID)
+        query = f"SELECT {', '.join(COLUMNS)} FROM PostHog_Customer_Archetype"  # nosemgrep: hogql-fstring-audit -- COLUMNS are hardcoded constants
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="archetype_account_data",
+            limit_context=LimitContext.SAVED_QUERY,
+        )
+
+        if not response.results:
+            context.log.info("No data found in PostHog_Customer_Archetype")
+            return pl.DataFrame(schema=dict.fromkeys(COLUMNS, pl.Utf8))
+
+        # HogQL returns mixed types (nulls, strings, numbers) so cast everything to
+        # strings to avoid schema inference failures on columns like tech_tag_c.
+        rows = [[str(v) if v is not None else None for v in row] for row in response.results]
+        df = pl.DataFrame(rows, schema=dict.fromkeys(COLUMNS, pl.Utf8), orient="row")
+        source = "hogql"
 
     has_usage = df.filter(pl.col("has_llm_analytics").is_not_null() | pl.col("distinct_products_used").is_not_null())
     context.log.info(
@@ -381,216 +466,244 @@ def archetype_account_data(
         {
             "total_accounts": dagster.MetadataValue.int(len(df)),
             "accounts_with_usage": dagster.MetadataValue.int(len(has_usage)),
-            "source": dagster.MetadataValue.text("hogql"),
+            "source": dagster.MetadataValue.text(source),
         }
     )
 
     return df
 
 
-@dagster.asset(
-    name="archetype_llm_classification",
-    group_name="billing",
-    tags={"owner": JobOwners.TEAM_BILLING.value, "dagster/max_runtime": str(6 * 60 * 60)},
-    deps=["archetype_account_data"],
+# --------------------------------------------------------------------------- #
+# Graph asset ops
+# --------------------------------------------------------------------------- #
+
+
+@dagster.op(
+    out={"accounts_batches": dagster.DynamicOut(), "summary": dagster.Out()},
 )
-def archetype_llm_classification(
-    context: dagster.AssetExecutionContext,
+def prepare_and_fan_out(
+    context: dagster.OpExecutionContext,
     config: ArchetypeClassificationConfig,
-    archetype_account_data: pl.DataFrame,
-) -> pl.DataFrame:
-    """Classify all accounts using LLM."""
-    df = archetype_account_data
-    if df.is_empty():
-        context.log.info("No accounts to classify, preserving prior metadata")
-        prior_hashes, prior_classifications = _get_prior_materialization_metadata(context)
-        context.add_output_metadata(
-            {
-                "total_classified": dagster.MetadataValue.int(0),
-                "newly_classified": dagster.MetadataValue.int(0),
-                "carried_forward": dagster.MetadataValue.int(0),
-                "account_hashes": dagster.MetadataValue.json(prior_hashes),
-                "classifications": dagster.MetadataValue.json(prior_classifications),
-            }
-        )
-        return pl.DataFrame()
+    account_data: pl.DataFrame,
+):
+    """Prepare account data, filter recently classified accounts, and fan out accounts batches."""
+    if account_data.is_empty():
+        context.log.info("No accounts to classify")
+        yield dagster.Output({"total": 0, "skipped": 0, "to_classify": 0}, output_name="summary")
+        return
 
-    # Incremental: hash input data and compare with prior run
-    hashed_df = compute_dataframe_hashes(df.select(LLM_CONTEXT_COLUMNS))
-    hashed_df = df.join(hashed_df.select("sf_account_id", "data_hash"), on="sf_account_id")
-    prior_hashes, prior_classifications = _get_prior_materialization_metadata(context)
-
-    # Determine which accounts need re-classification
-    accounts_to_classify = []
-    carried_forward = []
-    for row in hashed_df.to_dicts():
-        sf_id = row["sf_account_id"]
-        current_hash = row["data_hash"]
-        if sf_id in prior_hashes and prior_hashes[sf_id] == current_hash and sf_id in prior_classifications:
-            carried_forward.append(prior_classifications[sf_id])
-        else:
-            accounts_to_classify.append(row)
-
+    # Verify Salesforce is reachable before spending LLM credits — classifications
+    # are only persisted in SF, so there's no point classifying if we can't upload.
+    sf = get_salesforce_client()
+    cutoff = datetime.now(UTC) - timedelta(days=config.skip_classified_within_days)
+    recently_classified_ids = _query_recently_classified_ids(sf, cutoff)
     context.log.info(
-        f"Classifying {len(accounts_to_classify)} changed/new accounts, carrying forward {len(carried_forward)}"
+        f"Found {len(recently_classified_ids)} accounts classified "
+        f"within the last {config.skip_classified_within_days} days"
     )
 
-    # LLM classification for changed accounts
-    new_classifications: list[AccountClassification] = []
-    failed_batches: list[dict] = []
-    if accounts_to_classify:
-        classify_df = pl.DataFrame(accounts_to_classify, infer_schema_length=None)
-        batches = prepare_llm_batches(classify_df, batch_size=config.llm_batch_size)
-        client = get_llm_client("customer_archetype_classification")
+    # Filter out recently classified accounts
+    all_ids = set(account_data["sf_account_id"].to_list())
+    skipped_count = len(all_ids & recently_classified_ids)
+    accounts_to_classify = account_data.filter(~pl.col("sf_account_id").is_in(recently_classified_ids))
 
-        total_batches = len(batches)
-        context.log.info(f"Classifying {total_batches} batches concurrently (max_workers={config.llm_max_workers})")
-        completed = 0
-        with ThreadPoolExecutor(max_workers=config.llm_max_workers) as pool:
-            futures = {pool.submit(_classify_batch, client, batch): i for i, batch in enumerate(batches)}
-            for future in as_completed(futures):
-                i = futures[future]
-                completed += 1
-                try:
-                    new_classifications.extend(future.result())
-                except Exception:
-                    batch_ids = [a.get("sf_account_id", "?") for a in batches[i]]
-                    context.log.exception(
-                        f"LLM batch {i + 1} failed after retries, skipping {len(batches[i])} accounts: {batch_ids}"
-                    )
-                    failed_batches.append({"batch": i + 1, "account_ids": batch_ids})
-                if completed % 100 == 0 or completed == total_batches:
-                    context.log.info(
-                        f"Progress: {completed}/{total_batches} batches "
-                        f"({completed * 100 // total_batches}%, {len(failed_batches)} failed so far)"
-                    )
+    context.log.info(
+        f"Classifying {len(accounts_to_classify)} accounts "
+        f"(skipping {skipped_count} recently classified, {len(account_data)} total)"
+    )
+
+    if accounts_to_classify.is_empty():
+        context.log.info("All accounts recently classified, nothing to do")
+        yield dagster.Output(
+            {"total": len(account_data), "skipped": skipped_count, "to_classify": 0}, output_name="summary"
+        )
+        return
+
+    # Cast MRR columns and compute use case adoption
+    mrr_cols = [col for cols in USE_CASE_MRR_MAPPING.values() for col in cols]
+    accounts_typed = accounts_to_classify.with_columns([pl.col(c).cast(pl.Float64, strict=False) for c in mrr_cols])
+    use_case_df = compute_use_case_adoption(accounts_typed)
+
+    # Build use_case_lookup for all accounts to classify
+    use_case_lookup: dict[str, dict[str, Any]] = {}
+    for row in use_case_df.to_dicts():
+        use_case_lookup[row["sf_account_id"]] = row
+
+    # Split into accounts batches and yield DynamicOutput for each
+    all_rows = accounts_to_classify.to_dicts()
+    total_batches = (len(all_rows) + config.accounts_batch_size - 1) // config.accounts_batch_size
+
+    for i in range(0, len(all_rows), config.accounts_batch_size):
+        chunk = all_rows[i : i + config.accounts_batch_size]
+        chunk_ids = {row["sf_account_id"] for row in chunk}
+        chunk_use_case = {sf_id: use_case_lookup[sf_id] for sf_id in chunk_ids if sf_id in use_case_lookup}
+
+        batch_index = i // config.accounts_batch_size
+        payload: AccountsBatchPayload = {
+            "accounts": chunk,
+            "use_case_lookup": chunk_use_case,
+            "batch_index": batch_index,
+            "total_batches": total_batches,
+        }
+        yield dagster.DynamicOutput(
+            value=payload,
+            mapping_key=str(batch_index),
+            output_name="accounts_batches",
+        )
+
+    summary: PipelineSummary = {
+        "total": len(account_data),
+        "skipped": skipped_count,
+        "to_classify": len(accounts_to_classify),
+    }
+    yield dagster.Output(summary, output_name="summary")
+
+
+@dagster.op
+def classify_and_push_accounts_batch(
+    context: dagster.OpExecutionContext,
+    config: ArchetypeClassificationConfig,
+    accounts_batch: dict,
+) -> dict:
+    """Classify a batch of accounts via LLM and push results to Salesforce."""
+    accounts = accounts_batch["accounts"]
+    use_case_lookup = accounts_batch["use_case_lookup"]
+    batch_index = accounts_batch["batch_index"]
+    total_batches = accounts_batch["total_batches"]
+
+    context.log.info(f"Accounts batch {batch_index + 1}/{total_batches}: classifying {len(accounts)} accounts")
+
+    # Prepare LLM batches from the accounts batch
+    classify_df = pl.DataFrame(accounts, infer_schema_length=None)
+    llm_batches = prepare_llm_batches(classify_df, batch_size=config.llm_batch_size)
+
+    # Classify LLM batches with global concurrency control. The semaphore is shared
+    # across all accounts batches running in parallel so the total in-flight LLM
+    # requests stays bounded regardless of executor parallelism.
+    client = get_llm_client("customer_archetype_classification")
+    semaphore = _get_llm_semaphore(config.llm_max_concurrent_requests)
+    new_classifications: list[AccountClassification] = []
+    failed_batches: list[dict[str, Any]] = []
+    completed = 0
+    total_llm_batches = len(llm_batches)
+
+    def _throttled_classify(batch: list[dict[str, Any]]) -> list[AccountClassification]:
+        with semaphore:
+            return _classify_batch(client, batch)
+
+    with ThreadPoolExecutor(max_workers=min(config.llm_max_workers, config.llm_max_concurrent_requests)) as pool:
+        futures = {pool.submit(_throttled_classify, batch): i for i, batch in enumerate(llm_batches)}
+        for future in as_completed(futures):
+            i = futures[future]
+            completed += 1
+            try:
+                new_classifications.extend(future.result())
+            except Exception:
+                batch_ids = [a.get("sf_account_id", "?") for a in llm_batches[i]]
+                context.log.exception(
+                    f"LLM batch {i + 1} failed after retries, skipping {len(llm_batches[i])} accounts: {batch_ids}"
+                )
+                failed_batches.append({"batch": i + 1, "account_ids": batch_ids})
+            if completed % 50 == 0 or completed == total_llm_batches:
+                context.log.info(
+                    f"Accounts batch {batch_index + 1}: {completed}/{total_llm_batches} LLM batches "
+                    f"({completed * 100 // total_llm_batches}%, {len(failed_batches)} failed)"
+                )
 
     new_classifications = apply_deterministic_archetype(new_classifications)
 
-    # Merge new + carried forward
-    all_classifications = new_classifications + [AccountClassification.model_validate(c) for c in carried_forward]
+    # Build Salesforce records with use case adoption data
+    use_case_rows = [
+        use_case_lookup[c.sf_account_id] for c in new_classifications if c.sf_account_id in use_case_lookup
+    ]
+    use_case_df = pl.DataFrame(use_case_rows, infer_schema_length=None) if use_case_rows else pl.DataFrame()
+    records = build_salesforce_records(new_classifications, use_case_df)
 
-    # Store hashes and classifications in metadata for next run
-    current_hashes = {row["sf_account_id"]: row["data_hash"] for row in hashed_df.to_dicts()}
-    current_classifications = {c.sf_account_id: c.model_dump() for c in all_classifications}
+    # Stamp each record with the classification timestamp
+    classified_at = datetime.now(UTC).strftime(SF_DATETIME_FORMAT)
+    for record in records:
+        record["customer_archetype_classified_at__c"] = classified_at
 
-    context.add_output_metadata(
-        {
-            "total_classified": dagster.MetadataValue.int(len(all_classifications)),
-            "newly_classified": dagster.MetadataValue.int(len(new_classifications)),
-            "carried_forward": dagster.MetadataValue.int(len(carried_forward)),
-            "failed_batches": dagster.MetadataValue.json(failed_batches),
-            "account_hashes": dagster.MetadataValue.json(current_hashes),
-            "classifications": dagster.MetadataValue.json(current_classifications),
-        }
+    # Push to Salesforce (fresh client per batch to avoid session timeouts)
+    sf = get_salesforce_client()
+    succeeded, failed = bulk_update_salesforce_accounts(sf, records) if records else (0, 0)
+
+    context.log.info(
+        f"Accounts batch {batch_index + 1}/{total_batches}: "
+        f"classified {len(new_classifications)}, SF succeeded {succeeded}, SF failed {failed}, "
+        f"LLM batches failed {len(failed_batches)}"
     )
 
-    # Convert to DataFrame for downstream
-    if not all_classifications:
-        return pl.DataFrame()
+    return {
+        "classified": len(new_classifications),
+        "sf_succeeded": succeeded,
+        "sf_failed": failed,
+        "llm_batches_failed": len(failed_batches),
+    }
 
-    return pl.DataFrame([c.model_dump() for c in all_classifications])
 
-
-@dagster.asset(
-    name="archetype_to_salesforce",
-    group_name="billing",
-    tags={"owner": JobOwners.TEAM_BILLING.value},
-    deps=["archetype_llm_classification", "archetype_account_data"],
-)
-def archetype_to_salesforce(
-    context: dagster.AssetExecutionContext,
-    archetype_llm_classification: pl.DataFrame,
-    archetype_account_data: pl.DataFrame,
+@dagster.op
+def collect_results(
+    context: dagster.OpExecutionContext,
+    batch_results: list[dict],
+    summary: dict,
 ) -> None:
-    """Push archetype classifications and use case adoption to Salesforce."""
-    if archetype_llm_classification.is_empty():
-        context.log.info("No classifications to push")
-        return
+    """Aggregate results from all accounts batches and store lightweight metadata.
 
-    # Compute use case adoption from MRR data
-    mrr_cols = [col for cols in USE_CASE_MRR_MAPPING.values() for col in cols]
-    account_data_typed = archetype_account_data.with_columns(
-        [pl.col(c).cast(pl.Float64, strict=False) for c in mrr_cols]
+    SF failures are logged as warnings rather than raised as exceptions. Raising
+    would mark the entire asset as failed, preventing Dagster from recording a
+    materialization — which means the next run would re-process accounts that
+    already succeeded. Since each accounts batch already pushed its successes to SF,
+    the data is safely persisted regardless.
+    """
+    total_classified = sum(r["classified"] for r in batch_results)
+    total_sf_succeeded = sum(r["sf_succeeded"] for r in batch_results)
+    total_sf_failed = sum(r["sf_failed"] for r in batch_results)
+    total_llm_failed = sum(r["llm_batches_failed"] for r in batch_results)
+
+    context.log.info(
+        f"Pipeline complete: {summary['total']} total accounts, {summary['skipped']} skipped, "
+        f"{total_classified} classified, SF succeeded {total_sf_succeeded}, SF failed {total_sf_failed}"
     )
-    use_case_df = compute_use_case_adoption(account_data_typed)
-
-    # Reconstruct classifications from DataFrame
-    classifications = [AccountClassification.model_validate(row) for row in archetype_llm_classification.to_dicts()]
-
-    # Build Salesforce update records and filter to only changed ones
-    all_records = build_salesforce_records(classifications, use_case_df)
-    prior_sf_hashes = _get_prior_sf_record_hashes(context)
-
-    current_sf_hashes: dict[str, str] = {}
-    changed_records: list[dict[str, Any]] = []
-    for record in all_records:
-        sf_id = record["Id"]
-        record_hash = _hash_sf_record(record)
-        current_sf_hashes[sf_id] = record_hash
-        if prior_sf_hashes.get(sf_id) != record_hash:
-            changed_records.append(record)
-
-    context.log.info(f"{len(changed_records)} of {len(all_records)} records changed, pushing to Salesforce")
-
-    succeeded, failed = 0, 0
-    if changed_records:
-        sf = get_salesforce_client()
-        succeeded, failed = bulk_update_salesforce_accounts(sf, changed_records)
 
     context.add_output_metadata(
         {
-            "records_considered": dagster.MetadataValue.int(len(all_records)),
-            "records_changed": dagster.MetadataValue.int(len(changed_records)),
-            "records_succeeded": dagster.MetadataValue.int(succeeded),
-            "records_failed": dagster.MetadataValue.int(failed),
-            "sf_record_hashes": dagster.MetadataValue.json(current_sf_hashes),
+            "total_accounts": dagster.MetadataValue.int(summary["total"]),
+            "accounts_skipped": dagster.MetadataValue.int(summary["skipped"]),
+            "accounts_to_classify": dagster.MetadataValue.int(summary["to_classify"]),
+            "total_classified": dagster.MetadataValue.int(total_classified),
+            "batches_completed": dagster.MetadataValue.int(len(batch_results)),
+            "sf_succeeded": dagster.MetadataValue.int(total_sf_succeeded),
+            "sf_failed": dagster.MetadataValue.int(total_sf_failed),
+            "llm_batches_failed": dagster.MetadataValue.int(total_llm_failed),
         }
     )
 
-    if failed:
-        raise RuntimeError(f"Salesforce update had {failed} failures out of {len(changed_records)} records")
+    if total_sf_failed:
+        context.log.warning(
+            f"Salesforce update had {total_sf_failed} failures "
+            f"out of {total_sf_succeeded + total_sf_failed} records across {len(batch_results)} accounts batches. "
+            f"Failed accounts will be retried on the next run (their timestamps were not updated)."
+        )
 
 
 # --------------------------------------------------------------------------- #
-# Incremental processing helpers
+# Graph asset: classify and sync to Salesforce
 # --------------------------------------------------------------------------- #
 
 
-def _get_prior_materialization_metadata(
-    context: dagster.AssetExecutionContext,
-) -> tuple[dict[str, str], dict[str, dict]]:
-    """Retrieve account hashes and classifications from the last materialization."""
-    asset_key = dagster.AssetKey(["archetype_llm_classification"])
-    last_event = context.instance.get_latest_materialization_event(asset_key)
-    if not last_event or not last_event.asset_materialization:
-        return {}, {}
-    metadata = last_event.asset_materialization.metadata
-
-    hashes: dict[str, str] = {}
-    hashes_meta = metadata.get("account_hashes")
-    if hashes_meta and isinstance(hashes_meta, dagster.JsonMetadataValue):
-        hashes = cast(dict[str, str], hashes_meta.value or {})
-
-    classifications: dict[str, dict] = {}
-    classifications_meta = metadata.get("classifications")
-    if classifications_meta and isinstance(classifications_meta, dagster.JsonMetadataValue):
-        classifications = cast(dict[str, dict], classifications_meta.value or {})
-
-    return hashes, classifications
-
-
-def _get_prior_sf_record_hashes(context: dagster.AssetExecutionContext) -> dict[str, str]:
-    """Retrieve Salesforce record hashes from the last archetype_to_salesforce materialization."""
-    asset_key = dagster.AssetKey(["archetype_to_salesforce"])
-    last_event = context.instance.get_latest_materialization_event(asset_key)
-    if not last_event or not last_event.asset_materialization:
-        return {}
-    metadata = last_event.asset_materialization.metadata
-    hashes_meta = metadata.get("sf_record_hashes")
-    if hashes_meta and isinstance(hashes_meta, dagster.JsonMetadataValue):
-        return cast(dict[str, str], hashes_meta.value or {})
-    return {}
+@dagster.graph_asset(
+    name="archetype_classify_and_sync",
+    group_name="billing",
+    tags={
+        "owner": JobOwners.TEAM_BILLING.value,
+        "dagster/max_runtime": str(12 * 60 * 60),
+    },
+)
+def archetype_classify_and_sync(archetype_account_data: pl.DataFrame):
+    accounts_batches, summary = prepare_and_fan_out(archetype_account_data)
+    results = accounts_batches.map(classify_and_push_accounts_batch)
+    return collect_results(results.collect(), summary)
 
 
 # --------------------------------------------------------------------------- #
@@ -600,7 +713,7 @@ def _get_prior_sf_record_hashes(context: dagster.AssetExecutionContext) -> dict[
 
 archetype_job = dagster.define_asset_job(
     name="customer_archetype_job",
-    selection=["archetype_account_data", "archetype_llm_classification", "archetype_to_salesforce"],
+    selection=["archetype_account_data", "archetype_classify_and_sync"],
     tags={"owner": JobOwners.TEAM_BILLING.value},
 )
 

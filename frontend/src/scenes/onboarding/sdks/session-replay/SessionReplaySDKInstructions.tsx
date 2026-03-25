@@ -10,6 +10,7 @@ import {
     NuxtInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     SessionReplayFinalSteps,
     SvelteInstallation,
@@ -26,9 +27,11 @@ import { urls } from 'scenes/urls'
 
 import { OnboardingStepKey, SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 const SNIPPETS = {
+    ...JS_WEB_SNIPPETS,
     SessionReplayFinalSteps,
 }
 
@@ -73,6 +76,10 @@ const SessionReplayNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: SNIPPETS,
     wizardIntegrationName: 'Nuxt',
+})
+const SessionReplayReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SNIPPETS,
 })
 const SessionReplayRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
@@ -124,6 +131,7 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: SessionReplayNextJSInstructionsWrapper,
     [SDKKey.NUXT_JS]: SessionReplayNuxtJSInstructionsWrapper,
     [SDKKey.REACT]: SessionReplayReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: SessionReplayReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: SessionReplayRemixJSInstructionsWrapper,
     [SDKKey.TANSTACK_START]: SessionReplayReactInstructionsWrapper,
     [SDKKey.SVELTE]: SessionReplaySvelteInstructionsWrapper,
