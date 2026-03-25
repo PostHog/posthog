@@ -1,22 +1,31 @@
-from datetime import date, datetime, UTC
+from datetime import UTC, date, datetime
+
+import pytest
 from unittest.mock import patch
 
+from django.db import connection as django_connection
+
 import pyarrow as pa
-import pytest
+import structlog
 from psycopg import sql
 
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
-    SSL_REQUIRED_AFTER_DATE,
     _build_query,
+    _get_primary_keys,
     _get_sslmode,
+    _get_table,
+    _has_duplicate_primary_keys,
+    _is_read_replica,
     _normalize_function_names,
     filter_postgres_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 
@@ -347,7 +356,7 @@ class TestJsonAsStringLoader:
         assert loader.load(None) is None
 
     def test_loads_unicode(self, loader):
-        result = loader.load("héllo".encode("utf-8"))
+        result = loader.load("héllo".encode())
         assert result == "héllo"
 
 
@@ -380,12 +389,6 @@ class TestSSLRequiredAfterDate:
 class TestGetPrimaryKeys:
     @pytest.mark.django_db
     def test_returns_primary_keys_for_table(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _get_primary_keys
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -401,12 +404,6 @@ class TestGetPrimaryKeys:
 
     @pytest.mark.django_db
     def test_returns_none_for_table_without_primary_key(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _get_primary_keys
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -421,12 +418,6 @@ class TestGetPrimaryKeys:
 
     @pytest.mark.django_db
     def test_returns_composite_primary_keys(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _get_primary_keys
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -448,12 +439,6 @@ class TestGetPrimaryKeys:
 class TestHasDuplicatePrimaryKeys:
     @pytest.mark.django_db
     def test_returns_false_when_no_primary_keys(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _has_duplicate_primary_keys
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -462,12 +447,6 @@ class TestHasDuplicatePrimaryKeys:
 
     @pytest.mark.django_db
     def test_returns_false_when_no_duplicates(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _has_duplicate_primary_keys
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -483,12 +462,6 @@ class TestHasDuplicatePrimaryKeys:
 
     @pytest.mark.django_db
     def test_returns_true_when_duplicates_exist(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _has_duplicate_primary_keys
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -506,10 +479,6 @@ class TestHasDuplicatePrimaryKeys:
 class TestIsReadReplica:
     @pytest.mark.django_db
     def test_primary_is_not_read_replica(self):
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _is_read_replica
-
         with django_connection.cursor() as dj_cursor:
             result = _is_read_replica(dj_cursor)
             assert result is False
@@ -518,12 +487,6 @@ class TestIsReadReplica:
 class TestGetTable:
     @pytest.mark.django_db
     def test_regular_table(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _get_table
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -543,12 +506,6 @@ class TestGetTable:
 
     @pytest.mark.django_db
     def test_view(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _get_table
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -559,12 +516,6 @@ class TestGetTable:
 
     @pytest.mark.django_db
     def test_materialized_view(self):
-        import structlog
-
-        from django.db import connection as django_connection
-
-        from posthog.temporal.data_imports.sources.postgres.postgres import _get_table
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
