@@ -744,7 +744,7 @@ def _build_snapshots_yaml(
         "snapshots": sorted_snapshots,
     }
 
-    return yaml.dump(data, default_flow_style=False, sort_keys=False)
+    return yaml.dump(data, default_flow_style=False, sort_keys=False, indent=4)
 
 
 def _post_commit_status(

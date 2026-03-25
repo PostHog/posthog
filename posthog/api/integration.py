@@ -71,6 +71,9 @@ class GitHubBranchesQuerySerializer(serializers.Serializer):
 
 class GitHubBranchesResponseSerializer(serializers.Serializer):
     branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
+    default_branch = serializers.CharField(
+        help_text="The default branch of the repository", required=False, allow_null=True
+    )
 
 
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -561,7 +564,18 @@ class IntegrationViewSet(
         ):
             raise ValidationError("repo must be in owner/repo format")
         github = GitHubIntegration(self.get_object())
-        return Response({"branches": github.list_branches(repo)})
+        branches = github.list_branches(repo)
+        try:
+            default_branch = github.get_default_branch(repo)
+        except Exception:
+            default_branch = None
+
+        # Default branch first
+        if default_branch and default_branch in branches:
+            branches.remove(default_branch)
+            branches.insert(0, default_branch)
+
+        return Response({"branches": branches, "default_branch": default_branch})
 
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:

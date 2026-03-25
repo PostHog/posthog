@@ -18,6 +18,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RubyInstallation,
     RubyOnRailsInstallation,
@@ -187,6 +188,10 @@ const ExperimentsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     snippets: SSR_FRAMEWORK_SNIPPETS,
     wizardIntegrationName: 'Svelte',
 })
+const ExperimentsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
 const ExperimentsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
@@ -260,6 +265,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ExperimentsPythonInstructionsWrapper,
     [SDKKey.REACT]: ExperimentsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ExperimentsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: ExperimentsReactRouterInstructionsWrapper,
     [SDKKey.TANSTACK_START]: withOnboardingDocsWrapper({
         Installation: ReactInstallation,
         snippets: REACT_SNIPPETS,
