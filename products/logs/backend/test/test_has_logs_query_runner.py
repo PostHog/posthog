@@ -124,7 +124,10 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             """)
 
         # First call should hit the database and cache the result
-        with patch("products.logs.backend.api.HasLogsQueryRunner") as mock_runner:
+        with (
+            patch("products.logs.backend.api.HasLogsQueryRunner") as mock_runner,
+            patch("products.logs.backend.api.report_user_action") as mock_report,
+        ):
             mock_runner.return_value.run.return_value = True
 
             response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
@@ -132,11 +135,17 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.json(), {"hasLogs": True})
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
 
+            assert mock_report.call_args[0][1] == "logs has_logs checked"
+            assert mock_report.call_args[0][2]["has_logs"] is True
+
             # Second call should use cache, not hit the runner again
             response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"hasLogs": True})
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
+
+            # Tracking should fire on both cached and uncached paths
+            assert mock_report.call_count == 2
 
     def test_has_logs_api_does_not_cache_negative_results(self):
         cache.clear()

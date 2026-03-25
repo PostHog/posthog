@@ -14,7 +14,16 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+from posthog.schema import (
+    ProductKey,
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
 
 from posthog.hogql.database.database import Database
 
@@ -70,15 +79,98 @@ from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKin
 logger = structlog.get_logger(__name__)
 
 
-def get_password_field_names(fields: list[FieldType]) -> set[str]:
-    """Extract field names that have PASSWORD type from a source config's fields."""
-    password_fields: set[str] = set()
+def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
+    """Extract field names that contain sensitive data from a source config's fields."""
+    sensitive: set[str] = set()
     for field in fields:
         if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
-            password_fields.add(field.name)
+            sensitive.add(field.name)
+        elif isinstance(field, SourceFieldFileUploadConfig):
+            sensitive.add(field.name)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
-            password_fields.update(get_password_field_names(field.fields))
-    return password_fields
+            sensitive.update(get_sensitive_field_names(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    sensitive.update(get_sensitive_field_names(option.fields))
+    return sensitive
+
+
+def _add_name_variants(target: set[str], name: str) -> None:
+    """Add a field name and its underscore variant to a set.
+
+    Source field names may use hyphens (e.g. "temporary-dataset") while
+    dataclasses.asdict() persists the snake_case field name ("temporary_dataset").
+    We need to recognise both forms when classifying persisted job_inputs.
+    """
+    target.add(name)
+    normalised = name.replace("-", "_")
+    if normalised != name:
+        target.add(normalised)
+
+
+def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple[set[str], set[str]]:
+    """Classify source config field names as nonsensitive or sensitive.
+
+    Returns (nonsensitive, sensitive) sets of field names, flattened across all nesting levels.
+    """
+    nonsensitive: set[str] = set()
+    sensitive: set[str] = set()
+
+    for field in fields:
+        if isinstance(field, SourceFieldInputConfig):
+            if field.type == SourceFieldInputConfigType.PASSWORD:
+                _add_name_variants(sensitive, field.name)
+            else:
+                _add_name_variants(nonsensitive, field.name)
+        elif isinstance(field, SourceFieldFileUploadConfig):
+            _add_name_variants(sensitive, field.name)
+        elif isinstance(field, SourceFieldSelectConfig):
+            _add_name_variants(nonsensitive, field.name)
+            for option in field.options:
+                if option.fields:
+                    ns, s = get_nonsensitive_and_sensitive_field_names(option.fields)
+                    nonsensitive.update(ns)
+                    sensitive.update(s)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            _add_name_variants(nonsensitive, field.name)
+            ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
+            nonsensitive.update(ns)
+            sensitive.update(s)
+        elif isinstance(field, SourceFieldOauthConfig):
+            _add_name_variants(nonsensitive, field.name)
+        elif isinstance(field, SourceFieldSSHTunnelConfig):
+            _add_name_variants(nonsensitive, field.name)
+            # SSH tunnel has a known nested structure not declared in the field tree.
+            # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
+            nonsensitive.update({"host", "port", "username", "auth", "auth_type"})
+            sensitive.update({"password", "passphrase", "private_key"})
+
+    return nonsensitive, sensitive
+
+
+# Config metadata keys that are always safe to include in nested dicts
+_CONFIG_META_KEYS = {"selection", "enabled"}
+
+
+def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set[str]) -> dict:
+    """Return a copy of data with sensitive and unknown keys removed.
+
+    Keys in the nonsensitive set or config metadata keys are kept.
+    Keys in the sensitive set or not in any known set are stripped.
+    Nested dicts are processed recursively.
+    """
+    result: dict = {}
+    for key, value in data.items():
+        if key in sensitive:
+            continue
+        if key not in nonsensitive and key not in _CONFIG_META_KEYS:
+            continue
+        if isinstance(value, dict):
+            result[key] = strip_sensitive_from_dict(value, nonsensitive, sensitive)
+        else:
+            result[key] = value
+    return result
 
 
 def get_direct_postgres_connection_metadata(
@@ -265,94 +357,35 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
         ]
 
-    """
-    This method is used to remove sensitive fields from the response.
-    IMPORTANT: This method should be updated when a new source type is added to allow for editing of the new source.
-    """
-
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        # non-sensitive fields
-        job_inputs_allowed_keys = {
-            # stripe
-            "stripe_account_id",
-            # sql
-            "database",
-            "host",
-            "port",
-            "user",
-            "schema",
-            "ssh_tunnel",
-            "using_ssl",
-            # vitally
-            "region",
-            # chargebee
-            "site_name",
-            # zendesk
-            "subdomain",
-            "email_address",
-            # hubspot
-            "hubspot_integration_id",
-            "custom_properties",
-            # snowflake
-            "account_id",
-            "warehouse",
-            "role",
-            # bigquery
-            "dataset_id",
-            "temporary_dataset",
-            "dataset_project",
-            # google ads
-            "customer_id",
-            "google_ads_integration_id",
-            "is_mcc_account",
-            # google sheets
-            "spreadsheet_url",
-            # linkedin ads
-            "linkedin_ads_integration_id",
-            # meta ads
-            "meta_ads_integration_id",
-            "sync_lookback_days",
-            # reddit ads
-            "reddit_integration_id",
-            # salesforce
-            "salesforce_integration_id",
-            # github
-            "repository",
-            # shopify
-            "shopify_store_id",
-            # temporal
-            "namespace",
-            # convex
-            "deploy_url",
-        }
         job_inputs = representation.get("job_inputs", {})
-        if isinstance(job_inputs, dict):
-            # Reconstruct ssh_tunnel (if needed) structure for UI handling
-            if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
-                existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
-                # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
-                existing_auth: dict = existing_ssh_tunnel.get("auth") or existing_ssh_tunnel.get("auth_type") or {}
-                ssh_tunnel = {
-                    "enabled": existing_ssh_tunnel.get("enabled", False),
-                    "host": existing_ssh_tunnel.get("host", None),
-                    "port": existing_ssh_tunnel.get("port", None),
-                    "auth": {
-                        # Check both 'type' (new format) and 'selection' (legacy format)
-                        "selection": existing_auth.get("type") or existing_auth.get("selection"),
-                        "username": existing_auth.get("username", None),
-                        # Note: password, passphrase, private_key intentionally omitted
-                        # to prevent them being sent back as null and overwriting stored values
-                    },
-                }
-                job_inputs["ssh_tunnel"] = ssh_tunnel
+        if not isinstance(job_inputs, dict):
+            return representation
 
-            # Remove sensitive fields
-            for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
-                if key not in job_inputs_allowed_keys:
-                    job_inputs.pop(key, None)
+        # Derive allowed keys dynamically from source config field definitions
+        try:
+            source_type_model = ExternalDataSourceType(instance.source_type)
+            source = SourceRegistry.get_source(source_type_model)
+            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
+        except (ValueError, KeyError):
+            representation["job_inputs"] = {}
+            return representation
 
+        # Normalize SSH tunnel legacy format before stripping
+        if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
+            tunnel = job_inputs["ssh_tunnel"]
+            # Normalize 'auth_type' (legacy from migration 0807) -> 'auth'
+            if "auth_type" in tunnel and "auth" not in tunnel:
+                tunnel["auth"] = tunnel.pop("auth_type")
+            if isinstance(tunnel.get("auth"), dict):
+                auth = tunnel["auth"]
+                # Normalize 'type' (legacy) -> 'selection'
+                if "type" in auth and "selection" not in auth:
+                    auth["selection"] = auth.pop("type")
+
+        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
@@ -433,12 +466,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
-        password_fields = get_password_field_names(source.get_source_config.fields)
+        sensitive_fields = get_sensitive_field_names(source.get_source_config.fields)
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
-        for key in password_fields:
+        for key in sensitive_fields:
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 

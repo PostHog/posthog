@@ -13875,6 +13875,43 @@
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
+        "ErrorTrackingSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "fingerprint": {
+                    "type": "string"
+                }
+            },
+            "required": ["fingerprint"],
+            "type": "object"
+        },
+        "ErrorTrackingSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ErrorTrackingSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "error_tracking",
+                    "type": "string"
+                },
+                "source_type": {
+                    "enum": ["issue_created", "issue_reopened", "issue_spiking"],
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "ErrorTrackingSimilarIssuesQuery": {
             "additionalProperties": false,
             "properties": {
@@ -32617,6 +32654,9 @@
                 },
                 {
                     "$ref": "#/definitions/LinearIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingSignalInput"
                 }
             ],
             "required": ["source_product"],
