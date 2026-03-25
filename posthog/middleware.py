@@ -24,7 +24,7 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
-from social_core.exceptions import AuthCanceled, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -820,15 +820,17 @@ class SocialAuthExceptionMiddleware:
         return self.get_response(request)
 
     def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
+        from urllib.parse import urlencode
+
         # Only handle exceptions on OAuth callback URLs
-        if not request.path.startswith("/complete/"):
+        if not request.path.startswith("/complete/") and not request.path.startswith("/login/"):
             return None
 
         # Handle AuthCanceled (user cancelled OAuth flow)
         if isinstance(exception, AuthCanceled):
             return redirect("/login?error_code=oauth_cancelled")
 
-        # Handle AuthFailed with specific error codes
+        # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
             if error in (
@@ -840,7 +842,12 @@ class SocialAuthExceptionMiddleware:
             ):
                 return redirect(f"/login?error_code={error}")
 
-        # Handle other exceptions with existing middleware
+        # Handle any other social auth exception by passing the error detail to the frontend
+        if isinstance(exception, AuthException):
+            error_detail = str(exception) if str(exception) else "An unexpected error occurred during authentication."
+            params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
+            return redirect(f"/login?{params}")
+
         return None
 
 

@@ -11,7 +11,7 @@ from django.test import Client as DjangoClient
 from django.urls import reverse
 
 from rest_framework import status
-from social_core.exceptions import AuthCanceled
+from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -1388,3 +1388,105 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         self.assertIsNotNone(response)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.url, "/login?error_code=oauth_cancelled")
+
+    def test_sso_enforced_redirects_with_error_code(self):
+        """Test that AuthFailed with SSO enforced error codes redirects with the specific code"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/complete/saml/")
+        exception = AuthFailed("saml", "saml_sso_enforced")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.url, "/login?error_code=saml_sso_enforced")
+
+    def test_auth_failed_redirects_with_error_detail(self):
+        """Test that a generic AuthFailed exception redirects with the error message as error_detail"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/complete/saml/")
+        exception = AuthFailed("saml", "SAML not configured for this user.")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error_code=social_login_failure", response.url)
+        self.assertIn("error_detail=", response.url)
+        self.assertIn("SAML", response.url)
+
+    def test_auth_missing_parameter_redirects_with_error_detail(self):
+        """Test that AuthMissingParameter redirects with error detail"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/complete/saml/")
+        exception = AuthMissingParameter("saml", "email")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error_code=social_login_failure", response.url)
+        self.assertIn("error_detail=", response.url)
+
+    def test_non_auth_exception_not_handled(self):
+        """Test that non-social-auth exceptions are not handled by the middleware"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/complete/saml/")
+        exception = ValueError("some random error")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNone(response)
+
+    def test_non_complete_path_not_handled(self):
+        """Test that exceptions on non-OAuth paths are not handled"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/api/some-endpoint/")
+        exception = AuthFailed("saml", "some error")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNone(response)
+
+    def test_auth_failed_on_login_path_redirects(self):
+        """Test that AuthFailed on /login/<backend>/ paths is also handled"""
+        from django.test import RequestFactory
+
+        from posthog.middleware import SocialAuthExceptionMiddleware
+
+        middleware = SocialAuthExceptionMiddleware(lambda request: None)
+        factory = RequestFactory()
+        request = factory.get("/login/saml/")
+        exception = AuthFailed("saml", "SAML not configured for this user.")
+
+        response = middleware.process_exception(request, exception)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error_code=social_login_failure", response.url)
+        self.assertIn("SAML", response.url)
