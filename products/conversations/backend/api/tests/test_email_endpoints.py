@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client
 
+from parameterized import parameterized
+
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
@@ -67,19 +69,19 @@ class TestEmailChannelPermissions(BaseTest):
         super().setUp()
         self.client.force_login(self.user)
 
-    def test_member_cannot_connect_email(self):
-        response = self.client.post(
-            "/api/conversations/v1/email/connect",
-            {"from_email": "s@example.com", "from_name": "S"},
-            content_type="application/json",
-        )
-        assert response.status_code == 403
-
-    def test_member_cannot_disconnect_email(self):
-        response = self.client.post(
-            "/api/conversations/v1/email/disconnect",
-            content_type="application/json",
-        )
+    @parameterized.expand(
+        [
+            (
+                "connect",
+                "post",
+                "/api/conversations/v1/email/connect",
+                {"from_email": "s@example.com", "from_name": "S"},
+            ),
+            ("disconnect", "post", "/api/conversations/v1/email/disconnect", {}),
+        ]
+    )
+    def test_member_cannot_access(self, _name, method, path, body):
+        response = getattr(self.client, method)(path, body, content_type="application/json")
         assert response.status_code == 403
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
@@ -94,6 +96,16 @@ class TestEmailChannelPermissions(BaseTest):
         response = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "s@example.com", "from_name": "S"},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+    def test_admin_can_disconnect_email(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/email/disconnect",
             content_type="application/json",
         )
         assert response.status_code == 200

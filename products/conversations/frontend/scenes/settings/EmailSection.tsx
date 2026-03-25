@@ -252,7 +252,7 @@ function EmailChannelSection(): JSX.Element {
                             type="secondary"
                             status="danger"
                             size="small"
-                            disabledReason={adminRestrictionReason ?? undefined}
+                            disabledReason={adminRestrictionReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Disconnect email?',

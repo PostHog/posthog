@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
 
@@ -236,15 +237,14 @@ class TestSlackChannelPermissions(BaseTest):
         super().setUp()
         self.client.force_login(self.user)
 
-    def test_member_cannot_authorize_slack(self):
-        response = self.client.get("/api/conversations/v1/slack/authorize")
-        assert response.status_code == 403
-
-    def test_member_cannot_disconnect_slack(self):
-        response = self.client.post(
-            "/api/conversations/v1/slack/disconnect",
-            content_type="application/json",
-        )
+    @parameterized.expand(
+        [
+            ("authorize", "get", "/api/conversations/v1/slack/authorize", {}),
+            ("disconnect", "post", "/api/conversations/v1/slack/disconnect", {}),
+        ]
+    )
+    def test_member_cannot_access(self, _name, method, path, body):
+        response = getattr(self.client, method)(path, body, content_type="application/json")
         assert response.status_code == 403
 
     @patch(
@@ -256,4 +256,17 @@ class TestSlackChannelPermissions(BaseTest):
         self.organization_membership.save()
 
         response = self.client.get("/api/conversations/v1/slack/authorize")
+        assert response.status_code == 200
+
+    @patch(
+        "products.conversations.backend.api.slack_oauth.clear_supporthog_slack_token",
+    )
+    def test_admin_can_disconnect_slack(self, _mock_clear: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/slack/disconnect",
+            content_type="application/json",
+        )
         assert response.status_code == 200

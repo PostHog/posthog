@@ -15,7 +15,7 @@ class IsConversationsAdmin(BasePermission):
         try:
             membership = OrganizationMembership.objects.get(
                 user=user,
-                organization=user.current_team.organization,
+                organization_id=user.current_team.organization_id,
             )
         except OrganizationMembership.DoesNotExist:
             return False

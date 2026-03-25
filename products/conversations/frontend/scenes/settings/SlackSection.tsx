@@ -74,7 +74,7 @@ function SlackChannelSection(): JSX.Element {
                         className="mt-2"
                         type="primary"
                         size="small"
-                        disabledReason={adminRestrictionReason ?? undefined}
+                        disabledReason={adminRestrictionReason}
                         onClick={() => connectSlack(window.location.pathname)}
                     >
                         Add SupportHog to Slack
@@ -201,7 +201,7 @@ function SlackChannelSection(): JSX.Element {
                             type="secondary"
                             status="danger"
                             size="small"
-                            disabledReason={adminRestrictionReason ?? undefined}
+                            disabledReason={adminRestrictionReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Remove SupportHog bot?',
