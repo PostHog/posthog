@@ -338,6 +338,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+
         updated = DataDeletionRequest.objects.filter(
             pk=obj.pk,
             status__in=[RequestStatus.PENDING, RequestStatus.APPROVED],
@@ -346,7 +347,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             approved=False,
             approved_by=None,
             approved_at=None,
+            updated_at=timezone.now(),
         )
+
 
         if not updated:
             messages.error(request, "Only pending or approved requests can be moved back to draft.")
