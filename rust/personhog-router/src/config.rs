@@ -87,7 +87,7 @@ pub struct Config {
 
     /// Maximum gRPC message size to encode (send), in bytes.
     /// Applied to the router's gRPC server and its backend clients (replica, leader).
-    /// Defaults to 128 MB.
+    /// Defaults to 128 MiB.
     #[envconfig(default = "134217728")]
     pub grpc_max_send_message_size: usize,
 
