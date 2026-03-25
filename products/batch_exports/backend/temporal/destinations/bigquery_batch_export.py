@@ -1,5 +1,4 @@
 import io
-import os
 import json
 import time
 import typing
@@ -366,16 +365,13 @@ class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
         )
 
     def get_aws_region(self, context, request) -> str:
-        """Similar to the default implementation, but without a fallback request."""
-        env_aws_region = os.environ.get("AWS_REGION")
-        if env_aws_region is not None:
-            return env_aws_region
+        """Return AWS region from boto3 session."""
+        region_name = self.session.region_name
 
-        env_aws_region = os.environ.get("AWS_DEFAULT_REGION")
-        if env_aws_region is not None:
-            return env_aws_region
+        if not region_name:
+            raise google.auth.exceptions.RefreshError("AWS region not populated", retryable=False)
 
-        raise google.auth.exceptions.RefreshError("AWS region not populated", retryable=False)
+        return region_name
 
 
 class ServiceAccountNotFoundError(Exception):
