@@ -37,12 +37,11 @@ program
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         try {
-            const exitCode = await runSubmit(options)
-            process.exit(exitCode)
+            await runSubmit(options)
         } catch (error) {
             console.error('Error:', error)
-            process.exit(1)
         }
+        process.exit(0)
     })
 
 // --- verify command ---
@@ -344,13 +343,13 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         return 0
     }
 
-    // 10. Exit code
+    // 10. Exit code — always 0 during migration (VR is observational)
+    // When VR becomes the gate, change this to exit 1 on changes
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
         log('Visual changes detected — review required')
-        return 1
+    } else {
+        log('No visual changes')
     }
-
-    log('No visual changes')
     return 0
 }
