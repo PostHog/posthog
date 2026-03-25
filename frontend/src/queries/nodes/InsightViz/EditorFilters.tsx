@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, } from 'react'
 
 import { IconArrowLeft, IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
@@ -521,17 +521,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             }
         >
             {showing && <Resizer {...resizerProps} />}
-            {editorPanelsEnabled && (
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={<IconArrowLeft />}
-                    onClick={() => window.history.back()}
-                    className="mb-1 -ml-2"
-                >
-                    Back
-                </LemonButton>
-            )}
             {shouldShowSessionAnalysisWarning ? (
                 <LemonBanner type="info" className="mb-4">
                     When using sessions and session properties, events without session IDs will be excluded from the set
@@ -590,36 +579,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
                         )}
                     >
-                        {editorPanelsEnabled && (
-                            <div className="border rounded bg-surface-primary group/colorful-product-icons colorful-product-icons-true">
-                                <div className="px-3 py-2">
-                                    <span className="text-[13px] font-semibold text-secondary">Insight type</span>
-                                </div>
-                                <div className="px-3 pb-3 pt-1">
-                                    <LemonSelect
-                                        value={activeView}
-                                        onChange={(newKey) => setActiveView(newKey)}
-                                        options={tabs.map(({ label, type }) => {
-                                            const fsType = INSIGHT_TYPE_TO_ICON_TYPE[type]
-                                            return {
-                                                value: type,
-                                                label,
-                                                icon: fsType
-                                                    ? iconForType(fsType)
-                                                    : INSIGHT_TYPES_METADATA[type]?.icon
-                                                      ? (() => {
-                                                            const Icon = INSIGHT_TYPES_METADATA[type].icon
-                                                            return <Icon />
-                                                        })()
-                                                      : undefined,
-                                            }
-                                        })}
-                                        dropdownMatchSelectWidth={false}
-                                        fullWidth
-                                    />
-                                </div>
-                            </div>
-                        )}
                         {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
                             <div
                                 key={title}

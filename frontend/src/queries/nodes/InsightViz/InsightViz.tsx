@@ -136,6 +136,9 @@ export function InsightViz({
                                         : 'InsightCard__viz'
                                 }
                             >
+                                {context?.sceneHeader && (
+                                    <div className="w-full shrink-0 px-4 py-2 [&_.-mt-4]:mt-0">{context.sceneHeader}</div>
+                                )}
                                 <EditorFilters
                                     query={query.source}
                                     showing={!readOnly && showingFilters}
@@ -143,10 +146,7 @@ export function InsightViz({
                                 />
                                 {!isEmbedded ? (
                                     <div className="flex-1 min-w-0 h-full flex flex-col">
-                                        {context?.sceneHeader && (
-                                            <div className="shrink-0 px-4 py-2 [&_.-mt-4]:mt-0">{context.sceneHeader}</div>
-                                        )}
-                                        <div className={clsx('flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden', context?.sceneHeader && 'bg-primary rounded-lg border p-4')}>{display}</div>
+                                        <div className={clsx('flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden', context?.sceneHeader && 'p-4')}>{display}</div>
                                     </div>
                                 ) : (
                                     display
