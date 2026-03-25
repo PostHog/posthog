@@ -392,8 +392,9 @@ class TestExports(APIBaseTest):
             },
         )
 
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
-    def test_can_download_a_csv(self, patched_request) -> None:
+    def test_can_download_a_csv(self, patched_request, _mock_workflow) -> None:
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             _create_event(
                 event="event_name",
@@ -977,23 +978,26 @@ class TestExports(APIBaseTest):
         self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
-        """Test that synchronous exports record failure info when a QueryError occurs."""
+    def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:
+        """Test that export_asset records failure info on the asset when a QueryError occurs.
+
+        The actual export now runs inside a Temporal workflow (tested in
+        test_export_workflow.py). This test verifies the underlying exporter
+        still records structured failure metadata on the ExportedAsset model.
+        """
         from posthog.hogql.errors import QueryError
 
         mock_export_direct.side_effect = QueryError("Unknown table 'nonexistent_table'")
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "insight": self.insight.id},
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/png",
+            insight=self.insight,
+            created_by=self.user,
         )
+        exporter.export_asset(asset.id)
 
-        # Should return 201 even though the export failed internally
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-
-        # Reload the asset and verify failure info was recorded
-        asset = ExportedAsset.objects.get(pk=data["id"])
+        asset.refresh_from_db()
         self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
@@ -1047,7 +1051,10 @@ class TestExportMixin(APIBaseTest):
         Use this function to test the CSV output of exports in other tests
         """
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
-            with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            with (
+                patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request,
+                patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow"),
+            ):
 
                 def requests_side_effect(*args, **kwargs):
                     response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
@@ -1070,6 +1077,10 @@ class TestExportMixin(APIBaseTest):
                         "export_format": "text/csv",
                     },
                 )
+                # Workflow is mocked so the export content isn't generated during
+                # the POST. Run the exporter directly to produce CSV content.
+                exporter.export_asset(response.json()["id"])
+
                 download_response = self.client.get(
                     f"/api/projects/{self.team.id}/exports/{response.json()['id']}/content?download=true"
                 )
