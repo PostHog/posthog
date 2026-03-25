@@ -1,10 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconInfo, IconX } from '@posthog/icons'
+import { IconArrowLeft, IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { pluralize } from 'lib/utils'
@@ -488,15 +490,48 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
 
+    const panelRef = useRef<HTMLDivElement>(null)
+    const resizerProps = useMemo(
+        () => ({
+            logicKey: 'insight-editor-panel',
+            persistent: true,
+            placement: 'right' as const,
+            containerRef: panelRef,
+        }),
+        []
+    )
+    const { desiredSize: panelWidth, isResizeInProgress: isResizing } = useValues(resizerLogic(resizerProps))
+
     return (
         <div
+            ref={panelRef}
             className={clsx(
-                'EditorFiltersWrapper transition-all duration-300 ease-out',
+                'EditorFiltersWrapper relative self-stretch bg-surface-secondary overflow-y-auto',
+                isResizing ? '' : 'transition-all duration-300 ease-out',
                 showing
-                    ? 'w-[30%] min-w-[26rem] max-w-[34rem] opacity-100'
-                    : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden'
+                    ? 'opacity-100 px-3 py-2'
+                    : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
             )}
+            style={
+                showing && panelWidth
+                    ? { width: panelWidth, minWidth: 320, maxWidth: 600 }
+                    : showing
+                      ? { width: '30%', minWidth: '26rem', maxWidth: '34rem' }
+                      : undefined
+            }
         >
+            {showing && <Resizer {...resizerProps} />}
+            {editorPanelsEnabled && (
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    icon={<IconArrowLeft />}
+                    onClick={() => window.history.back()}
+                    className="mb-1 -ml-2"
+                >
+                    Back
+                </LemonButton>
+            )}
             {shouldShowSessionAnalysisWarning ? (
                 <LemonBanner type="info" className="mb-4">
                     When using sessions and session properties, events without session IDs will be excluded from the set

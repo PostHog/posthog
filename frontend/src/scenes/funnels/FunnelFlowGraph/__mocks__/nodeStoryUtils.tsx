@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/utils'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics, InsightLogicProps } from '~/types'

@@ -1,7 +1,7 @@
 import { KeyType, LogicWrapper, connect, kea, key, path, props, selectors } from 'kea'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/utils'
 import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 

@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 
 import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { examples } from '~/queries/examples'
 import {
@@ -19,6 +20,7 @@ import {
     DashboardTile,
     DashboardType,
     FilterType,
+    InsightLogicProps,
     InsightModel,
     InsightType,
     QueryBasedInsightModel,
@@ -26,6 +28,15 @@ import {
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
+
+/** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
+export const insightVizDataNodeKey = (insightProps: InsightLogicProps<any>): string => {
+    return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
+}
+
+export const insightVizDataCollectionId = (props: InsightLogicProps<any> | undefined, fallback: string): string => {
+    return props?.dataNodeCollectionId ?? props?.dashboardId?.toString() ?? props?.dashboardItemId ?? fallback
+}
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {

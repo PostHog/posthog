@@ -69,6 +69,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
+    /** Header content rendered above the chart in the right column of the insight editor layout */
+    sceneHeader?: JSX.Element
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

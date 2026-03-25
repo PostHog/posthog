@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'

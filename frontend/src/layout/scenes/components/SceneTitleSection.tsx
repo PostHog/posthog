@@ -191,6 +191,11 @@ type SceneMainTitleProps = {
     forceBackTo?: Breadcrumb
 
     /**
+     * If true, hides the back button in the title section
+     */
+    hideBackButton?: boolean
+
+    /**
      * Additional class name for the title section
      */
     className?: string
@@ -226,6 +231,7 @@ export function SceneTitleSection({
     saveOnBlur = false,
     noBorder = false,
     noPadding = false,
+    hideBackButton = false,
     actions,
     forceBackTo,
     className,
@@ -238,7 +244,7 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
-    const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
+    const willShowBreadcrumbs = !hideBackButton && (forceBackTo || breadcrumbs.length > 2)
     const [isScrolled, setIsScrolled] = useState(false)
     const effectiveDescription = description
     const hasDescription = effectiveDescription != null && (effectiveDescription || canEdit)
@@ -290,7 +296,8 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    'group/scene-title-section @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    noBorder ? 'bg-transparent' : 'bg-primary',
                     noPadding ? '' : '-mx-4 px-4 -mt-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',

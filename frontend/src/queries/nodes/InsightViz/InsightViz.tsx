@@ -9,8 +9,6 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -20,16 +18,7 @@ import { InsightLogicProps } from '~/types'
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
-import { getCachedResults } from './utils'
-
-/** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
-export const insightVizDataNodeKey = (insightProps: InsightLogicProps<any>): string => {
-    return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
-}
-
-export const insightVizDataCollectionId = (props: InsightLogicProps<any> | undefined, fallback: string): string => {
-    return props?.dataNodeCollectionId ?? props?.dashboardId?.toString() ?? props?.dashboardItemId ?? fallback
-}
+import { getCachedResults, insightVizDataCollectionId, insightVizDataNodeKey } from './utils'
 
 type InsightVizProps = {
     uniqueKey?: string | number
@@ -135,13 +124,14 @@ export function InsightViz({
             <BindLogic logic={insightLogic} props={insightProps}>
                 <BindLogic logic={insightDataLogic} props={insightProps}>
                     <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                        <BindLogic logic={insightVizDataLogic} props={insightProps}>
+                                    <BindLogic     logic={insightVizDataLogic} props={insightProps}>
                             <div
                                 className={
                                     !isEmbedded
                                         ? clsx('InsightViz', {
                                               'InsightViz--horizontal':
                                                   editorPanelsEnabled || isFunnels || isRetention || isHorizontalAlways,
+                                              'flex-1 !gap-0 h-[calc(100vh-4rem)] -mt-4 -mx-4 -mb-4 bg-surface-secondary': editorPanelsEnabled && editMode,
                                           })
                                         : 'InsightCard__viz'
                                 }
@@ -151,7 +141,16 @@ export function InsightViz({
                                     showing={!readOnly && showingFilters}
                                     embedded={isEmbedded}
                                 />
-                                {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
+                                {!isEmbedded ? (
+                                    <div className="flex-1 min-w-0 h-full flex flex-col">
+                                        {context?.sceneHeader && (
+                                            <div className="shrink-0 px-4 py-2 [&_.-mt-4]:mt-0">{context.sceneHeader}</div>
+                                        )}
+                                        <div className={clsx('flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden', context?.sceneHeader && 'bg-primary rounded-lg border p-4')}>{display}</div>
+                                    </div>
+                                ) : (
+                                    display
+                                )}
                             </div>
                         </BindLogic>
                     </BindLogic>

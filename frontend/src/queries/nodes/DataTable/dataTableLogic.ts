@@ -8,7 +8,7 @@ import { RequiredExcept } from 'lib/utils/types'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
-import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/utils'
 import {
     AnyDataNode,
     AnyResponseType,
