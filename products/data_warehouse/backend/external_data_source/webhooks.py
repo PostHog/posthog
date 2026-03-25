@@ -81,6 +81,7 @@ def get_or_create_webhook_hog_function(
             team=team,
             type="warehouse_source_webhook",
             inputs__source_id__value=source_id,
+            deleted=False,
         )
         if existing_hog.inputs:
             existing_mapping = existing_hog.inputs.get("schema_mapping", {}).get("value", {})
@@ -171,6 +172,7 @@ def delete_webhook_and_hog_function(
             team=team,
             type="warehouse_source_webhook",
             inputs__source_id__value=source_id,
+            deleted=False,
         )
     except HogFunction.DoesNotExist:
         return WebhookDeletionSetupResult(success=True, external_deleted=False)

@@ -4862,7 +4862,7 @@ const api = {
         },
         async deleteWebhook(
             sourceId: ExternalDataSource['id']
-        ): Promise<{ success: boolean; external_deleted: boolean; error?: string }> {
+        ): Promise<{ success: boolean; external_deleted: boolean; error?: string | null }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {

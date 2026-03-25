@@ -1308,6 +1308,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 team=self.team,
                 type="warehouse_source_webhook",
                 inputs__source_id__value=str(instance.pk),
+                deleted=False,
             )
         except HogFunction.DoesNotExist:
             return Response(
@@ -1363,6 +1364,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     team=self.team,
                     type="warehouse_source_webhook",
                     inputs__source_id__value=str(instance.pk),
+                    deleted=False,
                 )
                 hog_function.deleted = True
                 hog_function.enabled = False

@@ -4,7 +4,6 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { WebhookInfo } from '~/types'
 
@@ -259,11 +258,7 @@ function WebhookDeleteSection({
                         </p>
                     )}
                 </div>
-                {!canDelete ? (
-                    <Tooltip title="Disable incremental syncing on all tables first">{deleteButton}</Tooltip>
-                ) : (
-                    deleteButton
-                )}
+                {deleteButton}
             </div>
         </LemonCard>
     )
