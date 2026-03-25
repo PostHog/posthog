@@ -256,27 +256,30 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
     const tree = useMemo(() => buildSpanTree(spans), [spans])
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
 
+    const { traceStartUs, traceDurationUs } = useMemo(() => {
+        if (spans.length === 0) {
+            return { traceStartUs: 0, traceDurationUs: 0 }
+        }
+        const startTimesUs = spans.map((s) => parseTimestampUs(s.timestamp))
+        const endTimesUs = spans.map((s) => parseTimestampUs(s.timestamp) + s.duration_nano / 1_000)
+        const traceStartUs = Math.min(...startTimesUs)
+        const traceEndUs = Math.max(...endTimesUs)
+        return { traceStartUs, traceDurationUs: traceEndUs - traceStartUs }
+    }, [spans])
+
     // Pre-compute snap points (span start/end as percentages of trace duration)
     const snapPointsPct = useMemo(() => {
-        if (spans.length === 0) {
-            return []
-        }
-        const startTimes = spans.map((s) => parseTimestampUs(s.timestamp))
-        const endTimes = spans.map((s) => parseTimestampUs(s.timestamp) + s.duration_nano / 1_000)
-        const start = Math.min(...startTimes)
-        const end = Math.max(...endTimes)
-        const duration = end - start
-        if (duration <= 0) {
+        if (traceDurationUs <= 0) {
             return []
         }
         const points = new Set<number>()
         for (const s of spans) {
             const spanStartUs = parseTimestampUs(s.timestamp)
-            points.add(((spanStartUs - start) / duration) * 100)
-            points.add(((spanStartUs + s.duration_nano / 1_000 - start) / duration) * 100)
+            points.add(((spanStartUs - traceStartUs) / traceDurationUs) * 100)
+            points.add(((spanStartUs + s.duration_nano / 1_000 - traceStartUs) / traceDurationUs) * 100)
         }
         return [...points].sort((a, b) => a - b)
-    }, [spans])
+    }, [spans, traceStartUs, traceDurationUs])
 
     const SNAP_THRESHOLD_PX = 6
 
@@ -316,11 +319,6 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
         return <div className="text-muted p-4">No spans in this trace</div>
     }
 
-    const startTimesUs = spans.map((s) => parseTimestampUs(s.timestamp))
-    const endTimesUs = spans.map((s) => parseTimestampUs(s.timestamp) + s.duration_nano / 1_000)
-    const traceStartUs = Math.min(...startTimesUs)
-    const traceEndUs = Math.max(...endTimesUs)
-    const traceDurationUs = traceEndUs - traceStartUs
     const ticks = getTimelineTicks(traceDurationUs)
 
     const cursorTimeUs = cursorPct !== null ? (cursorPct / 100) * traceDurationUs : null
