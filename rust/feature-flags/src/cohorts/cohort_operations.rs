@@ -479,6 +479,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     },
                     PropertyFilter {
                         key: "age".to_string(),
@@ -487,6 +488,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     },
                 ],
             }],

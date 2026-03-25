@@ -952,6 +952,7 @@ pub fn create_test_flag_that_depends_on_flag(
             prop_type: PropertyType::Flag,
             group_type_index: None,
             negation: None,
+            compiled_regex: None,
         },
     )
 }

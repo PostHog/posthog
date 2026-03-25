@@ -3,28 +3,12 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useState } from 'react'
 
-import {
-    IconCopy,
-    IconEllipsis,
-    IconFilter,
-    IconGroupIntersect,
-    IconPencil,
-    IconTrash,
-    IconWarning,
-} from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonCheckbox,
-    LemonDivider,
-    LemonMenu,
-    LemonSelect,
-    LemonSelectOption,
-    LemonSelectOptions,
-} from '@posthog/lemon-ui'
+import { IconCopy, IconEllipsis, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonCheckbox, LemonDivider, LemonMenu } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -34,7 +18,6 @@ import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
-    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -45,67 +28,39 @@ import {
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import {
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    MathCategory,
-    MathDefinition,
-    PROPERTY_MATH_DEFINITIONS,
-    apiValueToMathType,
-    mathTypeToApiValues,
-    mathsLogic,
-} from 'scenes/trends/mathsLogic'
+import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { MathType, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import {
-    TRAILING_MATH_TYPES,
-    getMathTypeWarning,
-    isInsightVizNode,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
-import {
-    ActionFilter,
-    ActionFilter as ActionFilterType,
     AnyPropertyFilter,
     BaseMathType,
-    ChartDisplayCategory,
-    ChartDisplayType,
-    CountPerActorMathType,
-    EntityType,
     EntityTypes,
-    FunnelExclusionLegacy,
-    HogQLMathType,
     InsightShortId,
-    InsightType,
     PropertyFilterType,
     PropertyFilterValue,
-    PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
-import { LocalFilter } from '../entityFilterLogic'
-import { entityFilterLogicType } from '../entityFilterLogicType'
+import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { MathSelector } from './MathSelector'
+import type { ActionFilterRowProps } from './types'
+import { MathAvailability } from './types'
 
-// Property math types that can be meaningfully aggregated when rolling up histogram buckets
-// e.g. taking p99 of p99 values doesn't make sense
-const SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = new Set([
-    PropertyMathType.Sum,
-    PropertyMathType.Average,
-    PropertyMathType.Minimum,
-    PropertyMathType.Maximum,
-])
+// Re-export for backward compatibility — these are imported from this file by 28+ consumers
+export { MathAvailability } from './types'
+export type { ActionFilterRowProps, MathSelectorProps } from './types'
+export { taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+export { MathSelector } from './MathSelector'
 
 interface DragHandleProps {
     listeners: DraggableSyntheticListeners | undefined
@@ -116,88 +71,6 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
         <SortableDragIcon />
     </span>
 )
-
-export enum MathAvailability {
-    All,
-    ActorsOnly,
-    FunnelsOnly,
-    CalendarHeatmapOnly,
-    BoxPlotOnly,
-    None,
-}
-
-const getValue = (
-    value: string | number | null | undefined,
-    filter: ActionFilter
-): string | number | null | undefined => {
-    if (isAllEventsEntityFilter(filter)) {
-        return 'All events'
-    } else if (filter.type === 'actions') {
-        return typeof value === 'string' ? parseInt(value) : value || undefined
-    }
-    return value === null ? null : value || undefined
-}
-
-export interface ActionFilterRowProps {
-    logic: BuiltLogic<entityFilterLogicType>
-    filter: LocalFilter
-    index: number
-    typeKey: string
-    mathAvailability: MathAvailability
-    singleFilter?: boolean
-    hideFilter?: boolean // Hides the local filter options
-    hideRename?: boolean // Hides the rename option
-    hideDuplicate?: boolean // Hides the duplicate option
-    hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
-    showCombine?: boolean // Show the combine inline events option
-    insightType?: InsightType // The type of insight (trends, funnels, etc.)
-    propertyFiltersPopover?: boolean
-    onRenameClick?: () => void // Used to open rename modal
-    showSeriesIndicator?: boolean // Show series badge
-    seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
-    filterCount: number
-    sortable: boolean
-    customRowSuffix?:
-        | string
-        | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelExclusionLegacy
-              index: number
-              onClose: () => void
-          }) => JSX.Element) // Custom suffix element to show in each row
-    hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
-    showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
-    actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
-    propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for property filters
-    disabled?: boolean
-    readOnly?: boolean
-    renderRow?: ({
-        seriesIndicator,
-        filter,
-        suffix,
-        propertyFiltersButton,
-        renameRowButton,
-        deleteButton,
-    }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
-    trendsDisplayCategory: ChartDisplayCategory | null
-    /** Whether properties shown should be limited to just numerical types */
-    showNumericalPropsOnly?: boolean
-    /** Only allow these math types in the selector */
-    allowedMathTypes?: readonly string[]
-    /** Fields to display in the data warehouse filter popover */
-    dataWarehousePopoverFields?: DataWarehousePopoverField[]
-    /** Whether to add left padding to the filters div to align with suffix content */
-    filtersLeftPadding?: boolean
-    /** Doc link to show in the tooltip of the New Filter button */
-    addFilterDocLink?: string
-    /** Doc link to show in the tooltip of the Combine events button */
-    inlineEventsDocLink?: string
-    /** Allow adding non-captured events */
-    allowNonCapturedEvents?: boolean
-    hogQLGlobals?: Record<string, any>
-    definitionPopoverRenderer?: DefinitionPopoverRenderer
-    operatorAllowlist?: PropertyOperator[]
-}
 
 export function ActionFilterRow({
     logic,
@@ -980,468 +853,4 @@ export function ActionFilterRow({
             )}
         </li>
     )
-}
-
-export interface MathSelectorProps {
-    math?: string
-    mathGroupTypeIndex?: number | null
-    mathAvailability: MathAvailability
-    index: number
-    disabled?: boolean
-    disabledReason?: string
-    onMathSelect: (index: number, value: any) => any
-    trendsDisplayCategory: ChartDisplayCategory | null
-    style?: React.CSSProperties
-    size?: LemonButtonProps['size']
-    /** Only allow these math types in the selector */
-    allowedMathTypes?: readonly string[]
-    query?: Record<string, any>
-}
-
-function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
-    return !!math && math in PROPERTY_MATH_DEFINITIONS
-}
-
-function isCountPerActorMath(math: string | undefined): math is CountPerActorMathType {
-    return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
-}
-
-function getDefaultPropertyMathType(
-    math: string | undefined,
-    allowedMathTypes: readonly string[] | undefined
-): PropertyMathType {
-    if (isPropertyValueMath(math)) {
-        return math
-    }
-    if (allowedMathTypes?.length) {
-        const propertyMathTypes = allowedMathTypes.filter(isPropertyValueMath)
-        return (propertyMathTypes[0] as PropertyMathType) || PropertyMathType.Average
-    }
-    return PropertyMathType.Average
-}
-
-function useMathSelectorOptions({
-    math,
-    index,
-    mathAvailability,
-    onMathSelect,
-    trendsDisplayCategory,
-    allowedMathTypes,
-    query,
-    mathGroupTypeIndex,
-}: MathSelectorProps): LemonSelectOptions<string> {
-    const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
-    const isCalendarHeatmap =
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source) &&
-        query.source.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
-    const isHistogramBreakdown =
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source) &&
-        (query.source.breakdownFilter?.breakdown_histogram_bin_count != null ||
-            query.source.breakdownFilter?.breakdowns?.some((b) => b.histogram_bin_count != null))
-
-    const {
-        needsUpgradeForGroups,
-        canStartUsingGroups,
-        staticMathDefinitions,
-        funnelMathDefinitions,
-        staticActorsOnlyMathDefinitions,
-        calendarHeatmapMathDefinitions,
-
-        aggregationLabel,
-        groupsMathDefinitions,
-    } = useValues(mathsLogic)
-
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        getDefaultPropertyMathType(math, allowedMathTypes)
-    )
-
-    const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
-        isCountPerActorMath(math) ? math : CountPerActorMathType.Average
-    )
-
-    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(
-        getActiveActor('unique_group', mathGroupTypeIndex)
-    )
-    const [weeklyActiveActorsShown, setWeeklyActiveActorsShown] = useState<string>(
-        getActiveActor('weekly_active', mathGroupTypeIndex)
-    )
-    const [monthlyActiveActorsShown, setMonthlyActiveActorsShown] = useState<string>(
-        getActiveActor('monthly_active', mathGroupTypeIndex)
-    )
-
-    function getActiveActor(selectedMath: string, mathGroupTypeIndex: number | null | undefined): string {
-        if (mathGroupTypeIndex === undefined || mathGroupTypeIndex === null || selectedMath !== math) {
-            return 'users'
-        }
-        const groupKey = `unique_group::${mathGroupTypeIndex}`
-        const groupDef = groupsMathDefinitions[groupKey]
-        return groupDef ? groupKey : 'users'
-    }
-
-    let definitions = staticMathDefinitions
-    if (mathAvailability === MathAvailability.FunnelsOnly) {
-        definitions = funnelMathDefinitions
-    } else if (mathAvailability === MathAvailability.ActorsOnly) {
-        definitions = staticActorsOnlyMathDefinitions
-    } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
-        definitions = calendarHeatmapMathDefinitions
-    }
-    const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
-
-    const options: LemonSelectOption<string>[] = Object.entries(definitions)
-        .filter((entry): entry is [string, MathDefinition] => !!entry[1])
-        .filter(([key]) => {
-            const mathTypeKey = key as MathType
-            if (isStickiness) {
-                // Remove WAU and MAU from stickiness insights
-                return !TRAILING_MATH_TYPES.has(mathTypeKey)
-            }
-
-            if (allowedMathTypes) {
-                // The unique group keys are of the type 'unique_group::0', so need to strip the ::0
-                // when comparing with the GroupMathType.UniqueGroup which has the value 'unique_group'
-                const strippedKey = key.split('::')[0]
-                return allowedMathTypes.includes(strippedKey)
-            }
-
-            return true
-        })
-        .map(([key, definition]) => {
-            const mathTypeKey = key as MathType
-            const warning = getMathTypeWarning(mathTypeKey, query || {}, trendsDisplayCategory === 'TotalValue')
-
-            return {
-                value: mathTypeKey,
-                icon: warning !== null ? <IconWarning className="text-warning" /> : undefined,
-                label: definition.name,
-                'data-attr': `math-${key}-${index}`,
-                tooltip:
-                    warning === 'total' ? (
-                        <>
-                            <p>{definition.description}</p>
-                            <i>
-                                In total value insights, it's usually not clear what date range "{definition.name}"
-                                refers to. For full clarity, we recommend using "Unique users" here instead.
-                            </i>
-                        </>
-                    ) : warning === null ? (
-                        definition.description
-                    ) : (
-                        <>
-                            {warning === 'weekly' ? (
-                                <p>
-                                    Weekly active users is not meaningful when using week or month intervals because the
-                                    sliding window calculation cannot be properly applied.
-                                </p>
-                            ) : (
-                                <p>
-                                    Monthly active users is not meaningful when using month intervals because the
-                                    sliding window calculation cannot be properly applied.
-                                </p>
-                            )}
-                            <span>This query mode has the same functionality as "Unique users" for this interval.</span>
-                        </>
-                    ),
-            }
-        })
-
-    if (
-        mathAvailability !== MathAvailability.ActorsOnly &&
-        mathAvailability !== MathAvailability.FunnelsOnly &&
-        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
-        mathAvailability !== MathAvailability.BoxPlotOnly
-    ) {
-        {
-            const shouldShowCountPerUser =
-                !allowedMathTypes ||
-                Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
-
-            if (shouldShowCountPerUser) {
-                options.splice(1, 0, {
-                    value: countPerActorMathTypeShown,
-                    label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
-                    labelInMenu: (
-                        <div className="flex items-center gap-2">
-                            <span>Count per user</span>
-                            <LemonSelect
-                                value={countPerActorMathTypeShown}
-                                onSelect={(value) => {
-                                    setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                                    onMathSelect(index, value)
-                                }}
-                                options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
-                                    .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
-                                    .map(([key, definition]) => ({
-                                        value: key,
-                                        label: definition.shortName,
-                                        'data-attr': `math-${key}-${index}`,
-                                    }))}
-                                onClick={(e) => e.stopPropagation()}
-                                size="small"
-                                dropdownMatchSelectWidth={false}
-                                optionTooltipPlacement="right"
-                            />
-                        </div>
-                    ),
-                    tooltip: 'Statistical analysis of event count per user.',
-                    'data-attr': `math-node-count-per-actor-${index}`,
-                })
-            }
-        }
-
-        const shouldShowPropertyValue =
-            !allowedMathTypes || Object.values(PropertyMathType).some((type) => allowedMathTypes.includes(type))
-
-        if (shouldShowPropertyValue) {
-            options.push({
-                value: propertyMathTypeShown,
-                label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Property value</span>
-                        <LemonSelect
-                            value={propertyMathTypeShown}
-                            onSelect={(value) => {
-                                setPropertyMathTypeShown(value as PropertyMathType)
-                                onMathSelect(index, value)
-                            }}
-                            options={Object.entries(PROPERTY_MATH_DEFINITIONS)
-                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
-                                .map(([key, definition]) => ({
-                                    value: key,
-                                    label: definition.shortName,
-                                    tooltip: definition.description,
-                                    'data-attr': `math-${key}-${index}`,
-                                    disabledReason:
-                                        isHistogramBreakdown &&
-                                        // the backend raises an exception for queries that try to use unsupported math types
-                                        // for histogram breakdowns, but it's a nicer UX if we just disallow it in the first place.
-                                        !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(key as PropertyMathType)
-                                            ? 'Not supported when breaking down by a numeric property'
-                                            : undefined,
-                                }))}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                        />
-                    </div>
-                ),
-                tooltip: 'Statistical analysis of property value.',
-                'data-attr': `math-node-property-value-${index}`,
-            })
-        }
-    }
-
-    if (isGroupsEnabled && !isCalendarHeatmap && mathAvailability !== MathAvailability.BoxPlotOnly) {
-        const uniqueActorsOptions = [
-            {
-                value: 'users',
-                label: 'users',
-                'data-attr': `math-users-${index}`,
-            },
-            ...Object.entries(groupsMathDefinitions)
-                .filter((entry): entry is [string, MathDefinition] => !!entry[1])
-                .map(([key, definition]) => ({
-                    value: key,
-                    label: definition.shortName,
-                    'data-attr': `math-${key}-${index}`,
-                })),
-        ]
-
-        const uniqueUsersIndex = options.findIndex(
-            (option) => 'value' in option && option.value === BaseMathType.UniqueUsers
-        )
-        if (uniqueUsersIndex !== -1) {
-            const isDau = uniqueActorsShown === 'users'
-            const value = isDau ? BaseMathType.UniqueUsers : uniqueActorsShown
-            const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
-            const tooltip = isDau
-                ? options[uniqueUsersIndex].tooltip
-                : groupsMathDefinitions[uniqueActorsShown]?.description
-            options[uniqueUsersIndex] = {
-                value,
-                label,
-                tooltip,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Unique</span>
-                        <LemonSelect
-                            value={uniqueActorsShown}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                            onSelect={(value) => {
-                                setUniqueActorsShown(value as string)
-                                const mathType = value === 'users' ? BaseMathType.UniqueUsers : value
-                                onMathSelect(index, mathType)
-                            }}
-                            options={uniqueActorsOptions}
-                        />
-                    </div>
-                ),
-                'data-attr': `math-node-unique-actors-${index}`,
-            }
-        }
-
-        const getActiveActorOptionByPeriod = (
-            activeActorShown: string,
-            setActiveActorShown: (value: string) => void,
-            mathType: BaseMathType,
-            period: 'month' | 'week',
-            days: '30' | '7',
-            optionIndex: number
-        ): LemonSelectOption<string> => {
-            const baseOption = options[optionIndex] as LemonSelectOption<string>
-            const isUsers = activeActorShown === 'users'
-            const actor = isUsers ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
-            const capitalizedActor = capitalizeFirstLetter(actor)
-            const label = `${capitalizeFirstLetter(period)}ly active ${actor}`
-            const tooltip = isUsers ? (
-                baseOption.tooltip
-            ) : (
-                <>
-                    {baseOption.tooltip ? (
-                        <>
-                            {baseOption.tooltip}
-                            <br />
-                            <br />
-                        </>
-                    ) : null}
-                    <b>
-                        {capitalizedActor} active in the past {period} ({days} days).
-                    </b>
-                    <br />
-                    <br />
-                    This is a trailing count that aggregates distinct {actor} in the past {days} days for each day in
-                    the time series.
-                    <br />
-                    <br />
-                    If the group by interval is a {period} or longer, this is the same as "Unique {capitalizedActor} "
-                    math.
-                </>
-            )
-
-            return {
-                ...baseOption,
-                value: mathType,
-                label,
-                tooltip,
-                'data-attr': `math-node-${period}ly-active-actors-${index}`,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>{capitalizeFirstLetter(period)}ly active</span>
-                        <LemonSelect
-                            value={activeActorShown}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                            onSelect={(value) => {
-                                setActiveActorShown(value as string)
-                                const groupIndex =
-                                    value === 'users'
-                                        ? undefined
-                                        : mathTypeToApiValues(value as string).math_group_type_index
-                                const mathType =
-                                    groupIndex !== undefined
-                                        ? `${period}ly_active::${groupIndex}`
-                                        : BaseMathType.MonthlyActiveUsers
-                                onMathSelect(index, mathType)
-                            }}
-                            options={uniqueActorsOptions}
-                        />
-                    </div>
-                ),
-            }
-        }
-
-        const monthlyActiveUsersIndex = options.findIndex(
-            (option) => 'value' in option && option.value === BaseMathType.MonthlyActiveUsers
-        )
-        if (monthlyActiveUsersIndex !== -1) {
-            options[monthlyActiveUsersIndex] = getActiveActorOptionByPeriod(
-                monthlyActiveActorsShown,
-                setMonthlyActiveActorsShown,
-                BaseMathType.MonthlyActiveUsers,
-                'month',
-                '30',
-                monthlyActiveUsersIndex
-            )
-        }
-
-        const weeklyActiveUsersIndex = options.findIndex(
-            (option) => 'value' in option && option.value === BaseMathType.WeeklyActiveUsers
-        )
-        if (weeklyActiveUsersIndex !== -1) {
-            options[weeklyActiveUsersIndex] = getActiveActorOptionByPeriod(
-                weeklyActiveActorsShown,
-                setWeeklyActiveActorsShown,
-                BaseMathType.WeeklyActiveUsers,
-                'week',
-                '7',
-                weeklyActiveUsersIndex
-            )
-        }
-    }
-
-    if (
-        mathAvailability !== MathAvailability.FunnelsOnly &&
-        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
-        mathAvailability !== MathAvailability.BoxPlotOnly &&
-        (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
-    ) {
-        options.push({
-            value: HogQLMathType.HogQL,
-            label: 'SQL expression',
-            tooltip: 'Aggregate events by custom SQL expression.',
-            'data-attr': `math-node-hogql-expression-${index}`,
-        })
-    }
-
-    return [
-        {
-            options,
-            footer: !isGroupsEnabled ? <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} /> : undefined,
-        },
-    ]
-}
-
-export function MathSelector(props: MathSelectorProps): JSX.Element {
-    const options = useMathSelectorOptions(props)
-    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason, size } = props
-
-    const mathType = apiValueToMathType(math, mathGroupTypeIndex)
-
-    return (
-        <LemonSelect
-            value={mathType}
-            options={options}
-            onChange={(value) => onMathSelect(index, value)}
-            data-attr={`math-selector-${index}`}
-            disabled={disabled}
-            disabledReason={disabledReason}
-            optionTooltipPlacement="right"
-            dropdownMatchSelectWidth={false}
-            dropdownPlacement="bottom-start"
-            size={size}
-        />
-    )
-}
-
-const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {
-    [TaxonomicFilterGroupType.Events]: EntityTypes.EVENTS,
-    [TaxonomicFilterGroupType.Actions]: EntityTypes.ACTIONS,
-    [TaxonomicFilterGroupType.DataWarehouse]: EntityTypes.DATA_WAREHOUSE,
-}
-
-export function taxonomicFilterGroupTypeToEntityType(
-    taxonomicFilterGroupType: TaxonomicFilterGroupType
-): EntityType | null {
-    return taxonomicFilterGroupTypeToEntityTypeMapping[taxonomicFilterGroupType] || null
 }

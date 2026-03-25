@@ -1779,6 +1779,7 @@ class ExternalDataSourceType(StrEnum):
     POSTMARK = "Postmark"
     GRANOLA = "Granola"
     BUILD_BETTER = "BuildBetter"
+    CONVEX = "Convex"
 
 
 class ExternalQueryErrorCode(StrEnum):
