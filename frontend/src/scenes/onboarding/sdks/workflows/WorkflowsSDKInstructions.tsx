@@ -40,8 +40,9 @@ import {
     WordpressInstallation,
     WebInstallation,
     ZapierInstallation,
+    NodeEventCapture,
+    PythonEventCapture,
 } from '@posthog/shared-onboarding/product-analytics'
-import { NodeEventCapture, PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
 import { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'

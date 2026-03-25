@@ -1,5 +1,3 @@
-import React from 'react'
-
 import { JSEventCapture, JSHtmlSnippet, JSInitSnippet } from '@posthog/shared-onboarding/product-analytics'
 
 import { useJsSnippetConfig } from 'lib/components/JSSnippet'
