@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -19,6 +20,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.utils import generate_short_id
+
+logger = logging.getLogger(__name__)
 
 
 class DebugCHQueries(viewsets.ViewSet):
@@ -205,9 +208,6 @@ class DebugCHQueries(viewsets.ViewSet):
         if not query:
             raise exceptions.ValidationError("No query provided.")
 
-        if not _is_select_only(query):
-            raise exceptions.ValidationError("Only SELECT queries can be profiled.")
-
         profile_query_id = f"profile_{generate_short_id()}"
 
         start_time = time.monotonic()
@@ -216,6 +216,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 client.execute(
                     query,
                     settings={
+                        "readonly": 2,
                         "query_profiler_cpu_time_period_ns": 10_000_000,
                         "query_profiler_real_time_period_ns": 10_000_000,
                         "memory_profiler_step": 1_048_576,
@@ -224,6 +225,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     query_id=profile_query_id,
                 )
         except Exception:
+            logger.exception("Query profiling failed for query_id %s", profile_query_id)
             raise exceptions.ValidationError("Query execution failed.")
         execution_time_ms = round((time.monotonic() - start_time) * 1000)
 
@@ -269,13 +271,3 @@ class DebugCHQueries(viewsets.ViewSet):
         sample_count = sum(row[1] for row in trace_results)
 
         return Response({"status": "complete", "folded_stacks": folded_stacks, "sample_count": sample_count})
-
-
-_DISALLOWED_STATEMENTS = re.compile(
-    r"^\s*(INSERT|ALTER|DROP|CREATE|TRUNCATE|SYSTEM|GRANT|REVOKE|KILL|RENAME|ATTACH|DETACH|OPTIMIZE)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_select_only(query: str) -> bool:
-    return not _DISALLOWED_STATEMENTS.match(query)

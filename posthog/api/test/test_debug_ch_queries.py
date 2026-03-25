@@ -1,7 +1,6 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
 from rest_framework.status import HTTP_200_OK, HTTP_202_ACCEPTED, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 
 
@@ -37,24 +36,6 @@ class TestDebugCHQueryProfile(APIBaseTest):
         self.user.save()
         resp = self.client.post("/api/debug_ch_queries/profile/", {"query": "SELECT 1"}, format="json")
         self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
-
-    @parameterized.expand(
-        [
-            ("INSERT INTO table VALUES (1)",),
-            ("DROP TABLE events",),
-            ("ALTER TABLE events Delete WHERE 1",),
-            ("CREATE TABLE foo (id Int32) ENGINE = Memory",),
-            ("TRUNCATE TABLE events",),
-            ("SYSTEM FLUSH LOGS",),
-            ("GRANT SELECT ON *.* TO user",),
-            ("KILL QUERY WHERE query_id = 'abc'",),
-        ]
-    )
-    def test_rejects_non_select_queries(self, query):
-        self.user.is_staff = True
-        self.user.save()
-        resp = self.client.post("/api/debug_ch_queries/profile/", {"query": query}, format="json")
-        self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
 
     def test_rejects_empty_query(self):
         self.user.is_staff = True
