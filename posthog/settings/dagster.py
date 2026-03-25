@@ -25,14 +25,26 @@ PART_BREAKER_COUNT_TOLERANCE: float = float(os.getenv("PART_BREAKER_COUNT_TOLERA
 PART_BREAKER_ELIGIBLE_TABLES: list[str] = [
     t.strip() for t in os.getenv("PART_BREAKER_ELIGIBLE_TABLES", "").split(",") if t.strip()
 ]
-PART_BREAKER_MAX_CONCURRENT: int = int(os.getenv("PART_BREAKER_MAX_CONCURRENT", "2"))
+PART_BREAKER_MAX_CONCURRENT: int = int(os.getenv("PART_BREAKER_MAX_CONCURRENT", "1"))
 PART_BREAKER_MAX_PART_SIZE_GIB: int = int(os.getenv("PART_BREAKER_MAX_PART_SIZE_GIB", "300"))
-PART_BREAKER_MAX_PARTITIONS_PER_RUN: int = int(os.getenv("PART_BREAKER_MAX_PARTITIONS_PER_RUN", "1"))
+PART_BREAKER_MAX_PARTS_PER_RUN: int = int(os.getenv("PART_BREAKER_MAX_PARTS_PER_RUN", "1"))
 PART_BREAKER_MAX_REPLICATION_WAIT_TIME: int = int(os.getenv("PART_BREAKER_MAX_REPLICATION_WAIT_TIME", "7200"))  # 2h
 PART_BREAKER_MIN_FREE_SPACE_MULTIPLIER: float = float(os.getenv("PART_BREAKER_MIN_FREE_SPACE_MULTIPLIER", "2.0"))
-PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR: int = int(os.getenv("PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR", "10"))
-PART_BREAKER_MIN_PARTITION_AGE_MONTHS: int = int(os.getenv("PART_BREAKER_MIN_PARTITION_AGE_MONTHS", "3"))
+PART_BREAKER_MAX_EXECUTION_TIME: int = int(
+    os.getenv("PART_BREAKER_MAX_EXECUTION_TIME", str(24 * 60 * 60))
+)  # 24h — INSERT SELECT on large parts can take many hours
+PART_BREAKER_MAX_MEMORY_USAGE: int = int(
+    os.getenv("PART_BREAKER_MAX_MEMORY_USAGE", str(128 * 1024 * 1024 * 1024))
+)  # 128 GiB — peak observed was ~85 GiB on 1.7 TiB part
 PART_BREAKER_RECEIVE_TIMEOUT: int = int(
     os.getenv("PART_BREAKER_RECEIVE_TIMEOUT", str(48 * 60 * 60))
 )  # 48h — must exceed INSERT SELECT duration
 PART_BREAKER_SCHEDULE: str = os.getenv("PART_BREAKER_SCHEDULE", "0 2 * * 6")  # Saturdays at 2am UTC
+PART_BREAKER_SSH_KEY: str | None = os.getenv(
+    "CLICKHOUSE_SSH_PRIVATE_KEY"
+)  # Raw SSH private key (matches GitHub secret name)
+PART_BREAKER_SSH_KEY_PATH: str | None = os.getenv("PART_BREAKER_SSH_KEY_PATH")  # Path to SSH key file (alternative)
+PART_BREAKER_SSH_USER: str = os.getenv("PART_BREAKER_SSH_USER", "ubuntu")
+PART_BREAKER_WORKLOAD: str = os.getenv(
+    "PART_BREAKER_WORKLOAD", "OFFLINE"
+)  # OFFLINE or ONLINE — dev has no offline nodes

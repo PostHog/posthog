@@ -2,29 +2,37 @@
 Automated ClickHouse Part Breaker
 
 Finds oversized parts across sharded ClickHouse tables and breaks them into smaller
-parts using INSERT SELECT + REPLACE PARTITION. Runs on offline nodes only.
+parts. Target workload is configurable via PART_BREAKER_WORKLOAD.
 
 Tables to scan are configured via the PART_BREAKER_ELIGIBLE_TABLES env var
 (comma-separated list of table names). If not set, the job logs a warning and exits.
 
-The process per partition:
-1. Discover oversized parts across all shards
-2. Pre-flight checks (disk space, no concurrent breaker, staging table empty)
-3. Record baseline count()
-4. INSERT SELECT from source table into staging table (creates smaller parts)
-5. Verify staging table count matches baseline
-6. REPLACE PARTITION atomically swaps data (no downtime, no double data)
-7. Verify post-replace count matches baseline
-8. Truncate staging table
+The process per oversized part:
+1. Create non-replicated staging tables if needed (SQL)
+2. Pre-flight checks — disk space, no concurrent breaker, staging tables empty (SQL)
+3. Named FREEZE the partition containing the oversized part — creates hardlinks in shadow/<name>/ (SQL)
+4. Copy the frozen part to source staging table's detached dir (SSH, hardlink or real copy via store/ paths)
+5. ATTACH the part to source staging table (SQL)
+6. INSERT SELECT from source staging → target staging (SQL, CH writes as smaller parts)
+7. Verify target staging row count matches source staging (SQL)
+8. DETACH new parts from target staging (SQL)
+9. Move detached parts to source table's detached dir (SSH)
+10. ATTACH PART on source table — adds each new broken part individually (SQL, replicated)
+11. Wait for replication — polls all replicas' log_pointer via ZooKeeper until past our ATTACHes (SQL)
+12. DROP PART — removes only the original oversized part (SQL)
+13. Clean up — UNFREEZE BY NAME, truncate staging tables (SQL)
 
 Safety properties:
-- Source table is never in a degraded state — all risk is in the staging table
-- REPLACE PARTITION is atomic — either completes fully or not at all
-- Staging table is non-replicated — no intermediate replication overhead
-- Only targets OFFLINE workload nodes — no impact on online queries
+- Source table is never missing data — new parts are attached BEFORE the oversized part is dropped
+- Brief dedup window (step 10-11) is handled by ReplacingMergeTree — same data exists in old + new parts
+- Parts are immutable — FREEZE creates a point-in-time snapshot, ongoing inserts don't affect the process
+- Staging tables are non-replicated — no intermediate replication overhead
 """
 
+import io
+import re
 import time
+import uuid
 import logging
 from dataclasses import dataclass
 from typing import Optional
@@ -32,25 +40,31 @@ from typing import Optional
 from django.conf import settings
 
 import dagster
+import paramiko
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.dags.common import JobOwners
-from posthog.dags.common.resources import ClickhouseClusterResource
+from posthog.dags.common import JobOwners, skip_if_already_running
+from posthog.dags.common.resources import PartBreakerClickhouseClusterResource
+
+logger = logging.getLogger(__name__)
+
 
 # -- Configuration --
 
-STAGING_TABLE_SUFFIX = "_part_breaker"
+STAGING_SOURCE_SUFFIX = "_part_breaker_src"
+STAGING_TARGET_SUFFIX = "_part_breaker_tgt"
+
+# Tables eligible for automated part breaking, configured via PART_BREAKER_ELIGIBLE_TABLES env var.
+# Each must be a Replicated* engine (ReplicatedReplacingMergeTree, etc.).
+# The staging tables will be created as non-replicated equivalents.
+# Set as a comma-separated list in the environment, e.g.:
+#   PART_BREAKER_ELIGIBLE_TABLES="table_a,table_b,table_c"
+# If empty, the job will skip discovery and log a warning.
 
 PART_BREAKER_RESOURCE_DEFS = {
-    "cluster": ClickhouseClusterResource(
-        client_settings={
-            "max_execution_time": "0",
-            "max_memory_usage": "0",
-            "receive_timeout": str(settings.PART_BREAKER_RECEIVE_TIMEOUT),
-        }
-    ),
+    "cluster": PartBreakerClickhouseClusterResource(),
 }
 
 
@@ -61,17 +75,13 @@ class PartBreakerConfig(dagster.Config):
     # Minimum free disk space ratio required before starting
     min_free_space_multiplier: float = settings.PART_BREAKER_MIN_FREE_SPACE_MULTIPLIER
 
-    # Maximum partitions to process per run (across all tables)
-    max_partitions_per_run: int = settings.PART_BREAKER_MAX_PARTITIONS_PER_RUN
+    # Maximum parts to process per run (across all tables)
+    max_parts_per_run: int = settings.PART_BREAKER_MAX_PARTS_PER_RUN
 
     # Verification tolerance: count() difference allowed
     count_tolerance: float = settings.PART_BREAKER_COUNT_TOLERANCE
 
-    # Only process partitions older than this many months
-    # (avoids interfering with active ingestion)
-    min_partition_age_months: int = settings.PART_BREAKER_MIN_PARTITION_AGE_MONTHS
-
-    # Which tables to scan (empty = all ELIGIBLE_TABLES)
+    # Which tables to scan (empty = all PART_BREAKER_ELIGIBLE_TABLES)
     tables: list[str] = []
 
     # Which shards to target (empty = all)
@@ -82,54 +92,116 @@ class PartBreakerConfig(dagster.Config):
 
 
 @dataclass
-class OversizedPartition:
-    """A partition on a specific shard/table that contains at least one oversized part."""
+class OversizedPart:
+    """A single oversized part on a specific shard/table."""
 
     table: str
     shard_num: int
     partition_id: str
-    largest_part_name: str
-    largest_part_bytes: int
-    largest_part_rows: int
-    total_partition_bytes: int
-    total_partition_rows: int
-    total_parts: int
+    part_name: str
+    part_bytes: int
+    part_rows: int
 
     @property
-    def staging_table(self) -> str:
-        return f"{self.table}{STAGING_TABLE_SUFFIX}"
+    def staging_source_table(self) -> str:
+        return f"{self.table}{STAGING_SOURCE_SUFFIX}"
 
     @property
-    def largest_part_gib(self) -> float:
-        return self.largest_part_bytes / (1024**3)
+    def staging_target_table(self) -> str:
+        return f"{self.table}{STAGING_TARGET_SUFFIX}"
 
     @property
-    def total_partition_gib(self) -> float:
-        return self.total_partition_bytes / (1024**3)
+    def part_gib(self) -> float:
+        return self.part_bytes / (1024**3)
 
 
 @dataclass
 class BreakResult:
-    """Result of breaking a single partition."""
+    """Result of breaking a single oversized part."""
 
     table: str
     shard_num: int
     partition_id: str
-    baseline_count: int
-    post_replace_count: int
-    old_largest_part_gib: float
+    part_name: str
+    source_count: int
+    post_count: int
+    old_part_gib: float
     new_largest_part_gib: float
     new_part_count: int
     duration_seconds: float
 
     @property
     def count_diff_pct(self) -> float:
-        if self.baseline_count == 0:
+        if self.source_count == 0:
             return 0.0
-        return abs(self.post_replace_count - self.baseline_count) / self.baseline_count
+        return abs(self.post_count - self.source_count) / self.source_count
 
 
-# -- Helper functions --
+# -- SSH helpers --
+
+
+def _get_ssh_client(hostname: str) -> paramiko.SSHClient:
+    """Create an SSH client connected to the given CH node.
+
+    Uses the SSH key from CLICKHOUSE_SSH_PRIVATE_KEY env var (or falls back to
+    PART_BREAKER_SSH_KEY_PATH for a file path). Connects as the user specified
+    by PART_BREAKER_SSH_USER (default: ubuntu).
+    """
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    ssh_user = getattr(settings, "PART_BREAKER_SSH_USER", "ubuntu")
+
+    # Key can be provided as a raw string (from K8s secret mount) or as a file path
+    ssh_key = getattr(settings, "PART_BREAKER_SSH_KEY", None)
+    ssh_key_path = getattr(settings, "PART_BREAKER_SSH_KEY_PATH", None)
+
+    if ssh_key:
+        # Raw key string — auto-detect key type (RSA, Ed25519, ECDSA)
+        key_file = io.StringIO(ssh_key)
+        pkey = None
+        for key_class in (paramiko.Ed25519Key, paramiko.RSAKey, paramiko.ECDSAKey):
+            try:
+                key_file.seek(0)
+                pkey = key_class.from_private_key(key_file)
+                break
+            except (paramiko.SSHException, ValueError):
+                continue
+        if pkey is None:
+            raise dagster.Failure(
+                description="Could not parse CLICKHOUSE_SSH_PRIVATE_KEY as any supported key type (Ed25519, RSA, ECDSA)"
+            )
+        ssh.connect(hostname, username=ssh_user, pkey=pkey, timeout=30)
+    elif ssh_key_path:
+        ssh.connect(hostname, username=ssh_user, key_filename=ssh_key_path, timeout=30)
+    else:
+        raise dagster.Failure(
+            description="No SSH key configured. Set CLICKHOUSE_SSH_PRIVATE_KEY (raw key) or "
+            "PART_BREAKER_SSH_KEY_PATH (file path) env var."
+        )
+
+    return ssh
+
+
+def _ssh_exec(ssh: paramiko.SSHClient, cmd: str, sudo: bool = True, timeout: int = 3600) -> str:
+    """Execute a command over SSH and return stdout. Raises on non-zero exit.
+
+    Default timeout is 1 hour — cp/mv of large parts (hundreds of GiB) can take minutes.
+    SSH connects as PART_BREAKER_SSH_USER (default: ubuntu), so filesystem operations
+    on clickhouse-owned files require sudo (enabled by default).
+    """
+    if sudo:
+        cmd = f"sudo {cmd}"
+    _stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
+    exit_code = stdout.channel.recv_exit_status()
+    out = stdout.read().decode().strip()
+    err = stderr.read().decode().strip()
+    if exit_code != 0:
+        raise dagster.Failure(description=f"SSH command failed (exit {exit_code}): {cmd}\nstderr: {err}\nstdout: {out}")
+    return out
+
+
+# -- SQL helper functions --
 
 
 def _get_database() -> str:
@@ -137,57 +209,29 @@ def _get_database() -> str:
     return settings.CLICKHOUSE_DATABASE
 
 
-def _get_current_yyyymm() -> int:
-    """Return current year-month as YYYYMM integer."""
-    import datetime
-
-    now = datetime.datetime.now(datetime.UTC)
-    return now.year * 100 + now.month
-
-
-def _partition_age_months(partition_id: str, current_yyyymm: int) -> int:
-    """Return approximate age of a partition in months."""
-    try:
-        partition_yyyymm = int(partition_id)
-    except ValueError:
-        return 0
-
-    current_year = current_yyyymm // 100
-    current_month = current_yyyymm % 100
-    part_year = partition_yyyymm // 100
-    part_month = partition_yyyymm % 100
-
-    return (current_year - part_year) * 12 + (current_month - part_month)
-
-
-def _discover_oversized_partitions_on_host(
+def _discover_oversized_parts_on_host(
     client: Client,
     table: str,
     max_part_size_bytes: int,
 ) -> list[tuple]:
-    """Query system.parts on a single host for partitions containing oversized parts.
+    """Query system.parts on a single host for individual oversized parts.
 
-    Returns raw rows: (partition_id, largest_part_name, largest_part_bytes,
-    largest_part_rows, total_partition_bytes, total_partition_rows, total_parts).
+    Returns raw rows: (partition_id, name, bytes_on_disk, rows).
     """
     database = _get_database()
     return client.execute(
         """
         SELECT
             partition_id,
-            argMax(name, bytes_on_disk) AS largest_part_name,
-            max(bytes_on_disk) AS largest_part_bytes,
-            argMax(rows, bytes_on_disk) AS largest_part_rows,
-            sum(bytes_on_disk) AS total_partition_bytes,
-            sum(rows) AS total_partition_rows,
-            count() AS total_parts
+            name,
+            bytes_on_disk,
+            rows
         FROM system.parts
         WHERE database = %(database)s
             AND table = %(table)s
             AND active
-        GROUP BY partition_id
-        HAVING max(bytes_on_disk) > %(max_size)s
-        ORDER BY max(bytes_on_disk) DESC
+            AND bytes_on_disk > %(max_size)s
+        ORDER BY bytes_on_disk ASC
         """,
         {
             "database": database,
@@ -197,33 +241,30 @@ def _discover_oversized_partitions_on_host(
     )
 
 
-def _discover_oversized_partitions(
+def _discover_oversized_parts(
     cluster: ClickhouseCluster,
     tables: list[str],
     max_part_size_bytes: int,
-    min_partition_age_months: int,
     target_shards: list[int],
-) -> list[OversizedPartition]:
-    """Query system.parts across all shards for partitions containing oversized parts.
+) -> list[OversizedPart]:
+    """Query system.parts across all shards for individual oversized parts.
 
     Runs the discovery query on one host per shard (via map_one_host_per_shard),
     then aggregates results with shard numbers from the HostInfo.
-    Scans all specified tables.
     """
 
     def _query_all_tables(client: Client) -> list[tuple]:
         """Query all eligible tables on this host, returning (table, ...row) tuples."""
         all_rows = []
         for table in tables:
-            rows = _discover_oversized_partitions_on_host(client, table, max_part_size_bytes)
+            rows = _discover_oversized_parts_on_host(client, table, max_part_size_bytes)
             for row in rows:
                 all_rows.append((table, *row))
         return all_rows
 
-    # Query one host per shard — each returns its local oversized partitions
+    # Query one host per shard — each returns its local oversized parts
     shard_results = cluster.map_one_host_per_shard(_query_all_tables).result()
 
-    current_yyyymm = _get_current_yyyymm()
     results = []
 
     for host_info, rows in shard_results.items():
@@ -236,24 +277,16 @@ def _discover_oversized_partitions(
             continue
 
         for row in rows:
-            (table, partition_id, largest_name, largest_bytes, largest_rows, total_bytes, total_rows, parts) = row
-
-            # Filter by partition age
-            age = _partition_age_months(partition_id, current_yyyymm)
-            if age < min_partition_age_months:
-                continue
+            (table, partition_id, part_name, part_bytes, part_rows) = row
 
             results.append(
-                OversizedPartition(
+                OversizedPart(
                     table=table,
                     shard_num=shard_num,
                     partition_id=partition_id,
-                    largest_part_name=largest_name,
-                    largest_part_bytes=largest_bytes,
-                    largest_part_rows=largest_rows,
-                    total_partition_bytes=total_bytes,
-                    total_partition_rows=total_rows,
-                    total_parts=parts,
+                    part_name=part_name,
+                    part_bytes=part_bytes,
+                    part_rows=part_rows,
                 )
             )
 
@@ -294,8 +327,8 @@ def _check_disk_space(
     return free_bytes >= required_bytes * multiplier, free_bytes
 
 
-def _check_no_active_breaker(client: Client, staging_table: str) -> bool:
-    """Check that no other part breaker INSERT SELECT is running for this staging table."""
+def _check_no_active_breaker(client: Client, staging_source: str, staging_target: str) -> bool:
+    """Check that no other part breaker INSERT SELECT is running for these staging tables."""
     database = _get_database()
     rows = client.execute(
         """
@@ -303,10 +336,14 @@ def _check_no_active_breaker(client: Client, staging_table: str) -> bool:
         FROM system.processes
         WHERE query LIKE %(pattern1)s
            OR query LIKE %(pattern2)s
+           OR query LIKE %(pattern3)s
+           OR query LIKE %(pattern4)s
         """,
         {
-            "pattern1": f"INSERT INTO {staging_table}%",
-            "pattern2": f"INSERT INTO {database}.{staging_table}%",
+            "pattern1": f"INSERT INTO {staging_target}%",
+            "pattern2": f"INSERT INTO {database}.{staging_target}%",
+            "pattern3": f"INSERT INTO {staging_source}%",
+            "pattern4": f"INSERT INTO {database}.{staging_source}%",
         },
     )
     return rows[0][0] == 0
@@ -335,14 +372,14 @@ def _check_replication_healthy(client: Client, source_table: str) -> bool:
 def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
     """Create the non-replicated staging table if it doesn't exist.
 
-    Uses SHOW CREATE TABLE to get the exact DDL from ClickHouse, then rewrites
-    the engine from Replicated* to its non-replicated equivalent and swaps the
-    table name. This preserves all clauses (PARTITION BY, ORDER BY, SAMPLE BY,
-    TTL, SETTINGS, etc.) exactly as the source table defines them, without
-    fragile regex parsing of engine_full.
-    """
-    import re
+    Uses CREATE TABLE ... AS to copy the source table's full schema (columns,
+    partition key, order key, indices, projections, settings) with a
+    non-replicated engine override.
 
+    The non-replicated engine is derived from the source's engine_full:
+      ReplicatedReplacingMergeTree('/path', '{replica}', ver) → ReplacingMergeTree(ver)
+      ReplicatedMergeTree('/path', '{replica}')               → MergeTree()
+    """
     database = _get_database()
 
     # Check if staging table already exists
@@ -353,107 +390,150 @@ def _ensure_staging_table(client: Client, source_table: str, staging_table: str)
     if rows[0][0] > 0:
         return
 
-    # Get the exact CREATE TABLE statement from ClickHouse
-    result = client.execute(f"SHOW CREATE TABLE {database}.{source_table}")
-    if not result or not isinstance(result, list):
-        raise RuntimeError(f"Source table {database}.{source_table} not found")
-
-    create_ddl: str = result[0][0]
-
-    # Replace the table name
-    create_ddl = create_ddl.replace(
-        f"CREATE TABLE {database}.{source_table}",
-        f"CREATE TABLE IF NOT EXISTS {database}.{staging_table}",
-        1,
+    # Get the source engine definition to derive the non-replicated equivalent
+    rows = client.execute(
+        "SELECT engine_full FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        {"db": database, "table": source_table},
     )
+    if not rows:
+        raise dagster.Failure(description=f"Source table {database}.{source_table} not found")
 
-    # Replace Replicated* engine with non-replicated equivalent.
-    # SHOW CREATE TABLE outputs e.g.:
-    #   ENGINE = ReplicatedReplacingMergeTree('/path', '{replica}', ver)
-    # We need:
-    #   ENGINE = ReplacingMergeTree(ver)
-    #
-    # The pattern matches: Replicated<Engine>('<zk_path>', '{replica}'[, extra_args])
+    engine_full = rows[0][0]
+
+    # Extract non-replicated engine: strip Replicated prefix and ZK path/replica args
+    # e.g. ReplicatedReplacingMergeTree('/path', '{replica}', _timestamp)
+    #   → ReplacingMergeTree(_timestamp)
     def _strip_replication(m: re.Match) -> str:
-        base_engine = m.group(1)  # e.g., "ReplacingMergeTree", "MergeTree"
-        extra_args = m.group(2)  # e.g., "ver" or None
+        base_engine = m.group(1)  # e.g. "ReplacingMergeTree", "MergeTree"
+        extra_args = m.group(2)  # e.g. "_timestamp" or None
 
         if base_engine == "MergeTree" or not extra_args:
             return f"{base_engine}()"
         return f"{base_engine}({extra_args})"
 
-    create_ddl, count = re.subn(
+    engine_clause, count = re.subn(
         r"Replicated(\w+)\('[^']*',\s*'\{replica\}'(?:,\s*(.+?))?\)",
         _strip_replication,
-        create_ddl,
+        engine_full,
         count=1,
     )
     if count == 0:
-        raise RuntimeError(
-            f"Source table {source_table} does not use a Replicated engine, cannot create non-replicated staging table"
+        raise dagster.Failure(
+            description=f"Source table {source_table} does not use a Replicated engine: {engine_full}"
         )
 
-    client.execute(create_ddl)
+    # CREATE TABLE ... AS copies schema; ENGINE = overrides the engine only
+    client.execute(
+        f"CREATE TABLE IF NOT EXISTS {database}.{staging_table} AS {database}.{source_table} ENGINE = {engine_clause}"
+    )
 
 
-def _get_partition_key_expr(client: Client, table: str) -> str:
-    """Get the partition key expression for a table.
+def _get_disk_paths(client: Client) -> dict[str, str]:
+    """Get all disk base paths keyed by disk name.
 
-    Returns the expression used in WHERE clauses to filter by partition,
-    e.g. 'toYYYYMM(timestamp)'.
+    Returns a dict of disk name → base path.
+    """
+    rows = client.execute("SELECT name, path FROM system.disks")
+    if not rows:
+        raise dagster.Failure(description="Could not determine ClickHouse disk paths from system.disks")
+    return {row[0]: row[1].rstrip("/") + "/" for row in rows}
+
+
+def _get_table_store_path(client: Client, table: str, disk_path: str) -> str:
+    """Get the store-based data path for a table on a specific disk.
+
+    ClickHouse stores table data under store/{prefix}/{uuid}/ rather than
+    data/{database}/{table}/. The data/ path is just a symlink layer.
+    FREEZE snapshots use the real store/ paths, so we must use them too.
+
+    Queries system.tables for data_paths and matches against the given disk's
+    base path to find the correct store path on that disk.
+
+    Returns the store path for the table on the given disk.
     """
     database = _get_database()
     rows = client.execute(
-        "SELECT partition_key FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        "SELECT data_paths FROM system.tables WHERE database = %(db)s AND name = %(table)s",
         {"db": database, "table": table},
     )
     if not rows or not rows[0][0]:
-        raise RuntimeError(f"Could not determine partition key for {database}.{table}")
-    return rows[0][0]
+        raise dagster.Failure(description=f"Could not find data_paths for {database}.{table}")
+
+    # data_paths is an Array(String) — one entry per disk in the storage policy.
+    # Match the entry that starts with the target disk's base path.
+    for path in rows[0][0]:
+        if path.startswith(disk_path.rstrip("/") + "/") or path.startswith(disk_path):
+            return path.rstrip("/") + "/"
+
+    raise dagster.Failure(
+        description=f"No data_path for {database}.{table} on disk at {disk_path}. Available paths: {rows[0][0]}"
+    )
 
 
-def _cast_partition_id(partition_id: str):
-    """Cast partition_id to the appropriate type for WHERE clause comparison.
+def _get_table_primary_disk(client: Client, table: str) -> str:
+    """Get the primary disk for a table's storage policy.
 
-    YYYYMM partition IDs are numeric, but some tables may use string partitions.
+    Queries system.storage_policies to find the first disk in the first volume
+    of the table's storage policy. This is the disk where new parts are written
+    and where staging tables (created with the same schema) will live.
+    Returns the primary disk name from the table's storage policy.
     """
-    try:
-        return int(partition_id)
-    except ValueError:
-        return partition_id
+    database = _get_database()
+    # Get the table's storage policy, then find the first disk in that policy
+    rows = client.execute(
+        "SELECT storage_policy FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        {"db": database, "table": table},
+    )
+    if rows and rows[0][0]:
+        policy_name = rows[0][0]
+        disk_rows = client.execute(
+            "SELECT disks FROM system.storage_policies "
+            "WHERE policy_name = %(policy)s ORDER BY volume_priority ASC LIMIT 1",
+            {"policy": policy_name},
+        )
+        if disk_rows and disk_rows[0][0]:
+            # disks is an Array(String) — first element is the primary disk
+            return disk_rows[0][0][0]
+
+    # Fallback: use the first disk from system.disks (alphabetical)
+    rows = client.execute("SELECT name FROM system.disks ORDER BY name LIMIT 1")
+    if rows:
+        return rows[0][0]
+    return "default"
 
 
-def _get_baseline_count(client: Client, source_table: str, partition_key_expr: str, partition_id: str) -> int:
-    """Get the logical row count for a partition."""
+def _get_part_disk(client: Client, table: str, part_name: str) -> str:
+    """Get the disk name where a specific part lives.
+
+    Returns the disk name where the part is stored.
+    """
     database = _get_database()
     rows = client.execute(
-        f"SELECT count() FROM {database}.{source_table} WHERE {partition_key_expr} = %(partition_id)s",
-        {"partition_id": _cast_partition_id(partition_id)},
+        "SELECT disk_name FROM system.parts "
+        "WHERE database = %(db)s AND table = %(table)s AND name = %(part)s AND active",
+        {"db": database, "table": table, "part": part_name},
     )
+    if not rows:
+        raise dagster.Failure(description=f"Part {part_name} not found in {database}.{table}")
     return rows[0][0]
 
 
-def _run_insert_select(
-    client: Client, source_table: str, staging_table: str, partition_key_expr: str, partition_id: str
-) -> str:
-    """Run INSERT SELECT from source table into staging table.
+def _run_insert_select(client: Client, source_table: str, target_table: str) -> str:
+    """Run INSERT SELECT from source staging table into target staging table.
+
+    No WHERE clause needed — the source staging table contains exactly one
+    part (the oversized one). ClickHouse will write it as multiple smaller parts.
 
     Returns the query_id for monitoring.
-    Settings (max_execution_time, max_memory_usage) are inherited from the
-    cluster resource — no per-query overrides needed.
     """
-    import uuid
-
     database = _get_database()
     query_id = str(uuid.uuid4())
 
     client.execute(
         f"""
-        INSERT INTO {database}.{staging_table}
+        INSERT INTO {database}.{target_table}
         SELECT * FROM {database}.{source_table}
-        WHERE {partition_key_expr} = %(partition_id)s
         """,
-        {"partition_id": _cast_partition_id(partition_id)},
         query_id=query_id,
     )
     return query_id
@@ -481,44 +561,84 @@ def _get_staging_stats(client: Client, staging_table: str, partition_id: str) ->
     return row_count, part_count, largest_gib
 
 
-def _replace_partition(client: Client, source_table: str, staging_table: str, partition_id: str) -> None:
-    """Atomically replace the partition in the source table from the staging table."""
-    database = _get_database()
-    client.execute(
-        f"ALTER TABLE {database}.{source_table} REPLACE PARTITION '{partition_id}' FROM {database}.{staging_table}"
-    )
+def _wait_for_replication(client: Client, source_table: str, target_log_index: int, max_wait: int = 0) -> None:
+    """Wait for ALL replicas to process past a specific replication log index.
 
+    After ATTACHing new parts, we capture the current log_max_index and pass it here.
+    This function waits until every replica's log_pointer >= that index, meaning they
+    have all fetched the new parts. Only then is it safe to DROP the old part.
 
-def _wait_for_replication(client: Client, source_table: str, max_wait: int | None = None) -> None:
-    """Wait for replication queue to drain for the source table."""
-    if max_wait is None:
+    This handles active ingestion correctly — we don't need replicas to be fully
+    caught up with everything, just past the point where our ATTACHes were recorded.
+
+    Raises if ZK is unreachable — we cannot safely drop the old part without confirming replication.
+    """
+    if max_wait <= 0:
         max_wait = settings.PART_BREAKER_MAX_REPLICATION_WAIT_TIME
 
     database = _get_database()
+
+    # Get the ZooKeeper path for this replicated table
+    zk_rows = client.execute(
+        "SELECT zookeeper_path FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
+        {"db": database, "table": source_table},
+    )
+    if not zk_rows or not zk_rows[0][0]:
+        raise dagster.Failure(
+            description=f"Could not get ZooKeeper path for {source_table} — "
+            "cannot safely verify replication before dropping the old part"
+        )
+
+    zk_path = zk_rows[0][0]
+
+    # Get list of replica names from ZK
+    replica_rows = client.execute(
+        "SELECT name FROM system.zookeeper WHERE path = %(path)s",
+        {"path": f"{zk_path}/replicas"},
+    )
+    replica_names = [row[0] for row in replica_rows]
+
+    logger.info(f"Waiting for {len(replica_names)} replicas to reach log index {target_log_index}...")
+
+    behind_replicas: list[str] = []
     start = time.time()
     while time.time() - start < max_wait:
-        rows = client.execute(
-            "SELECT count() FROM system.replication_queue WHERE database = %(db)s AND table = %(table)s",
-            {"db": database, "table": source_table},
-        )
-        queue_size = rows[0][0]
-        if queue_size == 0:
+        all_synced = True
+        behind_replicas = []
+        for replica_name in replica_names:
+            pointer_rows = client.execute(
+                "SELECT value FROM system.zookeeper WHERE path = %(path)s AND name = 'log_pointer'",
+                {"path": f"{zk_path}/replicas/{replica_name}"},
+            )
+            if not pointer_rows:
+                continue
+            log_pointer = int(pointer_rows[0][0])
+            if log_pointer < target_log_index:
+                all_synced = False
+                behind_replicas.append(
+                    f"{replica_name} (at {log_pointer}, need {target_log_index}, "
+                    f"{target_log_index - log_pointer} behind)"
+                )
+
+        if all_synced:
+            logger.info(f"All {len(replica_names)} replicas have reached log index {target_log_index}")
             return
+
         elapsed = int(time.time() - start)
-        # Log progress so long waits are visible in the Dagster UI
-        logging.getLogger(__name__).info(
-            f"Replication queue for {source_table}: {queue_size} entries remaining ({elapsed}s elapsed)"
-        )
+        logger.info(f"Waiting for replicas to sync: {', '.join(behind_replicas)} ({elapsed}s elapsed)")
         time.sleep(30)
 
-    raise RuntimeError(f"Replication queue did not drain within {max_wait}s for {source_table}")
+    raise dagster.Failure(
+        description=f"Not all replicas reached log index {target_log_index} within {max_wait}s "
+        f"for {source_table}. Behind: {', '.join(behind_replicas)}"
+    )
 
 
 def _truncate_staging(client: Client, staging_table: str) -> None:
     """Truncate the staging table."""
     database = _get_database()
     client.execute(
-        f"TRUNCATE TABLE {database}.{staging_table}",
+        f"TRUNCATE TABLE IF EXISTS {database}.{staging_table}",
         settings={"max_table_size_to_drop": "0"},
     )
 
@@ -527,18 +647,12 @@ def _truncate_staging(client: Client, staging_table: str) -> None:
 
 
 @dagster.op(out=dagster.DynamicOut())
-def discover_oversized_partitions(
+def discover_oversized_parts(
     context: dagster.OpExecutionContext,
     config: PartBreakerConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
-    """Find all partitions with oversized parts across the cluster."""
-    if config.max_part_size_gib < settings.PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR:
-        raise dagster.Failure(
-            f"max_part_size_gib={config.max_part_size_gib} is below the minimum of {settings.PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR} GiB. "
-            f"This would flag too many partitions. Raise the threshold or adjust PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR env var."
-        )
-
+    """Find all individual oversized parts across the cluster."""
     max_size_bytes = config.max_part_size_gib * 1024**3
     tables = config.tables if config.tables else settings.PART_BREAKER_ELIGIBLE_TABLES
 
@@ -549,62 +663,65 @@ def discover_oversized_partitions(
         )
         return
 
-    # Query one host per shard to discover oversized partitions across all tables
-    partitions = _discover_oversized_partitions(
+    # Query one host per shard to discover oversized parts across all tables
+    parts = _discover_oversized_parts(
         cluster,
         tables,
         max_size_bytes,
-        config.min_partition_age_months,
         config.target_shards,
     )
 
-    context.log.info(f"Found {len(partitions)} oversized partitions across the cluster")
+    context.log.info(f"Found {len(parts)} oversized parts across the cluster")
 
-    for p in partitions:
+    for p in parts:
         context.log.info(
             f"  {p.table} shard {p.shard_num}, partition {p.partition_id}: "
-            f"largest part {p.largest_part_gib:.1f} GiB ({p.largest_part_name}), "
-            f"total {p.total_partition_gib:.1f} GiB in {p.total_parts} parts"
+            f"part {p.part_name} ({p.part_gib:.1f} GiB, {p.part_rows:,} rows)"
         )
 
-    # Pick 1 partition per shard (smallest first — faster, lower risk),
-    # then cap at max_partitions_per_run total.
-    partitions.sort(key=lambda p: p.largest_part_bytes)
+    # Pick 1 part per shard (smallest first — faster, lower risk),
+    # then cap at max_parts_per_run total.
+    parts.sort(key=lambda p: p.part_bytes)
     seen_shards: set[int] = set()
-    selected: list[OversizedPartition] = []
-    for p in partitions:
+    selected: list[OversizedPart] = []
+    for p in parts:
         if p.shard_num in seen_shards:
             continue
         seen_shards.add(p.shard_num)
         selected.append(p)
-        if len(selected) >= config.max_partitions_per_run:
+        if len(selected) >= config.max_parts_per_run:
             break
-    partitions = selected
+    parts = selected
 
-    for p in partitions:
+    for p in parts:
         yield dagster.DynamicOutput(
             p,
-            mapping_key=f"{p.table}_shard_{p.shard_num}_partition_{p.partition_id}",
+            mapping_key=f"{p.table}_shard_{p.shard_num}_{p.part_name}",
         )
 
 
 @dagster.op(out=dagster.Out(metadata={}))
-def break_partition(
+def break_part(
     context: dagster.OpExecutionContext,
     config: PartBreakerConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    partition: OversizedPartition,
+    part: OversizedPart,
 ) -> Optional[BreakResult]:
-    """Break a single oversized partition on its shard's offline node."""
-    shard = partition.shard_num
-    partition_id = partition.partition_id
-    source_table = partition.table
-    staging_table = partition.staging_table
+    """Break a single oversized part on its shard's target node.
+
+    Uses the freeze → copy → attach → INSERT SELECT → detach → move → attach → drop
+    pattern to safely break the part without any window of missing data.
+    """
+    shard = part.shard_num
+    partition_id = part.partition_id
+    source_table = part.table
+    staging_source = part.staging_source_table
+    staging_target = part.staging_target_table
     database = _get_database()
 
     context.log.info(
-        f"Processing {source_table} shard {shard}, partition {partition_id} "
-        f"(largest part: {partition.largest_part_gib:.1f} GiB, {partition.largest_part_name})"
+        f"Processing {source_table} shard {shard}, part {part.part_name} "
+        f"({part.part_gib:.1f} GiB, {part.part_rows:,} rows)"
     )
 
     if config.dry_run:
@@ -614,129 +731,291 @@ def break_partition(
     start_time = time.time()
 
     def _process(client: Client) -> BreakResult:
-        # Step 1: Ensure staging table exists
-        context.log.info(f"Ensuring staging table {staging_table} exists...")
-        _ensure_staging_table(client, source_table, staging_table)
+        # -- Step 1: Ensure both staging tables exist --
+        context.log.info(f"Ensuring staging tables exist ({staging_source}, {staging_target})...")
+        _ensure_staging_table(client, source_table, staging_source)
+        _ensure_staging_table(client, source_table, staging_target)
+
+        ssh: paramiko.SSHClient | None = None
 
         try:
-            # Step 2: Pre-flight checks
+            # -- Step 2: Pre-flight checks --
             context.log.info("Running pre-flight checks...")
 
             has_space, free_bytes = _check_disk_space(
-                client, source_table, partition_id, partition.total_partition_bytes, config.min_free_space_multiplier
+                client, source_table, partition_id, part.part_bytes, config.min_free_space_multiplier
             )
             if not has_space:
                 free_gib = free_bytes / (1024**3)
-                required_gib = partition.total_partition_gib * config.min_free_space_multiplier
-                raise RuntimeError(
-                    f"Insufficient disk space: {free_gib:.1f} GiB free, "
-                    f"need {required_gib:.1f} GiB (partition is {partition.total_partition_gib:.1f} GiB)"
+                required_gib = part.part_gib * config.min_free_space_multiplier
+                raise dagster.Failure(
+                    description=f"Insufficient disk space: {free_gib:.1f} GiB free, "
+                    f"need {required_gib:.1f} GiB (part is {part.part_gib:.1f} GiB)"
                 )
 
-            if not _check_no_active_breaker(client, staging_table):
-                raise RuntimeError(f"Another part breaker INSERT SELECT is already running for {staging_table}")
+            if not _check_no_active_breaker(client, staging_source, staging_target):
+                raise dagster.Failure(description="Another part breaker INSERT SELECT is already running")
 
-            if not _check_staging_table_empty(client, staging_table):
-                context.log.warning(f"Staging table {staging_table} not empty — truncating before proceeding")
-                _truncate_staging(client, staging_table)
+            if not _check_staging_table_empty(client, staging_source):
+                context.log.warning(f"Staging source {staging_source} not empty — truncating")
+                _truncate_staging(client, staging_source)
+            if not _check_staging_table_empty(client, staging_target):
+                context.log.warning(f"Staging target {staging_target} not empty — truncating")
+                _truncate_staging(client, staging_target)
 
             if not _check_replication_healthy(client, source_table):
-                raise RuntimeError(f"Replication queue is backed up (>100 entries) for {source_table}")
+                raise dagster.Failure(description=f"Replication queue is backed up (>100 entries) for {source_table}")
 
-            # Step 3: Get partition key expression and record baseline count
-            partition_key_expr = _get_partition_key_expr(client, source_table)
-            context.log.info(f"Partition key: {partition_key_expr}")
+            # -- Step 3: Get paths and establish SSH connection --
+            disk_paths = _get_disk_paths(client)
+            part_disk = _get_part_disk(client, source_table, part.part_name)
+            part_disk_path = disk_paths[part_disk]
 
-            context.log.info(f"Recording baseline count for partition {partition_id}...")
-            baseline_count = _get_baseline_count(client, source_table, partition_key_expr, partition_id)
-            context.log.info(f"Baseline count: {baseline_count:,}")
+            # Find the primary disk — the first disk in the storage policy (where staging tables live).
+            # Primary disk from the table's storage policy.
+            primary_disk = _get_table_primary_disk(client, source_table)
+            primary_disk_path = disk_paths[primary_disk]
 
-            if baseline_count == 0:
-                raise RuntimeError(
-                    f"Baseline count is 0 for {source_table} partition {partition_id} — nothing to process"
-                )
+            # Get the store-based paths for each table on the primary disk.
+            # ClickHouse uses store/{prefix}/{uuid}/ layout — the data/{db}/{table}/ paths
+            # are just symlinks and FREEZE snapshots use the real store/ paths.
+            source_store_path = _get_table_store_path(client, source_table, primary_disk_path)
+            staging_src_store_path = _get_table_store_path(client, staging_source, primary_disk_path)
+            staging_tgt_store_path = _get_table_store_path(client, staging_target, primary_disk_path)
 
-            # Step 4: INSERT SELECT into staging table
+            source_detached = f"{source_store_path}detached/"
+            staging_src_detached = f"{staging_src_store_path}detached/"
+            staging_tgt_detached = f"{staging_tgt_store_path}detached/"
+
             context.log.info(
-                f"Starting INSERT SELECT for {source_table} partition {partition_id} "
-                f"({partition.total_partition_gib:.1f} GiB, {partition.total_partition_rows:,} physical rows)..."
+                f"Part {part.part_name} is on disk '{part_disk}' ({part_disk_path}), "
+                f"primary disk is '{primary_disk}' ({primary_disk_path})"
             )
-            query_id = _run_insert_select(client, source_table, staging_table, partition_key_expr, partition_id)
+
+            host_rows = client.execute("SELECT hostName()")
+            hostname = host_rows[0][0]
+
+            context.log.info(f"Connecting via SSH to {hostname}...")
+            ssh = _get_ssh_client(hostname)
+
+            # -- Step 4: FREEZE the partition --
+            # FREEZE creates hardlinks in shadow/ on the SAME disk as the part.
+            # Use a named backup so we can UNFREEZE by name later.
+            freeze_name = f"part_breaker_{part.part_name}"
+            context.log.info(f"Freezing partition {partition_id} on {source_table} (backup: {freeze_name})...")
+            client.execute(
+                f"ALTER TABLE {database}.{source_table} FREEZE PARTITION '{partition_id}' WITH NAME '{freeze_name}'"
+            )
+
+            # Named FREEZE creates shadow/<name>/ under the part's disk base path.
+            # FREEZE snapshots use the real store/ layout, not the data/ symlink layer.
+            # e.g. /data/nvme/shadow/part_breaker_XXX/store/f1c/f1c2e1b7-.../202511_.../
+            shadow_backup_path = f"{part_disk_path}shadow/{freeze_name}/"
+
+            # Verify the shadow backup directory exists
+            _ssh_exec(ssh, f"test -d {shadow_backup_path}")
+            context.log.info(f"Frozen to {shadow_backup_path}")
+
+            # Get the source table's store path on the part's disk to construct the shadow path.
+            # Shadow mirrors the store/ layout: shadow/<name>/store/{prefix}/{uuid}/{part_name}/
+            source_store_on_part_disk = _get_table_store_path(client, source_table, part_disk_path)
+            # Extract the relative store path (e.g. "store/f1c/f1c2e1b7-.../")
+            relative_store_path = source_store_on_part_disk.replace(part_disk_path, "")
+            frozen_part_path = f"{shadow_backup_path}{relative_store_path}{part.part_name}/"
+
+            # Verify the frozen part exists
+            _ssh_exec(ssh, f"test -d {frozen_part_path}")
+
+            # -- Step 5: Copy frozen part to staging source's detached dir --
+            # Use cp -rl (hardlink) if part is on the same disk as staging tables (primary disk),
+            # cp -r (real copy) if cross-filesystem.
+            # FREEZE creates shadow on the part's disk; staging tables live on the primary disk.
+            # detached/ dir already exists (created by CH when the table is created).
+            context.log.info(f"Copying frozen part to {staging_src_detached}...")
+            if part_disk == primary_disk:
+                _ssh_exec(ssh, f"cp -rl {frozen_part_path} {staging_src_detached}{part.part_name}/")
+            else:
+                context.log.info(f"Part is on '{part_disk}' disk (staging on '{primary_disk}'), using real copy")
+                _ssh_exec(ssh, f"cp -r {frozen_part_path} {staging_src_detached}{part.part_name}/")
+            # cp as root creates directories owned by root — fix ownership so CH can read them
+            _ssh_exec(ssh, f"chown -R clickhouse:clickhouse {staging_src_detached}{part.part_name}/")
+
+            # -- Step 6: ATTACH the part to staging source --
+            context.log.info(f"Attaching part {part.part_name} to {staging_source}...")
+            client.execute(f"ALTER TABLE {database}.{staging_source} ATTACH PART '{part.part_name}'")
+
+            # Verify attach — count rows in staging source
+            source_count_rows = client.execute(f"SELECT count() FROM {database}.{staging_source}")
+            source_count = source_count_rows[0][0]
+            context.log.info(f"Staging source: {source_count:,} rows (part had {part.part_rows:,} physical rows)")
+
+            if source_count == 0:
+                raise dagster.Failure(description=f"Staging source {staging_source} has 0 rows after ATTACH PART")
+
+            # -- Step 7: INSERT SELECT from staging source → staging target --
+            context.log.info(
+                f"Starting INSERT SELECT: {staging_source} → {staging_target} "
+                f"({part.part_gib:.1f} GiB, {source_count:,} rows)..."
+            )
+            query_id = _run_insert_select(client, staging_source, staging_target)
             context.log.info(f"INSERT SELECT complete (query_id: {query_id})")
 
-            # Step 5: Verify staging table
-            context.log.info("Verifying staging table...")
-            staging_count, staging_parts, staging_largest_gib = _get_staging_stats(client, staging_table, partition_id)
+            # -- Step 8: Verify staging target --
+            context.log.info("Verifying staging target...")
+            target_count, target_parts, target_largest_gib = _get_staging_stats(client, staging_target, partition_id)
             context.log.info(
-                f"Staging table: {staging_count:,} rows in {staging_parts} parts "
-                f"(largest: {staging_largest_gib:.1f} GiB)"
+                f"Staging target: {target_count:,} rows in {target_parts} parts (largest: {target_largest_gib:.1f} GiB)"
             )
 
-            # Verify count is within tolerance
-            if baseline_count > 0:
-                diff_pct = abs(staging_count - baseline_count) / baseline_count
+            # Verify count is within tolerance (dedup may reduce slightly)
+            if source_count > 0:
+                diff_pct = abs(target_count - source_count) / source_count
                 if diff_pct > config.count_tolerance:
-                    _truncate_staging(client, staging_table)
-                    raise RuntimeError(
-                        f"Staging count {staging_count:,} differs from baseline {baseline_count:,} "
+                    raise dagster.Failure(
+                        description=f"Target count {target_count:,} differs from source {source_count:,} "
                         f"by {diff_pct:.2%} (tolerance: {config.count_tolerance:.2%}). "
-                        f"Staging table truncated. Investigate before retrying."
+                        f"Investigate before retrying."
                     )
 
             # Check that parts are actually smaller
-            max_size_gib = config.max_part_size_gib
-            if staging_largest_gib > max_size_gib:
+            if target_largest_gib > config.max_part_size_gib:
                 context.log.warning(
-                    f"Staging table's largest part ({staging_largest_gib:.1f} GiB) "
-                    f"still exceeds threshold ({max_size_gib} GiB). "
-                    f"INSERT SELECT may not have broken the part sufficiently."
+                    f"Target's largest part ({target_largest_gib:.1f} GiB) still exceeds threshold "
+                    f"({config.max_part_size_gib} GiB). INSERT SELECT may not have broken sufficiently."
                 )
 
-            # Step 6: REPLACE PARTITION (atomic swap)
-            context.log.info(f"Replacing partition {partition_id} in {source_table}...")
-            _replace_partition(client, source_table, staging_table, partition_id)
-            context.log.info("REPLACE PARTITION complete")
-
-            # Step 7: Wait for replication
-            context.log.info("Waiting for replication to complete...")
-            _wait_for_replication(client, source_table)
-            context.log.info("Replication complete")
-
-            # Step 8: Post-replace verification
-            context.log.info("Verifying post-replace count...")
-            post_count = _get_baseline_count(client, source_table, partition_key_expr, partition_id)
-            context.log.info(f"Post-replace count: {post_count:,}")
-
-            if baseline_count > 0:
-                post_diff_pct = abs(post_count - baseline_count) / baseline_count
-                if post_diff_pct > config.count_tolerance:
-                    raise RuntimeError(
-                        f"Post-replace count {post_count:,} differs from baseline {baseline_count:,} "
-                        f"by {post_diff_pct:.2%} (tolerance: {config.count_tolerance:.2%}). "
-                        f"REPLACE PARTITION succeeded but data may have diverged. Investigate."
-                    )
-
-            # Get new largest part size from the source table
-            parts_rows = client.execute(
-                "SELECT max(bytes_on_disk) FROM system.parts "
-                "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(partition_id)s",
-                {"db": database, "table": source_table, "partition_id": partition_id},
+            # -- Step 9: DETACH new parts from staging target --
+            context.log.info(f"Detaching parts from {staging_target}...")
+            client.execute(
+                f"ALTER TABLE {database}.{staging_target} DETACH PARTITION '{partition_id}'",
+                settings={"max_partition_size_to_drop": "0"},
             )
-            new_largest_bytes = parts_rows[0][0] if parts_rows[0][0] else 0
+
+            # -- Step 10: Move detached parts to source table's detached dir --
+            # List the detached parts for this partition
+            detached_parts = (
+                _ssh_exec(ssh, f"ls -1 {staging_tgt_detached} | grep '^{partition_id}_'").strip().split("\n")
+            )
+            detached_parts = [p for p in detached_parts if p]  # filter empty
+
+            context.log.info(f"Moving {len(detached_parts)} parts to {source_detached}...")
+            for dp in detached_parts:
+                _ssh_exec(ssh, f"mv {staging_tgt_detached}{dp} {source_detached}{dp}")
+
+            # -- Step 11: ATTACH the new parts to source table --
+            # Use ATTACH PART (not ATTACH PARTITION) to only attach the parts we moved,
+            # avoiding accidentally reattaching unrelated pre-existing detached parts.
+            # Other replicas will automatically fetch these parts via replication.
+            context.log.info(f"Attaching {len(detached_parts)} new parts to {source_table}...")
+            for dp in detached_parts:
+                client.execute(f"ALTER TABLE {database}.{source_table} ATTACH PART '{dp}'")
+
+            # Dedup window: both old oversized part and new broken parts are active.
+            # ReplacingMergeTree handles this transparently on read.
+
+            # Capture the current log index — all replicas must reach at least this
+            # point before we drop the old part, ensuring they have the new parts.
+            log_index_rows = client.execute(
+                "SELECT log_max_index FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
+                {"db": database, "table": source_table},
+            )
+            target_log_index = log_index_rows[0][0] if log_index_rows else 0
+
+            # -- Step 12: Wait for replication before dropping --
+            # Wait for all replicas to fetch the new parts before dropping the old one.
+            # Without this, if the initiating replica goes down after DROP, other replicas
+            # would have neither the old part (dropped via replication) nor the new parts
+            # (not yet fetched). For large parts (hundreds of GiB to TiB) the fetch can
+            # take 30+ minutes, so this wait is critical for data safety.
+            context.log.info(
+                f"Waiting for all replicas to reach log index {target_log_index} before dropping old part..."
+            )
+            _wait_for_replication(client, source_table, target_log_index)
+            context.log.info("Replication complete — all replicas have the new parts")
+
+            # -- Step 13: DROP the original oversized part --
+            # Re-query the part by its min_block/max_block numbers which are stable
+            # across mutations (mutations only change the suffix, not the block range).
+            # Original part name format: {partition}_{min_block}_{max_block}_{level}
+            # Extract the block range from the original name for matching.
+            original_prefix = "_".join(part.part_name.split("_")[:3])  # e.g. "202108_1_1"
+            current_parts = client.execute(
+                "SELECT name FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active "
+                "AND partition_id = %(partition_id)s "
+                "AND name LIKE %(prefix_pattern)s",
+                {
+                    "db": database,
+                    "table": source_table,
+                    "partition_id": partition_id,
+                    "prefix_pattern": f"{original_prefix}_%",
+                },
+            )
+
+            if current_parts:
+                # Should be exactly 1 — the original part (possibly with a new mutation suffix)
+                current_part_name = current_parts[0][0]
+                context.log.info(f"Dropping oversized part {current_part_name} from {source_table}...")
+                client.execute(
+                    f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
+                    settings={"max_partition_size_to_drop": "0"},
+                )
+                context.log.info(f"Dropped {current_part_name}")
+            else:
+                context.log.warning(
+                    f"Original oversized part (prefix {original_prefix}) not found in "
+                    f"{source_table} partition {partition_id} — "
+                    f"it may have been merged or dropped already. Skipping DROP PART."
+                )
+
+            # -- Step 14: Get final stats --
+            new_parts_rows = client.execute(
+                "SELECT count(), max(bytes_on_disk) FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(pid)s",
+                {"db": database, "table": source_table, "pid": partition_id},
+            )
+            new_part_count = new_parts_rows[0][0]
+            new_largest_bytes = new_parts_rows[0][1] if new_parts_rows[0][1] else 0
             new_largest_gib = new_largest_bytes / (1024**3)
 
-        except Exception:
-            # Ensure staging table is cleaned up on any failure to avoid blocking the next run
-            context.log.warning("Error during partition break — truncating staging table before re-raising")
+            # Get post-break count for this partition
+            partition_key_expr = client.execute(
+                "SELECT partition_key FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+                {"db": database, "table": source_table},
+            )[0][0]
+            post_count_rows = client.execute(
+                f"SELECT count() FROM {database}.{source_table} WHERE {partition_key_expr} = %(pid)s",
+                {"pid": _cast_partition_id(partition_id)},
+            )
+            post_count = post_count_rows[0][0]
+
+            # -- Step 15: Clean up --
+            context.log.info("Cleaning up staging tables...")
+            _truncate_staging(client, staging_source)
+            _truncate_staging(client, staging_target)
+
+            # UNFREEZE removes the named shadow backup
             try:
-                _truncate_staging(client, staging_table)
-            except Exception as cleanup_err:
-                context.log.exception(f"Failed to truncate staging table during cleanup: {cleanup_err}")
+                client.execute(f"ALTER TABLE {database}.{source_table} UNFREEZE WITH NAME '{freeze_name}'")
+            except Exception as e:
+                context.log.warning(f"UNFREEZE failed (backup '{freeze_name}'): {e}")
+
+        except Exception:
+            # Clean up staging tables on any failure
+            context.log.warning("Error during part break — cleaning up staging tables")
+            try:
+                _truncate_staging(client, staging_source)
+            except Exception as e:
+                context.log.exception(f"Failed to truncate {staging_source}: {e}")
+            try:
+                _truncate_staging(client, staging_target)
+            except Exception as e:
+                context.log.exception(f"Failed to truncate {staging_target}: {e}")
             raise
 
-        # Step 9: Truncate staging table (happy path)
-        context.log.info("Truncating staging table...")
-        _truncate_staging(client, staging_table)
+        finally:
+            if ssh:
+                ssh.close()
 
         duration = time.time() - start_time
 
@@ -744,26 +1023,26 @@ def break_partition(
             table=source_table,
             shard_num=shard,
             partition_id=partition_id,
-            baseline_count=baseline_count,
-            post_replace_count=post_count,
-            old_largest_part_gib=partition.largest_part_gib,
+            part_name=part.part_name,
+            source_count=source_count,
+            post_count=post_count,
+            old_part_gib=part.part_gib,
             new_largest_part_gib=new_largest_gib,
-            new_part_count=staging_parts,
+            new_part_count=new_part_count,
             duration_seconds=duration,
         )
 
-    # Execute on this shard's offline node.
-    # Catch all exceptions so a single shard failure doesn't kill the entire job —
-    # other shards' work is already committed (REPLACE PARTITION is atomic).
+    # Catch all exceptions so a single shard failure doesn't kill the entire job.
+    workload = Workload[settings.PART_BREAKER_WORKLOAD]
     try:
         result = cluster.map_any_host_in_shards_by_role(
             {shard: _process},
             node_role=NodeRole.DATA,
-            workload=Workload.OFFLINE,
+            workload=workload,
         ).result()
     except Exception:
         context.log.exception(
-            f"Failed to break {source_table} shard {shard}, partition {partition_id} — will retry on next run"
+            f"Failed to break {source_table} shard {shard}, part {part.part_name} — will retry on next run"
         )
         return None
 
@@ -771,10 +1050,10 @@ def break_partition(
     break_result = next(iter(result.values()))
 
     context.log.info(
-        f"{break_result.table} shard {break_result.shard_num}, partition {break_result.partition_id}: "
-        f"largest part {break_result.old_largest_part_gib:.1f} GiB → {break_result.new_largest_part_gib:.1f} GiB "
+        f"{break_result.table} shard {break_result.shard_num}, part {break_result.part_name}: "
+        f"{break_result.old_part_gib:.1f} GiB → {break_result.new_largest_part_gib:.1f} GiB largest "
         f"({break_result.new_part_count} parts), "
-        f"count {break_result.baseline_count:,} → {break_result.post_replace_count:,} "
+        f"count {break_result.source_count:,} → {break_result.post_count:,} "
         f"(diff: {break_result.count_diff_pct:.2%}), "
         f"took {break_result.duration_seconds / 3600:.1f}h"
     )
@@ -785,7 +1064,8 @@ def break_partition(
             "table": break_result.table,
             "shard": break_result.shard_num,
             "partition": break_result.partition_id,
-            "old_largest_gib": round(break_result.old_largest_part_gib, 1),
+            "part_name": break_result.part_name,
+            "old_part_gib": round(break_result.old_part_gib, 1),
             "new_largest_gib": round(break_result.new_largest_part_gib, 1),
             "new_part_count": break_result.new_part_count,
             "duration_hours": round(break_result.duration_seconds / 3600, 1),
@@ -806,22 +1086,42 @@ def report_results(
     failed_count = len(results) - len(completed)
 
     if not completed and failed_count == 0:
-        context.log.info("No partitions were processed (dry run or nothing to do)")
+        context.log.info("No parts were processed (dry run or nothing to do)")
+        context.add_output_metadata({"parts_processed": 0, "status": "no_work"})
         return
 
     context.log.info(
-        f"Part breaker completed: {len(completed)} succeeded, {failed_count} failed out of {len(results)} partition(s)"
+        f"Part breaker completed: {len(completed)} succeeded, {failed_count} failed out of {len(results)} part(s)"
     )
     for r in completed:
         context.log.info(
-            f"  {r.table} shard {r.shard_num}, partition {r.partition_id}: "
-            f"{r.old_largest_part_gib:.1f} GiB → {r.new_largest_part_gib:.1f} GiB "
+            f"  {r.table} shard {r.shard_num}, part {r.part_name}: "
+            f"{r.old_part_gib:.1f} GiB → {r.new_largest_part_gib:.1f} GiB "
             f"({r.new_part_count} parts, {r.duration_seconds / 3600:.1f}h, "
             f"count diff: {r.count_diff_pct:.2%})"
         )
 
+    total_gib = sum(r.old_part_gib for r in completed)
+    total_hours = sum(r.duration_seconds for r in completed) / 3600
+    context.add_output_metadata(
+        {
+            "succeeded": len(completed),
+            "failed": failed_count,
+            "total_gib_processed": round(total_gib, 1),
+            "total_duration_hours": round(total_hours, 1),
+        }
+    )
+
     if failed_count > 0:
-        context.log.warning(f"{failed_count} partition(s) failed — check individual op logs for details")
+        context.log.warning(f"{failed_count} part(s) failed — check individual op logs for details")
+
+
+def _cast_partition_id(partition_id: str):
+    """Cast partition_id to the appropriate type for WHERE clause comparison."""
+    try:
+        return int(partition_id)
+    except ValueError:
+        return partition_id
 
 
 # -- Dagster Job --
@@ -839,12 +1139,12 @@ def report_results(
 def break_oversized_parts():
     """Find and break oversized parts across sharded ClickHouse tables.
 
-    Discovers partitions with parts larger than the configured threshold
-    across all eligible tables, then breaks them using INSERT SELECT +
-    REPLACE PARTITION on each shard's offline node.
+    Discovers individual parts larger than the configured threshold across all
+    eligible tables, then breaks them using FREEZE → copy → INSERT SELECT →
+    attach → DROP PART on each shard's target node.
     """
-    partitions = discover_oversized_partitions()
-    results = partitions.map(break_partition).collect()
+    parts = discover_oversized_parts()
+    results = parts.map(break_part).collect()
     report_results(results)
 
 
@@ -858,5 +1158,6 @@ def break_oversized_parts():
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
+@skip_if_already_running
 def break_oversized_parts_schedule(context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()
