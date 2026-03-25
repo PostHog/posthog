@@ -15,6 +15,8 @@ import type {
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveysListParams,
+    SurveysStatsRetrieve2Params,
+    SurveysStatsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -247,12 +249,29 @@ Args:
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
  */
-export const getSurveysStatsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/stats/`
+export const getSurveysStatsRetrieve2Url = (projectId: string, id: string, params?: SurveysStatsRetrieve2Params) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/stats/`
 }
 
-export const surveysStatsRetrieve2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieve2Url(projectId, id), {
+export const surveysStatsRetrieve2 = async (
+    projectId: string,
+    id: string,
+    params?: SurveysStatsRetrieve2Params,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSurveysStatsRetrieve2Url(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -336,12 +355,28 @@ Args:
 Returns:
     Aggregated statistics across all surveys including total counts and rates
  */
-export const getSurveysStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/surveys/stats/`
+export const getSurveysStatsRetrieveUrl = (projectId: string, params?: SurveysStatsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/stats/`
 }
 
-export const surveysStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieveUrl(projectId), {
+export const surveysStatsRetrieve = async (
+    projectId: string,
+    params?: SurveysStatsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSurveysStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

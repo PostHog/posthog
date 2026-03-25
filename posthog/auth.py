@@ -56,6 +56,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 structlog_logger = structlog.get_logger(__name__)
 
+_SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
+
+SECRET_API_KEY_BODY_COUNTER = Counter(
+    "api_auth_secret_api_key_body",
+    "Requests where the secret API key is provided in the request body instead of the Authorization header",
+)
+
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
@@ -319,9 +326,11 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "authorization" in request.headers:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
+            authorization_match = re.match(rf"^{cls.keyword}\s+(.+)$", request.headers["authorization"])
             if authorization_match:
-                return authorization_match.group(1).strip()
+                token = authorization_match.group(1).strip()
+                if _SECRET_API_KEY_RE.match(token):
+                    return token
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -330,7 +339,10 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
-            return data["secret_api_key"]
+            secret_api_key = data["secret_api_key"]
+            if isinstance(secret_api_key, str) and _SECRET_API_KEY_RE.match(secret_api_key):
+                SECRET_API_KEY_BODY_COUNTER.inc()
+                return secret_api_key
 
         return None
 
@@ -408,6 +420,35 @@ class JwtAuthentication(authentication.BaseAuthentication):
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
+
+
+class ExportRendererAuthentication(authentication.BaseAuthentication):
+    """
+    Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
+    """
+
+    keyword = "Bearer"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if request.method not in ("GET", "HEAD"):
+            return None
+        if "authorization" not in request.headers:
+            return None
+        authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+        if not authorization_match:
+            return None
+        try:
+            token = authorization_match.group(1).strip()
+            info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
+            user = User.objects.get(pk=info["id"])
+            return user, None
+        except (jwt.DecodeError, jwt.InvalidAudienceError):
+            return None
+        except Exception:
+            raise AuthenticationFailed(detail="Token invalid.")
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
 
 
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):

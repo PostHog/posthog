@@ -38,7 +38,8 @@ impl FeatureFlag {
     /// OR if the flag has a cohort filter
     /// OR if the flag has a property filter and the property filter is not present in the overrides
     pub fn requires_db_preparation(&self, overrides: &HashMap<String, Value>) -> bool {
-        self.filters.requires_db_properties(overrides) || self.filters.requires_cohort_filters()
+        self.filters.requires_db_properties(overrides, &self.key)
+            || self.filters.requires_cohort_filters()
     }
 
     /// Returns true if this flag has experience continuity enabled and is eligible for it.
@@ -305,6 +306,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -335,6 +337,7 @@ mod tests {
                         prop_type: PropertyType::Flag,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -344,6 +347,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -375,6 +379,7 @@ mod tests {
                             prop_type: PropertyType::Flag,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -388,6 +393,7 @@ mod tests {
                             prop_type: PropertyType::Flag,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -398,6 +404,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -429,6 +436,7 @@ mod tests {
                             prop_type: PropertyType::Flag,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         },
                         PropertyFilter {
                             key: "regular_property".to_string(),
@@ -437,6 +445,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         },
                     ]),
                     rollout_percentage: Some(100.0),
@@ -447,6 +456,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -506,6 +516,7 @@ mod tests {
                     prop_type: PropertyType::Flag,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 }]),
                 rollout_percentage: Some(100.0),
                 variant: None,

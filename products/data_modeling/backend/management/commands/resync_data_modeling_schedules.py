@@ -101,9 +101,8 @@ class Command(BaseCommand):
                 except Exception:
                     failed += 1
                     logger.exception("Error updating schedule", saved_query_id=str(saved_query.id))
-
-            processed += len(batch.object_list)
-            logger.info(f"Progress: {processed}/{total}")
+                processed += 1
+                logger.info(f"Progress: {processed}/{total}")
             time.sleep(BATCH_DELAY_SECONDS)
 
         logger.info(f"Done! Updated: {updated}, Failed: {failed}, Not found: {len(not_found_ids)}")

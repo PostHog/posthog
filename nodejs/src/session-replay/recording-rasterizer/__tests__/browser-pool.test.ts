@@ -1,12 +1,30 @@
 import { Browser, Page } from 'puppeteer'
 
-import { BrowserPool } from '../browser-pool'
+import { BrowserPool } from '../capture/browser-pool'
 
-jest.mock('puppeteer', () => ({
-    launch: jest.fn(),
-}))
+jest.mock('../logger', () => {
+    const info = jest.fn()
+    return {
+        __mockLogInfo: info,
+        createLogger: () => ({
+            info,
+            warn: jest.fn(),
+            error: jest.fn(),
+            debug: jest.fn(),
+            child: jest.fn().mockReturnThis(),
+        }),
+    }
+})
 
-const puppeteer = require('puppeteer')
+jest.mock(
+    'puppeteer-capture',
+    () => ({
+        launch: jest.fn(),
+    }),
+    { virtual: true }
+)
+
+const puppeteerCapture = require('puppeteer-capture')
 
 function mockBrowser(): jest.Mocked<Browser> {
     return {
@@ -17,7 +35,7 @@ function mockBrowser(): jest.Mocked<Browser> {
 
 function mockPage(): jest.Mocked<Page> {
     return {
-        close: jest.fn(),
+        close: jest.fn().mockResolvedValue(undefined),
     } as any
 }
 
@@ -32,30 +50,32 @@ describe('BrowserPool', () => {
         await pool?.shutdown()
     })
 
-    it('launches browser on first getPage call', async () => {
+    it('launches a browser on getPage', async () => {
         const browser = mockBrowser()
         const page = mockPage()
         browser.newPage.mockResolvedValue(page)
-        puppeteer.launch.mockResolvedValue(browser)
+        puppeteerCapture.launch.mockResolvedValue(browser)
 
         pool = new BrowserPool(100)
         const result = await pool.getPage()
 
-        expect(puppeteer.launch).toHaveBeenCalledTimes(1)
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(1)
         expect(result).toBe(page)
         expect(pool.stats).toEqual({ usageCount: 1, activePages: 1 })
     })
 
-    it('reuses browser across multiple getPage calls', async () => {
-        const browser = mockBrowser()
-        browser.newPage.mockResolvedValue(mockPage())
-        puppeteer.launch.mockResolvedValue(browser)
+    it('launches separate browsers for concurrent pages', async () => {
+        const browser1 = mockBrowser()
+        const browser2 = mockBrowser()
+        browser1.newPage.mockResolvedValue(mockPage())
+        browser2.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
 
         pool = new BrowserPool(100)
         const p1 = await pool.getPage()
         const p2 = await pool.getPage()
 
-        expect(puppeteer.launch).toHaveBeenCalledTimes(1)
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
         expect(pool.stats).toEqual({ usageCount: 2, activePages: 2 })
 
         await pool.releasePage(p1)
@@ -63,111 +83,114 @@ describe('BrowserPool', () => {
         expect(pool.stats.activePages).toBe(0)
     })
 
-    it('recycles browser after recycleAfter threshold when all pages released', async () => {
+    it('reuses idle browser for sequential getPage calls', async () => {
+        const browser = mockBrowser()
+        browser.newPage.mockImplementation(() => Promise.resolve(mockPage()))
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        const p1 = await pool.getPage()
+        await pool.releasePage(p1)
+
+        const p2 = await pool.getPage()
+        await pool.releasePage(p2)
+
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(1)
+    })
+
+    it('recycles browser when usage hits recycleAfter', async () => {
         const browser1 = mockBrowser()
         const browser2 = mockBrowser()
         browser1.newPage.mockResolvedValue(mockPage())
         browser2.newPage.mockResolvedValue(mockPage())
-        puppeteer.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
 
         pool = new BrowserPool(2)
         const p1 = await pool.getPage()
         await pool.releasePage(p1)
-
-        // First use — not at threshold yet
-        expect(puppeteer.launch).toHaveBeenCalledTimes(1)
-
         const p2 = await pool.getPage()
         await pool.releasePage(p2)
 
-        // Second use hits threshold, recycle triggered
+        // browser1 had 2 uses — should be closed, not returned to idle
         expect(browser1.close).toHaveBeenCalled()
-        expect(puppeteer.launch).toHaveBeenCalledTimes(2)
+
+        // Next getPage needs a new browser
+        const p3 = await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
+        await pool.releasePage(p3)
     })
 
-    it('does not recycle while pages are still active', async () => {
+    it('pre-warms one browser on launch()', async () => {
         const browser = mockBrowser()
         browser.newPage.mockResolvedValue(mockPage())
-        puppeteer.launch.mockResolvedValue(browser)
+        puppeteerCapture.launch.mockResolvedValue(browser)
 
-        pool = new BrowserPool(2)
-        const p1 = await pool.getPage()
-        const p2 = await pool.getPage()
+        pool = new BrowserPool(100)
+        await pool.launch()
 
-        // At threshold but p1 and p2 still active
-        await pool.releasePage(p1)
-        expect(browser.close).not.toHaveBeenCalled()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(1)
 
-        // Now release last page — recycle should trigger
-        await pool.releasePage(p2)
-        expect(browser.close).toHaveBeenCalled()
+        // getPage should reuse the pre-warmed browser
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(1)
     })
 
-    it('shutdown closes browser', async () => {
-        const browser = mockBrowser()
-        browser.newPage.mockResolvedValue(mockPage())
-        puppeteer.launch.mockResolvedValue(browser)
+    it('shutdown closes all browsers', async () => {
+        const browser1 = mockBrowser()
+        const browser2 = mockBrowser()
+        const page1 = mockPage()
+        const page2 = mockPage()
+        browser1.newPage.mockResolvedValue(page1)
+        browser2.newPage.mockResolvedValue(page2)
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
 
         pool = new BrowserPool(100)
         await pool.getPage()
+        await pool.getPage()
         await pool.shutdown()
 
-        expect(browser.close).toHaveBeenCalled()
+        expect(page1.close).toHaveBeenCalled()
+        expect(page2.close).toHaveBeenCalled()
+        expect(pool.stats.activePages).toBe(0)
     })
 
-    it('shutdown is safe to call when no browser exists', async () => {
+    it('shutdown is safe to call when no browsers exist', async () => {
         pool = new BrowserPool(100)
         await expect(pool.shutdown()).resolves.not.toThrow()
     })
 
-    it('recovers from failed recycle when launch fails', async () => {
-        const browser1 = mockBrowser()
-        const browser3 = mockBrowser()
-        browser1.newPage.mockResolvedValue(mockPage())
-        browser3.newPage.mockResolvedValue(mockPage())
-        puppeteer.launch
-            .mockResolvedValueOnce(browser1)
-            .mockRejectedValueOnce(new Error('launch failed'))
-            .mockResolvedValueOnce(browser3)
-
-        const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-
-        pool = new BrowserPool(1)
-        const p1 = await pool.getPage()
-        await pool.releasePage(p1)
-
-        expect(consoleSpy).toHaveBeenCalledWith('Browser recycle failed:', expect.any(Error))
-        consoleSpy.mockRestore()
-
-        // The recycling promise is reset via finally, so getPage can retry
-        const p2 = await pool.getPage()
-        expect(p2).toBeDefined()
-        expect(puppeteer.launch).toHaveBeenCalledTimes(3)
-    })
-
-    it('deduplicates concurrent launch calls', async () => {
-        const browser = mockBrowser()
-        browser.newPage.mockResolvedValue(mockPage())
-        puppeteer.launch.mockResolvedValue(browser)
-
-        pool = new BrowserPool(100)
-        await Promise.all([pool.launch(), pool.launch(), pool.launch()])
-
-        expect(puppeteer.launch).toHaveBeenCalledTimes(1)
-    })
-
-    it('deduplicates concurrent recycle calls', async () => {
+    it('releaseAllPages closes all tracked pages', async () => {
         const browser1 = mockBrowser()
         const browser2 = mockBrowser()
-        browser1.newPage.mockResolvedValue(mockPage())
-        browser2.newPage.mockResolvedValue(mockPage())
-        puppeteer.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
+        const page1 = mockPage()
+        const page2 = mockPage()
+        browser1.newPage.mockResolvedValue(page1)
+        browser2.newPage.mockResolvedValue(page2)
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
 
         pool = new BrowserPool(100)
-        await pool.launch()
-        await Promise.all([pool.recycle(), pool.recycle(), pool.recycle()])
+        await pool.getPage()
+        await pool.getPage()
+        expect(pool.stats.activePages).toBe(2)
 
-        expect(browser1.close).toHaveBeenCalledTimes(1)
-        expect(puppeteer.launch).toHaveBeenCalledTimes(2)
+        await pool.releaseAllPages()
+
+        expect(page1.close).toHaveBeenCalled()
+        expect(page2.close).toHaveBeenCalled()
+        expect(pool.stats.activePages).toBe(0)
+    })
+
+    it('releaseAllPages handles already-closed pages gracefully', async () => {
+        const browser = mockBrowser()
+        const page = mockPage()
+        page.close.mockRejectedValue(new Error('page already closed'))
+        browser.newPage.mockResolvedValue(page)
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await pool.getPage()
+
+        await expect(pool.releaseAllPages()).resolves.not.toThrow()
+        expect(pool.stats.activePages).toBe(0)
     })
 })

@@ -101,4 +101,27 @@ describe('Generated prompt tools', () => {
             body: { prompt: { text: 'v2' }, base_version: 1 },
         })
     })
+
+    it('uses prompt_name and new_name in generated prompt-duplicate schema', () => {
+        const tool = getToolByName(GENERATED_TOOLS, 'prompt-duplicate')
+
+        const parsed = tool.schema.parse({ prompt_name: 'original_prompt', new_name: 'copy_of_prompt' })
+        expect(parsed).toEqual({ prompt_name: 'original_prompt', new_name: 'copy_of_prompt' })
+        expect(() => tool.schema.parse({ prompt_name: 'original_prompt' })).toThrow()
+    })
+
+    it('wires prompt-duplicate to POST /name/{prompt_name}/duplicate/ with new_name body', async () => {
+        const response = { id: 'new-id', name: 'copy_of_prompt', version: 1 }
+        const { context, requestMock } = createContext(response)
+        const tool = getToolByName(GENERATED_TOOLS, 'prompt-duplicate')
+
+        const result = await tool.handler(context, { prompt_name: 'original_prompt', new_name: 'copy_of_prompt' })
+
+        expect(requestMock).toHaveBeenCalledWith({
+            method: 'POST',
+            path: '/api/environments/17/llm_prompts/name/original_prompt/duplicate/',
+            body: { new_name: 'copy_of_prompt' },
+        })
+        expect(result).toEqual(response)
+    })
 })

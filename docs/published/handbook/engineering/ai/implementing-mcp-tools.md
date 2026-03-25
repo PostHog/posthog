@@ -188,14 +188,26 @@ Product teams own their definitions and control which operations are exposed as 
 2. **Configure** the YAML – enable tools, add scopes, annotations, and descriptions.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
-   Tool names follow a **`domain-action`** convention in kebab-case,
+   **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
    e.g. `feature-flags-list`, `experiments-create`, `surveys-delete`.
    The domain groups related tools together and the action describes the operation.
+   Names must not start or end with a hyphen.
 
-   **Tool name length limit:** Some MCP clients (notably Cursor) enforce a 60-character
-   combined limit on `server_name:tool_name`. Since our server name is `posthog` (7 chars),
-   tool names must be **52 characters or fewer**.
-   CI runs `pnpm --filter=@posthog/mcp lint-tool-names` to enforce this.
+   **Feature identifiers** must be lowercase snake*case (`[a-z0-9*]`), e.g. `error_tracking`,
+`feature_flags`. They should match the product folder name.
+
+   **Tool name length limit:** tool names must be **52 characters or fewer**.
+   This limit exists because MCP clients enforce different combined limits on server+tool name:
+
+   | Client           | Limit                          | Notes                                                                 |
+   | ---------------- | ------------------------------ | --------------------------------------------------------------------- |
+   | MCP spec (draft) | 1–128 chars, `[A-Za-z0-9_\-.]` | Recommendation, not hard-enforced                                     |
+   | Claude Code      | 64 chars                       | Prefixes tool names with `mcp____`                                    |
+   | Cursor           | 60 chars combined              | `server_name + tool_name`; tools exceeding this are silently filtered |
+   | OpenAI API       | `^[a-zA-Z0-9_-]+$`, 64 chars   | No dots allowed                                                       |
+
+   With the server name "posthog" (7 chars) plus a separator, 52 characters is the safe zone.
+   CI runs `pnpm --filter=@posthog/mcp lint-tool-names` to enforce both length and pattern.
    If you hit the limit, shorten the domain prefix or use a more concise action name.
 
    ```yaml

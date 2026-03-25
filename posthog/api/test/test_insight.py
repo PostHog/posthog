@@ -49,6 +49,7 @@ from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
@@ -214,6 +215,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
+                send_feature_flags=False,
             )
             mock_capture.reset_mock()
 
@@ -259,6 +261,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
+                send_feature_flags=False,
             )
             mock_capture.reset_mock()
 
@@ -342,8 +345,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(len(response.json()["results"]), 2)
         self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
+
+    def test_dashboard_template_insights_default_to_saved(self) -> None:
+        from posthog.helpers.dashboard_templates import create_dashboard_from_template
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test")
+        create_dashboard_from_template("DEFAULT_APP", dashboard)
+
+        insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
+        self.assertGreater(insights.count(), 0)
+        for insight in insights:
+            self.assertTrue(insight.saved, f"Insight '{insight.name}' should have saved=True")
 
     def test_get_favorited_insight_items(self) -> None:
         filter_dict = {
@@ -3597,6 +3611,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
+
+    def test_insight_activity_respects_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Hidden Insight",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(resource="insight", resource_id=insight.id, team=self.team, access_level="none")
+
+        self.client.force_login(user2)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        activity_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/activity/")
+        self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_insight_in_specific_folder(self):
         response = self.client.post(

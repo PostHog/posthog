@@ -3,7 +3,6 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
 from django.test import TestCase, override_settings
 
 from parameterized import parameterized
@@ -12,12 +11,7 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.vercel.vercel_connect import (
-    CONNECT_COOKIE_NAME,
-    CONNECT_COOKIE_SALT,
-    _get_connect_cache_key,
-    _validate_next_url,
-)
+from ee.api.vercel.vercel_connect import _load_connect_session, _sign_connect_session, _validate_next_url
 from ee.vercel.client import OAuthTokenResponse
 
 CACHED_SESSION_DATA = {
@@ -31,23 +25,8 @@ CACHED_SESSION_DATA = {
 }
 
 
-def _seed_session(session_key: str = "test-session", data: dict | None = None) -> str:
-    cache.set(_get_connect_cache_key(session_key), data or CACHED_SESSION_DATA, timeout=600)
-    return session_key
-
-
-def _bind_cookie(client, session_key: str) -> None:
-    from django.http import HttpResponse
-
-    response = HttpResponse()
-    response.set_signed_cookie(
-        CONNECT_COOKIE_NAME,
-        session_key,
-        salt=CONNECT_COOKIE_SALT,
-        max_age=600,
-    )
-    raw_cookie = response.cookies[CONNECT_COOKIE_NAME].value
-    client.cookies[CONNECT_COOKIE_NAME] = raw_cookie
+def _seed_session(data: dict | None = None) -> str:
+    return _sign_connect_session(data or CACHED_SESSION_DATA)
 
 
 class VercelConnectTestBase(APIBaseTest):
@@ -112,9 +91,8 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         parsed = parse_qs(urlparse(location).query)
         assert "session" in parsed
         assert "next" not in parsed
-        session_key = parsed["session"][0]
-        cached_data = cache.get(_get_connect_cache_key(session_key))
-        assert cached_data["next_url"] == "https://vercel.com/done"
+        session_data = _load_connect_session(parsed["session"][0])
+        assert session_data["next_url"] == "https://vercel.com/done"
 
     @parameterized.expand(
         [
@@ -142,9 +120,8 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert response.status_code == 302
         parsed = parse_qs(urlparse(response["Location"]).query)
         assert "next" not in parsed
-        session_key = parsed["session"][0]
-        cached_data = cache.get(_get_connect_cache_key(session_key))
-        assert cached_data["next_url"] == ""
+        session_data = _load_connect_session(parsed["session"][0])
+        assert session_data["next_url"] == ""
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
@@ -165,6 +142,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert response["Location"].startswith("/login?next=")
 
 
+@override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectSessionInfo(VercelConnectTestBase):
     def setUp(self):
         super().setUp()
@@ -176,34 +154,14 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_expired_session_returns_400(self):
-        _bind_cookie(self.client, "nonexistent")
-
-        response = self.client.get(self.url, {"session": "nonexistent"})
+        response = self.client.get(self.url, {"session": "bogus-token"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_mismatched_cookie_returns_400(self):
-        session_key = _seed_session()
-        _bind_cookie(self.client, "wrong-key")
-
-        response = self.client.get(self.url, {"session": session_key})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Session mismatch" in response.json()["detail"]
-
-    def test_missing_cookie_returns_400(self):
-        session_key = _seed_session()
-
-        response = self.client.get(self.url, {"session": session_key})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Session mismatch" in response.json()["detail"]
 
     def test_returns_orgs_where_user_is_admin(self):
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
+        session_token = _seed_session()
 
-        response = self.client.get(self.url, {"session": session_key})
+        response = self.client.get(self.url, {"session": session_token})
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -220,10 +178,9 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             config={},
             created_by=self.user,
         )
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
+        session_token = _seed_session()
 
-        response = self.client.get(self.url, {"session": session_key})
+        response = self.client.get(self.url, {"session": session_token})
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["organizations"][0]["already_linked"] is True
@@ -235,10 +192,9 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             organization=other_org,
             level=OrganizationMembership.Level.MEMBER,
         )
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
+        session_token = _seed_session()
 
-        response = self.client.get(self.url, {"session": session_key})
+        response = self.client.get(self.url, {"session": session_token})
 
         assert response.status_code == status.HTTP_200_OK
         org_names = [o["name"] for o in response.json()["organizations"]]
@@ -246,36 +202,34 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
-        session_key = _seed_session()
+        session_token = _seed_session()
 
-        response = self.client.get(self.url, {"session": session_key})
+        response = self.client.get(self.url, {"session": session_token})
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
 
+@override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectComplete(VercelConnectTestBase):
     def setUp(self):
         super().setUp()
         self.url = "/api/vercel/connect/complete"
 
     def test_expired_session_returns_400(self):
-        _bind_cookie(self.client, "nonexistent")
-
         response = self.client.post(
             self.url,
-            {"session": "nonexistent", "organization_id": str(self.organization.id)},
+            {"session": "bogus-token", "organization_id": str(self.organization.id)},
             content_type="application/json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_successful_link_creates_integration(self):
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
+        session_token = _seed_session()
 
         response = self.client.post(
             self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
+            {"session": session_token, "organization_id": str(self.organization.id)},
             content_type="application/json",
         )
 
@@ -292,26 +246,13 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert integration.config["credentials"]["access_token"] == "vercel_token_123"
         assert integration.integration_id == "icfg_connect_test"
 
-    def test_session_deleted_after_linking(self):
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
-
-        self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert cache.get(_get_connect_cache_key(session_key)) is None
-
     def test_non_member_returns_403(self):
         other_org = Organization.objects.create(name="Not My Org")
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
+        session_token = _seed_session()
 
         response = self.client.post(
             self.url,
-            {"session": session_key, "organization_id": str(other_org.id)},
+            {"session": session_token, "organization_id": str(other_org.id)},
             content_type="application/json",
         )
 
@@ -324,16 +265,33 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             organization=other_org,
             level=OrganizationMembership.Level.MEMBER,
         )
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
+        session_token = _seed_session()
 
         response = self.client.post(
             self.url,
-            {"session": session_key, "organization_id": str(other_org.id)},
+            {"session": session_token, "organization_id": str(other_org.id)},
             content_type="application/json",
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_replay_returns_400(self):
+        session_token = _seed_session()
+
+        self.client.post(
+            self.url,
+            {"session": session_token, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"session": session_token, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already used" in response.json()["detail"]
 
     def test_already_linked_org_returns_400(self):
         OrganizationIntegration.objects.create(
@@ -343,12 +301,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={},
             created_by=self.user,
         )
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
+        session_token = _seed_session()
 
         response = self.client.post(
             self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
+            {"session": session_token, "organization_id": str(self.organization.id)},
             content_type="application/json",
         )
 
@@ -357,83 +314,23 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
-        session_key = _seed_session()
+        session_token = _seed_session()
 
         response = self.client.post(
             self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
+            {"session": session_token, "organization_id": str(self.organization.id)},
             content_type="application/json",
         )
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    def test_mismatched_session_key_returns_400(self):
-        session_key = _seed_session()
-        _bind_cookie(self.client, "different-session-key")
 
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Session mismatch" in response.json()["detail"]
-
-    def test_missing_django_session_key_returns_400(self):
-        session_key = _seed_session()
-        # Don't bind session — simulates attacker sending victim a crafted link
-
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Session mismatch" in response.json()["detail"]
-
-    def test_complete_clears_binding_cookie(self):
-        session_key = _seed_session()
-        _bind_cookie(self.client, session_key)
-
-        response = self.client.post(
-            self.url,
-            {"session": session_key, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.cookies[CONNECT_COOKIE_NAME]["max-age"] == 0
-
-
-class TestVercelConnectCookieBinding(VercelConnectTestBase):
+@override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+class TestVercelConnectEndToEnd(VercelConnectTestBase):
     def setUp(self):
         super().setUp()
-        self.url = "/connect/vercel/callback"
+        self.callback_url = "/connect/vercel/callback"
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_callback_sets_signed_cookie(self, mock_client_class):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
-            access_token="tok_123",
-            token_type="Bearer",
-            installation_id="icfg_new",
-            user_id="usr_1",
-            team_id="team_1",
-        )
-
-        response = self.client.get(self.url, {"code": "good_code"})
-
-        assert response.status_code == 302
-        assert CONNECT_COOKIE_NAME in response.cookies
-        cookie = response.cookies[CONNECT_COOKIE_NAME]
-        assert cookie["httponly"] is True
-        assert cookie["samesite"] == "Lax"
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_end_to_end_callback_to_complete(self, mock_client_class):
         mock_client = MagicMock()
@@ -446,23 +343,22 @@ class TestVercelConnectCookieBinding(VercelConnectTestBase):
             team_id="team_e2e",
         )
 
-        response = self.client.get(self.url, {"code": "good_code"})
+        response = self.client.get(self.callback_url, {"code": "good_code"})
         assert response.status_code == 302
         parsed = parse_qs(urlparse(response["Location"]).query)
-        session_key = parsed["session"][0]
+        session_token = parsed["session"][0]
 
         complete_response = self.client.post(
             "/api/vercel/connect/complete",
-            {"session": session_key, "organization_id": str(self.organization.id)},
+            {"session": session_token, "organization_id": str(self.organization.id)},
             content_type="application/json",
         )
 
         assert complete_response.status_code == status.HTTP_201_CREATED
         assert complete_response.json()["status"] == "linked"
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_binding_survives_session_flush(self, mock_client_class):
+    def test_token_survives_session_flush(self, mock_client_class):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
@@ -473,10 +369,10 @@ class TestVercelConnectCookieBinding(VercelConnectTestBase):
             team_id="team_sso",
         )
 
-        response = self.client.get(self.url, {"code": "good_code"})
+        response = self.client.get(self.callback_url, {"code": "good_code"})
         assert response.status_code == 302
         parsed = parse_qs(urlparse(response["Location"]).query)
-        session_key = parsed["session"][0]
+        session_token = parsed["session"][0]
 
         # Simulate SSO login: flush destroys session, then user re-authenticates
         self.client.session.flush()
@@ -484,7 +380,7 @@ class TestVercelConnectCookieBinding(VercelConnectTestBase):
 
         complete_response = self.client.post(
             "/api/vercel/connect/complete",
-            {"session": session_key, "organization_id": str(self.organization.id)},
+            {"session": session_token, "organization_id": str(self.organization.id)},
             content_type="application/json",
         )
 

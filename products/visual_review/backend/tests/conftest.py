@@ -19,6 +19,9 @@ import responses
 
 from products.visual_review.backend.models import Repo
 
+PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_reader"}
+
+
 # --- Local Git Repo Fixtures ---
 
 
@@ -248,7 +251,7 @@ def mock_github_integration(team, mocker):
 def vr_project_with_github(team, mock_github_integration):
     """Create a visual review repo configured for GitHub."""
     return Repo.objects.create(
-        team=team,
+        team_id=team.id,
         repo_external_id=12345,
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},

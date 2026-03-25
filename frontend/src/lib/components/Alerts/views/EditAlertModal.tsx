@@ -38,11 +38,58 @@ import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/typ
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { alertNotificationLogic } from '../alertNotificationLogic'
+import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
-import { DetectorSelector } from './DetectorSelector'
+import { DetectorSelector, getDefaultWindow } from './DetectorSelector'
 import { InlineAlertNotifications } from './InlineAlertNotifications'
+import { SimulationSummary } from './SimulationSummary'
+
+function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {
+    switch (interval) {
+        case AlertCalculationInterval.HOURLY:
+            return [
+                { label: 'Last 24h', value: '-24h' },
+                { label: 'Last 48h', value: '-48h' },
+                { label: 'Last 72h', value: '-72h' },
+                { label: 'Last 7d', value: '-168h' },
+            ]
+        case AlertCalculationInterval.DAILY:
+            return [
+                { label: 'Last 14d', value: '-14d' },
+                { label: 'Last 30d', value: '-30d' },
+                { label: 'Last 60d', value: '-60d' },
+                { label: 'Last 90d', value: '-90d' },
+            ]
+        case AlertCalculationInterval.WEEKLY:
+            return [
+                { label: 'Last 8w', value: '-8w' },
+                { label: 'Last 12w', value: '-12w' },
+                { label: 'Last 26w', value: '-26w' },
+                { label: 'Last 52w', value: '-52w' },
+            ]
+        case AlertCalculationInterval.MONTHLY:
+            return [
+                { label: 'Last 6m', value: '-6m' },
+                { label: 'Last 12m', value: '-12m' },
+                { label: 'Last 24m', value: '-24m' },
+            ]
+    }
+}
+
+function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
+    switch (interval) {
+        case AlertCalculationInterval.HOURLY:
+            return '-48h'
+        case AlertCalculationInterval.DAILY:
+            return '-30d'
+        case AlertCalculationInterval.WEEKLY:
+            return '-12w'
+        case AlertCalculationInterval.MONTHLY:
+            return '-12m'
+    }
+}
 
 function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
@@ -160,8 +207,16 @@ export function EditAlertModal({
         insightInterval: trendInterval ?? undefined,
     }
     const formLogic = alertFormLogic(formLogicProps)
-    const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
-    const { deleteAlert, snoozeAlert, clearSnooze } = useActions(formLogic)
+    const {
+        alertForm,
+        isAlertFormSubmitting,
+        alertFormChanged,
+        simulationResult,
+        simulationResultLoading,
+        simulationDateFrom,
+    } = useValues(formLogic)
+    const { deleteAlert, snoozeAlert, clearSnooze, simulateAlert, clearSimulation, setSimulationDateFrom } =
+        useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -171,13 +226,27 @@ export function EditAlertModal({
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
 
+    const handleClose = useCallback(() => {
+        clearSimulation()
+        if (insightLogicProps && insightId) {
+            insightAlertsLogic({ insightId, insightLogicProps }).actions.clearSimulationAnomalyPoints()
+        }
+        onClose?.()
+    }, [clearSimulation, insightLogicProps, insightId, onClose])
+
+    const clearSimulationOverlay = useCallback(() => {
+        if (insightLogicProps && insightId) {
+            insightAlertsLogic({ insightId, insightLogicProps }).actions.clearSimulationAnomalyPoints()
+        }
+    }, [insightLogicProps, insightId])
+
     const creatingNewAlert = alertForm.id === undefined
     // can only check ongoing interval for absolute value/increase alerts with upper threshold
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
 
     return (
-        <LemonModal onClose={onClose} isOpen={isOpen} width={750} simple title="">
+        <LemonModal onClose={handleClose} isOpen={isOpen} width={750} simple title="">
             {alertLoading ? (
                 <SpinnerOverlay />
             ) : (
@@ -190,7 +259,7 @@ export function EditAlertModal({
                 >
                     <LemonModal.Header>
                         <div className="flex items-center gap-2">
-                            <LemonButton icon={<IconChevronLeft />} onClick={onClose} size="xsmall" />
+                            <LemonButton icon={<IconChevronLeft />} onClick={handleClose} size="xsmall" />
 
                             <h3>{creatingNewAlert ? 'New' : 'Edit '} Alert</h3>
                         </div>
@@ -275,7 +344,7 @@ export function EditAlertModal({
                                                     setAlertFormValue('detector_config', {
                                                         type: 'zscore',
                                                         threshold: 0.9,
-                                                        window: 30,
+                                                        window: getDefaultWindow(alertForm.calculation_interval),
                                                     })
                                                 } else {
                                                     setAlertFormValue('detector_config', null)
@@ -419,8 +488,45 @@ export function EditAlertModal({
                                     ) : (
                                         <DetectorSelector
                                             value={alertForm.detector_config ?? null}
-                                            onChange={(config) => setAlertFormValue('detector_config', config)}
+                                            onChange={(config) => {
+                                                setAlertFormValue('detector_config', config)
+                                                clearSimulation()
+                                                clearSimulationOverlay()
+                                            }}
+                                            calculationInterval={alertForm.calculation_interval}
                                         />
+                                    )}
+
+                                    {alertMode === 'detector' && alertForm.detector_config && (
+                                        <div className="deprecated-space-y-2">
+                                            <div className="flex gap-2 items-center">
+                                                <h4 className="m-0">Simulation</h4>
+                                                <LemonSelect
+                                                    size="small"
+                                                    value={
+                                                        simulationDateFrom ??
+                                                        getDefaultSimulationRange(alertForm.calculation_interval)
+                                                    }
+                                                    onChange={(value) => setSimulationDateFrom(value)}
+                                                    options={getSimulationRangeOptions(alertForm.calculation_interval)}
+                                                />
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    onClick={simulateAlert}
+                                                    loading={simulationResultLoading}
+                                                    tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
+                                                >
+                                                    Simulate
+                                                </LemonButton>
+                                            </div>
+                                            {simulationResult && (
+                                                <SimulationSummary
+                                                    result={simulationResult}
+                                                    detectorConfig={alertForm.detector_config}
+                                                />
+                                            )}
+                                        </div>
                                     )}
 
                                     <div className="flex gap-4 items-center">
