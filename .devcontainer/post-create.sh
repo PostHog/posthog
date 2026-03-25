@@ -7,6 +7,14 @@ set -euo pipefail
 echo "=== PostHog devbox: post-create ==="
 cd /workspaces/posthog
 
+# Load generated secrets (created in on-create.sh)
+# shellcheck disable=SC1091
+[ -f .devcontainer/.secret_env ] && source .devcontainer/.secret_env
+
+# Ensure interactive terminals also get the secret
+grep -qF '.secret_env' ~/.bashrc 2>/dev/null || \
+    echo '[ -f /workspaces/posthog/.devcontainer/.secret_env ] && source /workspaces/posthog/.devcontainer/.secret_env' >> ~/.bashrc
+
 # Expose hogli on PATH via the venv (mirrors what flox does locally)
 ln -sf /workspaces/posthog/bin/hogli /workspaces/posthog/.venv/bin/hogli
 

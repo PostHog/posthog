@@ -7,6 +7,11 @@ set -euo pipefail
 echo "=== PostHog devbox: on-create (prebuild phase) ==="
 cd /workspaces/posthog
 
+# Generate a unique SECRET_KEY for this codespace (persisted across restarts)
+if [ ! -f .devcontainer/.secret_env ]; then
+    printf 'export SECRET_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')" > .devcontainer/.secret_env
+fi
+
 # Host aliases for services that expect non-localhost hostnames
 echo "127.0.0.1 kafka clickhouse objectstorage" | sudo tee -a /etc/hosts
 

@@ -6,6 +6,10 @@ set -euo pipefail
 
 cd /workspaces/posthog
 
+# Load generated secrets (created in on-create.sh)
+# shellcheck disable=SC1091
+[ -f .devcontainer/.secret_env ] && source .devcontainer/.secret_env
+
 COMPOSE_FILES="-f docker-compose.dev.yml -f docker-compose.codespace.yml -f docker-compose.profiles.yml"
 # shellcheck disable=SC2086
 if ! docker compose $COMPOSE_FILES ps --status running --quiet 2>/dev/null | head -1 | grep -q .; then

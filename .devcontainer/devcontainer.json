@@ -70,7 +70,6 @@
         "KAFKA_ENABLED": "true",
         "KAFKA_HOSTS": "kafka:9092",
         "PRIMARY_DB": "clickhouse",
-        "SECRET_KEY": "devbox-secret-key-not-for-production",
         "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
     },
     "remoteUser": "vscode",
