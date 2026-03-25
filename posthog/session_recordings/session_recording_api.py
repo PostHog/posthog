@@ -73,7 +73,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1891,39 +1891,17 @@ def list_recordings_from_query(
                 )
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
-        # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        # Use prefetch_related with explicit Person filter to include team_id in Person query
-        from django.db.models import Prefetch
-
-        from posthog.models.person.person import Person
-
-        person_distinct_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(distinct_id__in=distinct_ids, team=team)
-            .prefetch_related(
-                Prefetch(
-                    "person",
-                    queryset=Person.objects.filter(team_id=team.id),
-                )
-            )
-        )
+        distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
-        distinct_id_to_person = {}
-        for person_distinct_id in person_distinct_ids:
-            person_distinct_id.person._distinct_ids = [
-                person_distinct_id.distinct_id
-            ]  # Stop the person from loading all distinct ids
-            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
             recording.has_summary = recording.session_id in default_summary_session_ids
-            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
-            if person:
-                recording.person = person
+            matched_person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
+            if matched_person:
+                recording.person = matched_person
 
     return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
 

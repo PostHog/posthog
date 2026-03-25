@@ -103,6 +103,7 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
+    "posthog.personhog_client.middleware.PersonHogGateMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
