@@ -223,10 +223,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.parts_size = None
             obj.parts_row_count = None
             obj.stats_calculated_at = None
-            if "events" in form.changed_data or "properties" in form.changed_data:
-                if obj.status != RequestStatus.DRAFT:
-                    obj.status = RequestStatus.DRAFT
-                    messages.warning(request, "Events or properties were changed — status has been reset to draft.")
+            if obj.status != RequestStatus.DRAFT:
+                obj.status = RequestStatus.DRAFT
+                messages.warning(request, "Deletion criteria were changed — status has been reset to draft.")
         if obj.request_type == RequestType.EVENT_REMOVAL and obj.properties:
             obj.properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
