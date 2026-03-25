@@ -286,7 +286,8 @@ runcmd:
                 self.droplet = droplet
                 return self.droplet
             except digitalocean.DataReadError as e:
-                if "not available in this region" not in str(e).lower():
+                err_lower = str(e).lower()
+                if "not available in this region" not in err_lower and "size is unavailable" not in err_lower:
                     raise
                 print(f"Droplet creation failed (region={region}, size={size}): {e}")
                 last_error = e
