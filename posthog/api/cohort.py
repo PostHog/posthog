@@ -1467,6 +1467,8 @@ def will_create_loops(cohort: Cohort) -> bool:
 def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
     CH_PAGE_SIZE = 10_000
 
     # Use cursor-based pagination to stream from ClickHouse in pages instead of
@@ -1476,7 +1478,6 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     # scan and discard all preceding rows.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         rows = sync_execute(
             f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
             {
