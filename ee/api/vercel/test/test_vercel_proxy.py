@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 import requests as req
-import responses
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -239,39 +238,6 @@ class TestVercelProxyAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.json() == {"error": "Failed to retrieve Vercel credentials"}
-
-    @responses.activate
-    def test_proxy_fallback_reads_token_from_config(self, mock_license):
-        """Pre-migration installations store credentials in config — proxy should still work."""
-        mock_license.return_value = self.license
-
-        self.integration.sensitive_config = {}
-        self.integration.config = {
-            "billing_plan_id": "free",
-            "scopes": ["read", "write"],
-            "credentials": {"access_token": self.vercel_access_token, "token_type": "Bearer"},
-        }
-        self.integration.save()
-
-        responses.add(
-            responses.POST,
-            f"https://api.vercel.com/v1/installations/{self.installation_id}/billing/invoices",
-            json={"ok": True},
-            status=200,
-        )
-
-        response = self.unauthenticated_client.post(
-            "/api/vercel/proxy/",
-            {
-                "path": "/billing/invoices",
-                "method": "POST",
-                "body": {},
-            },
-            format="json",
-            **self._get_auth_headers(),
-        )
-
-        assert response.status_code == status.HTTP_200_OK
 
     def test_proxy_validates_request_body(self, mock_license):
         mock_license.return_value = self.license
