@@ -88,21 +88,27 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
         setDraftOrderBy(undefined)
     }, [])
 
+    const showColumn = useCallback(
+        (columnName: string) => {
+            const newSelect: string[] = []
+            for (const column of sortedColumns) {
+                if (column === columnName || !hiddenColumns.includes(column)) {
+                    newSelect.push(column)
+                }
+            }
+            setDraftSelect(newSelect)
+        },
+        [hiddenColumns, sortedColumns]
+    )
+
     const updateOrderBy = useCallback(
         (columnName: string, direction: 'ASC' | 'DESC') => {
-            // If the column is hidden, show it
             if (hiddenColumns.includes(columnName)) {
-                const newSelect: string[] = []
-                for (const column of sortedColumns) {
-                    if (column === columnName || !hiddenColumns.includes(column)) {
-                        newSelect.push(column)
-                    }
-                }
-                setDraftSelect(newSelect)
+                showColumn(columnName)
             }
             setDraftOrderBy(createMarketingAnalyticsOrderBy(columnName, direction))
         },
-        [hiddenColumns, sortedColumns]
+        [hiddenColumns, showColumn]
     )
 
     const handleSortToggle = useCallback(
@@ -121,14 +127,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
             const isCurrentlyHidden = hiddenColumns.includes(columnName)
 
             if (isCurrentlyHidden) {
-                // Showing a column
-                const newSelect: string[] = []
-                for (const column of sortedColumns) {
-                    if (column === columnName || !hiddenColumns.includes(column)) {
-                        newSelect.push(column)
-                    }
-                }
-                setDraftSelect(newSelect)
+                showColumn(columnName)
             } else {
                 // Hiding a column
                 const newSelect: string[] = []
@@ -148,7 +147,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                 setDraftPinnedColumns((prev) => prev.filter((c) => c !== columnName))
             }
         },
-        [hiddenColumns, sortedColumns, draftOrderBy]
+        [hiddenColumns, sortedColumns, draftOrderBy, showColumn]
     )
 
     const toggleColumnPinning = useCallback(
@@ -162,17 +161,11 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
 
                 // If pinning a hidden column, show it
                 if (hiddenColumns.includes(columnName)) {
-                    const newSelect: string[] = []
-                    for (const column of sortedColumns) {
-                        if (column === columnName || !hiddenColumns.includes(column)) {
-                            newSelect.push(column)
-                        }
-                    }
-                    setDraftSelect(newSelect)
+                    showColumn(columnName)
                 }
             }
         },
-        [draftPinnedColumns, hiddenColumns, sortedColumns]
+        [draftPinnedColumns, hiddenColumns, showColumn]
     )
 
     const resetColumnConfigToDefaults = useCallback(() => {
