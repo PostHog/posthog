@@ -9,10 +9,10 @@ import { initKeaTests } from '~/test/init'
 import { BatchExportConfiguration } from '~/types'
 
 import {
-    BatchExportConfigurationLogicProps,
-    batchExportConfigurationLogic,
+    BatchExportConfigFormLogicProps,
+    batchExportConfigFormLogic,
     getDefaultConfiguration,
-} from './batchExportConfigurationLogic'
+} from './batchExportConfigFormLogic'
 
 const MOCK_S3_BATCH_EXPORT: BatchExportConfiguration = {
     id: 'test-s3-id',
@@ -91,8 +91,8 @@ jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn().mockResolvedValue(null),
 }))
 
-describe('batchExportConfigurationLogic', () => {
-    let logic: ReturnType<typeof batchExportConfigurationLogic.build>
+describe('batchExportConfigFormLogic', () => {
+    let logic: ReturnType<typeof batchExportConfigFormLogic.build>
     let lastPostBody: Record<string, any> | null = null
     let lastPatchBody: Record<string, any> | null = null
 
@@ -121,9 +121,9 @@ describe('batchExportConfigurationLogic', () => {
         initKeaTests()
     })
 
-    async function initLogic(props: BatchExportConfigurationLogicProps): Promise<void> {
+    async function initLogic(props: BatchExportConfigFormLogicProps): Promise<void> {
         await expectLogic(teamLogic).toFinishAllListeners()
-        logic = batchExportConfigurationLogic(props)
+        logic = batchExportConfigFormLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
