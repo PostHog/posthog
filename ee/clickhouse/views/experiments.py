@@ -361,6 +361,28 @@ class EnterpriseExperimentsViewSet(
         resumed_experiment = service.resume_experiment(experiment, request=request)
         return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def reset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reset an experiment back to draft state.
+
+        Clears start/end dates, conclusion, and archived flag. The feature
+        flag is left unchanged — users continue to see their assigned variants.
+
+        Previously collected events still exist but won't be included in
+        results unless the start date is manually adjusted after re-launch.
+
+        Returns 400 if the experiment is already in draft state.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        reset_experiment = service.reset_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(reset_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()

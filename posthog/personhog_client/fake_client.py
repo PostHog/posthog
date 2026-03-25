@@ -208,13 +208,16 @@ class FakePersonHogClient:
     ) -> person_pb2.PersonsByDistinctIdsInTeamResponse:
         self.calls.append(_Call("get_persons_by_distinct_ids_in_team", request))
         results = []
-        seen_person_ids: set[int] = set()
         for did in request.distinct_ids:
             person = self._persons_by_distinct_id.get((request.team_id, did))
-            if person and person.id not in seen_person_ids:
-                seen_person_ids.add(person.id)
+            if person:
                 results.append(person_pb2.PersonWithDistinctIds(distinct_id=did, person=person))
         return person_pb2.PersonsByDistinctIdsInTeamResponse(results=results)
+
+    # NOTE: the real RPC returns one result per requested distinct_id (no
+    # deduplication by person).  Callers that need unique persons (e.g.
+    # _fetch_persons_by_distinct_ids_via_personhog) must deduplicate
+    # themselves.
 
     def get_distinct_ids_for_person(
         self, request: person_pb2.GetDistinctIdsForPersonRequest
