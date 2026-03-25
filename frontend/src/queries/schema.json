@@ -18387,6 +18387,10 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
+                "skipHogQLLayer": {
+                    "description": "Run the selected connection query directly without translating it through HogQL first",
+                    "type": "boolean"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },

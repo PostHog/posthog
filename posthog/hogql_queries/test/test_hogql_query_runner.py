@@ -4,7 +4,14 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from posthog.schema import CachedHogQLQueryResponse, HogQLFilters, HogQLPropertyFilter, HogQLQuery, HogQLVariable
+from posthog.schema import (
+    CachedHogQLQueryResponse,
+    HogQLFilters,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
@@ -190,6 +197,35 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
+
+    @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
+    def test_skip_hogql_layer_uses_raw_query_string_for_direct_connections(self, mock_execute_hogql_query):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(1,)], columns=["value"], types=[])
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select 1::int as value",
+                connectionId=str(source.id),
+                skipHogQLLayer=True,
+            )
+        )
+
+        response = runner.calculate()
+
+        self.assertEqual(response.results, [(1,)])
+        mock_execute_hogql_query.assert_called_once()
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["query"], "select 1::int as value")
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["connection_id"], str(source.id))
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["skip_hogql_layer"], True)
 
     def test_soft_deleted_connection_id_raises_exposed_hogql_error(self):
         source = ExternalDataSource.objects.create(

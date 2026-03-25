@@ -558,6 +558,100 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("1 AS value", executor.direct_postgres_sql)
         self.assertIn("LIMIT 100", executor.direct_postgres_sql)
 
+    @patch("posthog.hogql.query.capture_exception")
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_skip_hogql_layer_executes_raw_query_and_preserves_hogql_when_printable(
+        self, mock_connect, mock_capture_exception
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 AS value",
+            team=self.team,
+            connection_id=str(source.id),
+            skip_hogql_layer=True,
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(response.clickhouse, "SELECT 1 AS value")
+        self.assertEqual(response.columns, ["value"])
+        self.assertIsNotNone(response.hogql)
+        mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.hogql.query.capture_exception")
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_skip_hogql_layer_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1::int AS value",
+            team=self.team,
+            connection_id=str(source.id),
+            skip_hogql_layer=True,
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(response.clickhouse, "SELECT 1::int AS value")
+        self.assertEqual(response.columns, ["value"])
+        self.assertIsNone(response.hogql)
+        mocked_cursor.execute.assert_called_once_with("SELECT 1::int AS value", None)
+        mock_capture_exception.assert_called_once()
+
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

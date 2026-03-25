@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconGear, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -14,6 +14,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -49,9 +50,18 @@ export function QueryWindow({
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
-    const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView } = useValues(sqlEditorLogic)
+    const {
+        queryInput,
+        sourceQuery,
+        originalQueryInput,
+        suggestedQueryInput,
+        editingView,
+        selectedConnectionId,
+        skipHogQLLayerEnabled,
+    } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading } = useActions(sqlEditorLogic)
+    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, setSkipHogQLLayer } =
+        useActions(sqlEditorLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
@@ -60,6 +70,60 @@ export function QueryWindow({
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    const canSkipHogQLLayer = isDirectQueryEnabled && !!selectedConnectionId
+    const skipHogQLLayerLabel = (
+        <span className="inline-flex items-center gap-1">
+            <span>Skip HogQL layer</span>
+            <Tooltip title="Run this query directly against the selected external connection without translating it through HogQL first. Use this for raw SQL that HogQL does not support.">
+                <span
+                    className="inline-flex cursor-help"
+                    onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }}
+                >
+                    <IconInfo className="size-3.5 text-muted-alt" />
+                </span>
+            </Tooltip>
+        </span>
+    )
+
+    const editorSettingsItems = [
+        ...(vimModeFeatureEnabled
+            ? [
+                  {
+                      custom: true,
+                      label: () => (
+                          <LemonSwitch
+                              checked={editorVimModeEnabled}
+                              onChange={setEditorVimModeEnabled}
+                              label="Vim mode"
+                              size="small"
+                              fullWidth
+                              data-attr="sql-editor-vim-toggle"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+        ...(canSkipHogQLLayer
+            ? [
+                  {
+                      custom: true,
+                      label: () => (
+                          <LemonSwitch
+                              checked={skipHogQLLayerEnabled}
+                              onChange={setSkipHogQLLayer}
+                              label={skipHogQLLayerLabel}
+                              size="small"
+                              fullWidth
+                              data-attr="sql-editor-skip-hogql-layer-toggle"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -84,28 +148,8 @@ export function QueryWindow({
 
                 <div className="ml-auto flex items-center gap-2">
                     <FixErrorButton type="secondary" size="small" source="action-bar" />
-                    {vimModeFeatureEnabled ? (
-                        <LemonMenu
-                            items={[
-                                {
-                                    custom: true,
-                                    label: () => (
-                                        <div className="">
-                                            <LemonSwitch
-                                                checked={editorVimModeEnabled}
-                                                onChange={setEditorVimModeEnabled}
-                                                label="Vim mode"
-                                                size="small"
-                                                fullWidth
-                                                data-attr="sql-editor-vim-toggle"
-                                            />
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                            closeOnClickInside={false}
-                            placement="bottom-end"
-                        >
+                    {editorSettingsItems.length > 0 ? (
+                        <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
                             <LemonButton
                                 icon={<IconGear />}
                                 type="secondary"
