@@ -510,18 +510,21 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         getIsOnlyVisibleSeriesInLegend: [
             (s) => [s.indexedResults, s.resultCustomizationBy, s.getTrendsHidden],
             (indexedResults, resultCustomizationBy, getTrendsHidden) => {
-                return (dataset: IndexedTrendResult): boolean => {
-                    if (indexedResults.length < 2) {
-                        return false
-                    }
-                    const itemKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
-                    if (getTrendsHidden(dataset)) {
-                        return false
-                    }
-                    return indexedResults
-                        .filter((r) => getTrendResultCustomizationKey(resultCustomizationBy, r) !== itemKey)
-                        .every((r) => getTrendsHidden(r))
+                if (indexedResults.length < 2) {
+                    return (): boolean => false
                 }
+
+                const visibleKeys = new Set(
+                    indexedResults
+                        .filter((r) => !getTrendsHidden(r))
+                        .map((r) => getTrendResultCustomizationKey(resultCustomizationBy, r))
+                )
+                const soloKey = visibleKeys.size === 1 ? [...visibleKeys][0] : null
+
+                return (dataset: IndexedTrendResult): boolean =>
+                    soloKey !== null &&
+                    !getTrendsHidden(dataset) &&
+                    getTrendResultCustomizationKey(resultCustomizationBy, dataset) === soloKey
             },
         ],
     })),
