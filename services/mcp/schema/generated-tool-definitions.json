@@ -989,6 +989,81 @@
             "readOnlyHint": false
         }
     },
+    "scheduled-changes-list": {
+        "description": "List scheduled changes in the current project. Filter by model_name=FeatureFlag and record_id to see schedules for a specific flag. Returns pending, executed, and failed schedules with their payloads and timing. Use this to check what changes are queued for a feature flag before modifying it.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "List scheduled changes for feature flags",
+        "title": "List scheduled changes for feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scheduled-changes-get": {
+        "description": "Get a single scheduled change by ID. Returns the full details including the payload, schedule timing, execution status, and any failure reason.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get a scheduled change",
+        "title": "Get a scheduled change",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scheduled-changes-create": {
+        "description": "Schedule a future change to a feature flag. Supported operations: 'update_status' (enable/disable), 'add_release_condition', and 'update_variants'. Provide the flag ID as record_id, model_name as \"FeatureFlag\", a payload with the operation and value, and a scheduled_at datetime.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Create a scheduled change",
+        "title": "Create a scheduled change",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scheduled-changes-update": {
+        "description": "Update a pending scheduled change by ID. You can modify the payload, scheduled_at time, or recurrence settings. Cannot change the target record (record_id) or model type (model_name).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Update a scheduled change",
+        "title": "Update a scheduled change",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scheduled-changes-delete": {
+        "description": "Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete a scheduled change",
+        "title": "Delete a scheduled change",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-list": {
         "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
         "category": "Notebooks",
