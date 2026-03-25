@@ -3724,7 +3724,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
         missing = old_allowed - all_nonsensitive
         assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
 
-        
+
 class TestWebhookInfo(APIBaseTest):
     def _create_stripe_source(self, job_inputs=None) -> ExternalDataSource:
         if job_inputs is None:
