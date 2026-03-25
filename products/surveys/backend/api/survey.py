@@ -1880,7 +1880,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                    AND sum(if(event = %(sent)s, 1, 0)) > 0
             ) AS PersonsWithBothEvents
         """
-        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         dismissed_and_sent_count_result = sync_execute(dismissed_and_sent_query, query_params)
         dismissed_and_sent_count = dismissed_and_sent_count_result[0][0] if dismissed_and_sent_count_result else 0
 
