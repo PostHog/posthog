@@ -1,16 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { experimentsLogic, getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { Experiment, FeatureFlagType } from '~/types'
+import { Experiment, ExperimentStatus, FeatureFlagType } from '~/types'
 
 import { featureFlagEligibleForExperiment } from './utils'
 
@@ -51,7 +51,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
         duplicateExperiment({
             id: experiment.id as number,
             featureFlagKey: finalFlagKey || undefined,
-            name: experimentName || undefined,
+            name: experimentName.trim() || undefined,
         })
         onClose()
     }
@@ -63,8 +63,6 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
         setFlagKeyManuallyEdited(false)
         onClose()
     }
-
-    const canCreate = experimentName.trim().length > 0
 
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} title="New experiment from template" width="max-content">
@@ -78,7 +76,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                     <LemonInput
                         value={experimentName}
                         onChange={handleNameChange}
-                        placeholder="e.g., Checkout flow v2"
+                        placeholder={`${experiment.name} (Copy)`}
                         autoFocus
                         data-attr="template-experiment-name"
                     />
@@ -91,24 +89,43 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                             <LemonInput
                                 value={flagKey}
                                 onChange={handleFlagKeyChange}
-                                placeholder="e.g., checkout-flow-v2"
+                                placeholder="Auto-generated from name"
                                 data-attr="template-flag-key"
                             />
                         </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => handleCreate()}
-                            disabledReason={!canCreate ? 'Enter an experiment name' : undefined}
-                            data-attr="template-create-button"
-                        >
+                        <LemonButton type="primary" onClick={() => handleCreate()} data-attr="template-create-button">
                             Create
                         </LemonButton>
                     </div>
-                    <div className="text-xs text-muted mt-1">A new flag will be created with this key</div>
+                    <div className="text-xs text-muted mt-1">
+                        {flagKey
+                            ? 'A new flag will be created with this key'
+                            : 'Leave empty to auto-generate a flag from the experiment name'}
+                    </div>
                 </div>
 
                 <div>
                     <div className="font-semibold mb-2">Reuse a flag</div>
+                    {(() => {
+                        const resetAnalysisLink = (
+                            <Link to="https://posthog.com/docs/experiments/managing-lifecycle" target="_blank">
+                                Reset analysis
+                            </Link>
+                        )
+                        return getExperimentStatus(experiment) === ExperimentStatus.Running ? (
+                            <LemonBanner type="warning" className="mb-3">
+                                This experiment is currently running. Reusing its flag in a new experiment without
+                                ending this one first will cause data contamination because both experiments will count
+                                the same exposures and goal events. To re-run this experiment with the same flag,
+                                consider using {resetAnalysisLink} instead.
+                            </LemonBanner>
+                        ) : (
+                            <LemonBanner type="info" className="mb-3">
+                                Each experiment should have its own flag to avoid data contamination. To re-run an
+                                experiment with the same flag, consider using {resetAnalysisLink} instead.
+                            </LemonBanner>
+                        )
+                    })()}
                     <div className="flex items-center justify-between p-3 border rounded bg-bg-light mb-4">
                         <div className="flex items-center gap-1 text-sm">
                             <code className="text-xs">{experiment.feature_flag?.key}</code>
@@ -124,7 +141,6 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                             type="secondary"
                             size="xsmall"
                             onClick={() => handleCreate(experiment.feature_flag?.key)}
-                            disabledReason={!canCreate ? 'Enter an experiment name' : undefined}
                         >
                             Select
                         </LemonButton>
@@ -178,9 +194,6 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                                         featureFlagEligibleForExperiment(flag)
                                     } catch (error) {
                                         disabledReason = (error as Error).message
-                                    }
-                                    if (!disabledReason && !canCreate) {
-                                        disabledReason = 'Enter an experiment name'
                                     }
                                     return (
                                         <LemonButton
