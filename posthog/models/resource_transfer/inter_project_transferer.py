@@ -633,7 +633,7 @@ def _duplicate_vertex(
     if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
         payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
 
-    new_resource = visitor.get_model().objects.create(**payload)
+    new_resource = visitor.get_model().objects.create(**payload)  # type: ignore[attr-defined]
     logger.info(
         "resource_transfer.duplicate_vertex.created",
         kind=visitor.kind,
