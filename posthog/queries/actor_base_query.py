@@ -19,12 +19,15 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
+from posthog.personhog_client.client import get_personhog_client
+from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import (
     PERSONHOG_ROUTING_ERRORS_TOTAL,
     PERSONHOG_ROUTING_TOTAL,
     PERSONHOG_TEAM_MISMATCH_TOTAL,
     get_client_name,
 )
+from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
 from posthog.queries.insight import insight_sync_execute
 
 logger = structlog.get_logger(__name__)
@@ -266,10 +269,6 @@ def get_groups(
 def _fetch_people_via_personhog(
     team_id: int, people_ids: list[Any], distinct_id_limit: int | None = 1000
 ) -> list[Person]:
-    from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.converters import proto_person_to_model
-    from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
-
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -288,16 +287,13 @@ def _fetch_people_via_personhog(
     if not person_ids:
         return []
 
-    # distinct_id_limit is enforced client-side; the proto does not support server-side truncation yet
-    distinct_ids_resp = client.get_distinct_ids_for_persons(
-        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
-    )
+    request = GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
+    if distinct_id_limit is not None:
+        request.limit_per_person = distinct_id_limit
+    distinct_ids_resp = client.get_distinct_ids_for_persons(request)
     distinct_ids_by_person: dict[int, list[str]] = {}
     for pd in distinct_ids_resp.person_distinct_ids:
-        dids = [d.distinct_id for d in pd.distinct_ids]
-        if distinct_id_limit is not None:
-            dids = dids[:distinct_id_limit]
-        distinct_ids_by_person[pd.person_id] = dids
+        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
 
     persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
     persons.sort(key=lambda p: (-(p.created_at.timestamp() if p.created_at else 0), str(p.uuid)))

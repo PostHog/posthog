@@ -99,7 +99,7 @@ class QueryTags(BaseModel):
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
     id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
+    session_id: Optional[str] = None
 
     # temporalio tags
     temporal: Optional[TemporalTags] = None

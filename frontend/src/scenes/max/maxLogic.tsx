@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { IconBook } from '@posthog/icons'
 
@@ -117,6 +118,9 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
         actions.setQuestion(parsed.question)
     }
 }
+
+const CHAT_TITLE_NEW = 'New chat'
+const CHAT_TITLE_HISTORY = 'Chat history'
 
 function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
     const scene = sceneLogic.findMounted()
@@ -324,12 +328,12 @@ export const maxLogic = kea<maxLogicType>([
             (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
             (conversationId, conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
-                    return 'Chat history'
+                    return CHAT_TITLE_HISTORY
                 }
 
                 // Existing conversation or the first generation is in progress
                 if (conversationId || conversation) {
-                    return conversation?.title ?? 'New chat'
+                    return conversation?.title ?? CHAT_TITLE_NEW
                 }
 
                 return null
@@ -371,10 +375,11 @@ export const maxLogic = kea<maxLogicType>([
                 activeStreamingThreads
             ): Breadcrumb[] => {
                 const isStreaming = activeStreamingThreads > 0
+                const hasConversationBreadcrumb = !conversationHistoryVisible && conversationId
                 return [
                     {
                         key: Scene.Max,
-                        name: 'AI',
+                        name: hasConversationBreadcrumb ? 'AI' : CHAT_TITLE_NEW,
                         path: urls.ai(),
                         iconType: 'chat',
                     },
@@ -382,13 +387,13 @@ export const maxLogic = kea<maxLogicType>([
                         ? [
                               {
                                   key: Scene.Max,
-                                  name: 'Chat history',
+                                  name: CHAT_TITLE_HISTORY,
                                   path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
                           ]
                         : []),
-                    ...(!conversationHistoryVisible && conversationId
+                    ...(hasConversationBreadcrumb
                         ? [
                               {
                                   key: Scene.Max,
@@ -538,6 +543,16 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
+    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
+    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
+    subscriptions(({ props }) => ({
+        chatTitle: (title: string | null) => {
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY) {
+                updateInactiveTab(props.tabId, { title })
+            }
+        },
+    })),
+
     afterMount(({ actions, values }) => {
         // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
         if (!values.question) {
@@ -579,6 +594,11 @@ export const maxLogic = kea<maxLogicType>([
         },
         [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
+                // Clear any existing conversation so the tab title updates
+                if (values.conversationId && values.activeStreamingThreads === 0) {
+                    actions.startNewConversation()
+                }
+
                 let uiContext: Partial<MaxUIContext> | undefined = undefined
                 try {
                     const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)

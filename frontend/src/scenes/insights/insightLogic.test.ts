@@ -965,4 +965,154 @@ describe('insightLogic', () => {
             await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
     })
+
+    describe('hasOverrides', () => {
+        it.each([
+            ['no overrides present', { filtersOverride: null, variablesOverride: null }, false],
+            ['filtersOverride has a date_from', { filtersOverride: { date_from: '-7d' } }, true],
+            [
+                'variablesOverride is non-empty',
+                { variablesOverride: { var1: { code_name: 'var1', variableId: '123', value: 'x' } } },
+                true,
+            ],
+            ['filtersOverride is an empty object', { filtersOverride: {} }, false],
+            ['tileFiltersOverride has a date_from', { tileFiltersOverride: { date_from: '-30d' } }, true],
+        ])('is %s → %s', (_label, propsOverride, expected) => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                ...propsOverride,
+            })
+            logic.mount()
+
+            expect(logic.values.hasOverrides).toBe(expected)
+        })
+    })
+
+    describe('editingDisabledReason', () => {
+        it.each([
+            ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],
+            ['no overrides', { filtersOverride: null }, null],
+        ])('returns correct value when %s', (_label, propsOverride, expected) => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                ...propsOverride,
+            })
+            logic.mount()
+
+            expect(logic.values.editingDisabledReason).toBe(expected)
+        })
+    })
+
+    describe('canEditInsight', () => {
+        it.each([
+            ['editor access level', AccessControlLevel.Editor, true],
+            ['viewer access level', AccessControlLevel.Viewer, false],
+        ])('is correct with %s', (_label, accessLevel, expected) => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    ...partialInsight42,
+                    query: queryFromFilters(API_FILTERS),
+                    user_access_level: accessLevel,
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.canEditInsight).toBe(expected)
+        })
+    })
+
+    describe('setInsightMetadataSuccess on savedInsight', () => {
+        it('syncs name, description, and tags to savedInsight after metadata save', async () => {
+            const insightProps: InsightLogicProps = {
+                dashboardItemId: Insight43,
+                cachedInsight: {
+                    ...partialInsight43,
+                    query: queryFromFilters(API_FILTERS),
+                    name: 'Original 43',
+                    description: 'Original description',
+                    tags: [],
+                },
+            }
+
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                savedInsight: partial({ name: 'Original 43', description: 'Original description', tags: [] }),
+                insightChanged: false,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsightMetadataLocal({
+                    name: 'Foobar 43',
+                    description: 'Lorem ipsum.',
+                    tags: ['good'],
+                })
+            }).toMatchValues({
+                insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+                savedInsight: partial({ name: 'Original 43', description: 'Original description', tags: [] }),
+                insightChanged: true,
+            })
+
+            // The PATCH mock for id=43 returns name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good']
+            await expectLogic(logic, () => {
+                logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
+            })
+                .toDispatchActions(['setInsightMetadataSuccess'])
+                .toMatchValues({
+                    savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+                    insightChanged: false,
+                })
+        })
+
+        it('syncs favorited to savedInsight on metadata save', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/insights/:id': async (req) => {
+                        const payload = await req.json()
+                        return [
+                            200,
+                            {
+                                ...partialInsight43,
+                                name: 'Foobar 43',
+                                description: 'Lorem ipsum.',
+                                tags: ['good'],
+                                ...payload,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            const insightProps: InsightLogicProps = {
+                dashboardItemId: Insight43,
+                cachedInsight: {
+                    ...partialInsight43,
+                    query: queryFromFilters(API_FILTERS),
+                    name: 'Foobar 43',
+                    description: 'Lorem ipsum.',
+                    tags: ['good'],
+                    favorited: false,
+                },
+            }
+
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                savedInsight: partial({ favorited: false }),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsightMetadata({ favorited: true })
+            })
+                .toDispatchActions(['setInsightMetadataSuccess'])
+                .toMatchValues({
+                    savedInsight: partial({ favorited: true }),
+                })
+        })
+    })
 })

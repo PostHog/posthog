@@ -19,7 +19,7 @@ export function HeatmapsWarnings(): JSX.Element | null {
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-autocapture', settingId: 'heatmaps' }),
+                onClick: () => openSettingsPanel({ sectionId: 'environment-heatmaps', settingId: 'heatmaps' }),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"
