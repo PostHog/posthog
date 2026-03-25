@@ -5325,7 +5325,7 @@ requires-dist = [
     { name = "pymongo", specifier = "==4.13.2" },
     { name = "pymssql", specifier = "==2.3.5" },
     { name = "pymysql", specifier = "==1.1.1" },
-    { name = "pyod", specifier = "~=2.0.0" },
+    { name = "pyod", specifier = "==2.0.7" },
     { name = "pyroscope-io", specifier = "~=0.8.8" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
     { name = "python-snappy", specifier = "~=0.7.3" },
