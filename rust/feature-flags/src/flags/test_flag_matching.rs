@@ -6860,6 +6860,7 @@ mod tests {
             flags: vec![filtered_continuity_flag, active_normal_flag],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7054,6 +7055,7 @@ mod tests {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7151,6 +7153,7 @@ mod tests {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7346,6 +7349,7 @@ mod tests {
             flags: vec![flag_a, flag_b, flag_c],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
