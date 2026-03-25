@@ -28,8 +28,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::RetryConfig;
