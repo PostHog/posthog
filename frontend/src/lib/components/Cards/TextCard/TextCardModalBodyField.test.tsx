@@ -47,12 +47,9 @@ describe('TextCardModalBodyField', () => {
             jest.advanceTimersByTime(50)
         })
 
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('text-card-edit-area')).toBeInTheDocument()
-            },
-            { advanceTimers: jest.advanceTimersByTime }
-        )
+        await waitFor(() => {
+            expect(screen.getByTestId('text-card-edit-area')).toBeInTheDocument()
+        })
         expect(screen.queryByTestId('text-card-editor-suspense-fallback')).not.toBeInTheDocument()
     })
 
@@ -65,11 +62,8 @@ describe('TextCardModalBodyField', () => {
             jest.advanceTimersByTime(50)
         })
 
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('text-card-rich-editor')).toBeInTheDocument()
-            },
-            { advanceTimers: jest.advanceTimersByTime }
-        )
+        await waitFor(() => {
+            expect(screen.getByTestId('text-card-rich-editor')).toBeInTheDocument()
+        })
     })
 })
