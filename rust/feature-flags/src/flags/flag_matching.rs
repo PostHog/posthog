@@ -1144,45 +1144,6 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        // Device_id bucketing is a flag-level setting that only applies to person-level
-        // aggregation. Check it once upfront rather than per-condition.
-        let device_id_bucketing_checked = if flag.get_group_type_index().is_none() {
-            use crate::flags::flag_models::BucketingIdentifier;
-
-            if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
-                if self
-                    .device_id
-                    .as_ref()
-                    .is_some_and(|device_id| !device_id.is_empty())
-                {
-                    with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
-                    true
-                } else {
-                    with_canonical_log(|log| {
-                        tracing::warn!(
-                            flag_key = %flag.key,
-                            team_id = %flag.team_id,
-                            lib = log.lib,
-                            lib_version = log.lib_version.as_deref(),
-                            "Flag configured for device_id bucketing but no device_id provided, returning false"
-                        );
-                    });
-                    return Ok(FeatureFlagMatch {
-                        matches: false,
-                        variant: None,
-                        reason: FeatureFlagMatchReason::OutOfRolloutBound,
-                        condition_index: None,
-                        payload: None,
-                    });
-                }
-            } else {
-                true
-            }
-        } else {
-            true
-        };
-        let _ = device_id_bucketing_checked;
-
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
 
@@ -1264,6 +1225,43 @@ impl FeatureFlagMatcher {
             // value for backwards compatibility with flags that predate per-condition aggregation.
             let aggregation = condition.effective_aggregation(flag.get_group_type_index());
 
+            // Device_id bucketing only applies to person-aggregated conditions. For mixed
+            // flags, group-aggregated conditions can still match even without a device_id.
+            if aggregation.is_none() {
+                use crate::flags::flag_models::BucketingIdentifier;
+
+                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId
+                    && self
+                        .device_id
+                        .as_ref()
+                        .is_none_or(|device_id| device_id.is_empty())
+                {
+                    with_canonical_log(|log| {
+                        tracing::warn!(
+                            flag_key = %flag.key,
+                            team_id = %flag.team_id,
+                            condition_index = %index,
+                            lib = log.lib,
+                            lib_version = log.lib_version.as_deref(),
+                            "Person condition uses device_id bucketing but no device_id provided, skipping"
+                        );
+                    });
+                    let (new_highest_match, new_highest_index) = self
+                        .get_highest_priority_match_evaluation(
+                            highest_match.clone(),
+                            highest_index,
+                            FeatureFlagMatchReason::OutOfRolloutBound,
+                            Some(index),
+                        );
+                    highest_match = new_highest_match;
+                    highest_index = new_highest_index;
+                    continue;
+                }
+                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                    with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
+                }
+            }
+
             // For group-aggregated conditions, verify we have the group key. If not, this
             // condition can't match — log a warning and continue to the next condition.
             if aggregation.is_some() {
@@ -1325,19 +1323,15 @@ impl FeatureFlagMatcher {
                     }
                 }
             }
-            let properties_ref = match aggregation {
-                Some(group_type_index) => {
-                    cached_group_properties.get(&group_type_index).unwrap_or({
-                        static EMPTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
-                            std::sync::LazyLock::new(HashMap::new);
-                        &*EMPTY_MAP
-                    })
+            let properties_ref = {
+                static EMPTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
+                    std::sync::LazyLock::new(HashMap::new);
+                match aggregation {
+                    Some(group_type_index) => cached_group_properties
+                        .get(&group_type_index)
+                        .unwrap_or(&*EMPTY_MAP),
+                    None => cached_person_properties.as_ref().unwrap_or(&*EMPTY_MAP),
                 }
-                None => cached_person_properties.as_ref().unwrap_or({
-                    static EMPTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
-                        std::sync::LazyLock::new(HashMap::new);
-                    &*EMPTY_MAP
-                }),
             };
 
             let (is_match, reason) = self.is_condition_match(

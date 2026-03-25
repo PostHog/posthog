@@ -9228,9 +9228,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_per_condition_aggregation_group_condition_uses_group_key_for_hashing() {
-        // A flag with one group-aggregated condition. Verify the group key is used for hashing
-        // by checking that the same distinct_id gets different results depending on which group
-        // they belong to (i.e., the hash is based on the group key, not the distinct_id).
+        // A flag with one group-aggregated condition. Verify that group property overrides
+        // are correctly routed to the condition and that the condition matches when the
+        // group properties satisfy the filter.
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -9923,7 +9923,7 @@ mod tests {
         // A flag with two rollout-only conditions (no property filters) with different
         // aggregation modes. Condition 0 is group-aggregated and should hash based on
         // the group key, condition 1 is person-aggregated and should hash based on
-        // distinct_id.
+        // distinct_id. Both have 100% rollout, so condition 0 matches first.
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -9945,6 +9945,13 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: Some(1),
+                    },
+                    // Condition 1: person-aggregated, 100% rollout, no properties
+                    FlagPropertyGroup {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: None,
                     },
                 ],
                 multivariate: None,
@@ -9980,7 +9987,7 @@ mod tests {
 
         let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
-        // 100% rollout with group key provided should match
+        // Group condition (index 0) matches first since both are 100% rollout
         assert!(result.matches);
         assert_eq!(result.condition_index, Some(0));
     }
