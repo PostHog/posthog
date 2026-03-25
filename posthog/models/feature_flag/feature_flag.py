@@ -179,6 +179,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return self.get_filters().get("super_groups", []) or []
 
     @property
+    def has_feature_enrollment(self) -> bool:
+        return bool(self.get_filters().get("feature_enrollment", False))
+
+    @property
     def holdout(self):
         return self.get_filters().get("holdout", None)
 

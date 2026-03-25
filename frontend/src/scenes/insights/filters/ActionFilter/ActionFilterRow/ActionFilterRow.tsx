@@ -684,6 +684,7 @@ export function ActionFilterRow({
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
                                                     value={mathProperty || undefined}
                                                     onChange={(currentValue, groupType) =>

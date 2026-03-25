@@ -17,6 +17,8 @@ import {
     GoogleTagManagerInstallation,
     IOSInstallation,
     JSEventCapture,
+    JSHtmlSnippet,
+    JSInitSnippet,
     LaravelInstallation,
     NextJSInstallation,
     NodeEventCapture,
@@ -27,6 +29,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RubyInstallation,
     RubyOnRailsInstallation,
@@ -38,14 +41,29 @@ import {
 } from '@posthog/shared-onboarding/product-analytics'
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
+import { useJsSnippetConfig } from 'lib/components/JSSnippet'
 import { Link } from 'lib/lemon-ui/Link'
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 import { SDKKey } from '~/types'
 
-const JS_WEB_SNIPPETS = { JSEventCapture }
+const InAppJSHtmlSnippet = (): JSX.Element => {
+    const config = useJsSnippetConfig()
+    return <JSHtmlSnippet {...config} />
+}
+
+const InAppJSInitSnippet = (): JSX.Element => {
+    return <JSInitSnippet defaultsDate={SDK_DEFAULTS_DATE} />
+}
+
+const JS_WEB_SNIPPETS = {
+    JSEventCapture,
+    JSHtmlSnippet: InAppJSHtmlSnippet,
+    JSInitSnippet: InAppJSInitSnippet,
+}
 const NODE_SNIPPETS = { NodeEventCapture }
 const PYTHON_SNIPPETS = { PythonEventCapture }
 
@@ -157,6 +175,13 @@ export const SDK_CONFIGS: { [key in SDKKey]?: SDKConfig } = {
         snippets: JS_WEB_SNIPPETS,
         name: 'Nuxt.js',
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
+        category: 'web',
+    },
+    [SDKKey.REACT_ROUTER]: {
+        Installation: ReactRouterInstallation,
+        snippets: JS_WEB_SNIPPETS,
+        name: 'React Router',
+        docsLink: 'https://posthog.com/docs/libraries/react-router',
         category: 'web',
     },
     [SDKKey.REMIX]: {

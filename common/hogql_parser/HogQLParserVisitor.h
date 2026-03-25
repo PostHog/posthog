@@ -113,13 +113,19 @@ public:
 
     virtual std::any visitValuesRow(HogQLParser::ValuesRowContext *context) = 0;
 
+    virtual std::any visitJoinExprPositional(HogQLParser::JoinExprPositionalContext *context) = 0;
+
     virtual std::any visitJoinExprOp(HogQLParser::JoinExprOpContext *context) = 0;
 
     virtual std::any visitJoinExprTable(HogQLParser::JoinExprTableContext *context) = 0;
 
+    virtual std::any visitJoinExprUnpivot(HogQLParser::JoinExprUnpivotContext *context) = 0;
+
     virtual std::any visitJoinExprParens(HogQLParser::JoinExprParensContext *context) = 0;
 
     virtual std::any visitJoinExprCrossOp(HogQLParser::JoinExprCrossOpContext *context) = 0;
+
+    virtual std::any visitJoinExprPivot(HogQLParser::JoinExprPivotContext *context) = 0;
 
     virtual std::any visitJoinOpInner(HogQLParser::JoinOpInnerContext *context) = 0;
 
@@ -165,15 +171,17 @@ public:
 
     virtual std::any visitColumnTypeExprNested(HogQLParser::ColumnTypeExprNestedContext *context) = 0;
 
-    virtual std::any visitColumnTypeExprEnum(HogQLParser::ColumnTypeExprEnumContext *context) = 0;
+    virtual std::any visitColumnTypeExprParam(HogQLParser::ColumnTypeExprParamContext *context) = 0;
+
+    virtual std::any visitColumnTypeExprArray(HogQLParser::ColumnTypeExprArrayContext *context) = 0;
 
     virtual std::any visitColumnTypeExprComplex(HogQLParser::ColumnTypeExprComplexContext *context) = 0;
 
-    virtual std::any visitColumnTypeExprParam(HogQLParser::ColumnTypeExprParamContext *context) = 0;
+    virtual std::any visitColumnTypeExprSimple(HogQLParser::ColumnTypeExprSimpleContext *context) = 0;
+
+    virtual std::any visitColumnTypeExprEnum(HogQLParser::ColumnTypeExprEnumContext *context) = 0;
 
     virtual std::any visitColumnTypeExprCompound(HogQLParser::ColumnTypeExprCompoundContext *context) = 0;
-
-    virtual std::any visitColumnTypeExprSimple(HogQLParser::ColumnTypeExprSimpleContext *context) = 0;
 
     virtual std::any visitColumnTypeCastExprCompound(HogQLParser::ColumnTypeCastExprCompoundContext *context) = 0;
 
@@ -233,6 +241,8 @@ public:
 
     virtual std::any visitColumnExprAnd(HogQLParser::ColumnExprAndContext *context) = 0;
 
+    virtual std::any visitColumnExprColumnsQualifiedExclude(HogQLParser::ColumnExprColumnsQualifiedExcludeContext *context) = 0;
+
     virtual std::any visitColumnExprNot(HogQLParser::ColumnExprNotContext *context) = 0;
 
     virtual std::any visitColumnExprFunction(HogQLParser::ColumnExprFunctionContext *context) = 0;
@@ -246,6 +256,8 @@ public:
     virtual std::any visitColumnExprCast(HogQLParser::ColumnExprCastContext *context) = 0;
 
     virtual std::any visitColumnExprArraySlice(HogQLParser::ColumnExprArraySliceContext *context) = 0;
+
+    virtual std::any visitColumnExprColumnsQualifiedReplace(HogQLParser::ColumnExprColumnsQualifiedReplaceContext *context) = 0;
 
     virtual std::any visitColumnExprNullTupleAccess(HogQLParser::ColumnExprNullTupleAccessContext *context) = 0;
 
@@ -263,11 +275,15 @@ public:
 
     virtual std::any visitColumnExprColumnsExcludeReplace(HogQLParser::ColumnExprColumnsExcludeReplaceContext *context) = 0;
 
+    virtual std::any visitColumnExprColumnsQualifiedExcludeReplace(HogQLParser::ColumnExprColumnsQualifiedExcludeReplaceContext *context) = 0;
+
     virtual std::any visitColumnExprColumnsExclude(HogQLParser::ColumnExprColumnsExcludeContext *context) = 0;
 
     virtual std::any visitColumnExprColonLambda(HogQLParser::ColumnExprColonLambdaContext *context) = 0;
 
     virtual std::any visitColumnExprCallSelect(HogQLParser::ColumnExprCallSelectContext *context) = 0;
+
+    virtual std::any visitColumnExprColumnsQualifiedAll(HogQLParser::ColumnExprColumnsQualifiedAllContext *context) = 0;
 
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
@@ -286,6 +302,8 @@ public:
     virtual std::any visitColumnExprPropertyAccess(HogQLParser::ColumnExprPropertyAccessContext *context) = 0;
 
     virtual std::any visitColumnExprNullArrayAccess(HogQLParser::ColumnExprNullArrayAccessContext *context) = 0;
+
+    virtual std::any visitColumnExprIgnoreNulls(HogQLParser::ColumnExprIgnoreNullsContext *context) = 0;
 
     virtual std::any visitColumnExprNullish(HogQLParser::ColumnExprNullishContext *context) = 0;
 
@@ -341,6 +359,8 @@ public:
 
     virtual std::any visitTableExprSubquery(HogQLParser::TableExprSubqueryContext *context) = 0;
 
+    virtual std::any visitTableExprPivot(HogQLParser::TableExprPivotContext *context) = 0;
+
     virtual std::any visitTableExprValues(HogQLParser::TableExprValuesContext *context) = 0;
 
     virtual std::any visitTableExprAlias(HogQLParser::TableExprAliasContext *context) = 0;
@@ -348,6 +368,10 @@ public:
     virtual std::any visitTableExprFunction(HogQLParser::TableExprFunctionContext *context) = 0;
 
     virtual std::any visitTableExprUnpivot(HogQLParser::TableExprUnpivotContext *context) = 0;
+
+    virtual std::any visitPivotColumnList(HogQLParser::PivotColumnListContext *context) = 0;
+
+    virtual std::any visitPivotColumn(HogQLParser::PivotColumnContext *context) = 0;
 
     virtual std::any visitUnpivotColumnList(HogQLParser::UnpivotColumnListContext *context) = 0;
 

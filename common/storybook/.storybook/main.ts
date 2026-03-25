@@ -52,6 +52,12 @@ const config: StorybookConfig = {
         options: { builder: { useSWC: true } },
     },
 
+    build: {
+        test: {
+            disableSourcemaps: !!process.env.CI,
+        },
+    },
+
     docs: {
         autodocs: 'tag',
     },

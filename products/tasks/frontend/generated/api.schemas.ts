@@ -344,6 +344,7 @@ export interface TaskRunAppendLogRequestApi {
  * `reference` - reference
  * `output` - output
  * `artifact` - artifact
+ * `tree_snapshot` - tree_snapshot
  */
 export type TaskRunArtifactUploadTypeEnumApi =
     (typeof TaskRunArtifactUploadTypeEnumApi)[keyof typeof TaskRunArtifactUploadTypeEnumApi]
@@ -354,6 +355,7 @@ export const TaskRunArtifactUploadTypeEnumApi = {
     Reference: 'reference',
     Output: 'output',
     Artifact: 'artifact',
+    TreeSnapshot: 'tree_snapshot',
 } as const
 
 export interface TaskRunArtifactUploadApi {
@@ -368,7 +370,8 @@ export interface TaskRunArtifactUploadApi {
 * `context` - context
 * `reference` - reference
 * `output` - output
-* `artifact` - artifact */
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot */
     type: TaskRunArtifactUploadTypeEnumApi
     /** Raw file contents (UTF-8 string or base64 data) */
     content: string
