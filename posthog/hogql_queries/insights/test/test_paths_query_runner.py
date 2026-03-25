@@ -1011,9 +1011,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             timestamp="2012-01-14 03:22:34",
         )
 
-        self.team.path_cleaning_filters = [
-            {"alias": "/merchant/:id/dashboard", "regex": "/merchant/\\d+/dashboard"}
-        ]
+        self.team.path_cleaning_filters = [{"alias": "/merchant/:id/dashboard", "regex": "/merchant/\\d+/dashboard"}]
         self.team.save()
 
         # pathReplacements omitted (None) — team cleaning should apply
@@ -1049,9 +1047,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             timestamp="2012-01-14 03:22:34",
         )
 
-        self.team.path_cleaning_filters = [
-            {"alias": "/merchant/:id/dashboard", "regex": "/merchant/\\d+/dashboard"}
-        ]
+        self.team.path_cleaning_filters = [{"alias": "/merchant/:id/dashboard", "regex": "/merchant/\\d+/dashboard"}]
         self.team.save()
 
         # pathReplacements explicitly False — team cleaning should NOT apply

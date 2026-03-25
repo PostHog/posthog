@@ -39,7 +39,7 @@ function buildTestNodes(): PathNodeData[] {
     return nodes
 }
 
-const insightProps: InsightLogicProps = { dashboardItemId: 'test-paths-interaction' }
+const insightProps: InsightLogicProps = { dashboardItemId: undefined }
 
 describe('pathsInteractionLogic', () => {
     let logic: ReturnType<typeof pathsInteractionLogic.build>

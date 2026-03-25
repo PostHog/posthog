@@ -106,7 +106,7 @@ export function Paths(): JSX.Element {
             const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
-    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
+    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter, hoverHandlers])
 
     const handleCardMouseEnter = (node: PathNodeData): void => {
         setCardHovered(true)
