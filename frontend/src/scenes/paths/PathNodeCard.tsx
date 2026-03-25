@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { CSSProperties, useState } from 'react'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 
@@ -20,6 +20,25 @@ export type PathNodeCardProps = {
     onMouseLeave?: () => void
 }
 
+function getCardStyle(
+    node: PathNodeData,
+    isPathEnd: boolean,
+    isSelected: boolean,
+    canvasHeight: number
+): CSSProperties {
+    return {
+        width: PATH_NODE_CARD_WIDTH,
+        left: !isPathEnd
+            ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
+            : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
+        top: node.resolvedTop ?? calculatePathNodeCardTop(node, canvasHeight),
+        border: `1px solid ${isSelected ? 'purple' : node.active ? 'var(--paths-link-hover)' : 'var(--color-border-primary)'}`,
+        zIndex: node.active ? 10 : 'auto',
+        boxShadow: node.active ? '0 2px 10px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--paths-link-hover)' : 'none',
+        opacity: node.active ? 1 : undefined,
+    }
+}
+
 export function PathNodeCard({
     insightProps,
     node,
@@ -27,7 +46,6 @@ export function PathNodeCard({
     onMouseEnter,
     onMouseLeave,
 }: PathNodeCardProps): JSX.Element | null {
-    const cardRef = useRef<HTMLDivElement>(null)
     const [popoverVisible, setPopoverVisible] = useState(false)
     const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
@@ -80,28 +98,14 @@ export function PathNodeCard({
             onMouseLeaveInside={handleMouseLeave}
         >
             <div
-                ref={cardRef}
                 className={`PathNodeCard absolute rounded bg-surface-primary p-1${node.active ? ' PathNodeCard--active' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    width: PATH_NODE_CARD_WIDTH,
-                    left: !isPathEnd
-                        ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
-                        : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
-                    top: node.resolvedTop ?? calculatePathNodeCardTop(node, canvasHeight),
-                    border: `1px solid ${
-                        isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
-                            ? 'purple'
-                            : node.active
-                              ? 'var(--paths-link-hover)'
-                              : 'var(--color-border-primary)'
-                    }`,
-                    zIndex: node.active ? 10 : 'auto',
-                    boxShadow: node.active
-                        ? '0 2px 10px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--paths-link-hover)'
-                        : 'none',
-                    opacity: node.active ? 1 : undefined,
-                }}
+                style={getCardStyle(
+                    node,
+                    isPathEnd,
+                    isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node),
+                    canvasHeight
+                )}
                 data-attr="path-node-card-button"
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}

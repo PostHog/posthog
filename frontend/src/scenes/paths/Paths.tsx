@@ -54,6 +54,7 @@ export function Paths(): JSX.Element {
     const { setNodes, hoverNode, hoverLink, clearHover, requestClearHover, setCardHovered } =
         useActions(interactionLogic)
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- kea action creators are stable references
     const hoverHandlers = useMemo<PathsHoverHandlers>(
         () => ({
             onNodesReady: (nodes: PathNodeData[]) => setNodes(nodes, canvasHeight),
@@ -113,6 +114,10 @@ export function Paths(): JSX.Element {
     }
 
     const handleCardMouseLeave = (): void => {
+        // Setting cardHovered=false immediately re-enables SVG handlers. If the mouse
+        // lands on an SVG element within the 30ms debounce window, that handler fires
+        // a new hoverNode/hoverLink which cancels the pending clearHover — so the
+        // transition from card→SVG hover is seamless.
         setCardHovered(false)
         requestClearHover()
     }
