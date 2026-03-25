@@ -60,12 +60,18 @@ class DataDeletionRequest(UUIDModel):
     )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-    updated_by = models.ForeignKey(
+    criteria_updated_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="data_deletion_requests_updated",
+        related_name="data_deletion_requests_criteria_updated",
+        help_text="Last user who changed deletion criteria (events, properties, time range, or request type).",
+    )
+    criteria_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When deletion criteria were last changed.",
     )
 
     # Approval workflow

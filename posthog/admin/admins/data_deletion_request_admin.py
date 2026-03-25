@@ -7,7 +7,7 @@ from django.utils import timezone
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
 
 CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
 
@@ -122,13 +122,15 @@ def fetch_event_deletion_stats(obj: DataDeletionRequest):
 
 def fetch_property_deletion_stats(obj: DataDeletionRequest):
     """Count events with matching properties and affected parts for a property removal request."""
+    if not obj.properties:
+        raise ValueError("Cannot fetch stats for a property removal request with no properties specified.")
     extra_filter, params = _build_property_filter(obj)
     return _fetch_stats(obj.team_id, extra_filter, params)
 
 
 def fetch_deletion_stats(obj: DataDeletionRequest):
     """Dispatch to the appropriate stats function based on request type."""
-    if obj.request_type == "property_removal":
+    if obj.request_type == RequestType.PROPERTY_REMOVAL:
         return fetch_property_deletion_stats(obj)
     return fetch_event_deletion_stats(obj)
 
@@ -158,7 +160,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "created_at",
         "created_by",
         "updated_at",
-        "updated_by",
+        "criteria_updated_by",
+        "criteria_updated_at",
         "approved",
         "approved_by",
         "approved_at",
@@ -196,7 +199,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "fields": (
                     "created_by",
                     "created_at",
-                    "updated_by",
+                    "criteria_updated_by",
+                    "criteria_updated_at",
                     "updated_at",
                     "approved",
                     "approved_by",
@@ -210,7 +214,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if not change:
             obj.created_by = request.user
         elif form.changed_data and CRITERIA_FIELDS & set(form.changed_data):
-            obj.updated_by = request.user
+            obj.criteria_updated_by = request.user
+            obj.criteria_updated_at = timezone.now()
             obj.count = None
             obj.part_count = None
             obj.parts_size = None
@@ -220,7 +225,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 if obj.status != RequestStatus.DRAFT:
                     obj.status = RequestStatus.DRAFT
                     messages.warning(request, "Events or properties were changed — status has been reset to draft.")
-        if obj.request_type == "event_removal" and obj.properties:
+        if obj.request_type == RequestType.EVENT_REMOVAL and obj.properties:
             obj.properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
         super().save_model(request, obj, form, change)
@@ -229,7 +234,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj:
-            if obj.request_type == "property_removal" and not obj.properties:
+            if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties:
                 messages.warning(request, "This is a property removal request but no properties are specified.")
             extra_context["is_draft"] = obj.status == RequestStatus.DRAFT
             extra_context["submit_url"] = reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk])
@@ -269,7 +274,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only draft requests can be submitted.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        missing_properties = obj.request_type == "property_removal" and not obj.properties
+        missing_properties = obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties
         can_submit = not missing_properties
 
         if request.method == "POST":
@@ -332,8 +337,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
         if request.method != "POST":
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-
-        from posthog.models.data_deletion_request import DataDeletionRequest
 
         updated = DataDeletionRequest.objects.filter(
             pk=obj.pk,
