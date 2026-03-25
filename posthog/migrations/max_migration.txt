@@ -1,1 +1,1 @@
-1066_alter_insight_saved
+1067_move_tokens_to_sensitive_config

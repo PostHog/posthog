@@ -281,11 +281,17 @@ class VercelIntegration:
             integration_id=installation_id,
         ).exists()
 
+        config_dict = asdict(config)
+        credentials = config_dict.pop("credentials", {})
+
         if organization_integration_exists:
-            OrganizationIntegration.objects.filter(
+            org_integration = OrganizationIntegration.objects.get(
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
-            ).update(config=asdict(config))
+            )
+            org_integration.config = config_dict
+            org_integration.sensitive_config = {"credentials": credentials}
+            org_integration.save()
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
@@ -324,7 +330,8 @@ class VercelIntegration:
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=installation_id,
                     defaults={
-                        "config": asdict(config),
+                        "config": config_dict,
+                        "sensitive_config": {"credentials": credentials},
                         "created_by": user,
                     },
                 )
@@ -576,7 +583,10 @@ class VercelIntegration:
 
     @staticmethod
     def _get_access_token(installation: OrganizationIntegration) -> str | None:
-        access_token = installation.config.get("credentials", {}).get("access_token")
+        access_token = installation.sensitive_config.get("credentials", {}).get("access_token")
+        if not access_token:
+            # Fallback for installations not yet migrated
+            access_token = installation.config.get("credentials", {}).get("access_token")
         if not access_token:
             logger.exception(
                 "Missing access token for Vercel installation",
