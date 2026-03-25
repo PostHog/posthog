@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "1066_alter_insight_saved"),
+        ("posthog", "1067_add_dashboardtemplate_is_featured"),
     ]
 
     operations = [
