@@ -41,7 +41,7 @@ def move_vercel_credentials(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1066_alter_insight_saved")]
+    dependencies = [("posthog", "1067_add_dashboardtemplate_is_featured")]
 
     operations = [
         migrations.RunPython(move_google_cloud_tokens, migrations.RunPython.noop, elidable=True),
