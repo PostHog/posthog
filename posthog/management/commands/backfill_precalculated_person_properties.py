@@ -130,7 +130,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
 
         # Collect and deduplicate filters across all cohorts
-        condition_map: dict[str, tuple[list[Any], set[int]]] = {}
+        condition_map: dict[str, tuple[list[Any], str, set[int]]] = {}
         cohort_ids = []
         total_original_filters = 0
         for cohort in cohorts:

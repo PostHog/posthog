@@ -323,9 +323,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             team_id=1,
             filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
-            batch_size=100,
-            offset=0,
-            limit=2,
+            batch_size=2,
         )
 
         # Mock dependencies
@@ -375,6 +373,9 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             elif func.__name__ == "get_filters":
                 # This is the get_filters call - return the filters we stored earlier
                 return filters
+            elif func.__name__ == "get_person_properties":
+                # Return person properties for optimization
+                return ["email", "name"]  # Example properties
             elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
@@ -467,12 +468,12 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         for event in produced_events:
             assert event["team_id"] == 1
 
-        # Verify distinct_ids are properly handled - each person should generate events for each distinct_id
+        # Verify distinct_ids are properly handled - for backfilling, we use person_id as distinct_id
         person_1_distinct_ids = {e["distinct_id"] for e in produced_events if e["person_id"] == "person_1"}
-        assert person_1_distinct_ids == {"user_1a", "user_1b"}
+        assert person_1_distinct_ids == {"person_1"}  # Uses person_id as distinct_id for backfilling
 
         person_2_distinct_ids = {e["distinct_id"] for e in produced_events if e["person_id"] == "person_2"}
-        assert person_2_distinct_ids == {"user_2a"}
+        assert person_2_distinct_ids == {"person_2"}  # Uses person_id as distinct_id for backfilling
 
     @pytest.mark.asyncio
     async def test_shared_condition_across_multiple_cohorts(self):
@@ -503,9 +504,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             team_id=1,
             filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
-            batch_size=100,
-            offset=0,
-            limit=1,
+            batch_size=1,
         )
 
         # Track how many times execute_bytecode is called
@@ -556,6 +555,9 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             elif func.__name__ == "get_filters":
                 # This is the get_filters call - return the filters we stored earlier
                 return filters
+            elif func.__name__ == "get_person_properties":
+                # Return person properties for optimization
+                return ["email", "name"]  # Example properties
             elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
@@ -626,9 +628,9 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert cohort_100_events[0]["person_id"] == "person_1"
         assert cohort_200_events[0]["person_id"] == "person_1"
 
-        # Verify distinct IDs are correct for both
-        assert cohort_100_events[0]["distinct_id"] == "user_1"
-        assert cohort_200_events[0]["distinct_id"] == "user_1"
+        # Verify distinct IDs are correct for both - for backfilling, we use person_id as distinct_id
+        assert cohort_100_events[0]["distinct_id"] == "person_1"
+        assert cohort_200_events[0]["distinct_id"] == "person_1"
 
         # Verify sources are different
         assert cohort_100_events[0]["source"] == "cohort_backfill_100"
@@ -641,9 +643,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             team_id=1,
             filter_storage_key="backfill_person_properties_filters:team_1_nonexistent",
             cohort_ids=[100],
-            batch_size=100,
-            offset=0,
-            limit=1,
+            batch_size=1,
         )
 
         # Mock get_filters to return None (simulating missing/expired key)

@@ -219,7 +219,7 @@ async def backfill_precalculated_person_properties_activity(
         pending_kafka_messages = []
 
         # Build optimized query to only fetch needed person properties
-        MAX_OPTIMIZED_PROPERTIES = 50  # Safety limit to avoid query complexity issues
+        MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
 
         if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
             # Only select the specific properties we need
