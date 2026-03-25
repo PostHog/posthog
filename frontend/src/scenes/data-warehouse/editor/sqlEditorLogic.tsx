@@ -1542,7 +1542,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const skipHogQLLayerFromHash =
                 connectionIdFromHash !== undefined &&
                 values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                hashParams.shl === '1'
+                String(hashParams.shl) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSkipHogQLLayer = values.sourceQuery.source.skipHogQLLayer ?? false
 
