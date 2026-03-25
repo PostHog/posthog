@@ -1105,7 +1105,15 @@ export type ScheduledChangesListParams = {
      */
     limit?: number
     /**
+     * Filter by model type. Use "FeatureFlag" to see feature flag schedules.
+     */
+    model_name?: string
+    /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Filter by the ID of a specific feature flag.
+     */
+    record_id?: string
 }
