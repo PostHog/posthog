@@ -223,7 +223,7 @@ class PostgresPrinter(HogQLPrinter):
             right = self.visit(node.right)
 
         if (
-            node.null_comparison_style == "is"
+            node.is_null_comparison_style
             and isinstance(node.right, ast.Constant)
             and node.right.value is None
             and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)

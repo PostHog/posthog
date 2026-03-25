@@ -635,7 +635,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     left=ast.Constant(value=1),
                     right=ast.Constant(value=None),
                     op=ast.CompareOperationOp.Eq,
-                    null_comparison_style="is",
+                    is_null_comparison_style=True,
                 ),
             )
             self.assertEqual(
@@ -644,7 +644,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     left=ast.Constant(value=1),
                     right=ast.Constant(value=None),
                     op=ast.CompareOperationOp.NotEq,
-                    null_comparison_style="is",
+                    is_null_comparison_style=True,
                 ),
             )
 
