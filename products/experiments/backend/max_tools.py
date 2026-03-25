@@ -453,8 +453,6 @@ class SessionReplaySummaryTool(MaxTool):
                     error="not_started",
                 )
                 return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
-            if not experiment.start_date:
-                raise ValueError(f"Experiment {experiment_id} has no start date")
 
             # Get variants from feature flag
             feature_flag = experiment.feature_flag

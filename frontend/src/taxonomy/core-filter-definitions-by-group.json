@@ -4394,6 +4394,14 @@
             "label": "Insert ID",
             "system": true
         },
+        "$internal_or_test_user": {
+            "description": "Whether this person has been identified as an internal or test user. In posthog-js, see the `internal_or_test_user_hostname` config option (default: `localhost`) or `setInternalOrTestUser()` method.",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "Internal or test user"
+        },
         "$ip": {
             "description": "IP address for this user when the event was sent.",
             "examples": [

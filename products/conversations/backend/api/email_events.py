@@ -15,6 +15,7 @@ from posthog.models.comment import Comment
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailMessageMapping, Status, TeamConversationsEmailConfig
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +88,9 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     try:
         config = TeamConversationsEmailConfig.objects.select_related("team").get(inbound_token=inbound_token)
     except TeamConversationsEmailConfig.DoesNotExist:
+        if is_primary_region(request):
+            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
+            return HttpResponse(status=200 if success else 502)
         logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
         return HttpResponse("Unknown recipient", status=404)
 

@@ -46,7 +46,7 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQ
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE

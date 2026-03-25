@@ -1,0 +1,332 @@
+{
+    "template_name": "Mobile Analytics",
+    "dashboard_description": "A collection of mobile app focused insights",
+    "dashboard_filters": {
+        "date_to": null,
+        "date_from": null,
+        "properties": [
+            {
+                "key": "$lib",
+                "type": "event",
+                "value": ["posthog-ios", "posthog-android", "posthog-react-native", "posthog-flutter"],
+                "operator": "exact"
+            }
+        ]
+    },
+    "tags": [],
+    "tiles": [
+        {
+            "name": "DAU",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "All events"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-7d",
+                        "explicitDate": false
+                    },
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "key": "$lib",
+                                                "type": "event",
+                                                "value": [
+                                                    "posthog-ios",
+                                                    "posthog-android",
+                                                    "posthog-react-native",
+                                                    "posthog-flutter"
+                                                ],
+                                                "operator": "exact"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$lib",
+                                        "type": "event",
+                                        "value": [
+                                            "posthog-ios",
+                                            "posthog-android",
+                                            "posthog-react-native",
+                                            "posthog-flutter"
+                                        ],
+                                        "operator": "exact"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "638548",
+                    "w": 3,
+                    "x": 6,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "638548",
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": "unique users from all events grouped by Day"
+        },
+        {
+            "name": "Adoption by country",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "All events"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-7d",
+                        "explicitDate": false
+                    },
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "key": "$lib",
+                                                "type": "event",
+                                                "value": [
+                                                    "posthog-ios",
+                                                    "posthog-android",
+                                                    "posthog-react-native",
+                                                    "posthog-flutter"
+                                                ],
+                                                "operator": "exact"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$lib",
+                                        "type": "event",
+                                        "value": [
+                                            "posthog-ios",
+                                            "posthog-android",
+                                            "posthog-react-native",
+                                            "posthog-flutter"
+                                        ],
+                                        "operator": "exact"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "trendsFilter": {
+                        "display": "WorldMap",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$geoip_country_code",
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "638552",
+                    "w": 6,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "638552",
+                    "w": 1,
+                    "x": 0,
+                    "y": 35,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        },
+        {
+            "name": "Most common screens",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "$screen",
+                            "event": "$screen"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-7d",
+                        "explicitDate": false
+                    },
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "key": "$lib",
+                                                "type": "event",
+                                                "value": [
+                                                    "posthog-ios",
+                                                    "posthog-android",
+                                                    "posthog-react-native",
+                                                    "posthog-flutter"
+                                                ],
+                                                "operator": "exact"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$lib",
+                                        "type": "event",
+                                        "value": [
+                                            "posthog-ios",
+                                            "posthog-android",
+                                            "posthog-react-native",
+                                            "posthog-flutter"
+                                        ],
+                                        "operator": "exact"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsBarValue",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$screen_name",
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "638546",
+                    "w": 4,
+                    "x": 0,
+                    "y": 20,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "638546",
+                    "w": 1,
+                    "x": 0,
+                    "y": 30,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        }
+    ],
+    "variables": [],
+    "image_url": "https://posthog.com/template_art/mobile-dash.png",
+    "scope": "global",
+    "availability_contexts": null
+}

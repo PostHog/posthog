@@ -204,7 +204,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         assert self.remote_config.config["conversations"] is False
 
-    @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
+    @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.5"], ["0.00", "0"], [None, None]])
     def test_session_recording_sample_rate(self, value: str | None, expected: str | None) -> None:
         self.team.session_recording_opt_in = True
         self.team.session_recording_sample_rate = Decimal(value) if value else None
@@ -529,6 +529,10 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 "urlBlocklist": [],
                 "eventTriggers": [],
                 "triggerMatchType": None,
+                "canvasFps": None,
+                "canvasQuality": None,
+                "recordCanvas": False,
+                "version": 1,
                 "scriptConfig": {"script": "posthog-recorder"},
             },
             "errorTracking": {
@@ -587,6 +591,13 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
 
 class TestRemoteConfigJS(_RemoteConfigBase):
+    def _run_remote_config_on_commit_synchronously(self):
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        return patch("posthog.models.remote_config.transaction.on_commit", side_effect=lambda fn: fn()), patch(
+            "posthog.models.remote_config._update_team_remote_config", side_effect=update_team_remote_config
+        )
+
     def test_renders_js_including_config(self):
         # NOTE: This is a very basic test to check that the JS is rendered correctly
         # It doesn't check the actual contents of the JS, as that changes often but checks some general things
@@ -708,6 +719,53 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
         assert str(site_destination.id) not in js
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_disabling_site_functions_updates_remote_config(self, mock_transpile_fn):
+        site_app = HogFunction.objects.create(
+            name="Site app",
+            type=HogFunctionType.SITE_APP,
+            team=self.team,
+            enabled=True,
+        )
+
+        self.sync_remote_config()
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+        assert str(site_app.id) in js
+
+        on_commit_patch, update_remote_config_patch = self._run_remote_config_on_commit_synchronously()
+        with on_commit_patch, update_remote_config_patch:
+            site_app.enabled = False
+            site_app.save()
+
+        self.remote_config.refresh_from_db()
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+        assert str(site_app.id) not in js
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_deleting_site_functions_updates_remote_config(self, mock_transpile_fn):
+        site_app = HogFunction.objects.create(
+            name="Site app",
+            type=HogFunctionType.SITE_APP,
+            team=self.team,
+            enabled=True,
+        )
+
+        self.sync_remote_config()
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+        assert str(site_app.id) in js
+
+        on_commit_patch, update_remote_config_patch = self._run_remote_config_on_commit_synchronously()
+        with on_commit_patch, update_remote_config_patch:
+            site_app.delete()
+
+        self.remote_config.refresh_from_db()
+
+        js = self.remote_config.get_config_js_via_token(self.team.api_token)
+        assert str(site_app.id) not in js
 
 
 class TestRemoteConfigRaceCondition(_RemoteConfigBase):

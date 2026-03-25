@@ -21,6 +21,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
+    GoogleCloudServiceAccountIntegration,
     Integration,
     OauthIntegration,
     SlackIntegration,
@@ -821,6 +822,59 @@ class TestDatabricksIntegrationModel(BaseTest):
                 client_secret="client_secret",
                 created_by=self.user,
             )
+
+
+class TestGoogleCloudServiceAccountIntegration(BaseTest):
+    def test_raises_on_duplicate_service_account_email(self):
+        _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization.id),
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+        )
+        with pytest.raises(ValidationError):
+            _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=self.team.pk + 1,
+                organization_id="a-different-org",
+                service_account_email="test@test.iam.gserviceaccount.com",
+                project_id="test",
+            )
+
+    def test_allows_duplicate_service_account_email_when_using_key(self):
+        key_file_integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization.id),
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+            private_key="something",
+            private_key_id="something",
+            token_uri="something",
+        )
+
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        new_impersonated_integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=other_team.id,
+            organization_id=other_org.id,
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+        )
+
+        new_key_file_integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=other_team.pk,
+            organization_id=other_org.id,
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+            private_key="something",
+            private_key_id="something",
+            token_uri="something",
+        )
+
+        assert (
+            GoogleCloudServiceAccountIntegration(key_file_integration).service_account_email
+            == GoogleCloudServiceAccountIntegration(new_impersonated_integration).service_account_email
+            == GoogleCloudServiceAccountIntegration(new_key_file_integration).service_account_email
+        )
 
 
 class TestEmailIntegrationDomainValidation(BaseTest):
