@@ -3,6 +3,7 @@ from posthog.schema import (
     EndpointsUsageOverviewItem,
     EndpointsUsageOverviewQuery,
     EndpointsUsageOverviewQueryResponse,
+    ProductKey,
 )
 
 from posthog.hogql import ast
@@ -106,8 +107,6 @@ class EndpointsUsageOverviewQueryRunner(EndpointsUsageQueryRunner[EndpointsUsage
         return False
 
     def _calculate(self) -> EndpointsUsageOverviewQueryResponse:
-        from posthog.schema import ProductKey
-
         from posthog.clickhouse.query_tagging import Feature, tag_queries
 
         # Execute current period query
