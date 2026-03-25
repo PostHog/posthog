@@ -13,7 +13,7 @@ import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/q
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic } from './experimentLogic'
+import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -1017,6 +1017,49 @@ describe('experimentLogic', () => {
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
+        })
+    })
+
+    describe('getDisplayOrderedIndices', () => {
+        it('returns identity order when orderedUuids is null', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }]
+            expect(getDisplayOrderedIndices(metrics, null)).toEqual([0, 1, 2])
+        })
+
+        it('returns identity order when orderedUuids is undefined', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }]
+            expect(getDisplayOrderedIndices(metrics, undefined)).toEqual([0, 1])
+        })
+
+        it('returns identity order when orderedUuids is empty', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }]
+            expect(getDisplayOrderedIndices(metrics, [])).toEqual([0, 1])
+        })
+
+        it('reorders indices according to orderedUuids', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }]
+            expect(getDisplayOrderedIndices(metrics, ['c', 'a', 'b'])).toEqual([2, 0, 1])
+        })
+
+        it('appends metrics missing from orderedUuids at the end', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }]
+            expect(getDisplayOrderedIndices(metrics, ['c', 'a'])).toEqual([2, 0, 1, 3])
+        })
+
+        it('ignores orderedUuids entries not present in metrics', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }]
+            expect(getDisplayOrderedIndices(metrics, ['x', 'b', 'y', 'a'])).toEqual([1, 0])
+        })
+
+        it('handles metrics without uuids', () => {
+            const metrics = [{ uuid: 'a' }, {}, { uuid: 'c' }]
+            expect(getDisplayOrderedIndices(metrics, ['c', 'a'])).toEqual([2, 0, 1])
+        })
+
+        it('returns all indices exactly once', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
+            const result = getDisplayOrderedIndices(metrics, ['d', 'b'])
+            expect(result.sort()).toEqual([0, 1, 2, 3, 4])
         })
     })
 })
