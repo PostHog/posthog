@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonCollapse, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonInput, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -25,11 +25,6 @@ interface DuplicateExperimentModalProps {
     isOpen: boolean
     onClose: () => void
     experiment: Experiment
-}
-
-function generateFlagKey(experimentName: string): string {
-    const base = slugifyFeatureFlagKey(experimentName, { fromTitleInput: true })
-    return base ? `${base}-copy` : 'experiment-copy'
 }
 
 function TemplateSummary({ experiment }: { experiment: Experiment }): JSX.Element {
@@ -111,17 +106,41 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
     const { duplicateExperiment, setFeatureFlagModalFilters, resetFeatureFlagModalFilters } =
         useActions(experimentsLogic)
 
-    const [generatedFlagKey] = useState(() => generateFlagKey(experiment.name))
+    const [experimentName, setExperimentName] = useState('')
+    const [flagKey, setFlagKey] = useState('')
+    const [flagKeyManuallyEdited, setFlagKeyManuallyEdited] = useState(false)
 
-    const handleDuplicate = (featureFlagKey?: string): void => {
-        duplicateExperiment({ id: experiment.id as number, featureFlagKey })
+    const handleNameChange = (value: string): void => {
+        setExperimentName(value)
+        if (!flagKeyManuallyEdited) {
+            setFlagKey(slugifyFeatureFlagKey(value, { fromTitleInput: true }))
+        }
+    }
+
+    const handleFlagKeyChange = (value: string): void => {
+        setFlagKeyManuallyEdited(true)
+        setFlagKey(slugifyFeatureFlagKey(value))
+    }
+
+    const handleCreate = (overrideFlagKey?: string): void => {
+        const finalFlagKey = overrideFlagKey ?? flagKey
+        duplicateExperiment({
+            id: experiment.id as number,
+            featureFlagKey: finalFlagKey || undefined,
+            name: experimentName || undefined,
+        })
         onClose()
     }
 
     const handleClose = (): void => {
         resetFeatureFlagModalFilters()
+        setExperimentName('')
+        setFlagKey('')
+        setFlagKeyManuallyEdited(false)
         onClose()
     }
+
+    const canCreate = experimentName.trim().length > 0
 
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} title="New experiment from template" width="max-content">
@@ -129,14 +148,40 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                 <TemplateSummary experiment={experiment} />
 
                 <div>
-                    <div className="font-semibold mb-2">Create a new flag</div>
-                    <div className="flex items-center justify-between p-3 border rounded bg-bg-light">
-                        <div className="text-sm">
-                            A new flag <code className="text-xs">{generatedFlagKey}</code> will be created
+                    <div className="font-semibold mb-2">Experiment name</div>
+                    <LemonInput
+                        value={experimentName}
+                        onChange={handleNameChange}
+                        placeholder="e.g., Checkout flow v2"
+                        autoFocus
+                        data-attr="template-experiment-name"
+                    />
+                </div>
+
+                <div>
+                    <div className="font-semibold mb-2">Feature flag</div>
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 border rounded bg-bg-light gap-3">
+                            <div className="flex-1 min-w-0">
+                                <LemonInput
+                                    value={flagKey}
+                                    onChange={handleFlagKeyChange}
+                                    placeholder="e.g., checkout-flow-v2"
+                                    size="small"
+                                    data-attr="template-flag-key"
+                                />
+                                <div className="text-xs text-muted mt-1">A new flag will be created with this key</div>
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => handleCreate()}
+                                disabledReason={!canCreate ? 'Enter an experiment name' : undefined}
+                                data-attr="template-create-button"
+                            >
+                                Create
+                            </LemonButton>
                         </div>
-                        <LemonButton type="primary" size="xsmall" onClick={() => handleDuplicate(generatedFlagKey)}>
-                            Create
-                        </LemonButton>
                     </div>
                 </div>
 
@@ -163,7 +208,8 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                                             <LemonButton
                                                 type="secondary"
                                                 size="xsmall"
-                                                onClick={() => handleDuplicate()}
+                                                onClick={() => handleCreate(experiment.feature_flag?.key)}
+                                                disabledReason={!canCreate ? 'Enter an experiment name' : undefined}
                                             >
                                                 Select
                                             </LemonButton>
@@ -221,12 +267,15 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                                                         } catch (error) {
                                                             disabledReason = (error as Error).message
                                                         }
+                                                        if (!disabledReason && !canCreate) {
+                                                            disabledReason = 'Enter an experiment name'
+                                                        }
                                                         return (
                                                             <LemonButton
                                                                 size="xsmall"
                                                                 type="primary"
                                                                 disabledReason={disabledReason}
-                                                                onClick={() => handleDuplicate(flag.key)}
+                                                                onClick={() => handleCreate(flag.key)}
                                                             >
                                                                 Select
                                                             </LemonButton>
