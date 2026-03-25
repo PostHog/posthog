@@ -181,8 +181,8 @@ async def backfill_precalculated_person_properties_activity(
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
     # Load filters and person properties from Redis storage without blocking the event loop
-    result = await asyncio.to_thread(get_filters_and_properties, inputs.filter_storage_key)
-    if result is None:
+    storage_result = await asyncio.to_thread(get_filters_and_properties, inputs.filter_storage_key)
+    if storage_result is None:
         raise temporalio.exceptions.ApplicationError(
             f"Filters not found in storage for key: {inputs.filter_storage_key}. "
             "The Redis payload may have expired; please re-store the filters and restart the workflow.",
@@ -190,7 +190,7 @@ async def backfill_precalculated_person_properties_activity(
             non_retryable=True,
         )
 
-    filters, person_properties = result
+    filters, person_properties = storage_result
     logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
 
     if person_properties:
@@ -321,10 +321,10 @@ async def backfill_precalculated_person_properties_activity(
                     # Evaluate each filter once per person and send results to all cohorts that use it
                     for filter_obj in filters:
                         try:
-                            result = await asyncio.to_thread(
+                            bytecode_result = await asyncio.to_thread(
                                 execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
                             )
-                            matches = bool(result.result) if result else False
+                            matches = bool(bytecode_result.result) if bytecode_result else False
                         except Exception as e:
                             logger.warning(
                                 f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
