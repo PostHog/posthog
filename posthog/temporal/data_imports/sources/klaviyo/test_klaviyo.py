@@ -7,7 +7,7 @@ from posthog.temporal.data_imports.sources.klaviyo.klaviyo import (
     _build_initial_params,
     _format_incremental_value,
 )
-from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS
+from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
 
 
 class TestFormatIncrementalValue:
@@ -60,7 +60,7 @@ class TestBuildFilter:
         ]
     )
     def test_build_filter(
-        self, _name: str, config: object, field: str | None, value: str | None, expected: str | None
+        self, _name: str, config: KlaviyoEndpointConfig, field: str | None, value: str | None, expected: str | None
     ) -> None:
         assert _build_filter(config, field, value) == expected
 
