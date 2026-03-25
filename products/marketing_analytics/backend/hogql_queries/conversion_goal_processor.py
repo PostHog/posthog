@@ -1017,17 +1017,7 @@ class ConversionGoalProcessor:
                 ],
             )
 
-        # Fallback: equal weights
-        return ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["_x"],
-                    expr=ast.Constant(value=1.0),
-                ),
-                filtered_ts,
-            ],
-        )
+        raise ValueError(f"Unknown multi-touch attribution mode: {self.config.attribution_mode}")
 
     def _build_multi_touch_array_join_subquery(
         self, inner_query: ast.SelectQuery, attribution_window_seconds: int

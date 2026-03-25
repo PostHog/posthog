@@ -9,6 +9,8 @@ from posthog.test.base import (
     persons_cache_tests,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     AttributionMode,
     BaseMathType,
@@ -5563,185 +5565,114 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     # ==================== Multi-touch Attribution Tests ====================
 
-    def test_linear_attribution_two_touchpoints(self):
-        """Linear attribution with 2 touchpoints should give 50% credit each."""
-        with freeze_time("2023-03-10"):
-            _create_person(distinct_ids=["linear_user"], team=self.team)
-            _create_event(
-                distinct_id="linear_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "email_blast", "utm_source": "email"},
-            )
-            flush_persons_and_events_in_batches()
+    def _run_multi_touch_test(
+        self,
+        user_id: str,
+        touchpoints: list[tuple[str, str, str]],
+        conversion_date: str,
+        attribution_mode: AttributionMode,
+        query_from_date: str,
+        expected_weights: dict[str, float],
+    ):
+        """Helper for multi-touch attribution tests.
 
-        with freeze_time("2023-04-15"):
-            _create_event(
-                distinct_id="linear_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "google_ad", "utm_source": "google"},
-            )
-            flush_persons_and_events_in_batches()
+        Args:
+            touchpoints: list of (campaign, source, date) tuples
+            expected_weights: dict of campaign -> expected credit value
+        """
+        for i, (campaign, source, date) in enumerate(touchpoints):
+            with freeze_time(date):
+                if i == 0:
+                    _create_person(distinct_ids=[user_id], team=self.team)
+                _create_event(
+                    distinct_id=user_id,
+                    event="$pageview",
+                    team=self.team,
+                    properties={"utm_campaign": campaign, "utm_source": source},
+                )
+                flush_persons_and_events_in_batches()
 
-        with freeze_time("2023-05-10"):
-            _create_event(distinct_id="linear_user", event="purchase", team=self.team, properties={})
+        with freeze_time(conversion_date):
+            _create_event(distinct_id=user_id, event="purchase", team=self.team, properties={})
             flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind="EventsNode",
             event="purchase",
-            conversion_goal_id="linear_2tp",
-            conversion_goal_name="Linear 2 Touchpoints",
+            conversion_goal_id=f"{attribution_mode}_{len(touchpoints)}tp",
+            conversion_goal_name=f"{attribution_mode} {len(touchpoints)} Touchpoints",
             math=BaseMathType.TOTAL,
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        linear_config = MarketingAnalyticsConfig.from_team(self.team)
-        linear_config.attribution_mode = AttributionMode.LINEAR
+        config = MarketingAnalyticsConfig.from_team(self.team)
+        config.attribution_mode = attribution_mode
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=linear_config)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
 
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+                right=ast.Call(name="toDate", args=[ast.Constant(value=query_from_date)]),
             ),
         ]
 
         cte_query = processor.generate_cte_query(additional_conditions)
         response = execute_hogql_query(query=cte_query, team=self.team)
 
-        # Should have 2 results — one per touchpoint
-        assert len(response.results) == 2, f"Expected 2 results, got {len(response.results)}"
-
-        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion_value
-        results_by_campaign = {row[1]: row[4] for row in response.results}
-        assert "email_blast" in results_by_campaign, f"Expected email_blast, got {list(results_by_campaign.keys())}"
-        assert "google_ad" in results_by_campaign, f"Expected google_ad, got {list(results_by_campaign.keys())}"
-
-        # Each should get 0.5 credit (50%)
-        assert abs(results_by_campaign["email_blast"] - 0.5) < 0.01, (
-            f"Expected ~0.5 for email_blast, got {results_by_campaign['email_blast']}"
+        assert len(response.results) == len(expected_weights), (
+            f"Expected {len(expected_weights)} results, got {len(response.results)}"
         )
-        assert abs(results_by_campaign["google_ad"] - 0.5) < 0.01, (
-            f"Expected ~0.5 for google_ad, got {results_by_campaign['google_ad']}"
-        )
-
-    def test_linear_attribution_three_touchpoints(self):
-        """Linear attribution with 3 touchpoints should give ~33% credit each."""
-        with freeze_time("2023-02-01"):
-            _create_person(distinct_ids=["linear3_user"], team=self.team)
-            _create_event(
-                distinct_id="linear3_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "campaign_a", "utm_source": "email"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-03-01"):
-            _create_event(
-                distinct_id="linear3_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "campaign_b", "utm_source": "google"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-01"):
-            _create_event(
-                distinct_id="linear3_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "campaign_c", "utm_source": "facebook"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-15"):
-            _create_event(distinct_id="linear3_user", event="purchase", team=self.team, properties={})
-            flush_persons_and_events_in_batches()
-
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="linear_3tp",
-            conversion_goal_name="Linear 3 Touchpoints",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        linear_config = MarketingAnalyticsConfig.from_team(self.team)
-        linear_config.attribution_mode = AttributionMode.LINEAR
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=linear_config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
-            ),
-        ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        assert len(response.results) == 3, f"Expected 3 results, got {len(response.results)}"
 
         results_by_campaign = {row[1]: row[4] for row in response.results}
-        for campaign in ["campaign_a", "campaign_b", "campaign_c"]:
+        for campaign, expected in expected_weights.items():
             assert campaign in results_by_campaign, f"Expected {campaign} in results"
-            assert abs(results_by_campaign[campaign] - 1 / 3) < 0.01, (
-                f"Expected ~0.333 for {campaign}, got {results_by_campaign[campaign]}"
+            assert abs(results_by_campaign[campaign] - expected) < 0.01, (
+                f"Expected ~{expected:.3f} for {campaign}, got {results_by_campaign[campaign]}"
             )
 
-    def test_linear_attribution_single_touchpoint(self):
-        """Linear attribution with 1 touchpoint should give 100% credit."""
-        with freeze_time("2023-04-01"):
-            _create_person(distinct_ids=["linear1_user"], team=self.team)
-            _create_event(
-                distinct_id="linear1_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "only_campaign", "utm_source": "google"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-15"):
-            _create_event(distinct_id="linear1_user", event="purchase", team=self.team, properties={})
-            flush_persons_and_events_in_batches()
-
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="linear_1tp",
-            conversion_goal_name="Linear 1 Touchpoint",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        linear_config = MarketingAnalyticsConfig.from_team(self.team)
-        linear_config.attribution_mode = AttributionMode.LINEAR
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=linear_config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+    @parameterized.expand(
+        [
+            (
+                "single_touchpoint",
+                "linear1_user",
+                [("only_campaign", "google", "2023-04-01")],
+                "2023-04-15",
+                "2023-04-01",
+                {"only_campaign": 1.0},
+            ),
+            (
+                "two_touchpoints",
+                "linear2_user",
+                [("email_blast", "email", "2023-03-10"), ("google_ad", "google", "2023-04-15")],
+                "2023-05-10",
+                "2023-05-01",
+                {"email_blast": 0.5, "google_ad": 0.5},
+            ),
+            (
+                "three_touchpoints",
+                "linear3_user",
+                [
+                    ("campaign_a", "email", "2023-02-01"),
+                    ("campaign_b", "google", "2023-03-01"),
+                    ("campaign_c", "facebook", "2023-04-01"),
+                ],
+                "2023-04-15",
+                "2023-04-01",
+                {"campaign_a": 1 / 3, "campaign_b": 1 / 3, "campaign_c": 1 / 3},
             ),
         ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
-        campaign_name, conversion_value = response.results[0][1], response.results[0][4]
-        assert campaign_name == "only_campaign"
-        assert abs(conversion_value - 1.0) < 0.01, f"Expected 1.0 for single touchpoint, got {conversion_value}"
+    )
+    def test_linear_attribution(self, _name, user_id, touchpoints, conversion_date, query_from_date, expected_weights):
+        self._run_multi_touch_test(
+            user_id=user_id,
+            touchpoints=touchpoints,
+            conversion_date=conversion_date,
+            attribution_mode=AttributionMode.LINEAR,
+            query_from_date=query_from_date,
+            expected_weights=expected_weights,
+        )
 
     def test_time_decay_attribution_recent_gets_more_credit(self):
         """Time-decay attribution should give more credit to recent touchpoints."""
@@ -5809,222 +5740,55 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         total = sum(results_by_campaign.values())
         assert abs(total - 1.0) < 0.01, f"Total credit should be ~1.0, got {total}"
 
-    def test_position_based_attribution_three_touchpoints(self):
-        """Position-based (40/20/40) with 3 touchpoints: first=40%, middle=20%, last=40%."""
-        with freeze_time("2023-02-01"):
-            _create_person(distinct_ids=["position_user"], team=self.team)
-            _create_event(
-                distinct_id="position_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "first_touch", "utm_source": "email"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-03-01"):
-            _create_event(
-                distinct_id="position_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "middle_touch", "utm_source": "google"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-01"):
-            _create_event(
-                distinct_id="position_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "last_touch", "utm_source": "facebook"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-15"):
-            _create_event(distinct_id="position_user", event="purchase", team=self.team, properties={})
-            flush_persons_and_events_in_batches()
-
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="position_3tp",
-            conversion_goal_name="Position 3 Touchpoints",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        position_config = MarketingAnalyticsConfig.from_team(self.team)
-        position_config.attribution_mode = AttributionMode.POSITION_BASED
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=position_config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+    @parameterized.expand(
+        [
+            (
+                "two_touchpoints",
+                "position2_user",
+                [("first_ad", "email", "2023-03-01"), ("second_ad", "google", "2023-04-01")],
+                "2023-04-15",
+                "2023-04-01",
+                {"first_ad": 0.5, "second_ad": 0.5},
+            ),
+            (
+                "three_touchpoints",
+                "position3_user",
+                [
+                    ("first_touch", "email", "2023-02-01"),
+                    ("middle_touch", "google", "2023-03-01"),
+                    ("last_touch", "facebook", "2023-04-01"),
+                ],
+                "2023-04-15",
+                "2023-04-01",
+                {"first_touch": 0.4, "middle_touch": 0.2, "last_touch": 0.4},
+            ),
+            (
+                "five_touchpoints",
+                "position5_user",
+                [
+                    ("tp_1", "email", "2023-01-10"),
+                    ("tp_2", "google", "2023-02-10"),
+                    ("tp_3", "google", "2023-03-10"),
+                    ("tp_4", "google", "2023-03-25"),
+                    ("tp_5", "facebook", "2023-04-05"),
+                ],
+                "2023-04-10",
+                "2023-04-01",
+                {"tp_1": 0.4, "tp_2": 0.2 / 3, "tp_3": 0.2 / 3, "tp_4": 0.2 / 3, "tp_5": 0.4},
             ),
         ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        assert len(response.results) == 3, f"Expected 3 results, got {len(response.results)}"
-
-        results_by_campaign = {row[1]: row[4] for row in response.results}
-
-        # First touch: 40%
-        assert abs(results_by_campaign["first_touch"] - 0.4) < 0.01, (
-            f"Expected ~0.4 for first_touch, got {results_by_campaign['first_touch']}"
+    )
+    def test_position_based_attribution(
+        self, _name, user_id, touchpoints, conversion_date, query_from_date, expected_weights
+    ):
+        self._run_multi_touch_test(
+            user_id=user_id,
+            touchpoints=touchpoints,
+            conversion_date=conversion_date,
+            attribution_mode=AttributionMode.POSITION_BASED,
+            query_from_date=query_from_date,
+            expected_weights=expected_weights,
         )
-        # Middle touch: 20%
-        assert abs(results_by_campaign["middle_touch"] - 0.2) < 0.01, (
-            f"Expected ~0.2 for middle_touch, got {results_by_campaign['middle_touch']}"
-        )
-        # Last touch: 40%
-        assert abs(results_by_campaign["last_touch"] - 0.4) < 0.01, (
-            f"Expected ~0.4 for last_touch, got {results_by_campaign['last_touch']}"
-        )
-
-    def test_position_based_attribution_two_touchpoints(self):
-        """Position-based with 2 touchpoints should give 50% each (equal split)."""
-        with freeze_time("2023-03-01"):
-            _create_person(distinct_ids=["position2_user"], team=self.team)
-            _create_event(
-                distinct_id="position2_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "first_ad", "utm_source": "email"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-01"):
-            _create_event(
-                distinct_id="position2_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "second_ad", "utm_source": "google"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-15"):
-            _create_event(distinct_id="position2_user", event="purchase", team=self.team, properties={})
-            flush_persons_and_events_in_batches()
-
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="position_2tp",
-            conversion_goal_name="Position 2 Touchpoints",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        position_config = MarketingAnalyticsConfig.from_team(self.team)
-        position_config.attribution_mode = AttributionMode.POSITION_BASED
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=position_config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
-            ),
-        ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        assert len(response.results) == 2, f"Expected 2 results, got {len(response.results)}"
-
-        results_by_campaign = {row[1]: row[4] for row in response.results}
-        for campaign in ["first_ad", "second_ad"]:
-            assert abs(results_by_campaign[campaign] - 0.5) < 0.01, (
-                f"Expected ~0.5 for {campaign}, got {results_by_campaign[campaign]}"
-            )
-
-    def test_position_based_attribution_five_touchpoints(self):
-        """Position-based with 5 touchpoints: first=40%, last=40%, 3 middle=6.67% each."""
-        with freeze_time("2023-01-10"):
-            _create_person(distinct_ids=["position5_user"], team=self.team)
-            _create_event(
-                distinct_id="position5_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "tp_1", "utm_source": "email"},
-            )
-            flush_persons_and_events_in_batches()
-
-        for i, (month, day) in enumerate([(2, 10), (3, 10), (3, 25)], start=2):
-            with freeze_time(f"2023-{month:02d}-{day:02d}"):
-                _create_event(
-                    distinct_id="position5_user",
-                    event="$pageview",
-                    team=self.team,
-                    properties={"utm_campaign": f"tp_{i}", "utm_source": "google"},
-                )
-                flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-05"):
-            _create_event(
-                distinct_id="position5_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "tp_5", "utm_source": "facebook"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-04-10"):
-            _create_event(distinct_id="position5_user", event="purchase", team=self.team, properties={})
-            flush_persons_and_events_in_batches()
-
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="position_5tp",
-            conversion_goal_name="Position 5 Touchpoints",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        position_config = MarketingAnalyticsConfig.from_team(self.team)
-        position_config.attribution_mode = AttributionMode.POSITION_BASED
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=position_config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
-            ),
-        ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        assert len(response.results) == 5, f"Expected 5 results, got {len(response.results)}"
-
-        results_by_campaign = {row[1]: row[4] for row in response.results}
-
-        # First and last get 40%
-        assert abs(results_by_campaign["tp_1"] - 0.4) < 0.01, (
-            f"Expected ~0.4 for tp_1 (first), got {results_by_campaign['tp_1']}"
-        )
-        assert abs(results_by_campaign["tp_5"] - 0.4) < 0.01, (
-            f"Expected ~0.4 for tp_5 (last), got {results_by_campaign['tp_5']}"
-        )
-
-        # Middle 3 get 20% / 3 = 6.67% each
-        middle_expected = 0.2 / 3
-        for tp in ["tp_2", "tp_3", "tp_4"]:
-            assert abs(results_by_campaign[tp] - middle_expected) < 0.01, (
-                f"Expected ~{middle_expected:.3f} for {tp} (middle), got {results_by_campaign[tp]}"
-            )
-
-        # Total should sum to ~1.0
-        total = sum(results_by_campaign.values())
-        assert abs(total - 1.0) < 0.01, f"Total credit should be ~1.0, got {total}"
 
     def test_multi_touch_no_touchpoints_returns_no_results(self):
         """Multi-touch attribution with no UTM touchpoints produces no attributed results.
