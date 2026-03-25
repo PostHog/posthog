@@ -32,6 +32,42 @@ export interface PaginatedNotificationEventListApi {
     results: NotificationEventApi[]
 }
 
+/**
+ * * `comment_mention` - COMMENT_MENTION
+ * `alert_firing` - ALERT_FIRING
+ * `approval_requested` - APPROVAL_REQUESTED
+ * `approval_resolved` - APPROVAL_RESOLVED
+ * `pipeline_failure` - PIPELINE_FAILURE
+ * `issue_assigned` - ISSUE_ASSIGNED
+ */
+export type NotificationTypeEnumApi = (typeof NotificationTypeEnumApi)[keyof typeof NotificationTypeEnumApi]
+
+export const NotificationTypeEnumApi = {
+    CommentMention: 'comment_mention',
+    AlertFiring: 'alert_firing',
+    ApprovalRequested: 'approval_requested',
+    ApprovalResolved: 'approval_resolved',
+    PipelineFailure: 'pipeline_failure',
+    IssueAssigned: 'issue_assigned',
+} as const
+
+/**
+ * * `normal` - NORMAL
+ * `critical` - CRITICAL
+ */
+export type SendTestNotificationPriorityEnumApi =
+    (typeof SendTestNotificationPriorityEnumApi)[keyof typeof SendTestNotificationPriorityEnumApi]
+
+export const SendTestNotificationPriorityEnumApi = {
+    Normal: 'normal',
+    Critical: 'critical',
+} as const
+
+export interface SendTestNotificationApi {
+    notification_type: NotificationTypeEnumApi
+    priority?: SendTestNotificationPriorityEnumApi
+}
+
 export type NotificationsListParams = {
     /**
      * Number of results to return per page.
