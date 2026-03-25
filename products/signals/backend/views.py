@@ -21,14 +21,12 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.schema import ProductKey
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.permissions import APIScopePermission
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
@@ -354,7 +352,7 @@ class SignalReportViewSet(
             ORDER BY timestamp ASC
         """
 
-        tag_queries(product=ProductKey.SESSION_REPLAY, feature=Feature.QUERY)
+        tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
         result = execute_hogql_query(
             query_type="SignalsDebugFetchForReport",
             query=query,
