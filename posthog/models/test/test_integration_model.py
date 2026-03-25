@@ -659,7 +659,11 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         with freeze_time("2024-01-01T14:00:00Z"):
             GoogleCloudIntegration(integration).refresh_access_token()
 
-        assert integration.sensitive_config["access_token"] == "REFRESHED_TOKEN"
+        # After refresh, sensitive_config should be migrated to the nested structure
+        assert integration.sensitive_config == {
+            "key_info": self.mock_keyfile,
+            "access_token": "REFRESHED_TOKEN",
+        }
         assert "access_token" not in integration.config
 
         # Verify refresh used the whole sensitive_config as key_info (pre-migration fallback)
