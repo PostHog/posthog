@@ -1021,45 +1021,26 @@ describe('experimentLogic', () => {
     })
 
     describe('getDisplayOrderedIndices', () => {
-        it('returns identity order when orderedUuids is null', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }]
-            expect(getDisplayOrderedIndices(metrics, null)).toEqual([0, 1, 2])
-        })
-
-        it('returns identity order when orderedUuids is undefined', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }]
-            expect(getDisplayOrderedIndices(metrics, undefined)).toEqual([0, 1])
-        })
-
-        it('returns identity order when orderedUuids is empty', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }]
-            expect(getDisplayOrderedIndices(metrics, [])).toEqual([0, 1])
-        })
-
-        it('reorders indices according to orderedUuids', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }]
-            expect(getDisplayOrderedIndices(metrics, ['c', 'a', 'b'])).toEqual([2, 0, 1])
-        })
-
-        it('appends metrics missing from orderedUuids at the end', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }]
-            expect(getDisplayOrderedIndices(metrics, ['c', 'a'])).toEqual([2, 0, 1, 3])
-        })
-
-        it('ignores orderedUuids entries not present in metrics', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }]
-            expect(getDisplayOrderedIndices(metrics, ['x', 'b', 'y', 'a'])).toEqual([1, 0])
-        })
-
-        it('handles metrics without uuids', () => {
-            const metrics = [{ uuid: 'a' }, {}, { uuid: 'c' }]
-            expect(getDisplayOrderedIndices(metrics, ['c', 'a'])).toEqual([2, 0, 1])
+        it.each([
+            ['null orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], null, [0, 1, 2]],
+            ['undefined orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], undefined, [0, 1]],
+            ['empty orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], [], [0, 1]],
+            ['reorders by orderedUuids', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], ['c', 'a', 'b'], [2, 0, 1]],
+            [
+                'appends missing metrics at end',
+                [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }],
+                ['c', 'a'],
+                [2, 0, 1, 3],
+            ],
+            ['ignores uuids not in metrics', [{ uuid: 'a' }, { uuid: 'b' }], ['x', 'b', 'y', 'a'], [1, 0]],
+            ['handles metrics without uuids', [{ uuid: 'a' }, {}, { uuid: 'c' }], ['c', 'a'], [2, 0, 1]],
+        ])('%s', (_desc, metrics, orderedUuids, expected) => {
+            expect(getDisplayOrderedIndices(metrics, orderedUuids)).toEqual(expected)
         })
 
         it('returns all indices exactly once', () => {
             const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
-            const result = getDisplayOrderedIndices(metrics, ['d', 'b'])
-            expect(result.sort()).toEqual([0, 1, 2, 3, 4])
+            expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
         })
     })
 })
