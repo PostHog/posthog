@@ -109,7 +109,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             table_name="extended_properties",
             table_columns={
                 "email": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-                "account_tier": {"clickhouse": "String", "hogql": "StringDatabaseField"},
             },
             test_bucket=TEST_BUCKET,
             team=self.team,
