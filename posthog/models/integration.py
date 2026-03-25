@@ -1369,7 +1369,8 @@ class GoogleCloudIntegration:
     def get_access_token(self) -> str:
         if self.access_token_expired():
             self.refresh_access_token()
-        return self.integration.sensitive_config.get("access_token", "")
+        # Fall back to config for pre-migration integrations
+        return self.integration.sensitive_config.get("access_token") or self.integration.config.get("access_token", "")
 
 
 class FirebaseIntegration:
