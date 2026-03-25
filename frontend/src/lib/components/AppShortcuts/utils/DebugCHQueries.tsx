@@ -103,7 +103,7 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props }: { props: { insightId: string } }) => ({
         debugResponse: [
             {} as DebugResponse,
             {
