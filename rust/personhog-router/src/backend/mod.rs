@@ -6,10 +6,8 @@ pub use leader::LeaderBackend;
 pub use replica::ReplicaBackend;
 
 use async_trait::async_trait;
-use personhog_proto::personhog::leader::v1::{
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-};
 use personhog_proto::personhog::types::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,

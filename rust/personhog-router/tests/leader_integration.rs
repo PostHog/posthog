@@ -4,8 +4,8 @@ use common::{
     create_client, create_test_person, start_test_leader, start_test_replica, start_test_router,
     start_test_router_with_leader, TestLeaderService, TestReplicaService,
 };
-use personhog_proto::personhog::leader::v1::UpdatePersonPropertiesRequest;
 use personhog_proto::personhog::types::v1::{
+    UpdatePersonPropertiesRequest,
     ConsistencyLevel, GetGroupsRequest, GetPersonRequest, GroupIdentifier, ReadOptions,
 };
 

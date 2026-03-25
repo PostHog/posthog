@@ -3,11 +3,9 @@ mod tests;
 
 use std::sync::Arc;
 
-use personhog_proto::personhog::leader::v1::{
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-};
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogService;
 use personhog_proto::personhog::types::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
