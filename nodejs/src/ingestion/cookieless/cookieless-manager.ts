@@ -83,7 +83,6 @@ type SaltResult = { success: true; salt: Buffer } | { success: false; reason: 'd
 
 interface CookielessConfig {
     disabled: boolean
-    forceStatelessMode: boolean
     deleteExpiredLocalSaltsIntervalMs: number
     identifiesTtlSeconds: number
     sessionTtlSeconds: number
@@ -97,7 +96,6 @@ interface CookielessConfig {
 export type CookielessManagerConfig = Pick<
     IngestionConsumerConfig,
     | 'COOKIELESS_DISABLED'
-    | 'COOKIELESS_FORCE_STATELESS_MODE'
     | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
     | 'COOKIELESS_SESSION_TTL_SECONDS'
     | 'COOKIELESS_SALT_TTL_SECONDS'
@@ -125,7 +123,6 @@ export class CookielessManager {
     constructor(config: CookielessManagerConfig, redis: GenericPool<Redis.Redis>) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
-            forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
             deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
             sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
             saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
@@ -350,10 +347,6 @@ export class CookielessManager {
                 results[i] = drop('cookieless_unsupported_event')
                 continue
             }
-
-            // NOTE: cookieless_server_hash_mode team setting has been deprecated.
-            // All cookieless events are now processed as STATEFUL when the SDK sends them.
-            // The setting is kept in the database for rollback safety but is no longer read.
 
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
