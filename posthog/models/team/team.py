@@ -16,7 +16,7 @@ import pytz
 import pydantic
 import posthoganalytics
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -42,7 +42,7 @@ from posthog.settings.utils import get_list
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode, ProductKey
 from .extensions import get_or_create_team_extension
 from .team_caching import get_team_in_cache, set_team_in_cache
 
@@ -785,6 +785,7 @@ class Team(UUIDTClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
+        tag_queries(product=ProductKey.TEAMS, feature=Feature.QUERY)
         return sync_execute(
             f"""
             SELECT count(1) FROM (
@@ -799,6 +800,7 @@ class Team(UUIDTClassicModel):
         from posthog.clickhouse.client import sync_execute
 
         # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
+        tag_queries(product=ProductKey.TEAMS, feature=Feature.QUERY)
         return sync_execute(
             f"""
             SELECT
