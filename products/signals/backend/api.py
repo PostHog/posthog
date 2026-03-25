@@ -64,7 +64,7 @@ async def emit_signal(
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
         team.id, source_product, source_type
     )
-    if not is_enabled and not settings.DEBUG:
+    if not is_enabled:
         return
 
     token_count = len(_tiktoken_encoding.encode(description))
