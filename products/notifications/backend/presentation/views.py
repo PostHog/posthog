@@ -16,7 +16,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notifications.backend.facade.contracts import NotificationData
-from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
+from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES, TargetType
 from products.notifications.backend.logic import create_notification
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import (
@@ -189,7 +189,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             priority=priority,
             title=sample["title"],
             body=sample["body"],
-            target_type="user",
+            target_type=TargetType.USER,
             target_id=str(user.id),
             resource_type="dashboard",
             resource_id="1",
