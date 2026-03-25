@@ -15,9 +15,10 @@ import { isEmailAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
-export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
+export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'delivered' | 'completed'
 export type EmailMetric =
     | 'email_sent'
+    | 'email_delivered'
     | 'email_failed'
     | 'email_opened'
     | 'email_link_clicked'
@@ -61,6 +62,13 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
         color: '#00F',
         metricNames: ['email_sent'],
     },
+    delivered: {
+        name: 'Delivered',
+        description:
+            "Total number of emails that were successfully delivered to the recipient's inbox. This is confirmed by the recipient's mail server accepting the email.",
+        color: getColorVar('success'),
+        metricNames: ['email_delivered'],
+    },
     completed: {
         name: 'Completed',
         description:
@@ -79,6 +87,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         description: 'Total number of emails sent to recipients',
         color: getColorVar('primary'),
         metricNames: ['email_sent'],
+    },
+    email_delivered: {
+        name: 'Delivered',
+        description:
+            "Total number of emails that were successfully delivered to the recipient's inbox. This is confirmed by the recipient's mail server accepting the email.",
+        color: getColorVar('success'),
+        metricNames: ['email_delivered'],
     },
     email_failed: {
         name: 'Failed',
@@ -125,6 +140,7 @@ const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSu
 
 const EMAIL_METRICS: EmailMetric[] = [
     'email_sent',
+    'email_delivered',
     'email_opened',
     'email_failed',
     'email_link_clicked',
@@ -313,14 +329,11 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             (emailActions, emailTotalsByActionId): EmailMetricRow[] =>
                 emailActions.map((action: { id: string; name: string }) => {
                     const totals = emailTotalsByActionId[action.id] || {}
-                    const sent = totals.email_sent ?? 0
-                    const bounced = totals.email_bounced ?? 0
-                    const blocked = totals.email_blocked ?? 0
                     return {
                         id: action.id,
                         email: action.name,
-                        delivered: Math.max(0, sent - bounced - blocked),
-                        sent,
+                        delivered: totals.email_delivered ?? 0,
+                        sent: totals.email_sent ?? 0,
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
                     }
