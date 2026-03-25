@@ -58,6 +58,7 @@ import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
 import { SummaryTable } from './SummaryTable'
 
@@ -122,6 +123,7 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
+            <ResultsNotificationBanner />
             {usesNewQueryRunner && !isAiAnalysisTabEnabled && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
                     <SummarizeExperimentButton

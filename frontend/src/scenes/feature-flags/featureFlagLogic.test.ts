@@ -220,6 +220,7 @@ describe('featureFlagLogic', () => {
                 ...MOCK_FEATURE_FLAG,
                 id: 2,
                 experiment_set: [MOCK_EXPERIMENT.id],
+                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name }],
             }
 
             const experimentLogic = featureFlagLogic({ id: 2 })
@@ -262,6 +263,7 @@ describe('featureFlagLogic', () => {
                 ...MOCK_FEATURE_FLAG,
                 id: 3,
                 experiment_set: null,
+                experiment_set_metadata: null,
             }
 
             const noExperimentLogic = featureFlagLogic({ id: 3 })

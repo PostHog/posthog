@@ -20,6 +20,7 @@ import requests
 import structlog
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     GitHubIntegration,
     Integration,
@@ -46,11 +47,13 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
+
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
-HANDLED_EVENT_TYPES = ["app_mention"]
+HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -93,7 +96,7 @@ class RulesCommand:
     action: Literal["list", "add", "remove", "help", "default_set", "default_show", "default_clear"]
     rule_text: str | None = None
     repository: str | None = None
-    rule_number: int | None = None
+    rule_numbers: list[int] | None = None
 
 
 def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
@@ -206,9 +209,15 @@ def _post_slack_user_feedback(
 
 
 def resolve_slack_user(
-    slack: SlackIntegration, integration: Integration, slack_user_id: str, channel: str, thread_ts: str
+    slack: SlackIntegration,
+    integration: Integration,
+    slack_user_id: str,
+    channel: str,
+    thread_ts: str,
+    *,
+    post_feedback: bool = True,
 ) -> SlackUserContext | None:
-    """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure."""
+    """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
     try:
         slack_user_info = _get_slack_user_info(slack, integration, slack_user_id)
         slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
@@ -225,18 +234,19 @@ def resolve_slack_user(
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
-            _post_slack_user_feedback(
-                slack,
-                channel,
-                slack_user_id,
-                thread_ts,
-                (
-                    "Sorry, I couldn't find your email address in Slack. "
-                    "Please make sure your email is visible in your Slack profile, "
-                    "and contact the PostHog team if the issue persists."
-                ),
-                prefer_thread_message=True,
-            )
+            if post_feedback:
+                _post_slack_user_feedback(
+                    slack,
+                    channel,
+                    slack_user_id,
+                    thread_ts,
+                    (
+                        "Sorry, I couldn't find your email address in Slack. "
+                        "Please make sure your email is visible in your Slack profile, "
+                        "and contact the PostHog team if the issue persists."
+                    ),
+                    prefer_thread_message=True,
+                )
             return None
 
         if get_instance_region() == "DEV":
@@ -256,16 +266,17 @@ def resolve_slack_user(
         )
         if not membership or not membership.user:
             organization_name = integration.team.organization.name
-            _post_slack_user_feedback(
-                slack,
-                channel,
-                slack_user_id,
-                thread_ts,
-                (
-                    f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
-                    f"Please make sure you're a member of that PostHog organization."
-                ),
-            )
+            if post_feedback:
+                _post_slack_user_feedback(
+                    slack,
+                    channel,
+                    slack_user_id,
+                    thread_ts,
+                    (
+                        f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
+                        f"Please make sure you're a member of that PostHog organization."
+                    ),
+                )
             return None
 
         posthog_user = membership.user
@@ -278,28 +289,30 @@ def resolve_slack_user(
                 team_id=integration.team_id,
                 organization_id=integration.team.organization_id,
             )
-            _post_slack_user_feedback(
-                slack,
-                channel,
-                slack_user_id,
-                thread_ts,
-                (
-                    "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
-                    "Please ask an admin of your PostHog organization to grant you access."
-                ),
-            )
+            if post_feedback:
+                _post_slack_user_feedback(
+                    slack,
+                    channel,
+                    slack_user_id,
+                    thread_ts,
+                    (
+                        "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
+                        "Please ask an admin of your PostHog organization to grant you access."
+                    ),
+                )
             return None
 
         return SlackUserContext(user=posthog_user, slack_email=slack_email)
     except Exception as e:
         logger.exception("slack_app_user_lookup_failed", error=str(e))
-        _post_slack_user_feedback(
-            slack,
-            channel,
-            slack_user_id,
-            thread_ts,
-            "Sorry, I encountered an error looking up your user account. Please try again later.",
-        )
+        if post_feedback:
+            _post_slack_user_feedback(
+                slack,
+                channel,
+                slack_user_id,
+                thread_ts,
+                "Sorry, I encountered an error looking up your user account. Please try again later.",
+            )
         return None
 
 
@@ -336,6 +349,8 @@ def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slac
         # We're in the right region
         if event.get("type") == "app_mention":
             handle_app_mention(event, integration)
+        elif event.get("type") == "link_shared":
+            handle_posthog_link_unfurl(event, integration)
     elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
         # We aren't in the right region OR the Slack workspace is not connected to any PostHog project in ANY region
         # OR we're in dev and the request hasn't been proxied once yet
@@ -606,7 +621,9 @@ def slack_event_handler(request: HttpRequest) -> HttpResponse:
 
     This endpoint handles:
     - URL verification challenges from Slack
-    - Event callbacks (app_mention, etc.)
+    - Event callbacks (app_mention, link_shared for PostHog insight/dashboard unfurls, etc.)
+
+    The Slack app must subscribe to `link_shared` and register PostHog app domains for unfurling.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -694,9 +711,11 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
     if add_no_repo_match:
         return RulesCommand(action="add", rule_text=add_no_repo_match.group(1))
 
-    remove_match = re.fullmatch(r"rules\s+remove\s+(\d+)", cleaned, flags=re.IGNORECASE)
+    remove_match = re.fullmatch(r"rules\s+remove\s+([\d,\s]+)", cleaned, flags=re.IGNORECASE)
     if remove_match:
-        return RulesCommand(action="remove", rule_number=int(remove_match.group(1)))
+        numbers = [int(n.strip()) for n in remove_match.group(1).split(",") if n.strip().isdigit()]
+        if numbers:
+            return RulesCommand(action="remove", rule_numbers=numbers)
 
     default_set_match = re.fullmatch(
         r"default\s+repo\s+set\s+([\w.-]+/[\w.-]+)",
@@ -960,8 +979,6 @@ def _match_repo_rule(
     )
 
     try:
-        from posthog.llm.gateway_client import get_llm_client
-
         client = get_llm_client("slack-posthog-code")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
@@ -993,6 +1010,44 @@ def _match_repo_rule(
     except Exception:
         logger.exception("posthog_code_rule_match_failed", team_id=team_id)
         return None
+
+
+def classify_task_needs_repo(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> bool:
+    """Classify whether a Slack conversation requires code repository access.
+
+    Returns True if the task likely needs a repo (writing code, fixing bugs, PRs),
+    False if it does not (analytics, data queries, PostHog config).
+    Defaults to True on error (conservative — falls back to picker).
+    """
+    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    prompt = (
+        "You are a task classifier. Given a Slack conversation, determine whether the task "
+        "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
+        "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
+        "querying data, PostHog configuration, general knowledge questions, planning).\n\n"
+        f"Conversation:\n{conversation}\n\n"
+        f"Latest message: {event_text}\n\n"
+        'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
+    )
+    try:
+        client = get_llm_client("slack-posthog-code")
+        response = client.chat.completions.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if content.startswith("```"):
+            content = content.strip("`").removeprefix("json").strip()
+        parsed = json.loads(content)
+        return bool(parsed.get("needs_repo", True))
+    except Exception:
+        logger.exception("classify_task_needs_repo_failed")
+        return True
 
 
 def route_posthog_code_event_to_relevant_region(

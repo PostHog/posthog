@@ -241,6 +241,7 @@ export const FEATURE_FLAGS = {
     BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
     BATCH_EXPORTS_AZURE_BLOB: 'azure-blob-batch-exports', // owner: #team-batch-exports
     BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
+    BATCH_EXPORTS_BIGQUERY_INTEGRATION: 'batch-exports-bigquery-integration', // owner: @tomasfarias #team-batch-exports
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BING_ADS_SOURCE: 'bing-ads-source', // owner: @jabahamondes #team-web-analytics
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-workflows-cdp
@@ -266,6 +267,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_TRACE_REVIEW: 'llma-trace-review', // owner: #team-llm-analytics
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-warehouse-sources
     DWH_POSTGRES_DIRECT_QUERY: 'dwh-postgres-direct-query', // owner: #team-data-tools
+    WAREHOUSE_SOURCE_WEBHOOKS: 'warehouse-source-webhooks', // owner: #team-warehouse-sources @Gilbert09
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
@@ -283,6 +285,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_FORCE_QUERY_V2: 'error-tracking-force-query-v2', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_AI_ANALYSIS_TAB: 'experiment-ai-analysis-tab', // owner: @rodrigoi #team-experiments
+    EXPERIMENT_FUNNEL_DWH_SUPPORT: 'experiment-funnel-dwh-support', // owner: @rodrigoi #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
     EXPERIMENT_SIGNIFICANCE_ALERTS: 'experiment-significance-alerts', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_QUERY_PREAGGREGATION: 'experiment-query-preaggregation', // owner: @jurajmajerik #team-experiments
@@ -291,6 +294,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAG_CREATION_INTENTS: 'feature-flag-creation-intents', // owner: #team-feature-flags
     FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
+    FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
     FLAG_BUCKETING_IDENTIFIER: 'flag-bucketing-identifier', // owner: @andehen #team-experiments
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
@@ -333,6 +337,7 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_RETENTION: 'logs-settings-retention', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
+    LOGS_SAVED_VIEWS: 'logs-saved-views', // owner: #team-logs
     LOGS_TABBED_VIEW: 'logs-tabbed-view', // owner: #team-logs
     MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
@@ -368,13 +373,13 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_EMAIL_CHANNEL: 'product-support-email-channel', // owner: @veryayskiy #team-conversations
-    ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test,chat
     ONBOARDING_PRODUCT_SELECTION_HEADING: 'onboarding-product-selection-heading', // owner: #team-growth, payload overrides the heading copy on the first onboarding page
     ONBOARDING_NAVBAR: 'onboarding-navbar', // owner: #team-growth, hides the navbar during onboarding to reduce distractions multivariate=true
     ONBOARDING_SESSION_REPLAY_MEDIA: 'onboarding-session-replay-media', // owner: @fercgomes #team-growth multivariate=control,screenshot,demo
     ONBOARDING_SIMPLIFIED_PRODUCT_SELECTION: 'onboarding-simplified-product-selection', // owner: @fercgomes #team-growth multivariate=control,test
     ONBOARDING_SOCIAL_PROOF_INFO: 'onboarding-social-proof-info', // owner: @fercgomes #team-growth, payload overrides social proof strings per product
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
+    OPTIMIZED_RELATED_GROUPS_QUERY: 'optimized-related-groups-query', // owner: @arthurdedeus #team-customer-analytics
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
@@ -428,6 +433,7 @@ export const FEATURE_FLAGS = {
     UNIFIED_HEALTH_PAGE: 'unified-health-page', // owner: @jordanm-posthog #team-web-analytics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
+    VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_DRAG_TO_ZOOM: 'web-analytics-drag-to-zoom', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
@@ -451,6 +457,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SAMPLE_RATIO_MISMATCH: 'experiments-sample-ratio-mismatch', // owner: @jurajmajerik #team-experiments
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
+    TAXONOMIC_FILTER_RECENTS: 'taxonomic-filter-recents', // owner: @pauldambra #team-paul
     // PLEASE KEEP THIS ALPHABETICALLY ORDERED
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
@@ -570,6 +577,9 @@ export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
 export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
 export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
 
+export const LOGS_ALERT_FIRING_SUB_TEMPLATE_ID = 'logs-alert-firing'
+export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'
+
 export const COHORT_PERSONS_QUERY_LIMIT = 10000
 
 /** Maps SDK keys to their corresponding snippet language identifiers */
@@ -596,6 +606,7 @@ export const SDK_KEY_TO_SNIPPET_LANGUAGE: Partial<Record<SDKKey, string>> = {
     [SDKKey.NEXT_JS]: 'javascript',
     [SDKKey.NUXT_JS]: 'javascript',
     [SDKKey.NUXT_JS_36]: 'javascript',
+    [SDKKey.REACT_ROUTER]: 'javascript',
     [SDKKey.REMIX]: 'javascript',
     [SDKKey.SVELTE]: 'javascript',
     [SDKKey.VUE_JS]: 'javascript',

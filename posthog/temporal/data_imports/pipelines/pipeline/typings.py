@@ -46,6 +46,7 @@ class SourceInputs:
 
     schema_name: str
     schema_id: str
+    source_id: str
     team_id: int
     should_use_incremental_field: bool
     db_incremental_field_last_value: Optional[Any]

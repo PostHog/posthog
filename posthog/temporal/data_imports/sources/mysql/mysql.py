@@ -114,7 +114,7 @@ def get_schemas(
         database=database,
         user=user,
         password=password,
-        connect_timeout=5,
+        connect_timeout=10,
         ssl_ca=ssl_ca,
     )
 
@@ -212,7 +212,11 @@ def _get_rows_to_sync(
 
 
 def _get_partition_settings(
-    cursor: Cursor, schema: str, table_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 ) -> PartitionSettings | None:
     """Get partition settings for given MySQL table.
 
@@ -240,6 +244,8 @@ def _get_partition_settings(
         table_name_identifier=pymysql.converters.escape_string(table_name),
     )
 
+    logger.debug(f"_get_partition_settings: running query {query}")
+
     cursor.execute(
         query,
         {
@@ -249,11 +255,15 @@ def _get_partition_settings(
     )
     result = cursor.fetchone()
     if result is None:
+        logger.debug("_get_partition_settings: no results returning None")
         return None
 
     table_size, row_count = result
 
     if table_size is None or row_count is None or row_count == 0:
+        logger.debug(
+            "_get_partition_settings: table_size is None or row_count is None or row_count == 0. returning None"
+        )
         return None
 
     avg_row_size = table_size / row_count
@@ -262,8 +272,10 @@ def _get_partition_settings(
     partition_count = math.floor(row_count / partition_size)
 
     if partition_count == 0:
+        logger.debug(f"_get_partition_settings: partition_count == 0, returning partition_size={partition_size}")
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
+    logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
@@ -560,7 +572,7 @@ def mysql_source(
             database=database,
             user=user,
             password=password,
-            connect_timeout=5,
+            connect_timeout=10,
             ssl_ca=ssl_ca,
             conv=_MYSQL_SAFE_CONVERSIONS,
         ) as connection:
@@ -589,7 +601,9 @@ def mysql_source(
                     logger,
                 )
                 partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                    _get_partition_settings(cursor, schema, table_name, logger)
+                    if should_use_incremental_field
+                    else None
                 )
 
                 # Fallback on checking for an `id` field on the table
@@ -609,7 +623,7 @@ def mysql_source(
                 database=database,
                 user=user,
                 password=password,
-                connect_timeout=5,
+                connect_timeout=10,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
                 conv=_MYSQL_SAFE_CONVERSIONS,

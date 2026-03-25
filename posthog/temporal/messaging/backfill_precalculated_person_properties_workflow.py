@@ -311,7 +311,6 @@ async def backfill_precalculated_person_properties_activity(
                                     try:
                                         send_result = kafka_producer.produce(
                                             topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                                            key=event["distinct_id"],
                                             data=event,
                                         )
                                         pending_kafka_messages.append(send_result)

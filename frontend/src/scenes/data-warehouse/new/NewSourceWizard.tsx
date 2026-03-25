@@ -21,6 +21,7 @@ import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialB
 import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
+import { WebhookSetupForm } from '../external/forms/WebhookSetupForm'
 import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
@@ -210,7 +211,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 3 ? (
                     <ThirdStep />
                 ) : currentStep === 4 ? (
-                    <FourthStep />
+                    <WebhookSetupStep />
+                ) : currentStep === 5 ? (
+                    <ProgressStep />
                 ) : (
                     <div>Something went wrong...</div>
                 )}
@@ -301,6 +304,28 @@ function ThirdStep(): JSX.Element {
     return <SchemaForm />
 }
 
-function FourthStep(): JSX.Element {
+function WebhookSetupStep(): JSX.Element {
+    const { webhookResult, webhookCreating, selectedConnector, databaseSchema } = useValues(sourceWizardLogic)
+    const { createWebhook } = useActions(sourceWizardLogic)
+
+    const webhookTables = databaseSchema
+        .filter((s) => s.supports_webhooks && s.sync_type === 'incremental' && s.should_sync)
+        .map((s) => ({ name: s.table }))
+
+    return (
+        <WebhookSetupForm
+            sourceName={selectedConnector?.label ?? 'source'}
+            sourceConfig={selectedConnector}
+            webhookTables={webhookTables}
+            webhookResult={webhookResult}
+            webhookCreating={webhookCreating}
+            onCreateWebhook={createWebhook}
+            formLogic={sourceWizardLogic}
+            formKey="webhookFieldInputs"
+        />
+    )
+}
+
+function ProgressStep(): JSX.Element {
     return <SyncProgressStep />
 }

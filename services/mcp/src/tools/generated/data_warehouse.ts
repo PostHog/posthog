@@ -63,6 +63,9 @@ const viewCreate = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${projectId}/warehouse_saved_queries/`,
@@ -114,6 +117,9 @@ const viewUpdate = (): ToolBase<
         }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'PATCH',
@@ -171,6 +177,9 @@ const viewMaterialize = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/materialize/`,
@@ -211,6 +220,9 @@ const viewUnmaterialize = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/revert_materialization/`,
@@ -247,6 +259,9 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, Schemas.DataWarehouseSavedQue
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',

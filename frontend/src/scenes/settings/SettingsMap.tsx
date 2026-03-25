@@ -23,6 +23,7 @@ import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTyp
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
+import { PersonLastSeenAtEnabled } from 'scenes/settings/environment/PersonLastSeenAtEnabled'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
@@ -485,6 +486,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['name', 'email', 'identity', 'display'],
             },
             {
+                id: 'person-last-seen-at',
+                title: 'Person last seen tracking',
+                description:
+                    'When enabled, PostHog tracks when each person was last active. The value updates hourly and is visible in the People list.',
+                docsUrl: 'https://posthog.com/docs/data/persons',
+                component: <PersonLastSeenAtEnabled />,
+                keywords: ['person', 'last seen', 'activity', 'tracking'],
+            },
+            {
                 id: 'path-cleaning',
                 title: 'Path cleaning rules',
                 description:
@@ -606,10 +616,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'LLM analytics',
         group: 'Products',
         flag: 'LLM_ANALYTICS_EVALUATIONS',
-        accessControl: {
-            resourceType: AccessControlResourceType.LlmAnalytics,
-            minimumAccessLevel: AccessControlLevel.Editor,
-        },
         settings: [
             {
                 id: 'llm-analytics-byok',

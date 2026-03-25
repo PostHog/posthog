@@ -49,12 +49,15 @@ import {
     DashboardTile,
     ExporterFormat,
     InsightColor,
+    InsightLogicProps,
     QueryBasedInsightModel,
 } from '~/types'
 
+import { DashboardInsightActions } from './DashboardInsightActions'
+import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
+import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
-import { InsightMoveToDashboardMenu } from './InsightMoveToDashboardMenu'
 
 interface InsightMetaProps extends Pick<
     InsightCardProps,
@@ -72,6 +75,7 @@ interface InsightMetaProps extends Pick<
     | 'duplicate'
     | 'dashboardId'
     | 'moveToDashboard'
+    | 'copyToDashboard'
     | 'showEditingControls'
     | 'showDetailsControls'
     | 'moreButtons'
@@ -107,6 +111,7 @@ export function InsightMeta({
     duplicate,
     setOverride,
     moveToDashboard,
+    copyToDashboard,
     areDetailsShown,
     setAreDetailsShown,
     showEditingControls = true,
@@ -116,12 +121,30 @@ export function InsightMeta({
     surveyOpportunity,
     onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
-    const { insightProps, insightFeedback } = useValues(insightLogic)
-    const { setInsightFeedback } = useActions(insightLogic)
-    const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
-    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
+    const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
+    const insightLogicProps: InsightLogicProps = {
+        dashboardItemId: insight.short_id,
+        dashboardId,
+        cachedInsight: insight,
+        filtersOverride: filtersOverride ?? null,
+        variablesOverride: variablesOverride ?? null,
+        tileFiltersOverride: tile?.filters_overrides ?? null,
+    }
+    const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
+        insightLogic(insightLogicProps)
+    )
+    const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
+    const { exportContext, insightData } = useValues(insightDataLogic(insightLogicProps))
+    const { samplingFactor } = useValues(insightVizDataLogic(insightLogicProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { copyToDestinations } = useValues(
+        dashboardWidgetMenusLogic({
+            instanceKey: insight.short_id,
+            dashboardId,
+            dashboards: insight.dashboards,
+            dashboard_tiles: insight.dashboard_tiles,
+        })
+    )
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -130,6 +153,10 @@ export function InsightMeta({
         placement === DashboardPlacement.Dashboard ||
         placement === DashboardPlacement.ProjectHomepage ||
         placement === DashboardPlacement.Public
+    const isDashboardCardPlacement =
+        placement === DashboardPlacement.Dashboard ||
+        placement === DashboardPlacement.Public ||
+        placement === DashboardPlacement.Builtin
 
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
@@ -143,8 +170,6 @@ export function InsightMeta({
 
     const summary = useSummarizeInsight()(insight.query)
 
-    const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
-
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
         : true
@@ -156,6 +181,12 @@ export function InsightMeta({
                   AccessControlLevel.Editor
               )
             : true
+    const canToggleDisplayLabels = isDashboardCardPlacement && canEditInsight && canToggleDisplayLabelsForInsight
+    const canToggleLegend = isDashboardCardPlacement && canEditInsight && canToggleLegendForInsight
+
+    const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
+    const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
+    const hasDashboardPlacementActions = canShowCopyToDashboardTile || !!moveToDashboard || !!removeFromDashboard
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
@@ -361,11 +392,29 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
+                    <DashboardInsightActions
+                        insight={insight}
+                        insightLogicProps={insightLogicProps}
+                        dashboardId={dashboardId}
+                        canToggleDisplayLabels={canToggleDisplayLabels}
+                        canToggleLegend={canToggleLegend}
+                    />
+
+                    {canShowCopyToDashboardTile && !canEditDashboard && (
+                        <>
+                            {!canToggleDisplayLabels && <LemonDivider />}
+                            <h5 className="mx-2 my-1">Dashboard</h5>
+                            <DashboardWidgetPlacementMenus
+                                placementDestinations={copyToDestinations}
+                                onCopyToDashboard={copyToDashboard}
+                            />
+                        </>
+                    )}
 
                     {/* Dashboard related */}
                     {canEditDashboard && (
                         <>
-                            <LemonDivider />
+                            {!canToggleDisplayLabels && !canToggleLegend && <LemonDivider />}
                             {showCompactTile && toggleShowDescription && !!insight.description && (
                                 <LemonButton onClick={toggleShowDescription} fullWidth>
                                     {tile?.show_description === false ? 'Show description' : 'Hide description'}
@@ -399,34 +448,39 @@ export function InsightMeta({
                                     <LemonButton fullWidth>Set color</LemonButton>
                                 </LemonMenu>
                             )}
-                            {moveToDashboard && otherDashboards.length > 0 && (
-                                <InsightMoveToDashboardMenu
-                                    otherDashboards={otherDashboards}
-                                    onMoveToDashboard={moveToDashboard}
-                                />
-                            )}
-                            {removeFromDashboard && (
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: 'Remove from dashboard',
-                                            description:
-                                                'Are you sure you want to remove this insight from the dashboard?',
-                                            primaryButton: {
-                                                children: 'Remove from dashboard',
-                                                status: 'danger',
-                                                onClick: removeFromDashboard,
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                        })
-                                    }
-                                    fullWidth
-                                >
-                                    Remove from dashboard
-                                </LemonButton>
+                            {hasDashboardPlacementActions && (
+                                <>
+                                    {hasTileStyleActions && <LemonDivider />}
+                                    <h5 className="mx-2 my-1">Dashboard</h5>
+                                    <DashboardWidgetPlacementMenus
+                                        placementDestinations={copyToDestinations}
+                                        onMoveToDashboard={moveToDashboard}
+                                        onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
+                                    />
+                                    {removeFromDashboard && (
+                                        <LemonButton
+                                            status="danger"
+                                            onClick={() =>
+                                                LemonDialog.open({
+                                                    title: 'Remove from dashboard',
+                                                    description:
+                                                        'Are you sure you want to remove this insight from the dashboard?',
+                                                    primaryButton: {
+                                                        children: 'Remove from dashboard',
+                                                        status: 'danger',
+                                                        onClick: removeFromDashboard,
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }
+                                            fullWidth
+                                        >
+                                            Remove from dashboard
+                                        </LemonButton>
+                                    )}
+                                </>
                             )}
                         </>
                     )}
@@ -463,7 +517,7 @@ export function InsightMeta({
                                     {
                                         export_format: ExporterFormat.PNG,
                                         insight: insight.id,
-                                        dashboard: insightProps.dashboardId,
+                                        dashboard: insightLogicProps.dashboardId,
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,
