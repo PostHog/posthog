@@ -1555,14 +1555,14 @@ When set, the specified dashboard's filters and date range override will be appl
             team,
             query_dict,
             execution_mode=execution_mode,
-            user=request.user,
+            user=request.user if isinstance(request.user, User) else None,
             analytics_props=get_request_analytics_properties(request),
         )
 
         if isinstance(query_response, BaseModel):
             return {
-                "result": query_response.results,
-                "timezone": query_response.timezone,
+                "result": getattr(query_response, "results", []),
+                "timezone": getattr(query_response, "timezone", team.timezone),
                 "is_cached": getattr(query_response, "is_cached", False),
                 "last_refresh": getattr(query_response, "last_refresh", None),
             }
