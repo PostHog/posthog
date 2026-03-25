@@ -17,7 +17,7 @@ describe('TextCardModalBodyField', () => {
         render(<TextCardModalBodyField shouldUseLegacyMarkdownEditor value="" onChange={jest.fn()} />)
 
         await waitFor(() => {
-            expect(screen.getByTestId('text-card-edit-area')).toBeInTheDocument()
+            expect(screen.getByText('legacy')).toHaveAttribute('data-attr', 'text-card-edit-area')
         })
     })
 
@@ -25,7 +25,7 @@ describe('TextCardModalBodyField', () => {
         render(<TextCardModalBodyField shouldUseLegacyMarkdownEditor={false} value="" onChange={jest.fn()} />)
 
         await waitFor(() => {
-            expect(screen.getByTestId('text-card-rich-editor')).toBeInTheDocument()
+            expect(screen.getByText('rich')).toHaveAttribute('data-attr', 'text-card-rich-editor')
         })
     })
 })
