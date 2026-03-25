@@ -558,7 +558,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
                                                     }`}
                                                     onClick={() => onSelectFlagType(option.value)}
-                                                    onFocus={() => onSelectFlagType(option.value)}
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter' || e.key === ' ') {
                                                             e.preventDefault()
