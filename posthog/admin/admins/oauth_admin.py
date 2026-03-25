@@ -106,7 +106,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
     def get_fieldsets(self, request, obj=None):
         if obj:
             return (
-                (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand")}),
+                (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
@@ -117,13 +117,13 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
                     "CIMD",
                     {
                         "classes": ("collapse",),
-                        "fields": ("cimd_metadata_url", "cimd_metadata_last_fetched", "logo_uri"),
+                        "fields": ("cimd_metadata_url", "cimd_metadata_last_fetched"),
                     },
                 ),
             )
         else:
             return (
-                (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand")}),
+                (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
