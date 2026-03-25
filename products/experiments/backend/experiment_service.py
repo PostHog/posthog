@@ -376,6 +376,8 @@ class ExperimentService:
         }
         if params.get("ensure_experience_continuity") is not None:
             feature_flag_data["ensure_experience_continuity"] = params["ensure_experience_continuity"]
+        else:
+            feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
 
@@ -602,16 +604,167 @@ class ExperimentService:
     # Archive
     # ------------------------------------------------------------------
 
-    def archive_experiment(self, experiment: Experiment) -> Experiment:
+    @transaction.atomic
+    def archive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Archive an ended experiment: validate it has ended, set archived=True."""
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
-        if not experiment.end_date:
+        if not experiment.is_stopped:
             raise ValidationError("Experiment must be ended before it can be archived.")
 
         experiment.archived = True
         experiment.save()
+
+        self._report_experiment_archived(experiment, request=request)
+
         return experiment
+
+    def _report_experiment_archived(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment archived",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Pause / Resume
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def pause_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Pause a running experiment: deactivate its feature flag so it is no longer served by /decide."""
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+
+        feature_flag = experiment.feature_flag
+        if feature_flag is None:
+            raise ValidationError("Experiment does not have a feature flag linked.")
+        if not feature_flag.active:
+            raise ValidationError("Experiment is already paused.")
+
+        feature_flag.active = False
+        feature_flag.save(update_fields=["active"])
+
+        # Re-fetch so the serializer sees the updated flag
+        experiment.feature_flag = feature_flag
+
+        self._report_experiment_paused(experiment, request=request)
+
+        return experiment
+
+    @transaction.atomic
+    def resume_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Resume a paused experiment: reactivate its feature flag so /decide serves variants again."""
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+
+        feature_flag = experiment.feature_flag
+        if feature_flag is None:
+            raise ValidationError("Experiment does not have a feature flag linked.")
+        if feature_flag.active:
+            raise ValidationError("Experiment is not paused.")
+
+        feature_flag.active = True
+        feature_flag.save(update_fields=["active"])
+
+        # Re-fetch so the serializer sees the updated flag
+        experiment.feature_flag = feature_flag
+
+        self._report_experiment_resumed(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_paused(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment paused",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    def _report_experiment_resumed(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment resumed",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def reset_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Reset an experiment back to draft state so it can be re-run.
+
+        The feature flag stays unchanged — users continue to see their assigned
+        variants. Only the experiment dates, conclusion, and archived flag are
+        cleared, moving the experiment back to draft state.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment is already in draft state.")
+
+        experiment.start_date = None
+        experiment.end_date = None
+        experiment.archived = False
+        experiment.conclusion = None
+        experiment.conclusion_comment = None
+
+        experiment.save()
+
+        self._report_experiment_reset(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_reset(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment reset",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
 
     # ------------------------------------------------------------------
     # Update
@@ -1053,16 +1206,16 @@ class ExperimentService:
                 queryset = queryset.order_by(f"{'-' if order_value.startswith('-') else ''}computed_duration")
             elif order_value in ["status", "-status"]:
                 queryset = queryset.annotate(
-                    computed_status=Case(
+                    status_sort_key=Case(
                         When(start_date__isnull=True, then=Value(0)),
                         When(end_date__isnull=True, then=Value(1)),
                         default=Value(2),
                     )
                 )
                 if order_value.startswith("-"):
-                    queryset = queryset.order_by(F("computed_status").desc())
+                    queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
-                    queryset = queryset.order_by(F("computed_status").asc())
+                    queryset = queryset.order_by(F("status_sort_key").asc())
             else:
                 queryset = queryset.order_by(order_value)
         else:
@@ -1287,7 +1440,7 @@ class ExperimentService:
         fingerprint: str,
     ) -> dict:
         """Create an idempotent recalculation request for experiment timeseries data."""
-        if not experiment.start_date:
+        if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(

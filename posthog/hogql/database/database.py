@@ -275,6 +275,7 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
     _connection_id: str | None = None
+    _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
 
     _timezone: str | None
@@ -298,6 +299,7 @@ class Database(BaseModel):
         self._view_table_names = []
         self._denied_tables = set()
         self._connection_id = None
+        self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
@@ -819,6 +821,17 @@ class Database(BaseModel):
             )
             if connection_id is not None:
                 database._connection_id = connection_id
+                direct_source = (
+                    ExternalDataSource.objects.filter(
+                        team_id=team.pk,
+                        id=connection_id,
+                        access_method=ExternalDataSource.AccessMethod.DIRECT,
+                    )
+                    .only("connection_metadata")
+                    .first()
+                )
+                if direct_source is not None:
+                    database._direct_connection_metadata = direct_source.connection_metadata
 
         with timings.measure("filter_system_tables_for_user"):
             if team is not None:

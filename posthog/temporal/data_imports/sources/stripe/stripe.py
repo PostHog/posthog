@@ -13,7 +13,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo, WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
@@ -378,3 +378,36 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
             )
 
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
+
+
+def get_external_webhook_info(config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
+    try:
+        client = StripeClient(
+            config.stripe_secret_key,
+            stripe_account=config.stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+
+        for endpoint in endpoints.auto_paging_iter():
+            if endpoint.url == webhook_url:
+                return ExternalWebhookInfo(
+                    exists=True,
+                    url=endpoint.url,
+                    enabled_events=endpoint.enabled_events,
+                    status=endpoint.status,
+                    description=endpoint.description,
+                    created_at=str(endpoint.created) if endpoint.created else None,
+                )
+
+        return ExternalWebhookInfo(exists=False)
+    except Exception as e:
+        error_str = str(e)
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            return ExternalWebhookInfo(
+                exists=False,
+                error="Your Stripe API key doesn't have permission to read webhooks. Add the 'Read' permission for 'Webhook endpoints' to your API key.",
+            )
+        return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error_str}")

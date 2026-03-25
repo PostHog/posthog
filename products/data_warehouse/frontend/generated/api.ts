@@ -16,12 +16,14 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
     PaginatedDataWarehouseSavedQueryMinimalListApi,
     PaginatedExternalDataSchemaListApi,
+    PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedQueryTabStateListApi,
     PaginatedTableListApi,
@@ -734,6 +736,60 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(externalDataSourceSerializersApi),
     })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesWebhookInfoRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/webhook_info/`
+}
+
+export const externalDataSourcesWebhookInfoRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesConnectionsListUrl = (
+    projectId: string,
+    params?: ExternalDataSourcesConnectionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/connections/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/connections/`
+}
+
+export const externalDataSourcesConnectionsList = async (
+    projectId: string,
+    params?: ExternalDataSourcesConnectionsListParams,
+    options?: RequestInit
+): Promise<PaginatedExternalDataSourceConnectionOptionListApi> => {
+    return apiMutator<PaginatedExternalDataSourceConnectionOptionListApi>(
+        getExternalDataSourcesConnectionsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
