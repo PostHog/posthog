@@ -462,6 +462,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
+        reportWebDashboardCreatedFromTemplate: (payload: {
+            dashboard_id: number
+            template_id: string
+            template_name: string
+            template_variable_count: number
+        }) => payload,
         reportSavedInsightToDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,
             dashboardId: number | null
@@ -484,7 +491,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
         reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
         reportExperimentStopped: (experiment: Experiment) => ({ experiment }),
-        reportExperimentReset: (experiment: Experiment) => ({ experiment }),
+
         reportExperimentCreated: (
             experiment: Experiment,
             metadata?: { creation_source?: string; has_linked_flag?: boolean }
@@ -1372,6 +1379,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
+        reportWebDashboardCreatedFromTemplate: async (payload) => {
+            posthog.capture('dashboard created from template', {
+                ...payload,
+            })
+        },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
@@ -1437,11 +1449,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
-        reportExperimentReset: ({ experiment }) => {
-            posthog.capture('experiment reset', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
+
         reportExperimentWizardStarted: ({ guideVisible }) => {
             posthog.capture('experiment wizard started', {
                 guide_visible: guideVisible,

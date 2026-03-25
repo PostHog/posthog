@@ -203,6 +203,7 @@ import {
     UserInterviewType,
     UserType,
     WebAnalyticsFilterPresetType,
+    WebhookInfo,
 } from '~/types'
 
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -518,12 +519,6 @@ export class ApiRequest {
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
-    }
-
-    // # Onboarding
-
-    public onboardingRecommendProducts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('onboarding').addPathComponent('recommend_products')
     }
 
     // # LLM Analytics
@@ -1992,22 +1987,6 @@ const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
-        },
-    },
-    onboarding: {
-        recommendProducts(
-            params: {
-                description?: string
-                browsingHistory?: string[]
-            },
-            teamId?: TeamType['id']
-        ): Promise<{ products: string[]; reasoning: string }> {
-            return new ApiRequest().onboardingRecommendProducts(teamId).create({
-                data: {
-                    description: params.description,
-                    browsing_history: params.browsingHistory,
-                },
-            })
         },
     },
     llmAnalytics: {
@@ -4842,6 +4821,9 @@ const api = {
         async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
+        async getWebhookInfo(sourceId: ExternalDataSource['id']): Promise<WebhookInfo> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('webhook_info').get()
+        },
         async createWebhook(
             sourceId: ExternalDataSource['id']
         ): Promise<{ success: boolean; webhook_url: string; error?: string }> {
@@ -4855,6 +4837,11 @@ const api = {
                 .externalDataSource(sourceId)
                 .withAction('update_webhook_inputs')
                 .create({ data: { inputs } })
+        },
+        async deleteWebhook(
+            sourceId: ExternalDataSource['id']
+        ): Promise<{ success: boolean; external_deleted: boolean; error?: string | null }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()

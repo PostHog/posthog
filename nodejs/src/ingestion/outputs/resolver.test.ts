@@ -61,10 +61,10 @@ describe('resolveIngestionOutputs', () => {
 
         expect(registry.getProducer).toHaveBeenCalledWith('PRIMARY')
 
-        await outputs.queueMessages('events', [{ value: 'test' }])
+        await outputs.queueMessages('events', [{ value: Buffer.from('test') }])
         expect(producer.queueMessages).toHaveBeenCalledWith({
             topic: 'clickhouse_events',
-            messages: [{ value: 'test' }],
+            messages: [{ value: Buffer.from('test') }],
         })
     })
 
@@ -75,10 +75,10 @@ describe('resolveIngestionOutputs', () => {
 
         const outputs = await resolveIngestionOutputs(registry, testDefinitions)
 
-        await outputs.queueMessages('events', [{ value: 'test' }])
+        await outputs.queueMessages('events', [{ value: Buffer.from('test') }])
         expect(producer.queueMessages).toHaveBeenCalledWith({
             topic: 'custom_events_topic',
-            messages: [{ value: 'test' }],
+            messages: [{ value: Buffer.from('test') }],
         })
     })
 
@@ -89,10 +89,10 @@ describe('resolveIngestionOutputs', () => {
 
         const outputs = await resolveIngestionOutputs(registry, testDefinitions)
 
-        await outputs.queueMessages('ai_events', [{ value: 'test' }])
+        await outputs.queueMessages('ai_events', [{ value: Buffer.from('test') }])
         expect(producer.queueMessages).toHaveBeenCalledWith({
             topic: 'clickhouse_ai_events',
-            messages: [{ value: 'test' }],
+            messages: [{ value: Buffer.from('test') }],
         })
     })
 
@@ -106,7 +106,7 @@ describe('resolveIngestionOutputs', () => {
 
         expect(registry.getProducer).toHaveBeenCalledWith('SECONDARY')
 
-        await outputs.queueMessages('events', [{ value: 'test' }])
+        await outputs.queueMessages('events', [{ value: Buffer.from('test') }])
         expect(secondary.queueMessages).toHaveBeenCalledTimes(1)
         expect(primary.queueMessages).not.toHaveBeenCalled()
     })
@@ -119,7 +119,7 @@ describe('resolveIngestionOutputs', () => {
 
         const outputs = await resolveIngestionOutputs(registry, testDefinitions)
 
-        await outputs.queueMessages('ai_events', [{ value: 'test' }])
+        await outputs.queueMessages('ai_events', [{ value: Buffer.from('test') }])
         expect(primary.queueMessages).toHaveBeenCalledTimes(1)
         expect(secondary.queueMessages).not.toHaveBeenCalled()
     })

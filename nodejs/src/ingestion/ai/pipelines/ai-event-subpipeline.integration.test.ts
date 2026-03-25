@@ -9,6 +9,7 @@ import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '../../analytics/outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newPipelineBuilder } from '../../pipelines/builders'
 import { createContext } from '../../pipelines/helpers'
@@ -82,6 +83,10 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             [AI_EVENTS_OUTPUT]: {
                 topic: 'ai_events_topic',
                 producer: { produce: mockProduce } as any,
+            },
+            [INGESTION_WARNINGS_OUTPUT]: {
+                topic: 'ingestion_warnings_topic',
+                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
             },
         }),
         teamManager: {

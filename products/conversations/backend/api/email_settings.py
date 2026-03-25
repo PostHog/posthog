@@ -25,6 +25,7 @@ from products.conversations.backend.mailgun import (
     verify_domain as mailgun_verify_domain,
 )
 from products.conversations.backend.models import TeamConversationsEmailConfig
+from products.conversations.backend.permissions import IsConversationsAdmin
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +57,9 @@ def _disable_email_on_team(team: Team) -> None:
 class EmailConnectSerializer(serializers.Serializer):
     from_email = serializers.EmailField()
     from_name = serializers.CharField(max_length=255)
+
+    def validate_from_email(self, value: str) -> str:
+        return value.lower()
 
 
 class EmailStatusView(APIView):
@@ -93,7 +97,7 @@ class EmailStatusView(APIView):
 
 
 class EmailConnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         user = request.user
@@ -320,7 +324,7 @@ class EmailSendTestView(APIView):
 
 
 class EmailDisconnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         user = request.user

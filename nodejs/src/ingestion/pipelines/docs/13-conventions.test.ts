@@ -32,11 +32,13 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { IngestionWarningsOutput } from '../../common/outputs'
 import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
 import { PipelineBuilder, StartPipelineBuilder } from '../builders/pipeline-builders'
 import { createContext } from '../helpers'
@@ -482,7 +484,7 @@ describe('Pipeline Phases', () => {
                                                 group.sequentially((b) => createProcessingSubpipeline(b))
                                             )
                                     )
-                                    .handleIngestionWarnings(mockKafkaProducer)
+                                    .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
                         )
                 )
                 .handleResults(pipelineConfig)
