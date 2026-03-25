@@ -505,7 +505,6 @@ function StepTriggerConfigurationBatch({
                     sendAllKeyUpdates
                     allowRelativeDateOptions
                     exactMatchFeatureFlagCohortOperators
-                    hideBehavioralCohorts
                     logicalRowDivider
                     onChange={(properties) =>
                         partialSetWorkflowActionConfig(action.id, {
@@ -720,7 +719,6 @@ function ConversionGoalSection(): JSX.Element {
                         ]}
                         onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
                         pageKey="workflow-conversion-properties"
-                        hideBehavioralCohorts
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                         logicalRowDivider
                     />

@@ -5028,6 +5028,162 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             cohort_request.json().items(),
         )
 
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled", return_value=True)
+    def test_creating_feature_flag_with_realtime_backfilled_behavioral_cohort(self, mock_feature_enabled):
+        """Realtime cohorts that have been backfilled can be used in feature flags when the feature is enabled."""
+        from posthog.models.cohort.cohort import CohortType
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+            name="realtime-cohort",
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=datetime.now(tz=UTC),
+        )
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled", return_value=True)
+    def test_creating_feature_flag_with_realtime_not_backfilled_behavioral_cohort(self, mock_feature_enabled):
+        """Realtime cohorts that have NOT been backfilled cannot be used in feature flags."""
+        from posthog.models.cohort.cohort import CohortType
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+            name="realtime-not-backfilled",
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=None,
+        )
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'realtime-not-backfilled' has not been backfilled yet and cannot be used in feature flags.",
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled", return_value=True)
+    def test_creating_feature_flag_with_non_realtime_behavioral_cohort_still_blocked(self, mock_feature_enabled):
+        """Non-realtime behavioral cohorts remain blocked even when the feature is enabled."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+            name="behavioral-not-realtime",
+        )
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'behavioral-not-realtime' with filters on events cannot be used in feature flags.",
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
+    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled", return_value=False)
+    def test_realtime_backfilled_behavioral_cohort_blocked_when_feature_disabled(self, mock_feature_enabled):
+        """Even realtime+backfilled behavioral cohorts are blocked when the feature flag is off."""
+        from posthog.models.cohort.cohort import CohortType
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+            name="realtime-cohort",
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=datetime.now(tz=UTC),
+        )
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'realtime-cohort' with filters on events cannot be used in feature flags.",
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
             "groups-flag",

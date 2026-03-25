@@ -378,7 +378,6 @@ export function FeatureFlagReleaseConditions({
                                         : null
                                 }
                                 exactMatchFeatureFlagCohortOperators={true}
-                                hideBehavioralCohorts={true}
                             />
                         </div>
                     )}
