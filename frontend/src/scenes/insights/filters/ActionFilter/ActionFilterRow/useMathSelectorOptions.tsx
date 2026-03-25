@@ -365,11 +365,9 @@ export function useMathSelectorOptions({
                                     value === 'users'
                                         ? undefined
                                         : mathTypeToApiValues(value as string).math_group_type_index
-                                const mathType =
-                                    groupIndex !== undefined
-                                        ? `${period}ly_active::${groupIndex}`
-                                        : BaseMathType.MonthlyActiveUsers
-                                onMathSelect(index, mathType)
+                                const resolvedMathType =
+                                    groupIndex !== undefined ? `${period}ly_active::${groupIndex}` : mathType
+                                onMathSelect(index, resolvedMathType)
                             }}
                             options={uniqueActorsOptions}
                         />
