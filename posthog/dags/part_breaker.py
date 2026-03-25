@@ -148,7 +148,14 @@ def _get_ssh_client(hostname: str) -> paramiko.SSHClient:
     by PART_BREAKER_SSH_USER (default: ubuntu).
     """
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+
+    # Fetch the host key via paramiko transport.
+    transport = paramiko.Transport(hostname)
+    transport.connect()
+    host_key = transport.get_remote_server_key()
+    transport.close()
+    ssh.get_host_keys().add(hostname, host_key.get_name(), host_key)
 
     ssh_user = getattr(settings, "PART_BREAKER_SSH_USER", "ubuntu")
 
@@ -611,6 +618,8 @@ def _wait_for_replication(client: Client, source_table: str, target_log_index: i
                 {"path": f"{zk_path}/replicas/{replica_name}"},
             )
             if not pointer_rows:
+                all_synced = False
+                behind_replicas.append(f"{replica_name} (no log_pointer — replica may be down/initializing)")
                 continue
             log_pointer = int(pointer_rows[0][0])
             if log_pointer < target_log_index:
