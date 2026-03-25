@@ -358,7 +358,20 @@ export function onLoad({ inputs, posthog }) {
     const escapeHTML = (str) => {
         const div = document.createElement('div')
         div.appendChild(document.createTextNode(str || ''))
-        return div.innerHTML
+        // innerHTML only encodes &, <, > — not single quotes, which would allow
+        // attribute breakout in single-quoted contexts like data-name='${...}'
+        return div.innerHTML.replace(/'/g, '&#39;')
+    }
+
+    const safeUrl = (url) => {
+        try {
+            const parsed = new URL(url)
+            return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+                ? encodeURI(url)
+                : ''
+        } catch {
+            return ''
+        }
     }
 
     const listItemComponents = (items?: PreviewItem[]) => {
@@ -369,7 +382,7 @@ export function onLoad({ inputs, posthog }) {
 
                     const documentationLink = item.documentationUrl
                         ? `<div class='list-item-documentation-link'>
-                        <a class='label' href='${encodeURI(item.documentationUrl || '')}' target='_blank'>Documentation</a>
+                        <a class='label' href='${safeUrl(item.documentationUrl)}' target='_blank'>Documentation</a>
                     </div>
                     `
                         : ''

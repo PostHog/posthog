@@ -36,9 +36,9 @@ class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
             assert raw_count == 0, f"Found {raw_count} unescaped interpolation(s) of {field}"
             assert escaped_count > 0, f"No escaped interpolation of {field} found"
 
-    def test_site_app_template_uses_encodeURI_for_documentation_url_href(self):
-        """encodeURI preserves valid URL characters (:, /, ?, #, =, &) unlike escapeHTML
-        which would encode them and break the href."""
+    def test_site_app_template_uses_safe_url_for_documentation_url_href(self):
+        """safeUrl validates the protocol (http/https only) and encodes the URL,
+        unlike raw encodeURI which would allow javascript: URLs through."""
         import re
 
         from posthog.cdp.templates._siteapps.template_early_access_features import template
@@ -46,14 +46,11 @@ class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
         code = template.code
 
         raw_pattern = re.compile(r"\$\{item\.documentationUrl\}")
-        encoded_pattern = re.compile(r"\$\{encodeURI\(item\.documentationUrl")
-        escape_html_pattern = re.compile(r"\$\{escapeHTML\(item\.documentationUrl")
+        safe_url_pattern = re.compile(r"\$\{safeUrl\(item\.documentationUrl\)\}")
 
+        assert "safeUrl" in code, "safeUrl function must be defined in the template"
         assert len(raw_pattern.findall(code)) == 0, "Found unescaped interpolation of item.documentationUrl"
-        assert len(escape_html_pattern.findall(code)) == 0, (
-            "documentationUrl in href must use encodeURI, not escapeHTML (escapeHTML would break URL characters)"
-        )
-        assert len(encoded_pattern.findall(code)) > 0, "item.documentationUrl must be wrapped in encodeURI"
+        assert len(safe_url_pattern.findall(code)) > 0, "item.documentationUrl must be wrapped in safeUrl"
 
 
 class TestEarlyAccessFeature(APIBaseTest):
@@ -1148,7 +1145,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                 "Project token not provided. You can find your project token in PostHog project settings.",
             )
 
-    @snapshot_postgres_queries
     def test_early_access_features_preserves_documentation_url(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -1176,6 +1172,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             documentation_url,
         )
 
+    @snapshot_postgres_queries
     def test_early_access_features_includes_payload_in_preview(self):
         Person.objects.create(
             team=self.team,
