@@ -360,11 +360,14 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         allows_na = serializer.validated_data["allows_na"]
         conditions = serializer.validated_data.get("conditions", [])
 
+        from posthog.schema import ProductKey
+
         from posthog.hogql import ast
         from posthog.hogql.property import property_to_expr
         from posthog.hogql.query import execute_hogql_query
 
         from posthog.cdp.validation import compile_hog
+        from posthog.clickhouse.query_tagging import Feature, tag_queries
         from posthog.models.team import Team
 
         try:
@@ -422,6 +425,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             limit=ast.Constant(value=sample_count),
         )
 
+        tag_queries(product=ProductKey.LLM_EVALUATIONS, feature=Feature.QUERY)
         response = execute_hogql_query(query=query, team=team, limit_context=None)
 
         if not response.results:

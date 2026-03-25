@@ -11,9 +11,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
+from posthog.schema import ProductKey
+
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 from posthog.temporal.common.client import sync_connect
@@ -82,6 +85,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             where_clauses.append("distinct_id = %(distinct_id)s")
             params["distinct_id"] = distinct_id
 
+        tag_queries(product=ProductKey.LLM_EVALUATIONS, feature=Feature.QUERY)
         query_result = query_with_columns(
             f"""
             SELECT
