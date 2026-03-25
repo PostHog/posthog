@@ -90,6 +90,7 @@ export type SettingId =
     | 'customer-analytics-usage-metrics'
     | 'customer-analytics-dashboard-events'
     | 'person-display-name'
+    | 'person-last-seen-at'
     | 'path-cleaning'
     | 'datacapture'
     | 'human-friendly-comparison-periods'

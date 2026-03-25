@@ -1,7 +1,17 @@
-import { SurveyEventName } from '~/types'
+import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'
 
-import { getSelectedSurveyId, isSurveyTriggerConfig } from './surveys'
+import {
+    buildProperties,
+    getSelectedSurveyId,
+    getSurveyResponsePropertyKeys,
+    getUserProperties,
+    isSurveyTriggerConfig,
+} from './surveys'
 import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
+
+// Partial mock — getSurveyResponsePropertyKeys only accesses survey.questions
+const makeSurvey = (questions: { question: string; type: SurveyQuestionType }[]): Survey =>
+    ({ questions: questions.map((q) => ({ ...q, id: 'q-id' })) }) as unknown as Survey
 
 describe('surveys', () => {
     const getSurveyTriggerType = (): ReturnType<typeof getRegisteredTriggerTypes>[number] => {
@@ -157,5 +167,112 @@ describe('surveys', () => {
         const surveyType = getSurveyTriggerType()
         const config = surveyType.buildConfig()
         expect(surveyType.matchConfig!(config)).toBe(true)
+    })
+
+    describe('getUserProperties', () => {
+        it.each([
+            {
+                name: 'filters out managed properties',
+                config: {
+                    type: 'event' as const,
+                    filters: {
+                        properties: [
+                            { key: '$survey_id', value: 'survey-123', operator: 'exact', type: 'event' },
+                            { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
+                            { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
+                            { key: '$survey_response_1', value: 'price', operator: 'exact', type: 'event' },
+                        ],
+                    },
+                },
+                expected: [
+                    { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
+                    { key: '$survey_response_1', value: 'price', operator: 'exact', type: 'event' },
+                ],
+            },
+            {
+                name: 'returns empty array when no properties',
+                config: { type: 'event' as const, filters: {} },
+                expected: [],
+            },
+        ])('$name', ({ config, expected }) => {
+            expect(getUserProperties(config)).toEqual(expected)
+        })
+    })
+
+    describe('buildProperties', () => {
+        it.each([
+            {
+                name: 'specific survey with user properties',
+                surveyId: 'survey-123' as string | null | 'any',
+                completedOnly: false,
+                userProps: [{ key: '$survey_response', value: '5', operator: 'exact', type: 'event' }],
+                expected: [
+                    { key: '$survey_id', value: 'survey-123', operator: 'exact', type: 'event' },
+                    { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
+                ],
+            },
+            {
+                name: '"any" survey with completed filter',
+                surveyId: 'any' as string | null | 'any',
+                completedOnly: true,
+                userProps: [],
+                expected: [
+                    { key: '$survey_id', operator: 'is_set', type: 'event' },
+                    { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
+                ],
+            },
+            {
+                name: 'no survey selected',
+                surveyId: null as string | null | 'any',
+                completedOnly: false,
+                userProps: [],
+                expected: [],
+            },
+        ])('$name', ({ surveyId, completedOnly, userProps, expected }) => {
+            expect(buildProperties(surveyId, completedOnly, userProps)).toEqual(expected)
+        })
+    })
+
+    describe('getSurveyResponsePropertyKeys', () => {
+        it('generates correct keys for multiple questions', () => {
+            const survey = makeSurvey([
+                { question: 'How likely are you to recommend us?', type: SurveyQuestionType.Rating },
+                { question: 'What can we improve?', type: SurveyQuestionType.Open },
+            ])
+            const result = getSurveyResponsePropertyKeys(survey)
+            expect(result).toEqual([
+                {
+                    key: '$survey_response',
+                    buttonLabel: 'How likely are you to recommend us?',
+                    question: 'How likely are you to recommend us?',
+                },
+                { key: '$survey_response_1', buttonLabel: 'What can we improve?', question: 'What can we improve?' },
+            ])
+        })
+
+        it('skips link questions but preserves indices', () => {
+            const survey = makeSurvey([
+                { question: 'Rate us', type: SurveyQuestionType.Rating },
+                { question: 'Visit our site', type: SurveyQuestionType.Link },
+                { question: 'Any feedback?', type: SurveyQuestionType.Open },
+            ])
+            const result = getSurveyResponsePropertyKeys(survey)
+            expect(result).toEqual([
+                { key: '$survey_response', buttonLabel: 'Rate us', question: 'Rate us' },
+                { key: '$survey_response_2', buttonLabel: 'Any feedback?', question: 'Any feedback?' },
+            ])
+        })
+
+        it('truncates long question text', () => {
+            const survey = makeSurvey([
+                {
+                    question: 'This is a very long question that should be truncated at forty characters',
+                    type: SurveyQuestionType.Open,
+                },
+            ])
+            const result = getSurveyResponsePropertyKeys(survey)
+            expect(result[0].buttonLabel).toBe('This is a very long question that shoul...')
+            expect(result[0].question).toBe('This is a very long question that should be truncated at forty characters')
+        })
     })
 })

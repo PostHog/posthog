@@ -21,9 +21,9 @@ from posthog.models import (
     Insight,
     InsightVariable,
     Organization,
-    Survey,
     Team,
 )
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -40,6 +40,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
+from products.surveys.backend.models import Survey
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -88,6 +89,10 @@ class TestSystemTablesTeamScoping(BaseTest):
 def _create_alert(team: Team, label: str) -> AlertConfiguration:
     insight = Insight.objects.create(team=team, name=f"insight_for_alert_{label}")
     return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
+
+
+def _create_activity_log(team: Team, label: str) -> ActivityLog:
+    return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -254,6 +259,7 @@ def _create_team(team: Team, label: str) -> Team:
 
 
 SYSTEM_TABLE_FACTORIES = [
+    ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),

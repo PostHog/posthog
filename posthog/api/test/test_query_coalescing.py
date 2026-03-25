@@ -9,6 +9,7 @@ from unittest import mock
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from redis.exceptions import RedisError
 
 from posthog import redis as posthog_redis
@@ -24,6 +25,8 @@ from posthog.api.query_coalescer import (
     compute_coalescing_key,
     query_coalesce_counter,
 )
+from posthog.api.services.query import process_query_model  # used in wraps= mock
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 
 def _fake_clock(step: float):
@@ -351,7 +354,13 @@ class TestQueryCoalescingEndpoint(ClickhouseTestMixin, APIBaseTest):
         finally:
             redis.delete(f"{LOCK_KEY_PREFIX}:{key}")
 
-    def test_follower_waits_for_leader_and_hits_cache(self):
+    @parameterized.expand(
+        [
+            ("default_blocking", {}, False),
+            ("force_blocking", {"refresh": "force_blocking"}, True),
+        ]
+    )
+    def test_follower_waits_for_leader_done_and_hits_cache(self, _name, extra_payload, expect_downgrade):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
         flush_persons_and_events()
 
@@ -370,24 +379,27 @@ class TestQueryCoalescingEndpoint(ClickhouseTestMixin, APIBaseTest):
         redis.set(f"{LOCK_KEY_PREFIX}:{key}", "other_leader", ex=60)
         redis.set(f"{DONE_KEY_PREFIX}:{key}", "1", ex=60)
 
-        before_follower = query_coalesce_counter.labels(outcome="follower")._value.get()
-        before_done = query_coalesce_counter.labels(outcome="follower_done")._value.get()
-
         try:
-            with mock.patch("posthog.api.query.posthoganalytics.feature_enabled", return_value=True):
+            with (
+                mock.patch("posthog.api.query.posthoganalytics.feature_enabled", return_value=True),
+                mock.patch("posthog.api.query.process_query_model", wraps=process_query_model) as mock_pqm,
+                mock.patch.object(QueryCoalescer, "wait_for_signal", return_value=CoalesceSignal.DONE) as mock_wait,
+            ):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/query/",
-                    {"query": query.model_dump()},
+                    {"query": query.model_dump(), **extra_payload},
                 )
 
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.json().get("is_cached"))
             events = [row[0] for row in response.json()["results"]]
             self.assertIn("test_event", events)
-            after_follower = query_coalesce_counter.labels(outcome="follower")._value.get()
-            after_done = query_coalesce_counter.labels(outcome="follower_done")._value.get()
-            self.assertEqual(after_follower, before_follower + 1)
-            self.assertEqual(after_done, before_done + 1)
+
+            mock_wait.assert_called_once()
+
+            if expect_downgrade:
+                _call_kwargs = mock_pqm.call_args.kwargs
+                self.assertEqual(_call_kwargs["execution_mode"], ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         finally:
             redis.delete(f"{LOCK_KEY_PREFIX}:{key}")
             redis.delete(f"{DONE_KEY_PREFIX}:{key}")

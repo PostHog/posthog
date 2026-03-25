@@ -46,7 +46,7 @@ class ProductTour(models.Model):
     )
 
     linked_surveys = models.ManyToManyField(
-        "posthog.Survey",
+        "surveys.Survey",
         blank=True,
         related_name="product_tours",
         related_query_name="product_tour",

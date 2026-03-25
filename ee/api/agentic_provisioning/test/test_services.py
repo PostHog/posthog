@@ -65,37 +65,19 @@ def _mock_cache_fresh(services):
 class TestProvisioningServices(StripeProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
-    def test_returns_three_services(self, mock_cache, mock_get):
+    def test_returns_single_service(self, mock_cache, mock_get):
         res = self._get_signed("/api/agentic/provisioning/services")
         assert res.status_code == 200
         data = res.json()
         services = data["data"]
-        assert len(services) == 3
+        assert len(services) == 1
         assert data["next_cursor"] == ""
-
-    @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
-    @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
-    def test_free_plan(self, mock_cache, mock_get):
-        res = self._get_signed("/api/agentic/provisioning/services")
-        free = res.json()["data"][0]
-        assert free["id"] == "free"
-        assert free["kind"] == "plan"
-        assert free["pricing"]["type"] == "free"
-
-    @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
-    @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
-    def test_pay_as_you_go_plan(self, mock_cache, mock_get):
-        res = self._get_signed("/api/agentic/provisioning/services")
-        paid = res.json()["data"][1]
-        assert paid["id"] == "pay_as_you_go"
-        assert paid["kind"] == "plan"
-        assert paid["pricing"]["type"] == "paid"
 
     @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
     def test_analytics_deployable_description_from_billing(self, mock_cache, mock_get):
         res = self._get_signed("/api/agentic/provisioning/services")
-        analytics = res.json()["data"][2]
+        analytics = res.json()["data"][0]
         assert analytics["id"] == "analytics"
         assert analytics["kind"] == "deployable"
         assert "product analytics" in analytics["description"]
@@ -104,16 +86,10 @@ class TestProvisioningServices(StripeProvisioningTestBase):
 
     @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
-    def test_analytics_deployable_structure(self, mock_cache, mock_get):
+    def test_analytics_deployable_is_free(self, mock_cache, mock_get):
         res = self._get_signed("/api/agentic/provisioning/services")
-        analytics = res.json()["data"][2]
-        assert analytics["pricing"]["type"] == "component"
-        options = analytics["pricing"]["component"]["options"]
-        assert len(options) == 2
-        assert options[0]["parent_service_ids"] == ["free"]
-        assert options[0]["type"] == "free"
-        assert options[1]["parent_service_ids"] == ["pay_as_you_go"]
-        assert options[1]["type"] == "paid"
+        analytics = res.json()["data"][0]
+        assert analytics["pricing"]["type"] == "free"
 
     @patch("ee.api.agentic_provisioning.views.requests.get")
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
@@ -122,10 +98,9 @@ class TestProvisioningServices(StripeProvisioningTestBase):
         res = self._get_signed("/api/agentic/provisioning/services")
         assert res.status_code == 200
         data = res.json()["data"]
-        assert len(data) == 3
-        assert data[0]["id"] == "free"
-        assert data[2]["id"] == "analytics"
-        assert "PostHog" in data[2]["description"]
+        assert len(data) == 1
+        assert data[0]["id"] == "analytics"
+        assert "PostHog" in data[0]["description"]
 
     @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)

@@ -15,7 +15,7 @@ from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQue
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -405,6 +405,80 @@ class Resolver(CloningVisitor):
             for col in node.columns:
                 attach_unpivot_types(col.value_columns)
                 attach_unpivot_types(col.name_columns)
+            return node
+        finally:
+            self.scopes.pop()
+
+    def visit_pivot_expr(self, node: ast.PivotExpr):
+        if self.dialect != "postgres":
+            raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
+
+        node = cast(ast.PivotExpr, clone_expr(node))
+
+        # Resolve the source table in an isolated scope so we can use its columns.
+        temp_scope = ast.SelectQueryType()
+        self.scopes.append(temp_scope)
+        try:
+            if isinstance(node.table, ast.JoinExpr):
+                temp_join = self.visit_join_expr(node.table)
+                node.table = temp_join
+            else:
+                temp_join = self.visit_join_expr(ast.JoinExpr(table=cast(ast.Field, node.table)))
+                node.table = cast(ast.Expr, temp_join.table)
+            base_type = temp_join.type
+
+            node.aggregates = [self.visit(expr) for expr in node.aggregates]
+            node.columns = [self.visit(col) for col in node.columns]
+            if node.group_by:
+                node.group_by = [self.visit(expr) for expr in node.group_by]
+
+            columns: dict[str, ast.Type] = {}
+            base_field_names: set[str] = set()
+            if isinstance(base_type, ast.SelectQueryAliasType):
+                base_type = base_type.select_query_type
+            if isinstance(base_type, ast.SelectSetQueryType):
+                base_type = base_type.types[0]
+
+            if isinstance(base_type, ast.SelectQueryType):
+                columns = dict(base_type.columns)
+                base_field_names = set(base_type.columns.keys())
+            elif isinstance(base_type, ast.BaseTableType):
+                base_field_names = set(base_type.resolve_database_table(self.context).get_asterisk().keys())
+                for name in base_field_names:
+                    columns[name] = ast.UnknownType()
+            allowed_prefixes: set[str] = set()
+            if isinstance(temp_join, ast.JoinExpr):
+                if temp_join.alias is not None:
+                    allowed_prefixes.add(temp_join.alias)
+                if isinstance(temp_join.table, ast.Field) and temp_join.table.chain:
+                    allowed_prefixes.add(str(temp_join.table.chain[0]))
+
+            def ensure_pivot_column_valid(expr: ast.Expr) -> None:
+                collector = FieldCollector()
+                collector.visit(expr)
+                for field in collector.fields:
+                    if not field.chain:
+                        raise QueryError("PIVOT columns must be identifiers")
+                    if field.chain == ["*"]:
+                        continue
+                    if len(field.chain) == 1:
+                        column_name = str(field.chain[0])
+                    elif len(field.chain) == 2 and str(field.chain[0]) in allowed_prefixes:
+                        column_name = str(field.chain[1])
+                    else:
+                        raise QueryError("PIVOT columns must be identifiers")
+                    if base_field_names and column_name not in base_field_names:
+                        raise QueryError(f'PIVOT column "{column_name}" was not found in the source table')
+
+            for col in node.columns:
+                ensure_pivot_column_valid(col.column)
+            for agg in node.aggregates:
+                ensure_pivot_column_valid(agg)
+            if node.group_by:
+                for expr in node.group_by:
+                    ensure_pivot_column_valid(expr)
+
+            node.type = ast.SelectQueryType(columns=columns)
             return node
         finally:
             self.scopes.pop()
@@ -1177,6 +1251,32 @@ class Resolver(CloningVisitor):
             node.sample = self.visit(node.sample)
 
             return node
+        elif isinstance(node.table, ast.PivotExpr):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                node.constraint = self.visit_join_constraint(node.constraint)
+
+            node.table = cast(ast.PivotExpr, self.visit(node.table))
+
+            if node.alias is not None:
+                if node.alias in scope.tables:
+                    raise QueryError(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[node.alias] = node.type
+            else:
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
+
+            node.next_join = self.visit(node.next_join)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
         else:
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
@@ -1507,6 +1607,7 @@ class Resolver(CloningVisitor):
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
+        resolved_chain: list[str] = [str(node.chain[0])]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
@@ -1522,10 +1623,16 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            # TODO: This will never return None, it always raises an exception
-            # once it finds the unsupported field/type
-            # There's no reason to have the `if loop_type is None` check here
-            loop_type = loop_type.get_child(str(next_chain), self.context)
+            try:
+                loop_type = loop_type.get_child(str(next_chain), self.context)
+            except NotImplementedError:
+                raise QueryError(
+                    f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
+                    f"This can happen when a column alias shadows a table field. Try renaming the alias."
+                )
+            resolved_chain.append(str(next_chain))
+            # Note: get_child currently always raises rather than returning None,
+            # but this guard is kept for safety in case that contract changes.
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type

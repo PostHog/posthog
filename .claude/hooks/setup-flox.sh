@@ -1,9 +1,17 @@
 #!/bin/bash
 # SessionStart hook: capture flox environment and write to CLAUDE_ENV_FILE
 # so that all subsequent Bash commands have python, node, pytest, etc. on PATH.
+#
+# CLAUDE_ENV_FILE is only available in SessionStart hooks:
+# https://code.claude.com/docs/en/hooks#sessionstart
 
 # Skip on Claude web (no flox there) or if CLAUDE_ENV_FILE isn't set
 if [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ -z "$CLAUDE_ENV_FILE" ]; then
+  exit 0
+fi
+
+# Skip if flox isn't installed
+if ! command -v flox &>/dev/null; then
   exit 0
 fi
 
