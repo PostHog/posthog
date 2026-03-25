@@ -1,15 +1,12 @@
-import json
 import dataclasses
-from typing import Any, TypedDict
+from typing import Any
 
 from django.conf import settings
 
 import temporalio.common
-import temporalio.activity
 import temporalio.workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
@@ -17,16 +14,6 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
 )
 
 LOGGER = get_logger(__name__)
-
-
-class ChildWorkflowConfig(TypedDict):
-    """Type definition for child workflow configuration."""
-
-    id: str
-    inputs: BackfillPrecalculatedPersonPropertiesInputs
-    offset: int
-    limit: int
-    index: int
 
 
 @dataclasses.dataclass
@@ -47,48 +34,6 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
             "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
         }
-
-
-@dataclasses.dataclass
-class PersonCountResult:
-    """Result from counting total persons."""
-
-    count: int
-
-
-@temporalio.activity.defn
-async def get_person_count_activity(
-    inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
-) -> PersonCountResult:
-    """Get the total count of non-deleted persons for the team."""
-
-    query = """
-        SELECT count() as count
-        FROM (
-            SELECT id
-            FROM person
-            WHERE team_id = %(team_id)s
-            GROUP BY id
-            HAVING max(is_deleted) = 0
-        )
-        FORMAT JSONEachRow
-    """
-
-    query_params = {"team_id": inputs.team_id}
-
-    # Execute query using async ClickHouse client
-    async with get_client(team_id=inputs.team_id) as client:
-        response = await client.read_query(query, query_parameters=query_params)
-        for line in response.decode("utf-8").splitlines():
-            if line.strip():
-                try:
-                    row = json.loads(line)
-                    return PersonCountResult(count=int(row["count"]))
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    LOGGER.exception("Failed to parse person count result", line=line)
-                    raise
-
-    return PersonCountResult(count=0)
 
 
 @temporalio.workflow.defn(name="backfill-precalculated-person-properties-coordinator")

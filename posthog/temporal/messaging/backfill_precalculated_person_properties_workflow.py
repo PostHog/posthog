@@ -17,7 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.messaging.filter_storage import get_filters, get_person_properties
+from posthog.temporal.messaging.filter_storage import get_filters_and_properties
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
@@ -180,9 +180,9 @@ async def backfill_precalculated_person_properties_activity(
     cohort_ids = inputs.cohort_ids
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
-    # Load filters from Redis storage without blocking the event loop
-    filters = await asyncio.to_thread(get_filters, inputs.filter_storage_key)
-    if filters is None:
+    # Load filters and person properties from Redis storage without blocking the event loop
+    result = await asyncio.to_thread(get_filters_and_properties, inputs.filter_storage_key)
+    if result is None:
         raise temporalio.exceptions.ApplicationError(
             f"Filters not found in storage for key: {inputs.filter_storage_key}. "
             "The Redis payload may have expired; please re-store the filters and restart the workflow.",
@@ -190,10 +190,8 @@ async def backfill_precalculated_person_properties_activity(
             non_retryable=True,
         )
 
+    filters, person_properties = result
     logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
-
-    # Get pre-computed person properties from storage
-    person_properties = await asyncio.to_thread(get_person_properties, inputs.filter_storage_key)
 
     if person_properties:
         logger.info(f"Detected {len(person_properties)} unique person properties in use: {person_properties}")
@@ -220,14 +218,20 @@ async def backfill_precalculated_person_properties_activity(
 
         # Build optimized query to only fetch needed person properties
         MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
+        property_alias_mapping = {}
 
         if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
             # Only select the specific properties we need
             property_selects = []
-            for prop in person_properties:
+
+            for i, prop in enumerate(person_properties):
                 # Use JSON extract to get only the specific property
                 escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
-                property_selects.append(f"JSONExtractString(argMax(properties, version), '{escaped_prop}') as `{prop}`")
+                safe_alias = f"prop_{i}"  # Use safe numeric aliases
+                property_selects.append(
+                    f"JSONExtractString(argMax(properties, version), '{escaped_prop}') as `{safe_alias}`"
+                )
+                property_alias_mapping[safe_alias] = prop
 
             properties_clause = ",\n                ".join(property_selects)
             logger.info(
@@ -292,12 +296,12 @@ async def backfill_precalculated_person_properties_activity(
 
                     # Handle both optimized (individual property columns) and fallback (full properties JSON) formats
                     if person_properties and "properties" not in row:
-                        # Optimized format: reconstruct properties dict from individual columns
+                        # Optimized format: reconstruct properties dict from individual columns using alias mapping
                         reconstructed_properties = {}
-                        for property_name in person_properties:
-                            value = row.get(property_name)
+                        for alias, original_prop_name in property_alias_mapping.items():
+                            value = row.get(alias)
                             if value:  # Only include non-empty values
-                                reconstructed_properties[property_name] = value
+                                reconstructed_properties[original_prop_name] = value
 
                         parsed_properties = parse_person_properties(reconstructed_properties, person_id)
                     else:

@@ -63,14 +63,6 @@ def store_filters(filters: list[PersonPropertyFilter], team_id: int, ttl: int = 
         "person_properties": sorted(person_properties),  # Sort for consistent ordering
     }
 
-    # Log the storage data for debugging
-    logger.info(
-        "Storing filter data with person properties",
-        storage_data=storage_data,
-        person_property_count=len(person_properties),
-        filter_count=len(filter_data),
-    )
-
     # Create hash of the storage data for the key
     content_hash = hashlib.sha256(json.dumps(storage_data, sort_keys=True).encode()).hexdigest()
 
@@ -82,15 +74,15 @@ def store_filters(filters: list[PersonPropertyFilter], team_id: int, ttl: int = 
     return storage_key
 
 
-def get_filters(storage_key: str) -> list[PersonPropertyFilter] | None:
+def get_filters_and_properties(storage_key: str) -> tuple[list[PersonPropertyFilter], list[str]] | None:
     """
-    Retrieve filters using a storage key.
+    Retrieve both filters and person properties using a storage key.
 
     Args:
         storage_key: Key returned by store_filters
 
     Returns:
-        List of PersonPropertyFilter objects, or None if not found
+        Tuple of (filters, person_properties), or None if not found
 
     Note:
         If workflows consistently exceed 48h and TTL becomes an issue,
@@ -101,17 +93,11 @@ def get_filters(storage_key: str) -> list[PersonPropertyFilter] | None:
         return None
 
     storage_data = json.loads(data.decode("utf-8"))
-
-    # Handle both old format (list of filters) and new format (dict with filters and properties)
-    if isinstance(storage_data, list):
-        # Old format - just a list of filter data
-        filter_data = storage_data
-    else:
-        # New format - dict with 'filters' and 'person_properties'
-        filter_data = storage_data["filters"]
+    filter_data = storage_data["filters"]
+    person_properties = storage_data["person_properties"]
 
     # Reconstruct PersonPropertyFilter objects
-    return [
+    filters = [
         PersonPropertyFilter(
             condition_hash=item["condition_hash"],
             bytecode=item["bytecode"],
@@ -121,25 +107,4 @@ def get_filters(storage_key: str) -> list[PersonPropertyFilter] | None:
         for item in filter_data
     ]
 
-
-def get_person_properties(storage_key: str) -> list[str] | None:
-    """
-    Retrieve person properties using a storage key.
-
-    Args:
-        storage_key: Key returned by store_filters
-
-    Returns:
-        List of person property names, or None if not found or old format
-    """
-    data = get_client().get(storage_key)
-    if data is None:
-        return None
-
-    storage_data = json.loads(data.decode("utf-8"))
-
-    # Only new format has person_properties
-    if isinstance(storage_data, dict) and "person_properties" in storage_data:
-        return storage_data["person_properties"]
-
-    return None
+    return filters, person_properties

@@ -365,17 +365,15 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 result.result = False
             return result
 
-        # Mock asyncio.to_thread to handle flush, get_filters, and execute_bytecode calls
+        # Mock asyncio.to_thread to handle flush, get_filters_and_properties, and execute_bytecode calls
         async def mock_to_thread(func, *args, **kwargs):
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call - just return None
                 return None
-            elif func.__name__ == "get_filters":
-                # This is the get_filters call - return the filters we stored earlier
-                return filters
-            elif func.__name__ == "get_person_properties":
-                # Return person properties for optimization
-                return ["email", "name"]  # Example properties
+            elif func.__name__ == "get_filters_and_properties":
+                # This is the get_filters_and_properties call - return both filters and properties
+                person_properties = ["age", "country"]  # Properties from the test filters
+                return (filters, person_properties)
             elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
@@ -552,12 +550,10 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call
                 return None
-            elif func.__name__ == "get_filters":
-                # This is the get_filters call - return the filters we stored earlier
-                return filters
-            elif func.__name__ == "get_person_properties":
-                # Return person properties for optimization
-                return ["email", "name"]  # Example properties
+            elif func.__name__ == "get_filters_and_properties":
+                # This is the get_filters_and_properties call - return both filters and properties
+                person_properties = ["email", "name"]  # Example properties
+                return (filters, person_properties)
             elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
@@ -646,11 +642,11 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             batch_size=1,
         )
 
-        # Mock get_filters to return None (simulating missing/expired key)
+        # Mock get_filters_and_properties to return None (simulating missing/expired key)
         with patch(
-            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters"
-        ) as mock_get_filters:
-            mock_get_filters.return_value = None
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties"
+        ) as mock_get_filters_and_properties:
+            mock_get_filters_and_properties.return_value = None
 
             # Mock asyncio.to_thread to just call the function directly for testing
             with patch("asyncio.to_thread") as mock_to_thread:
@@ -666,3 +662,66 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 assert "Filters not found in storage" in str(error)
                 assert "Redis payload may have expired" in str(error)
                 assert inputs.filter_storage_key in str(error)
+
+    def test_property_names_with_backticks_generate_safe_query(self):
+        """Should generate safe SQL queries when property names contain backticks or other dangerous characters."""
+        # Test property names that could potentially break SQL queries
+        dangerous_property_names = [
+            "normal_prop",
+            "prop`with`backticks",
+            "`malicious`DROP TABLE person--",
+            "prop`; DELETE FROM person; --",
+        ]
+
+        # Simulate the query building logic from the activity
+        property_selects = []
+        property_alias_mapping = {}
+
+        for i, prop in enumerate(dangerous_property_names):
+            # Use JSON extract to get only the specific property
+            escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
+            safe_alias = f"prop_{i}"  # Use safe numeric aliases
+            property_selects.append(
+                f"JSONExtractString(argMax(properties, version), '{escaped_prop}') as `{safe_alias}`"
+            )
+            property_alias_mapping[safe_alias] = prop
+
+        properties_clause = ",\n                ".join(property_selects)
+
+        # Build the full query
+        query = f"""
+            SELECT
+                id as person_id,
+                {properties_clause}
+            FROM person
+            WHERE team_id = %(team_id)s
+              AND id > %(cursor)s
+            GROUP BY id
+            HAVING argMax(is_deleted, version) = 0
+            ORDER BY id
+            LIMIT %(batch_size)s
+            FORMAT JSONEachRow
+        """
+
+        # Verify the query uses safe aliases instead of raw property names
+        assert "prop_0" in query
+        assert "prop_1" in query
+        assert "prop_2" in query
+        assert "prop_3" in query
+
+        # Verify dangerous property names are NOT used as column aliases (but may appear in JSON paths)
+        # The problem was that property names were used as column aliases like: ... as `dangerous_name`
+        # Now they should only appear in JSON paths like: JSONExtractString(..., 'dangerous_name')
+        assert "as `malicious`DROP TABLE person--`" not in query
+        assert "as `prop`; DELETE FROM person; --`" not in query
+
+        # Verify that dangerous property names appear safely in JSON extraction
+        # (Single quotes are the only thing that needs escaping in JSON paths)
+        assert "'prop`with`backticks'" in query  # Backticks are safe in JSON paths
+        assert "'`malicious`DROP TABLE person--'" in query  # Only appears in JSON path, not as identifier
+
+        # Verify alias mapping is correct
+        assert property_alias_mapping["prop_0"] == "normal_prop"
+        assert property_alias_mapping["prop_1"] == "prop`with`backticks"
+        assert property_alias_mapping["prop_2"] == "`malicious`DROP TABLE person--"
+        assert property_alias_mapping["prop_3"] == "prop`; DELETE FROM person; --"
