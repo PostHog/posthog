@@ -276,19 +276,15 @@ class VercelIntegration:
 
         # Check if there's already an OrganizationIntegration for this installation_id
         # If there is, we don't need to do update anything besides OrganizationIntegration's config.
-        organization_integration_exists = OrganizationIntegration.objects.filter(
+        org_integration = OrganizationIntegration.objects.filter(
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id=installation_id,
-        ).exists()
+        ).first()
 
         config_dict = asdict(config)
         credentials = config_dict.pop("credentials", {})
 
-        if organization_integration_exists:
-            org_integration = OrganizationIntegration.objects.get(
-                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-                integration_id=installation_id,
-            )
+        if org_integration is not None:
             org_integration.config = config_dict
             org_integration.sensitive_config = {"credentials": credentials}
             org_integration.save()
