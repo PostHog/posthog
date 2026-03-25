@@ -83,7 +83,8 @@ class TestCreateOrUpdateSlackTicketTeamMemberDetection(BaseTest):
         mock_resolve,
         mock_client,
     ):
-        mock_resolve.return_value = _team_member_user_info(self.user.email) if is_team else _customer_user_info()
+        user_info = _team_member_user_info(self.user.email) if is_team else _customer_user_info()
+        mock_resolve.return_value = user_info
         mock_client.return_value = MagicMock()
 
         ticket = create_or_update_slack_ticket(
@@ -103,6 +104,7 @@ class TestCreateOrUpdateSlackTicketTeamMemberDetection(BaseTest):
         assert (comment.created_by_id == self.user.id) == expect_created_by
         ticket.refresh_from_db()
         assert ticket.unread_team_count == expected_unread
+        assert ticket.distinct_id == user_info["email"]
 
     @parameterized.expand(
         [
