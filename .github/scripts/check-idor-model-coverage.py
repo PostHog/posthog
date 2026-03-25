@@ -162,6 +162,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "AlertCheck",
         "CohortCalculationHistory",
         "ColumnConfiguration",
+        "DataDeletionRequest",
         "ErrorTrackingIssueFingerprint",
         "ExperimentTimeseriesRecalculation",
         "GroupUsageMetric",
