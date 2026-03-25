@@ -143,6 +143,43 @@ class TestVercelWebhooks(VercelTestBase):
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
+    def test_deauthorization_with_configuration_id_payload(self):
+        self.installation.config["type"] = "connectable"
+        self.installation.save()
+
+        payload = {
+            "type": "integration-configuration.removed",
+            "payload": {
+                "configuration": {"id": self.installation_id},
+                "installationIds": [self.installation_id],
+            },
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
+    def test_deauthorization_with_installation_ids_fallback(self):
+        self.installation.config["type"] = "connectable"
+        self.installation.save()
+
+        payload = {
+            "type": "integration-configuration.removed",
+            "payload": {
+                "installationIds": [self.installation_id],
+            },
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     def test_deauthorization_unknown_config_succeeds(self):
         payload = {
             "type": "integration-configuration.removed",
