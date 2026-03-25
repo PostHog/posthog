@@ -6,6 +6,7 @@ import { IconBug, IconCheckCircle, IconComment, IconNotification, IconPlug, Icon
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
@@ -67,25 +68,26 @@ export function NotificationRow({
                         {notification.source_url && (
                             <Tooltip title="Go to source">
                                 <button
-                                    className="p-0.5 rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
+                                    className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
                                     onClick={handleNavigate}
                                 >
-                                    <IconOpenInNew className="size-3.5" />
+                                    <IconOpenInNew className="size-4" />
                                 </button>
                             </Tooltip>
                         )}
                         <Tooltip title={notification.read ? 'Mark as unread' : 'Mark as read'}>
                             <button
-                                className="p-0.5 rounded hover:bg-fill-highlight-200 cursor-pointer"
+                                className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
                                 onClick={handleToggleRead}
                             >
-                                <div
-                                    className={`size-2.5 rounded-full border ${
-                                        notification.read
-                                            ? 'border-secondary bg-transparent'
-                                            : 'border-danger bg-danger'
-                                    }`}
-                                />
+                                {notification.read ? (
+                                    <IconCheckCircle className="size-4 text-success" />
+                                ) : (
+                                    <>
+                                        <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
+                                        <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
+                                    </>
+                                )}
                             </button>
                         </Tooltip>
                     </div>

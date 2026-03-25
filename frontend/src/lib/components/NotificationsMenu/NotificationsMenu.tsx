@@ -66,7 +66,7 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
                         {!iconOnly && (
                             <>
                                 <span className="-ml-[2px]">Notifications</span>
-                                <MenuOpenIndicator direction="up" />
+                                <MenuOpenIndicator direction="right" />
                             </>
                         )}
                     </ButtonPrimitive>
@@ -76,10 +76,10 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
                 <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
                 <Menu.Positioner
                     className="z-[var(--z-popover)]"
-                    side="top"
-                    align="start"
+                    side="right"
+                    align="end"
                     sideOffset={8}
-                    collisionPadding={{ left: 0, top: 50, bottom: 50 }}
+                    collisionPadding={{ top: 50, bottom: 50, right: 16 }}
                 >
                     <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[380px] flex flex-col">
                         <div className="flex items-center justify-between px-3 py-2 border-b border-primary shrink-0">
