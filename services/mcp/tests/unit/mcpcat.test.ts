@@ -39,11 +39,14 @@ describe('initMcpCatObservability', () => {
                 enableToolCallContext: false,
                 enableTracing: true,
                 identify: expect.any(Function),
+                eventTags: expect.any(Function),
+                eventProperties: expect.any(Function),
                 exporters: {
                     posthog: {
                         type: 'posthog',
                         apiKey: 'sTMFPsFhdP1Ssg',
                         host: 'https://us.i.posthog.com',
+                        enableAITracing: true,
                     },
                 },
             })
@@ -54,6 +57,18 @@ describe('initMcpCatObservability', () => {
         const call = vi.mocked(track).mock.calls[0]!
         const options = call[2] as { identify: () => Promise<unknown> }
         return options.identify
+    }
+
+    function getEventTagsCallback(): () => Promise<Record<string, string>> {
+        const call = vi.mocked(track).mock.calls[0]!
+        const options = call[2] as { eventTags: () => Promise<Record<string, string>> }
+        return options.eventTags
+    }
+
+    function getEventPropertiesCallback(): () => Record<string, unknown> {
+        const call = vi.mocked(track).mock.calls[0]!
+        const options = call[2] as { eventProperties: () => Record<string, unknown> }
+        return options.eventProperties
     }
 
     it('identify callback resolves identity from provider', async () => {
@@ -67,15 +82,9 @@ describe('initMcpCatObservability', () => {
         expect(result).toEqual({
             userId: 'user-123',
             userData: {
-                $session_id: 'session-uuid-456',
-                mcp_client_name: 'claude-code',
-                mcp_client_version: '1.2.3',
-                mcp_protocol_version: '2024-11-05',
                 region: 'us',
                 organization_id: 'org-789',
                 project_id: 'proj-101',
-                client_user_agent: 'test-agent/1.0',
-                mcp_version: 2,
             },
         })
     })
@@ -83,15 +92,9 @@ describe('initMcpCatObservability', () => {
     it('identify callback skips undefined properties in userData', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity({
-            getSessionUuid: vi.fn().mockResolvedValue(undefined),
-            getMcpClientName: vi.fn().mockReturnValue(undefined),
-            getMcpClientVersion: vi.fn().mockReturnValue(undefined),
-            getMcpProtocolVersion: vi.fn().mockReturnValue(undefined),
             getRegion: vi.fn().mockReturnValue(undefined),
             getOrganizationId: vi.fn().mockReturnValue(undefined),
             getProjectId: vi.fn().mockReturnValue(undefined),
-            getClientUserAgent: vi.fn().mockReturnValue(undefined),
-            getVersion: vi.fn().mockReturnValue(undefined),
         })
 
         initMcpCatObservability(server, identity)
@@ -115,6 +118,72 @@ describe('initMcpCatObservability', () => {
         const result = await getIdentifyCallback()()
 
         expect(result).toBeNull()
+    })
+
+    it('eventTags callback returns all string metadata as tags', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        initMcpCatObservability(server, identity)
+
+        const result = await getEventTagsCallback()()
+
+        expect(result).toEqual({
+            $session_id: 'session-uuid-456',
+            mcp_client_name: 'claude-code',
+            mcp_client_version: '1.2.3',
+            mcp_protocol_version: '2024-11-05',
+            region: 'us',
+            organization_id: 'org-789',
+            project_id: 'proj-101',
+        })
+    })
+
+    it('eventTags callback skips undefined values', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity({
+            getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getMcpClientName: vi.fn().mockReturnValue(undefined),
+            getMcpClientVersion: vi.fn().mockReturnValue(undefined),
+            getMcpProtocolVersion: vi.fn().mockReturnValue(undefined),
+            getRegion: vi.fn().mockReturnValue(undefined),
+            getOrganizationId: vi.fn().mockReturnValue(undefined),
+            getProjectId: vi.fn().mockReturnValue(undefined),
+        })
+
+        initMcpCatObservability(server, identity)
+
+        const result = await getEventTagsCallback()()
+
+        expect(result).toEqual({})
+    })
+
+    it('eventProperties callback returns numeric and long-string metadata', () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        initMcpCatObservability(server, identity)
+
+        const result = getEventPropertiesCallback()()
+
+        expect(result).toEqual({
+            mcp_version: 2,
+            client_user_agent: 'test-agent/1.0',
+        })
+    })
+
+    it('eventProperties callback skips undefined values', () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity({
+            getVersion: vi.fn().mockReturnValue(undefined),
+            getClientUserAgent: vi.fn().mockReturnValue(undefined),
+        })
+
+        initMcpCatObservability(server, identity)
+
+        const result = getEventPropertiesCallback()()
+
+        expect(result).toEqual({})
     })
 
     it('swallows errors if mcpcat.track throws', () => {

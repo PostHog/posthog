@@ -3320,8 +3320,8 @@ importers:
         specifier: ^0.8.2
         version: 0.8.2
       mcpcat:
-        specifier: ^0.1.13
-        version: 0.1.13(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)
+        specifier: ^0.1.15
+        version: 0.1.15(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -6711,7 +6711,7 @@ packages:
     resolution: {integrity: sha512-2D6y7fNvFmsLmRt6UCOFJPvFoPMJGT0Uh1Wg0RaigUp7kdQPs6yYn8Dmx6GZkOH/NW0yMTwRz/p0SRMMRo50vA==}
     peerDependencies:
       typescript: 5.8.3
-      vite: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
+      vite: ^3.0.0 || ^4.0.0 || ^5.0.0
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -18158,11 +18158,11 @@ packages:
     resolution: {integrity: sha512-tJDrKbUzN6PSA88tWgg0L2R4Ln00XwecYQJPFI+RvlF2k1sx6VQYtuQ1SVxm8+bw5tF7GWV4xyb+3/KyzEpPUw==}
     engines: {node: '>=12', npm: '>=6'}
 
-  mcpcat-api@0.1.7:
-    resolution: {integrity: sha512-c8kJ5rQ68xYFT8O3bbsu68WzGEzGbmmYVcD87YuvlNRof8iy+2vM8uRuZ4kO3OEUTeDA/FA4kgI+DCjOAeO7sw==}
+  mcpcat-api@0.1.8:
+    resolution: {integrity: sha512-HhKa4HidN5swb6k+YOKNfv3MyVfTxxvhR7VPnQBxy/lBw3arVOfWzX9FTt0uYc4NrMjWJeTUtpbS8ENR0F44iQ==}
 
-  mcpcat@0.1.13:
-    resolution: {integrity: sha512-nqtcLxyEJUnLMBcZ0Ea3qudQXl69jiDNv8gIB1sr+50o2T2DMc5nLQ1S3itEiYtqrxcuhcPffsrHNwZHZFlncg==}
+  mcpcat@0.1.15:
+    resolution: {integrity: sha512-rc5a/sWhrJvnU9k1a9xjVNC6apQykUQvlJ60h/6IHgCSsHGHS9kFsTmC7aMufitcPbDo9Kq2cy8vUbHtveEj5Q==}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.26.0
 
@@ -44046,15 +44046,12 @@ snapshots:
       mmdb-lib: 2.0.2
       tiny-lru: 11.0.1
 
-  mcpcat-api@0.1.7: {}
+  mcpcat-api@0.1.8: {}
 
-  mcpcat@0.1.13(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0):
+  mcpcat@0.1.15(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)):
     dependencies:
       '@modelcontextprotocol/sdk': 1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
-      '@opentelemetry/otlp-transformer': 0.203.0(@opentelemetry/api@1.9.0)
-      mcpcat-api: 0.1.7
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
+      mcpcat-api: 0.1.8
 
   md5.js@1.3.5:
     dependencies:
