@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { FeatureFlagForm } from './FeatureFlagForm'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -45,6 +45,7 @@ const MOCK_MULTIVARIATE_FLAG: FeatureFlagType = {
     has_encrypted_payloads: false,
     status: 'ACTIVE',
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    user_access_level: AccessControlLevel.Admin,
 }
 
 describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
