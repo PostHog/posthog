@@ -95,6 +95,19 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     return sensitive
 
 
+def _add_name_variants(target: set[str], name: str) -> None:
+    """Add a field name and its underscore variant to a set.
+
+    Source field names may use hyphens (e.g. "temporary-dataset") while
+    dataclasses.asdict() persists the snake_case field name ("temporary_dataset").
+    We need to recognise both forms when classifying persisted job_inputs.
+    """
+    target.add(name)
+    normalised = name.replace("-", "_")
+    if normalised != name:
+        target.add(normalised)
+
+
 def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple[set[str], set[str]]:
     """Classify source config field names as nonsensitive or sensitive.
 
@@ -106,27 +119,27 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
     for field in fields:
         if isinstance(field, SourceFieldInputConfig):
             if field.type == SourceFieldInputConfigType.PASSWORD:
-                sensitive.add(field.name)
+                _add_name_variants(sensitive, field.name)
             else:
-                nonsensitive.add(field.name)
+                _add_name_variants(nonsensitive, field.name)
         elif isinstance(field, SourceFieldFileUploadConfig):
-            sensitive.add(field.name)
+            _add_name_variants(sensitive, field.name)
         elif isinstance(field, SourceFieldSelectConfig):
-            nonsensitive.add(field.name)
+            _add_name_variants(nonsensitive, field.name)
             for option in field.options:
                 if option.fields:
                     ns, s = get_nonsensitive_and_sensitive_field_names(option.fields)
                     nonsensitive.update(ns)
                     sensitive.update(s)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
-            nonsensitive.add(field.name)
+            _add_name_variants(nonsensitive, field.name)
             ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
             nonsensitive.update(ns)
             sensitive.update(s)
         elif isinstance(field, SourceFieldOauthConfig):
-            nonsensitive.add(field.name)
+            _add_name_variants(nonsensitive, field.name)
         elif isinstance(field, SourceFieldSSHTunnelConfig):
-            nonsensitive.add(field.name)
+            _add_name_variants(nonsensitive, field.name)
             # SSH tunnel has a known nested structure not declared in the field tree.
             # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
             nonsensitive.update({"host", "port", "username", "auth", "auth_type"})

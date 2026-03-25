@@ -1,5 +1,6 @@
 import uuid
 import typing as t
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -20,6 +21,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.models import Team
@@ -3612,6 +3614,76 @@ class TestSensitiveFieldClassification(APIBaseTest):
         assert result["ssh_tunnel"]["auth"]["username"] == "ubuntu"
         assert "password" not in result["ssh_tunnel"]["auth"]
         assert "private_key" not in result["ssh_tunnel"]["auth"]
+
+    def test_hyphenated_field_names_include_underscore_variant(self):
+        """Fields with hyphens (e.g. "temporary-dataset") should also match the
+        snake_case variant ("temporary_dataset") produced by dataclasses.asdict()."""
+        fields: list[FieldType] = [
+            SourceFieldSwitchGroupConfig(
+                name="temporary-dataset",
+                label="Temporary dataset",
+                default=False,
+                fields=cast(
+                    list[FieldType],
+                    [
+                        SourceFieldInputConfig(
+                            name="temporary_dataset_id",
+                            label="Dataset ID",
+                            placeholder="",
+                            required=True,
+                            type=SourceFieldInputConfigType.TEXT,
+                        ),
+                    ],
+                ),
+            ),
+        ]
+        nonsensitive, _ = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "temporary-dataset" in nonsensitive
+        assert "temporary_dataset" in nonsensitive
+
+    def test_strip_preserves_aliased_switch_group_from_to_dict(self):
+        """job_inputs persisted via to_dict() uses snake_case keys even when
+        the source field name uses hyphens. The strip function must keep these."""
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="dataset_id",
+                label="Dataset ID",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+            ),
+            SourceFieldSwitchGroupConfig(
+                name="temporary-dataset",
+                label="Temporary dataset",
+                default=False,
+                fields=cast(
+                    list[FieldType],
+                    [
+                        SourceFieldInputConfig(
+                            name="temporary_dataset_id",
+                            label="Dataset ID",
+                            placeholder="",
+                            required=True,
+                            type=SourceFieldInputConfigType.TEXT,
+                        ),
+                    ],
+                ),
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+
+        # Simulate job_inputs as persisted by dataclasses.asdict() (snake_case keys)
+        persisted_data = {
+            "dataset_id": "my-dataset",
+            "temporary_dataset": {
+                "enabled": True,
+                "temporary_dataset_id": "tmp-dataset",
+            },
+        }
+        result = strip_sensitive_from_dict(persisted_data, nonsensitive, sensitive)
+        assert "temporary_dataset" in result
+        assert result["temporary_dataset"]["enabled"] is True
+        assert result["temporary_dataset"]["temporary_dataset_id"] == "tmp-dataset"
 
     def test_all_registered_sources_have_valid_classification(self):
         for source in SourceRegistry.get_all_sources().values():
