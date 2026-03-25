@@ -7,8 +7,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonCheckbox, LemonDivider, LemonMenu } from '@posthog/lemon-ui'
+import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -51,6 +50,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
 import { MathSelector } from './MathSelector'
 import type { ActionFilterRowProps } from './types'
@@ -155,8 +155,6 @@ export function ActionFilterRow({
     const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
-    const [isMenuVisible, setIsMenuVisible] = useState(false)
-
     const {
         setNodeRef,
         attributes: { 'aria-disabled': _, ...attributes },
@@ -412,7 +410,6 @@ export function ActionFilterRow({
             data-attr={`show-prop-rename-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
-                setIsMenuVisible(false)
                 selectFilter(filter)
                 onRenameClick()
             }}
@@ -430,7 +427,6 @@ export function ActionFilterRow({
             data-attr={`show-prop-duplicate-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
-                setIsMenuVisible(false)
                 duplicateFilter(filter)
             }}
             fullWidth={enablePopup}
@@ -466,7 +462,6 @@ export function ActionFilterRow({
             data-attr={`delete-prop-filter-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
-                setIsMenuVisible(false)
                 onClose()
             }}
             fullWidth={enablePopup}
@@ -557,7 +552,6 @@ export function ActionFilterRow({
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
-                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
                                                     value={mathProperty || undefined}
                                                     onChange={(currentValue, groupType) =>
@@ -692,107 +686,34 @@ export function ActionFilterRow({
                                     <>
                                         {!hideFilter && propertyFiltersButton}
                                         {canCombine && combineInlineButton}
-                                        <div className="relative">
-                                            <LemonMenu
-                                                placement={isTrendsContext ? 'bottom-end' : 'bottom-start'}
-                                                visible={isMenuVisible}
-                                                closeOnClickInside={false}
-                                                onVisibilityChange={setIsMenuVisible}
-                                                items={[
-                                                    // MathSelector for funnels only (trends shows it inline)
-                                                    ...(isFunnelContext
-                                                        ? [
-                                                              {
-                                                                  label: () => (
-                                                                      <>
-                                                                          <MathSelector
-                                                                              math={math}
-                                                                              mathGroupTypeIndex={mathGroupTypeIndex}
-                                                                              index={index}
-                                                                              onMathSelect={onMathSelect}
-                                                                              disabled={readOnly}
-                                                                              style={{
-                                                                                  maxWidth: '100%',
-                                                                                  width: 'initial',
-                                                                              }}
-                                                                              mathAvailability={mathAvailability}
-                                                                              trendsDisplayCategory={
-                                                                                  trendsDisplayCategory
-                                                                              }
-                                                                              query={query || {}}
-                                                                          />
-                                                                          <LemonDivider />
-                                                                      </>
-                                                                  ),
-                                                              },
-                                                          ]
-                                                        : []),
-                                                    // Optional step checkbox for funnels only
-                                                    ...(isFunnelContext && index > 0
-                                                        ? [
-                                                              {
-                                                                  label: () => (
-                                                                      <>
-                                                                          <Tooltip title="Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel">
-                                                                              <div className="px-2 py-1">
-                                                                                  <LemonCheckbox
-                                                                                      checked={
-                                                                                          !!filter.optionalInFunnel
-                                                                                      }
-                                                                                      onChange={(checked) => {
-                                                                                          updateFilterOptional({
-                                                                                              ...filter,
-                                                                                              optionalInFunnel: checked,
-                                                                                              index,
-                                                                                          })
-                                                                                      }}
-                                                                                      label="Optional step"
-                                                                                  />
-                                                                              </div>
-                                                                          </Tooltip>
-                                                                          <LemonDivider />
-                                                                      </>
-                                                                  ),
-                                                              },
-                                                          ]
-                                                        : []),
-                                                    ...(!hideRename
-                                                        ? [
-                                                              {
-                                                                  label: () => renameRowButton,
-                                                              },
-                                                          ]
-                                                        : []),
-                                                    ...(!hideDuplicate && !singleFilter
-                                                        ? [
-                                                              {
-                                                                  label: () => duplicateRowButton,
-                                                              },
-                                                          ]
-                                                        : []),
-                                                    ...(!hideDeleteBtn && !singleFilter
-                                                        ? [
-                                                              {
-                                                                  label: () => deleteButton,
-                                                              },
-                                                          ]
-                                                        : []),
-                                                ]}
-                                            >
-                                                <LemonButton
-                                                    size="medium"
-                                                    aria-label="Show more actions"
-                                                    data-attr={`more-button-${index}`}
-                                                    icon={<IconEllipsis />}
-                                                    noPadding
-                                                />
-                                            </LemonMenu>
-                                            <LemonBadge
-                                                position="top-right"
-                                                size="small"
-                                                visible={isFunnelContext && (math != null || isStepOptional(index + 1))}
-                                            />
-                                        </div>
+                                        <ActionFilterRowMenu
+                                            index={index}
+                                            isTrendsContext={isTrendsContext}
+                                            isFunnelContext={isFunnelContext}
+                                            isStepOptional={isStepOptional}
+                                            math={math}
+                                            mathGroupTypeIndex={mathGroupTypeIndex}
+                                            mathAvailability={mathAvailability}
+                                            trendsDisplayCategory={trendsDisplayCategory}
+                                            readOnly={readOnly}
+                                            query={query || {}}
+                                            filter={filter}
+                                            hideRename={!!hideRename}
+                                            hideDuplicate={hideDuplicate}
+                                            hideDeleteBtn={hideDeleteBtn}
+                                            singleFilter={!!singleFilter}
+                                            onMathSelect={onMathSelect}
+                                            onUpdateOptional={(checked) => {
+                                                updateFilterOptional({
+                                                    ...filter,
+                                                    optionalInFunnel: checked,
+                                                    index,
+                                                })
+                                            }}
+                                            renameRowButton={renameRowButton}
+                                            duplicateRowButton={duplicateRowButton}
+                                            deleteButton={deleteButton}
+                                        />
                                     </>
                                 ) : (
                                     rowEndElements

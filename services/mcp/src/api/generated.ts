@@ -4199,7 +4199,6 @@ export namespace Schemas {
     * `plan` - plan
     * `execution` - execution
     * `survey` - survey
-    * `onboarding` - onboarding
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
@@ -4216,7 +4215,6 @@ export namespace Schemas {
       Plan: 'plan',
       Execution: 'execution',
       Survey: 'survey',
-      Onboarding: 'onboarding',
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
@@ -19951,6 +19949,7 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
+    * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -19961,6 +19960,7 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
@@ -19968,6 +19968,9 @@ export namespace Schemas {
     * `evaluation` - Evaluation
     * `issue` - Issue
     * `ticket` - Ticket
+    * `issue_created` - Issue created
+    * `issue_reopened` - Issue reopened
+    * `issue_spiking` - Issue spiking
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -19977,6 +19980,9 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Issue: 'issue',
       Ticket: 'ticket',
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
     } as const;
 
     export interface SignalSourceConfig {

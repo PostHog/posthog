@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -54,6 +56,10 @@ function SlackChannelSection(): JSX.Element {
         saveSlackBotSettings,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
+    const adminRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     return (
         <div className="flex flex-col gap-y-2">
@@ -68,6 +74,7 @@ function SlackChannelSection(): JSX.Element {
                         className="mt-2"
                         type="primary"
                         size="small"
+                        disabledReason={adminRestrictionReason}
                         onClick={() => connectSlack(window.location.pathname)}
                     >
                         Add SupportHog to Slack
@@ -194,6 +201,7 @@ function SlackChannelSection(): JSX.Element {
                             type="secondary"
                             status="danger"
                             size="small"
+                            disabledReason={adminRestrictionReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Remove SupportHog bot?',
