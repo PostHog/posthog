@@ -35,7 +35,10 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
-import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
+import {
+    organizationActivityDescriber,
+    organizationDomainActivityDescriber,
+} from 'scenes/settings/organization/activityDescriptions'
 import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
@@ -148,6 +151,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.ORGANIZATION_MEMBERSHIP:
         case ActivityScope.ORGANIZATION_INVITE:
             return organizationActivityDescriber
+        case ActivityScope.ORGANIZATION_DOMAIN:
+            return organizationDomainActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:
