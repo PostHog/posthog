@@ -8811,11 +8811,13 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case("true", true, FeatureFlagMatchReason::SuperConditionValue)]
-    #[case("false", false, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!("true"), true, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!("false"), false, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!(true), true, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!(false), false, FeatureFlagMatchReason::SuperConditionValue)]
     #[tokio::test]
     async fn test_feature_enrollment_match_by_property_value(
-        #[case] property_value: &str,
+        #[case] property_value: serde_json::Value,
         #[case] expected_match: bool,
         #[case] expected_reason: FeatureFlagMatchReason,
     ) {
