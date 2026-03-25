@@ -852,20 +852,20 @@ jobs:
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
 
             - name: Check and update OpenAPI types
+              id: openapi-check
               env:
                   EVENT_NAME: ${{ github.event_name }}
                   HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
                   BRANCH: ${{ github.event.pull_request.head.ref }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  REPOSITORY: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  APP_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
                   GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   ./bin/hogli build:openapi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
+                      echo "needs-commit=false" >> $GITHUB_OUTPUT
                       exit 0
                   fi
 
@@ -897,31 +897,25 @@ jobs:
                   if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
                       echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
                       echo "The new commit will trigger its own workflow run."
+                      echo "needs-commit=false" >> $GITHUB_OUTPUT
                       exit 0
                   fi
 
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
                   gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
-                  # Unset any lingering extraheader so the app token in the remote URL
-                  # is definitely used for the push.
-                  git config --unset-all http.https://github.com/.extraheader || true
-                  git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  echo "needs-commit=true" >> $GITHUB_OUTPUT
 
-                  git add frontend/src/generated/
-                  git add products/*/frontend/generated/ 2>/dev/null || true
-                  git add products/*/mcp/*.yaml 2>/dev/null || true
-                  git add services/mcp/definitions/*.yaml 2>/dev/null || true
-                  git add services/mcp/src/api/generated.ts 2>/dev/null || true
-                  git add services/mcp/src/generated/ 2>/dev/null || true
-                  git add services/mcp/schema/generated-tool-definitions.json 2>/dev/null || true
-                  git add services/mcp/schema/tool-definitions-all.json 2>/dev/null || true
-                  git add services/mcp/src/tools/generated/ 2>/dev/null || true
-                  git commit -m "chore: update OpenAPI generated types"
-                  git push origin "$BRANCH"
-                  echo "::notice::Pushed updated OpenAPI types to $BRANCH"
+            - name: Commit OpenAPI types via GitHub API (signed)
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update OpenAPI generated types'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'frontend/src/generated/ products/*/frontend/generated/ products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/ services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/'
+              env:
+                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
     build_django_matrix:
         name: Build Django matrix
