@@ -7893,6 +7893,8 @@ export namespace Schemas {
       scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       availability_contexts?: string[] | null;
+      /** Manually curated; used to highlight templates in the UI. */
+      is_featured?: boolean;
     }
 
     export interface DashboardTileBasic {
@@ -21610,6 +21612,8 @@ export namespace Schemas {
       scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       availability_contexts?: string[] | null;
+      /** Manually curated; used to highlight templates in the UI. */
+      is_featured?: boolean;
     }
 
     export interface PatchedDataColorTheme {
