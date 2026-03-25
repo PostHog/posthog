@@ -46,6 +46,7 @@ from posthog.models.integration import (
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
+from posthog.event_usage import groups
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
@@ -1363,12 +1364,31 @@ class BatchExportBackfillViewSet(
         except BatchExport.DoesNotExist:
             raise NotFound("BatchExport not found.")
 
+        start_at = request.data.get("start_at")
+        end_at = request.data.get("end_at")
+
         backfill_id = create_backfill(
             self.team,
             batch_export,
-            request.data.get("start_at"),
-            request.data.get("end_at"),
+            start_at,
+            end_at,
         )
+
+        user = cast(User, request.user)
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="batch export backfill created",
+            properties={
+                "backfill_id": backfill_id,
+                "batch_export_id": str(batch_export.pk),
+                "destination_type": batch_export.destination.type,
+                "has_start_at": start_at is not None,
+                "has_end_at": end_at is not None,
+                "team_id": self.team_id,
+            },
+            groups=groups(self.team.organization, self.team),
+        )
+
         return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
