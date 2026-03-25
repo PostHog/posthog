@@ -47,6 +47,7 @@ class DataDeletionRequest(UUIDModel):
     count = models.BigIntegerField(null=True, blank=True)
     part_count = models.IntegerField(null=True, blank=True)
     parts_size = models.BigIntegerField(null=True, blank=True)
+    parts_row_count = models.BigIntegerField(null=True, blank=True)
     stats_calculated_at = models.DateTimeField(null=True, blank=True)
 
     # Metadata
@@ -68,7 +69,12 @@ class DataDeletionRequest(UUIDModel):
     )
 
     # Approval workflow
-    requires_approval = models.BooleanField(default=True)
+    requires_approval = models.BooleanField(
+        default=True,
+        help_text="ClickHouse deletes are heavyweight mutations that can degrade query performance "
+        "and increase disk usage while running. Approval ensures deletes are scheduled "
+        "during low-traffic windows to avoid impacting production workloads.",
+    )
     approved = models.BooleanField(default=False)
     approved_by = models.ForeignKey(
         "posthog.User",

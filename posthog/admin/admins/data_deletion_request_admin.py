@@ -4,87 +4,125 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
 
-from posthog.models.data_deletion_request import RequestStatus
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus
 
 CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
 
 
-def fetch_event_deletion_stats(obj):
-    """Count events and parts for an event removal request."""
-    from posthog.clickhouse.client import sync_execute
-
-    result = sync_execute(
-        """
-        SELECT
-            count() as events,
-            count(distinct _part) as parts
-        FROM sharded_events
-        WHERE team_id = %(team_id)s
-          AND timestamp >= %(start_time)s
-          AND timestamp < %(end_time)s
-          AND event IN %(events)s
-        """,
-        {
-            "team_id": obj.team_id,
-            "start_time": obj.start_time,
-            "end_time": obj.end_time,
-            "events": obj.events,
-        },
-    )
-
-    return {
-        "count": result[0][0] if result else 0,
-        "part_count": result[0][1] if result else 0,
-        "parts_size": None,
+def _build_event_filter(obj) -> tuple[str, dict]:
+    """Build the WHERE clause and params for matching events."""
+    return "", {
+        "team_id": obj.team_id,
+        "start_time": obj.start_time,
+        "end_time": obj.end_time,
+        "events": obj.events,
     }
 
 
-def fetch_property_deletion_stats(obj):
-    """Count events that have any of the specified properties for a property removal request."""
-    from posthog.clickhouse.client import sync_execute
-
+def _build_property_filter(obj) -> tuple[str, dict]:
+    """Build the WHERE clause addition and params for matching properties."""
+    params: dict = {
+        "team_id": obj.team_id,
+        "start_time": obj.start_time,
+        "end_time": obj.end_time,
+        "events": obj.events,
+    }
     if len(obj.properties) == 1:
-        property_filter = "JSONHas(properties, %(property)s)"
-        params: dict = {
-            "team_id": obj.team_id,
-            "start_time": obj.start_time,
-            "end_time": obj.end_time,
-            "events": obj.events,
-            "property": obj.properties[0],
-        }
+        filter_clause = "AND JSONHas(properties, %(property)s)"
+        params["property"] = obj.properties[0]
     else:
-        property_filter = "hasAny(JSONExtractKeys(properties), %(properties)s)"
-        params = {
-            "team_id": obj.team_id,
-            "start_time": obj.start_time,
-            "end_time": obj.end_time,
-            "events": obj.events,
-            "properties": obj.properties,
-        }
+        filter_clause = "AND hasAny(JSONExtractKeys(properties), %(properties)s)"
+        params["properties"] = obj.properties
+    return filter_clause, params
 
-    result = sync_execute(
-        f"""
-        SELECT
-            count() as events,
-            count(distinct _part) as parts
-        FROM sharded_events
-        WHERE team_id = %(team_id)s
-          AND timestamp >= %(start_time)s
-          AND timestamp < %(end_time)s
-          AND event IN %(events)s
-          AND {property_filter}
-        """,
-        params,
-    )
+
+def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
+    """Run event count + parts size queries against ClickHouse."""
+    from posthog.clickhouse.client import sync_execute
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=team_id,
+        workload=Workload.OFFLINE,
+        query_type="delete_event_count",
+    ):
+        event_result = sync_execute(
+            f"""
+            SELECT
+                count() AS events,
+                count(DISTINCT _part) AS parts
+            FROM sharded_events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(start_time)s
+              AND timestamp < %(end_time)s
+              AND event IN %(events)s
+              {extra_filter}
+            """,
+            params,
+            team_id=team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=team_id,
+        workload=Workload.OFFLINE,
+        query_type="delete_part_count",
+    ):
+        parts_result = sync_execute(
+            f"""
+            SELECT
+                count() AS part_count,
+                sum(p.bytes_on_disk) AS total_size_on_disk,
+                sum(p.rows) AS total_rows_in_those_parts
+            FROM system.parts AS p
+            INNER JOIN (
+                SELECT DISTINCT _part AS name
+                FROM sharded_events
+                WHERE team_id = %(team_id)s
+                  AND timestamp >= %(start_time)s
+                  AND timestamp < %(end_time)s
+                  AND event IN %(events)s
+                  {extra_filter}
+            ) AS matched ON p.name = matched.name
+            WHERE p.table = 'sharded_events'
+              AND p.active
+            """,
+            params,
+            team_id=team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
 
     return {
-        "count": result[0][0] if result else 0,
-        "part_count": result[0][1] if result else 0,
-        "parts_size": None,
+        "count": event_result[0][0] if event_result else 0,
+        "part_count": parts_result[0][0] if parts_result else 0,
+        "parts_size": parts_result[0][1] if parts_result else 0,
+        "parts_row_count": parts_result[0][2] if parts_result else 0,
     }
 
 
-def fetch_deletion_stats(obj):
+def fetch_event_deletion_stats(obj: DataDeletionRequest):
+    """Count events and affected parts for an event removal request."""
+    _, params = _build_event_filter(obj)
+    return _fetch_stats(obj.team_id, "", params)
+
+
+def fetch_property_deletion_stats(obj: DataDeletionRequest):
+    """Count events with matching properties and affected parts for a property removal request."""
+    extra_filter, params = _build_property_filter(obj)
+    return _fetch_stats(obj.team_id, extra_filter, params)
+
+
+def fetch_deletion_stats(obj: DataDeletionRequest):
     """Dispatch to the appropriate stats function based on request type."""
     if obj.request_type == "property_removal":
         return fetch_property_deletion_stats(obj)
@@ -107,9 +145,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
     list_filter = ("request_type", "status", "requires_approval", "approved")
     search_fields = ("team_id", "events", "properties", "notes")
     readonly_fields = (
+        "status",
         "count",
         "part_count",
         "parts_size",
+        "parts_row_count",
         "stats_calculated_at",
         "created_at",
         "created_by",
@@ -142,7 +182,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         (
             "ClickHouse stats",
             {
-                "fields": ("count", "part_count", "parts_size", "stats_calculated_at"),
+                "fields": ("count", "part_count", "parts_size", "parts_row_count", "stats_calculated_at"),
                 "description": "Populated by executing a ClickHouse query. Not editable.",
             },
         ),
@@ -170,6 +210,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.count = None
             obj.part_count = None
             obj.parts_size = None
+            obj.parts_row_count = None
             obj.stats_calculated_at = None
             if "events" in form.changed_data or "properties" in form.changed_data:
                 if obj.status != RequestStatus.DRAFT:
@@ -188,6 +229,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 messages.warning(request, "This is a property removal request but no properties are specified.")
             extra_context["is_draft"] = obj.status == RequestStatus.DRAFT
             extra_context["submit_url"] = reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk])
+            extra_context["can_revert_to_draft"] = obj.status in (RequestStatus.PENDING, RequestStatus.APPROVED)
+            extra_context["revert_to_draft_url"] = reverse(
+                "admin:posthog_datadeletionrequest_revert_to_draft", args=[obj.pk]
+            )
         return super().change_view(request, object_id, form_url, extra_context)
 
     def get_urls(self):
@@ -202,6 +247,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/fetch-stats/",
                 self.admin_site.admin_view(self.fetch_stats_view),
                 name="posthog_datadeletionrequest_fetch_stats",
+            ),
+            path(
+                "<path:object_id>/revert-to-draft/",
+                self.admin_site.admin_view(self.revert_to_draft_view),
+                name="posthog_datadeletionrequest_revert_to_draft",
             ),
         ]
         return custom_urls + urls
@@ -252,11 +302,50 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.count = stats["count"]
             obj.part_count = stats["part_count"]
             obj.parts_size = stats["parts_size"]
+            obj.parts_row_count = stats["parts_row_count"]
             obj.stats_calculated_at = timezone.now()
-            obj.save(update_fields=["count", "part_count", "parts_size", "stats_calculated_at", "updated_at"])
+            obj.save(
+                update_fields=[
+                    "count",
+                    "part_count",
+                    "parts_size",
+                    "parts_row_count",
+                    "stats_calculated_at",
+                    "updated_at",
+                ]
+            )
             self.log_change(request, obj, "Fetched ClickHouse stats.")
             messages.success(request, f"Stats fetched: {stats['count']:,} matching events found.")
         except Exception as e:
             messages.error(request, f"Failed to fetch stats: {e}")
 
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+    def revert_to_draft_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        from posthog.models.data_deletion_request import DataDeletionRequest
+
+        updated = DataDeletionRequest.objects.filter(
+            pk=obj.pk,
+            status__in=[RequestStatus.PENDING, RequestStatus.APPROVED],
+        ).update(
+            status=RequestStatus.DRAFT,
+            approved=False,
+            approved_by=None,
+            approved_at=None,
+        )
+
+        if not updated:
+            messages.error(request, "Only pending or approved requests can be moved back to draft.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        obj.refresh_from_db()
+        self.log_change(request, obj, "Reverted to draft: cleared approval.")
+        messages.success(request, "Request moved back to draft.")
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
