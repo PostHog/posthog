@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
@@ -41,12 +41,7 @@ export const variablesLogic = kea<variablesLogicType>([
     key((props) => props.key),
     connect(() => ({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
-        values: [
-            dataVisualizationLogic,
-            ['query'],
-            variableDataLogic,
-            ['variables', 'variablesLoading', 'variablesLoaded'],
-        ],
+        values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
     })),
     actions(({ values }) => ({
         addVariable: (variable: HogQLVariable) => ({ variable }),
@@ -380,9 +375,4 @@ export const variablesLogic = kea<variablesLogicType>([
             })
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (!values.variablesLoaded && !values.variablesLoading) {
-            actions.getVariables()
-        }
-    }),
 ])

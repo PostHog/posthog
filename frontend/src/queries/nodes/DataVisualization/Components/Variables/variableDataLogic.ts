@@ -1,4 +1,4 @@
-import { kea, path, reducers } from 'kea'
+import { kea, path } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -30,12 +30,4 @@ export const variableDataLogic = kea<variableDataLogicType>([
             },
         ],
     })),
-    reducers({
-        variablesLoaded: [
-            false,
-            {
-                getVariablesSuccess: () => true,
-            },
-        ],
-    }),
 ])
