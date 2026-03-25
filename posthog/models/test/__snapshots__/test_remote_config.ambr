@@ -27,6 +27,8 @@
     }),
     'productTours': False,
     'sessionRecording': dict({
+      'canvasFps': None,
+      'canvasQuality': None,
       'consoleLogRecordingEnabled': True,
       'domains': list([
         'https://*.example.com',
@@ -38,6 +40,7 @@
       'masking': None,
       'minimumDurationMilliseconds': None,
       'networkPayloadCapture': None,
+      'recordCanvas': False,
       'recorderVersion': 'v2',
       'sampleRate': None,
       'scriptConfig': dict({
@@ -48,6 +51,7 @@
       ]),
       'urlTriggers': list([
       ]),
+      'version': 1,
     }),
     'siteApps': list([
     ]),
@@ -68,7 +72,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
+      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "masking": null, "urlBlocklist": [], "scriptConfig": {"script": "posthog-recorder"}, "recordCanvas": false, "canvasFps": null, "canvasQuality": null, "version": 1, "sampleRate": null, "linkedFlag": null, "urlTriggers": [], "eventTriggers": [], "triggerMatchType": null}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
       siteApps: []
     }
   })();
@@ -81,7 +85,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": []}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
+      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"canvasFps": null, "canvasQuality": null, "consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recordCanvas": false, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": [], "version": 1}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
       siteApps: []
     }
   })();
@@ -92,7 +96,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": []}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
+      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"canvasFps": null, "canvasQuality": null, "consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recordCanvas": false, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": [], "version": 1}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
       siteApps: []
     }
   })();
@@ -103,7 +107,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
+      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "masking": null, "urlBlocklist": [], "scriptConfig": {"script": "posthog-recorder"}, "recordCanvas": false, "canvasFps": null, "canvasQuality": null, "version": 1, "sampleRate": null, "linkedFlag": null, "urlTriggers": [], "eventTriggers": [], "triggerMatchType": null}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
       siteApps: []
     }
   })();
@@ -114,7 +118,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": []}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
+      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"canvasFps": null, "canvasQuality": null, "consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recordCanvas": false, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": [], "version": 1}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
       siteApps: []
     }
   })();
@@ -148,6 +152,8 @@
     }),
     'productTours': False,
     'sessionRecording': dict({
+      'canvasFps': None,
+      'canvasQuality': None,
       'consoleLogRecordingEnabled': True,
       'endpoint': '/s/',
       'eventTriggers': list([
@@ -156,6 +162,7 @@
       'masking': None,
       'minimumDurationMilliseconds': None,
       'networkPayloadCapture': None,
+      'recordCanvas': False,
       'recorderVersion': 'v2',
       'sampleRate': None,
       'scriptConfig': dict({
@@ -166,6 +173,7 @@
       ]),
       'urlTriggers': list([
       ]),
+      'version': 1,
     }),
     'siteApps': list([
     ]),
@@ -205,6 +213,8 @@
     }),
     'productTours': False,
     'sessionRecording': dict({
+      'canvasFps': None,
+      'canvasQuality': None,
       'consoleLogRecordingEnabled': True,
       'endpoint': '/s/',
       'eventTriggers': list([
@@ -213,6 +223,7 @@
       'masking': None,
       'minimumDurationMilliseconds': None,
       'networkPayloadCapture': None,
+      'recordCanvas': False,
       'recorderVersion': 'v2',
       'sampleRate': None,
       'scriptConfig': dict({
@@ -223,6 +234,7 @@
       ]),
       'urlTriggers': list([
       ]),
+      'version': 1,
     }),
     'siteApps': list([
     ]),
@@ -239,7 +251,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": []}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
+      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"canvasFps": null, "canvasQuality": null, "consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recordCanvas": false, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": [], "version": 1}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
       siteApps: []
     }
   })();
@@ -250,7 +262,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": []}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
+      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"canvasFps": null, "canvasQuality": null, "consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recordCanvas": false, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": [], "version": 1}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
       siteApps: []
     }
   })();
@@ -261,7 +273,7 @@
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": []}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
+      config: {"analytics": {"endpoint": "/i/v0/e/"}, "autocaptureExceptions": false, "autocapture_opt_out": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "conversations": false, "defaultIdentifiedOnly": true, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "hasFeatureFlags": false, "heatmaps": false, "logs": {"captureConsoleLogs": false}, "productTours": false, "sessionRecording": {"canvasFps": null, "canvasQuality": null, "consoleLogRecordingEnabled": true, "endpoint": "/s/", "eventTriggers": [], "linkedFlag": null, "masking": null, "minimumDurationMilliseconds": null, "networkPayloadCapture": null, "recordCanvas": false, "recorderVersion": "v2", "sampleRate": null, "scriptConfig": {"script": "posthog-recorder"}, "triggerMatchType": null, "urlBlocklist": [], "urlTriggers": [], "version": 1}, "supportedCompression": ["gzip", "gzip-js"], "surveys": false, "token": "phc_12345"},
       siteApps: [    
       {
         id: 'SITE_DESTINATION_ID',

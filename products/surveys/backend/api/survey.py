@@ -2102,15 +2102,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        item_id = kwargs["pk"]
-
-        if not Survey.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="Survey",
             team_id=self.team_id,
-            item_ids=[item_id],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )

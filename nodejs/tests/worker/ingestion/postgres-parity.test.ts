@@ -18,7 +18,7 @@ import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
-jest.setTimeout(30000)
+jest.setTimeout(45000) // 45s > delayUntilEventIngested budget (300 × 100ms = 30s) to let the helper throw its actionable error before Jest fires
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     LOG_LEVEL: 'info',

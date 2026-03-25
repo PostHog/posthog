@@ -213,25 +213,13 @@ class HedgeboxMatrix(Matrix):
                 }
             ],
         )
-        real_users_cohort = Cohort.objects.create(
-            team=team,
-            name="Real persons",
-            description="People who don't belong to the Hedgebox team.",
-            created_by=user,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@hedgebox.net$",
-                            "operator": "not_regex",
-                        }
-                    ]
-                }
-            ],
-        )
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        # Create the standard internal/test users cohort (same as non-demo teams get)
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=user.email)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"},
+        ]
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(

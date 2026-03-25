@@ -1732,14 +1732,12 @@ When set, the specified dashboard's filters and date range override will be appl
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        item_id = kwargs["pk"]
-        if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="Insight",
             team_id=self.team_id,
-            item_ids=[str(item_id)],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )

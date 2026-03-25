@@ -120,6 +120,93 @@ class RemoteConfig(UUIDTModel):
             load_fn=load_config,
         )
 
+    def _build_session_recording_config(self, team: Team) -> dict:
+        """
+        Build session recording configuration with V1/V2 support.
+
+        V2: If team.session_recording_trigger_groups is set, use new trigger groups format
+        V1: Otherwise, use legacy trigger fields for backward compatibility
+        """
+        # Build base config (common to both V1 and V2)
+        capture_console_logs = True if team.capture_console_log_opt_in else False
+        minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+        rrweb_script_config = None
+        recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+        if not recorder_script and settings.DEBUG:
+            recorder_script = "posthog-recorder"
+        if recorder_script:
+            rrweb_script_config = {"script": recorder_script}
+
+        record_canvas = False
+        canvas_fps = None
+        canvas_quality = None
+        if isinstance(team.session_replay_config, dict):
+            record_canvas = team.session_replay_config.get("record_canvas", False)
+            if record_canvas:
+                canvas_fps = 3
+                canvas_quality = "0.4"
+
+        base_config = {
+            "endpoint": "/s/",
+            "consoleLogRecordingEnabled": capture_console_logs,
+            "recorderVersion": "v2",
+            "minimumDurationMilliseconds": minimum_duration,
+            "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+            "masking": team.session_recording_masking_config or None,
+            "urlBlocklist": team.session_recording_url_blocklist_config,
+            "scriptConfig": rrweb_script_config,
+            "domains": team.recording_domains or [],
+            "recordCanvas": record_canvas,
+            "canvasFps": canvas_fps,
+            "canvasQuality": canvas_quality,
+        }
+
+        # Build V1 fields (for backward compatibility with old SDKs)
+        sample_rate = (
+            str(team.session_recording_sample_rate.normalize())
+            if team.session_recording_sample_rate is not None
+            else None
+        )
+        if sample_rate == "1":
+            sample_rate = None
+
+        linked_flag = None
+        linked_flag_config = team.session_recording_linked_flag or None
+        if isinstance(linked_flag_config, dict):
+            linked_flag_key = linked_flag_config.get("key", None)
+            linked_flag_variant = linked_flag_config.get("variant", None)
+            if linked_flag_variant is not None:
+                linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+            else:
+                linked_flag = linked_flag_key
+
+        v1_fields = {
+            "sampleRate": sample_rate,
+            "linkedFlag": linked_flag,
+            "urlTriggers": team.session_recording_url_trigger_config,
+            "eventTriggers": team.session_recording_event_trigger_config,
+            "triggerMatchType": team.session_recording_trigger_match_type_config,
+        }
+
+        # V2: If trigger groups configured, send V2 + V1 fallback fields
+        if team.session_recording_trigger_groups:
+            trigger_groups_config = team.session_recording_trigger_groups
+            return {
+                **base_config,
+                "version": 2,
+                "triggerGroups": trigger_groups_config.get("groups", []),
+                # Include V1 fields for backward compatibility with old SDKs
+                **v1_fields,
+            }
+
+        # V1 only: Use legacy trigger fields
+        return {
+            **base_config,
+            "version": 1,
+            **v1_fields,
+        }
+
     @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self):
         from posthog.models.feature_flag import FeatureFlag
@@ -174,64 +261,7 @@ class RemoteConfig(UUIDTModel):
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
         if team.session_recording_opt_in:
-            capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = (
-                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
-            )
-
-            if sample_rate == "1.00":
-                sample_rate = None
-
-            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
-
-            linked_flag = None
-            linked_flag_config = team.session_recording_linked_flag or None
-            if isinstance(linked_flag_config, dict):
-                linked_flag_key = linked_flag_config.get("key", None)
-                linked_flag_variant = linked_flag_config.get("variant", None)
-                if linked_flag_variant is not None:
-                    linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-                else:
-                    linked_flag = linked_flag_key
-
-            rrweb_script_config = None
-
-            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
-            if not recorder_script and settings.DEBUG:
-                recorder_script = "posthog-recorder"
-            if recorder_script:
-                rrweb_script_config = {
-                    "script": recorder_script,
-                }
-
-            session_recording_config_response = {
-                "endpoint": "/s/",
-                "consoleLogRecordingEnabled": capture_console_logs,
-                "recorderVersion": "v2",
-                "sampleRate": sample_rate,
-                "minimumDurationMilliseconds": minimum_duration,
-                "linkedFlag": linked_flag,
-                "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
-                "masking": team.session_recording_masking_config or None,
-                "urlTriggers": team.session_recording_url_trigger_config,
-                "urlBlocklist": team.session_recording_url_blocklist_config,
-                "eventTriggers": team.session_recording_event_trigger_config,
-                "triggerMatchType": team.session_recording_trigger_match_type_config,
-                "scriptConfig": rrweb_script_config,
-                # NOTE: This is cached but stripped out at the api level depending on the caller
-                "domains": team.recording_domains or [],
-            }
-
-            if isinstance(team.session_replay_config, dict):
-                record_canvas = team.session_replay_config.get("record_canvas", False)
-                session_recording_config_response.update(
-                    {
-                        "recordCanvas": record_canvas,
-                        # hard coded during beta while we decide on sensible values
-                        "canvasFps": 3 if record_canvas else None,
-                        "canvasQuality": "0.4" if record_canvas else None,
-                    }
-                )
+            session_recording_config_response = self._build_session_recording_config(team)
 
         config["sessionRecording"] = session_recording_config_response
 
@@ -515,8 +545,9 @@ def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
 
 
 @receiver(post_save, sender=HogFunction)
-def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
-    if instance.enabled and instance.type in ("site_destination", "site_app"):
+@receiver(post_delete, sender=HogFunction)
+def site_function_changed(sender, instance: "HogFunction", **kwargs):
+    if instance.type in ("site_destination", "site_app"):
         transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
