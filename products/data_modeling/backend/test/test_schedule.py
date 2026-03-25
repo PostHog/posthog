@@ -36,6 +36,12 @@ class TestShortIntervalSpec:
         spec = build_schedule_spec(uuid.uuid4(), timedelta(hours=1))
         assert len(spec.calendars[0].minute) == 1
 
+    def test_15min_runs_every_hour(self):
+        spec = build_schedule_spec(uuid.uuid4(), timedelta(minutes=15))
+        assert len(spec.calendars[0].hour) == 1
+        assert spec.calendars[0].hour[0].start == 0
+        assert spec.calendars[0].hour[0].end == 23
+
     def test_15min_minutes_are_spaced_15_apart(self):
         spec = build_schedule_spec(uuid.uuid4(), timedelta(minutes=15))
         mins = sorted(r.start for r in spec.calendars[0].minute)

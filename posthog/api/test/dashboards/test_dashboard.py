@@ -25,7 +25,7 @@ from posthog.models.dashboard_tile import Text
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -814,13 +814,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true").json()
         self.assertEqual(response["count"], 1)
 
-    def test_dashboard_items_history_saved(self):
-        self.dashboard_api.create_insight({"filters": {"hello": "test"}, "saved": True})
-        self.dashboard_api.create_insight({"filters": {"hello": "test"}})
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true&saved=true").json()
-        self.assertEqual(response["count"], 1)
-
     def test_dashboard_item_layout(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
 
@@ -1542,6 +1535,114 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert insight_two_json["dashboards"] == []
         assert insight_two_json["deleted"] is False
 
+    def test_can_copy_tile_between_dashboards(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_one_id]})
+
+        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
+        assert len(dashboard_one["tiles"]) == 1
+        dashboard_two = self.dashboard_api.get_dashboard(dashboard_two_id)
+        assert len(dashboard_two["tiles"]) == 0
+
+        tile_id = dashboard_one["tiles"][0]["id"]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_two_id}/copy_tile",
+            {"fromDashboardId": dashboard_one_id, "tileId": tile_id},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["tiles"]) == 1
+
+        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
+        assert len(dashboard_one["tiles"]) == 1
+        dashboard_two = self.dashboard_api.get_dashboard(dashboard_two_id)
+        assert len(dashboard_two["tiles"]) == 1
+        assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
+
+    def test_copy_tile_rejects_when_insight_already_on_destination(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        _, _ = self.dashboard_api.create_insight(
+            {"filters": filter_dict, "dashboards": [dashboard_one_id, dashboard_two_id]}
+        )
+
+        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
+        tile_id = dashboard_one["tiles"][0]["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_two_id}/copy_tile",
+            {"fromDashboardId": dashboard_one_id, "tileId": tile_id},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already" in json.dumps(response.json()).lower()
+
+    def test_can_copy_text_tile_between_dashboards(self) -> None:
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        _, dashboard_one = self.dashboard_api.create_text_tile(dashboard_one_id, text="hello")
+
+        assert len(dashboard_one["tiles"]) == 1
+        tile = dashboard_one["tiles"][0]
+        assert tile["text"]["dashboard_tiles"] == [
+            {"id": ANY, "dashboard_id": dashboard_one_id, "deleted": None},
+        ]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_two_id}/copy_tile",
+            {"fromDashboardId": dashboard_one_id, "tileId": tile["id"]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["tiles"]) == 1
+        assert response.json()["tiles"][0]["text"]["body"] == "hello"
+
+        response2 = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_two_id}/copy_tile",
+            {"fromDashboardId": dashboard_one_id, "tileId": tile["id"]},
+        )
+        assert response2.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already" in json.dumps(response2.json()).lower()
+
+    def test_copy_tile_restores_soft_deleted_insight_tile_on_destination(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "a"})
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "b"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": filter_dict, "dashboards": [dashboard_a_id, dashboard_b_id]}
+        )
+
+        self.dashboard_api.update_insight(insight_id, {"dashboards": [dashboard_a_id]})
+
+        assert len(self.dashboard_api.get_dashboard(dashboard_b_id)["tiles"]) == 0
+
+        dashboard_a = self.dashboard_api.get_dashboard(dashboard_a_id)
+        tile_id = dashboard_a["tiles"][0]["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_b_id}/copy_tile",
+            {"fromDashboardId": dashboard_a_id, "tileId": tile_id},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
+        assert len(dashboard_b["tiles"]) == 1
+        assert dashboard_b["tiles"][0]["insight"]["id"] == insight_id
+
     def test_can_move_tile_between_dashboards(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -1569,6 +1670,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two["tiles"]) == 1
         assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
 
+    def test_move_text_tile_succeeds_when_destination_has_soft_deleted_shadow_tile(self) -> None:
+        """Soft-deleted rows still hold unique (dashboard, text_id); moving must delete them first."""
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "a"})
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "b"})
+        text = Text.objects.create(team=self.team, body="hello", created_by=self.user)
+        tile_a = DashboardTile.objects.create(
+            dashboard_id=dashboard_a_id,
+            text=text,
+            layouts={},
+        )
+        DashboardTile.objects_including_soft_deleted.create(
+            dashboard_id=dashboard_b_id,
+            text=text,
+            deleted=True,
+            layouts={},
+        )
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_a_id}/move_tile",
+            {"tile": {"id": tile_a.id}, "toDashboard": dashboard_b_id},
+        )
+        assert patch_response.status_code == status.HTTP_200_OK
+        dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
+        assert len(dashboard_b["tiles"]) == 1
+        assert dashboard_b["tiles"][0]["text"]["id"] == text.id
+
     def test_move_tile_between_dashboards_is_project_scoped(self) -> None:
         other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
         other_dashboard = Dashboard.objects.create(team=other_team, name="other dashboard")
@@ -1588,6 +1714,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id)
         assert len(dashboard["tiles"]) == 1
+
+    @parameterized.expand([("source",), ("target",)])
+    def test_move_tile_respects_access_control(self, blocked_dashboard: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "insight": "TRENDS"}, "dashboards": [dashboard_one_id]}
+        )
+        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
+        tile = dashboard_one["tiles"][0]
+
+        blocked_id = dashboard_one_id if blocked_dashboard == "source" else dashboard_two_id
+        AccessControl.objects.create(resource="dashboard", resource_id=blocked_id, team=self.team, access_level="none")
+
+        self.client.force_login(user2)
+
+        move_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
+            {"tile": tile, "toDashboard": dashboard_two_id},
+        )
+        self.assertEqual(move_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_text_tile_cannot_hijack_other_teams_tile(self) -> None:
         other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
@@ -1693,6 +1848,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 200
 
+        dashboard_id = response.json()["id"]
         assert response.json()["tiles"] == [
             {
                 "button_tile": None,
@@ -1708,6 +1864,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "text": {
                     "body": "hello world",
                     "created_by": None,
+                    "dashboard_tiles": [
+                        {"dashboard_id": dashboard_id, "deleted": None, "id": ANY},
+                    ],
                     "id": ANY,
                     "last_modified_at": ANY,
                     "last_modified_by": None,
@@ -1805,7 +1964,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "resolved_date_range": ANY,
                     "query_status": None,
                     "result": None,
-                    "saved": False,
+                    "saved": True,
                     "short_id": ANY,
                     "tags": [],
                     "timezone": None,

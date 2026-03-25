@@ -186,10 +186,10 @@ pub fn upload(args: &Args) -> Result<()> {
                 dsym_file.release_id = release_id.clone();
                 info!(
                     "  UUIDs: {} ({})",
-                    dsym_file.uuids.join(", "),
-                    dsym_file.uuids.len()
+                    dsym_file.uuids().join(", "),
+                    dsym_file.uuids().len()
                 );
-                info!("  Size: {} bytes", dsym_file.data.len());
+                info!("  Total size: {} bytes", dsym_file.total_size());
 
                 uploads.extend(dsym_file.into_uploads());
             }

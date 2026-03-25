@@ -153,6 +153,8 @@ export const BucketingIdentifierEnumApi = {
 
 export type FeatureFlagApiFilters = { [key: string]: unknown }
 
+export type FeatureFlagApiExperimentSetMetadataItem = { [key: string]: unknown }
+
 export type FeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
@@ -178,6 +180,7 @@ export interface FeatureFlagApi {
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: readonly number[]
+    readonly experiment_set_metadata: readonly FeatureFlagApiExperimentSetMetadataItem[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
     rollback_conditions?: unknown | null
@@ -654,6 +657,11 @@ export interface FeatureFlagFiltersSchemaApi {
     payloads?: FeatureFlagFiltersSchemaApiPayloads
     /** Additional super condition groups used by experiments. */
     super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
+    /**
+     * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+     * @nullable
+     */
+    feature_enrollment?: boolean | null
 }
 
 export interface FeatureFlagCreateRequestSchemaApi {

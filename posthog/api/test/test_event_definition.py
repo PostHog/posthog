@@ -157,6 +157,7 @@ class TestEventDefinitionAPI(APIBaseTest):
                 "organization": str(self.organization.id),
                 "project": str(self.demo_team.uuid),
             },
+            send_feature_flags=False,
         )
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()

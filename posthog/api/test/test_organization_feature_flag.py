@@ -13,11 +13,11 @@ from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.scheduled_change import ScheduledChange
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.surveys.backend.models import Survey
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -162,7 +162,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                    }
+                ],
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -172,6 +178,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": [],
+            "experiment_set_metadata": [],
             "surveys": [],
             "features": [],
             "rollback_conditions": None,
@@ -248,7 +255,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                    }
+                ],
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -265,6 +278,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
+            "experiment_set_metadata": ANY,
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,
@@ -379,7 +393,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                    }
+                ],
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -396,6 +416,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
+            "experiment_set_metadata": ANY,
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,

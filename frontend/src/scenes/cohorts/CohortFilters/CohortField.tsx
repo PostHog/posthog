@@ -120,7 +120,7 @@ export function CohortTaxonomicField({
 
     const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
-    const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
+    const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
 
     return (
         <TaxonomicPopover

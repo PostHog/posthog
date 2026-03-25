@@ -63,6 +63,7 @@ PRODUCTS_APPS = [
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.messaging.backend.apps.MessagingConfig",
 ]
 
 INSTALLED_APPS = [
@@ -113,6 +114,7 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -369,7 +371,7 @@ SPECTACULAR_SETTINGS = {
         "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
-        "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
+        "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
     },
 }
 

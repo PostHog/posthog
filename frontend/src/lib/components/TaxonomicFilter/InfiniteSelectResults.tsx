@@ -11,6 +11,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -127,6 +128,7 @@ export function InfiniteSelectResults({
     const logic = infiniteListLogic(infiniteListLogicProps)
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+    const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const { totalListCount } = useValues(logic)
 
@@ -188,6 +190,10 @@ export function InfiniteSelectResults({
                                     onClick={() => {
                                         setActiveTab(groupType)
                                         focusInput()
+                                        reportTaxonomicFilterCategorySelected(
+                                            groupType,
+                                            taxonomicFilterLogicProps.eventNames?.[0]
+                                        )
                                     }}
                                 />
                             )

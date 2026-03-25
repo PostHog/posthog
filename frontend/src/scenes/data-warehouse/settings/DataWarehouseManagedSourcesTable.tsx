@@ -70,7 +70,9 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        render: (_, source) => <DataWarehouseSourceIcon type={source.source_type} />,
+                        render: (_, source) => (
+                            <DataWarehouseSourceIcon type={source.source_type} engine={source.engine} />
+                        ),
                     },
                     {
                         title: 'Source',

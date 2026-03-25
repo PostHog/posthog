@@ -19,7 +19,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.filters.filter import Filter
@@ -37,6 +36,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -319,8 +319,69 @@ class EnterpriseExperimentsViewSet(
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
-        archived_experiment = service.archive_experiment(experiment)
+        archived_experiment = service.archive_experiment(experiment, request=request)
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Pause a running experiment.
+
+        Deactivates the linked feature flag so it is no longer returned by the
+        /decide endpoint. Users fall back to the application default (typically
+        the control experience), and no new exposure events are recorded (i.e.
+        $feature_flag_called is not fired).
+        Returns 400 if the experiment is not running or is already paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        paused_experiment = service.pause_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(paused_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Resume a paused experiment.
+
+        Reactivates the linked feature flag so it is returned by /decide again.
+        Users are re-bucketed deterministically into the same variants they had
+        before the pause, and exposure tracking resumes.
+        Returns 400 if the experiment is not running or is not paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        resumed_experiment = service.resume_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def reset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reset an experiment back to draft state.
+
+        Clears start/end dates, conclusion, and archived flag. The feature
+        flag is left unchanged — users continue to see their assigned variants.
+
+        Previously collected events still exist but won't be included in
+        results unless the start date is manually adjusted after re-launch.
+
+        Returns 400 if the experiment is already in draft state.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        reset_experiment = service.reset_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(reset_experiment, context=self.get_serializer_context()).data)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:

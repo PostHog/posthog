@@ -12,6 +12,15 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 
+def get_webhook_url(hog_function_id: str) -> str:
+    webhooks_host = {
+        "US": "https://webhooks.us.posthog.com",
+        "EU": "https://webhooks.eu.posthog.com",
+        "DEV": "https://app.dev.posthog.dev",
+    }.get((settings.CLOUD_DEPLOYMENT or "").upper(), settings.SITE_URL)
+    return f"{webhooks_host}/public/webhooks/dwh/{hog_function_id}"
+
+
 @dataclasses.dataclass
 class WebhookSetupResult:
     success: bool
@@ -104,13 +113,7 @@ def get_or_create_webhook_hog_function(
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
-    webhooks_host = {
-        "US": "https://webhooks.us.posthog.com",
-        "EU": "https://webhooks.eu.posthog.com",
-        "DEV": "https://app.dev.posthog.dev",
-    }.get((settings.CLOUD_DEPLOYMENT or "").upper(), settings.SITE_URL)
-
-    webhook_url = f"{webhooks_host}/public/webhooks/dwh/{hog_function.id}"
+    webhook_url = get_webhook_url(hog_function.id)
 
     return WebhookHogFunctionCreateResult(
         hog_function=hog_function, webhook_url=webhook_url, hog_function_created=created

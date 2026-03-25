@@ -204,6 +204,14 @@ class ActionSerializer(
         if attrs.get("pinned_at") == "":
             attrs["pinned_at"] = None
 
+        # Check for empty name - this must come before uniqueness check
+        name = attrs.get("name")
+        if name is not None and not name.strip():
+            raise serializers.ValidationError(
+                {"name": "This field may not be blank."},
+                code="blank",
+            )
+
         if "name" in attrs:
             colliding_action_ids = list(
                 Action.objects.filter(name=attrs["name"], deleted=False, **include_args)
