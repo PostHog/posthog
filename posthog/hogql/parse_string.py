@@ -19,9 +19,7 @@ _BACKSLASH_ESCAPE_MAP: dict[str, str] = {
 
 def replace_common_escape_characters(text: str) -> str:
     # Single-pass left-to-right scan so that an escaped backslash (\\)
-    # is consumed before the next character is inspected.  The previous
-    # sequential-str.replace implementation processed \\\\ last, which
-    # meant \\n was mis-parsed as \<newline> instead of \n.
+    # is consumed before the next character is inspected.
     parts: list[str] = []
     i = 0
     length = len(text)

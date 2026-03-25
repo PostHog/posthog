@@ -10,9 +10,7 @@ string replace_common_escape_characters(string text) {
   // https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/util/escape.py#L9
   //
   // Single-pass left-to-right scan so that an escaped backslash (\\)
-  // is consumed before the next character is inspected.  The previous
-  // sequential replace_all approach processed \\\\ last, which meant
-  // \\n was mis-parsed as \<newline> instead of \n.
+  // is consumed before the next character is inspected.
   string result;
   result.reserve(text.size());
   size_t i = 0;

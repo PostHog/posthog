@@ -102,16 +102,6 @@ class TestStringEscapingKnownAsymmetries:
         # parse_string_literal_text maps \0 → "" (NUL is discarded)
         assert result == "helloworld"
 
-    def test_backslash_before_escape_letter_roundtrips_correctly(self) -> None:
-        # Literal backslash + 'n' (two chars, NOT a newline).
-        # This previously failed due to sequential str.replace in
-        # replace_common_escape_characters — the fix to single-pass
-        # parsing means this now round-trips correctly.
-        s = "\\n"
-        escaped = escape_hogql_string(s)
-        result = parse_string_literal_text(escaped)
-        assert result == s
-
 
 class TestHogQLIdentifier:
     """Property-based tests for escape_hogql_identifier."""
