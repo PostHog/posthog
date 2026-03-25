@@ -8,8 +8,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.schema import ProductKey
+
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 
 
 @dataclasses.dataclass(frozen=True)
@@ -80,6 +83,7 @@ def fetch_log_entries(
         WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}"}
     """
 
+    tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
     return [LogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
 
