@@ -24,6 +24,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
+from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
@@ -351,6 +352,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.cohort_type = None
                 cohort_type_cleared = True
 
+            # Update version inside the try block so it can't be skipped by finally exceptions.
+            # Conditional filter preserves concurrency safety: lower versions don't overwrite higher ones.
+            version_update_fields: dict[str, Any] = {"version": pending_version, "count": count}
+            if cohort_type_cleared:
+                version_update_fields["cohort_type"] = None
+            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+                **version_update_fields
+            )
+
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.last_error_at = None
@@ -376,13 +386,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # This prevents the flag from being reset while other higher-version calculations are still running
             self._safe_reset_calculating_state(completed_version=pending_version)
 
-        # Update filter to match pending version if still valid
-        update_fields = {"version": pending_version, "count": count}
-        if cohort_type_cleared:
-            update_fields["cohort_type"] = None
-        Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-            **update_fields
-        )
         self.refresh_from_db()
 
         logger.info(
@@ -410,8 +413,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if not distinct_ids:
             return []
 
-        # Get person_ids for this batch of distinct IDs
+        # Get person UUIDs for this batch of distinct IDs.
         # This is limited to the batch size so it will be no more than 1000 items in-memory at a time.
+        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
+        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
+        # don't insert people that are already in the cohort efficiently.
+        from posthog.personhog_client.gate import use_personhog
+
+        if use_personhog():
+            persons = get_persons_by_distinct_ids(team_id, list(distinct_ids))
+            return [str(person.uuid) for person in persons]
+
+        # ORM path: lightweight values_list queries — no full model instantiation
         person_ids_qs = (
             PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id, distinct_id__in=distinct_ids)
@@ -419,18 +432,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             .distinct()
         )
 
-        # Grab uuids for this batch of distinct IDs
-        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
-        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
-        # don't insert people that are already in the cohort efficiently.
-        uuids = [
+        return [
             str(uuid)
             for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id, id__in=person_ids_qs)
             .values_list("uuid", flat=True)
         ]
-
-        return uuids
 
     def insert_users_by_list(
         self,
@@ -762,7 +769,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         try:
             # Get person by UUID
-            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
+            person = get_person_by_uuid(team_id, str(user_uuid))
+            if person is None:
+                raise Person.DoesNotExist
 
             # Check if person is in the cohort in PostgreSQL
             cohort_person = CohortPeople.objects.filter(

@@ -175,6 +175,13 @@ pub struct Config {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
+
+    // Internal API for signal emission
+    #[envconfig(default = "")]
+    pub signals_api_base_url: String,
+
+    #[envconfig(default = "")]
+    pub internal_api_secret: String,
 }
 
 impl Config {

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import { getSeriesBackgroundColor } from 'lib/colors'
@@ -17,11 +18,14 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType } from '~/types'
 
+import { InsightLegendRowContextMenu } from './InsightLegendRowContextMenu'
+
 type InsightLegendRowProps = {
     item: IndexedTrendResult
+    readOnly?: boolean
 }
 
-export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
+export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { baseCurrency } = useValues(teamLogic)
@@ -35,8 +39,15 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
         getTrendsColor,
         getTrendsHidden,
         resultCustomizationBy,
+        indexedResults,
+        areAllSeriesVisible,
+        showLegendIsolateSeriesItem,
+        legendSeriesIsolationMenuEligible,
+        getIsOnlyVisibleSeriesInLegend,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleResultHidden } = useActions(trendsDataLogic(insightProps))
+    const { toggleResultHidden, toggleOtherSeriesHidden, toggleAllResultsHidden } = useActions(
+        trendsDataLogic(insightProps)
+    )
 
     let highlighted = false
     if (highlightedSeries) {
@@ -72,8 +83,12 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
     const isHidden = getTrendsHidden(item)
     const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
-    return (
-        <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
+    const isOnlyThisVisible = getIsOnlyVisibleSeriesInLegend(item)
+
+    const showSeriesIsolationMenu = !readOnly && legendSeriesIsolationMenuEligible
+
+    const row = (
+        <div className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
             <div className="grow">
                 <LemonCheckbox
                     className="text-xs mr-4"
@@ -121,5 +136,36 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                 </div>
             )}
         </div>
+    )
+
+    if (!showSeriesIsolationMenu) {
+        return row
+    }
+
+    return (
+        <InsightLegendRowContextMenu
+            areAllSeriesVisible={areAllSeriesVisible}
+            showLegendIsolateSeriesItem={showLegendIsolateSeriesItem}
+            isHidden={isHidden}
+            isOnlyThisVisible={isOnlyThisVisible}
+            onToggleOtherSeries={() => {
+                posthog.capture('insight_legend_context_menu', {
+                    action: isOnlyThisVisible ? 'show_all_series' : 'hide_other_series',
+                    source: 'isolate_row',
+                    series_count: indexedResults.length,
+                })
+                toggleOtherSeriesHidden(item)
+            }}
+            onToggleAllSeries={() => {
+                posthog.capture('insight_legend_context_menu', {
+                    action: areAllSeriesVisible ? 'hide_all_series' : 'show_all_series',
+                    source: 'toggle_all_row',
+                    series_count: indexedResults.length,
+                })
+                toggleAllResultsHidden(indexedResults, areAllSeriesVisible)
+            }}
+        >
+            {row}
+        </InsightLegendRowContextMenu>
     )
 }

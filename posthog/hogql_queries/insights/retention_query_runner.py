@@ -408,6 +408,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 properties_chain = ["person", property_name]
             else:
                 properties_chain = ["person", "properties", property_name]
+        elif breakdown_type == "data_warehouse_person_property":
+            properties_chain = ["person", *property_name.split(".")]
         elif breakdown_type == "group":
             if property_name.startswith("$virt_"):
                 # Virtual properties exist as expression fields on the groups table

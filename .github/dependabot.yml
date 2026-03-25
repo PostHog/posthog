@@ -76,9 +76,7 @@ updates:
               patterns:
                   - 'dlt'
                   - 'google-cloud-bigquery'
-                  - 'sqlalchemy-bigquery'
                   - 'snowflake-connector-python'
-                  - 'snowflake-sqlalchemy'
                   - 'databricks-sql-connector'
                   - 'databricks-sdk'
                   - 'simple-salesforce'

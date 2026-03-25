@@ -2,32 +2,6 @@
 # name: TestRelatedGroupsQuery.test_control_query
   '''
   
-  SELECT DISTINCT $group_1 AS group_key
-  FROM events e
-  JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 99999
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) pdi on e.distinct_id = pdi.distinct_id
-  JOIN
-    (SELECT group_key
-     FROM groups
-     WHERE team_id = 99999
-       AND group_type_index = 1
-     GROUP BY group_key) groups ON $group_1 = groups.group_key
-  WHERE team_id = 99999
-    AND timestamp > '2024-12-01T12:00:00.000000'
-    AND timestamp < '2025-03-01T12:00:00.000000'
-    AND group_key != ''
-    AND pdi.person_id = '00000000-0000-4000-8000-000000000000'
-  ORDER BY group_key
-  '''
-# ---
-# name: TestRelatedGroupsQuery.test_control_query.1
-  '''
-  
   SELECT DISTINCT $group_0 AS group_key
   FROM events e
   JOIN
@@ -51,32 +25,10 @@
   ORDER BY group_key
   '''
 # ---
-# name: TestRelatedGroupsQuery.test_optimized_query
+# name: TestRelatedGroupsQuery.test_control_query.1
   '''
   
-  SELECT DISTINCT group_type_index,
-                  group_key
-  FROM groups
-  WHERE team_id = 99999
-    AND group_type_index IN [1, 0]
-    AND (group_type_index,
-         group_key) IN
-      (SELECT tuples.1 AS group_type_index,
-              tuples.2 AS group_key
-       FROM events e ARRAY
-       JOIN arrayFilter(x -> x.2 != '', [(toUInt8(1), e.$group_1), (toUInt8(0), e.$group_0)]) AS tuples
-       WHERE team_id = 99999
-         AND e.timestamp > '2024-12-01T12:00:00.000000'
-         AND e.timestamp < '2025-03-01T12:00:00.000000'
-         AND e.person_id = '00000000-0000-4000-8000-000000000000' )
-  ORDER BY group_type_index,
-           group_key
-  '''
-# ---
-# name: TestRelatedPersonsQuery.test_query_related_people_control
-  '''
-  
-  SELECT DISTINCT pdi.person_id
+  SELECT DISTINCT $group_1 AS group_key
   FROM events e
   JOIN
     (SELECT distinct_id,
@@ -85,17 +37,6 @@
      WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) pdi on e.distinct_id = pdi.distinct_id
-  WHERE team_id = 99999
-    AND timestamp > '2024-12-01T12:00:00.000000'
-    AND timestamp < '2025-03-01T12:00:00.000000'
-    AND $group_0 = 'org:1'
-  '''
-# ---
-# name: TestRelatedPersonsQuery.test_query_related_people_control.1
-  '''
-  
-  SELECT DISTINCT $group_1 AS group_key
-  FROM events e
   JOIN
     (SELECT group_key
      FROM groups
@@ -106,11 +47,33 @@
     AND timestamp > '2024-12-01T12:00:00.000000'
     AND timestamp < '2025-03-01T12:00:00.000000'
     AND group_key != ''
-    AND $group_0 = 'org:1'
+    AND pdi.person_id = '00000000-0000-4000-8000-000000000000'
   ORDER BY group_key
   '''
 # ---
-# name: TestRelatedPersonsQuery.test_query_related_people_optimized
+# name: TestRelatedGroupsQuery.test_optimized_query
+  '''
+  
+  SELECT DISTINCT group_type_index,
+                  group_key
+  FROM groups
+  WHERE team_id = 99999
+    AND group_type_index IN [0, 1]
+    AND (group_type_index,
+         group_key) IN
+      (SELECT tuples.1 AS group_type_index,
+              tuples.2 AS group_key
+       FROM events e ARRAY
+       JOIN arrayFilter(x -> x.2 != '', [(toUInt8(0), e.$group_0), (toUInt8(1), e.$group_1)]) AS tuples
+       WHERE team_id = 99999
+         AND e.timestamp > '2024-12-01T12:00:00.000000'
+         AND e.timestamp < '2025-03-01T12:00:00.000000'
+         AND e.person_id = '00000000-0000-4000-8000-000000000000' )
+  ORDER BY group_type_index,
+           group_key
+  '''
+# ---
+# name: TestRelatedPersonsQuery.test_query_related_people
   '''
   
   SELECT DISTINCT argMax(person_id, version) AS person_id
@@ -127,7 +90,7 @@
   HAVING argMax(is_deleted, version) = 0
   '''
 # ---
-# name: TestRelatedPersonsQuery.test_query_related_people_optimized.1
+# name: TestRelatedPersonsQuery.test_query_related_people.1
   '''
   
   SELECT DISTINCT $group_1 AS group_key

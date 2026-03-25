@@ -232,6 +232,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotations__',
     '__doc__',
     '__module__',
     '__repr__',
@@ -349,6 +350,7 @@
     'last_refresh',
     'objects',
     'objects_including_soft_deleted',
+    'prepare_move_to_dashboard',
     'refresh_attempt',
     'refreshing',
     'save',

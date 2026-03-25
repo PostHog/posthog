@@ -16,6 +16,8 @@ import {
     InsightLogicProps,
     InsightShortId,
     InsightType,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
     StepOrderValue,
 } from '~/types'
@@ -257,6 +259,109 @@ describe('insightNavLogic', () => {
                         },
                     } as Node),
                 ])
+            })
+
+            it('does not restore removed global filters when switching insight types', async () => {
+                const trendsQueryWithGlobalFilters: InsightVizNode<TrendsQuery> = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        properties: [
+                            {
+                                key: '$browser',
+                                type: PropertyFilterType.Event,
+                                value: 'Chrome',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        trendsFilter: { showValuesOnSeries: true },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithGlobalFilters)
+                }).toMatchValues({
+                    queryPropertyCache: expect.objectContaining({
+                        properties: [
+                            expect.objectContaining({
+                                key: '$browser',
+                                value: 'Chrome',
+                            }),
+                        ],
+                    }),
+                })
+
+                await expectLogic(logic, () => {
+                    const trendsQueryWithoutGlobalFilters: InsightVizNode<TrendsQuery> = {
+                        ...trendsQueryWithGlobalFilters,
+                        source: {
+                            ...trendsQueryWithGlobalFilters.source,
+                            properties: undefined,
+                        },
+                    }
+
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithoutGlobalFilters)
+                }).toMatchValues({
+                    queryPropertyCache: expect.not.objectContaining({
+                        properties: expect.anything(),
+                    }),
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                expect((builtInsightDataLogic.values.query as InsightVizNode).source).not.toMatchObject({
+                    properties: expect.anything(),
+                })
+            })
+
+            it('keeps trends-only filters when switching away and back', async () => {
+                const trendsQueryWithTrendLine: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        trendsFilter: {
+                            showTrendLines: true,
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithTrendLine)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        trendsFilter: expect.objectContaining({
+                            showTrendLines: true,
+                        }),
+                    },
+                })
             })
 
             it('gets rid of minute when leaving trends', async () => {

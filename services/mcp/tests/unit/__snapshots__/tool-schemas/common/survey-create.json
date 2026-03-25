@@ -591,6 +591,17 @@
                             ],
                             "description": "Group type index for group-based feature flags."
                         },
+                        "feature_enrollment": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}."
+                        },
                         "groups": {
                             "description": "Release condition groups for the feature flag.",
                             "items": {

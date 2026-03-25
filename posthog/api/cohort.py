@@ -69,6 +69,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
@@ -523,12 +524,7 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         if request.FILES.get("csv") or person_ids:
             if person_ids:
-                uuids = [
-                    str(uuid)
-                    for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                    .filter(team_id=self.context["team_id"], uuid__in=person_ids)
-                    .values_list("uuid", flat=True)
-                ]
+                uuids = validate_person_uuids_exist(self.context["team_id"], person_ids)
                 cohort.insert_users_list_by_uuid(uuids, team_id=self.context["team_id"])
             if request.FILES.get("csv"):
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
@@ -1264,12 +1260,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_ids cannot be empty")
         if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
             raise ValidationError("List size exceeds limit")
-        uuids = [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=self.team_id, uuid__in=person_ids)
-            .values_list("uuid", flat=True)
-        ]
+        uuids = validate_person_uuids_exist(self.team_id, person_ids)
         if len(uuids) == 0:
             raise ValidationError("No valid users to add to cohort")
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
