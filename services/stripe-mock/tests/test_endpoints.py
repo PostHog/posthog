@@ -1,4 +1,7 @@
 import pytest
+from unittest.mock import patch
+
+from stripe_mock.config import ErrorConfig
 
 
 class TestHealthEndpoint:
@@ -149,3 +152,28 @@ class TestWebhookEndpoints:
 
         list_resp = client.get("/v1/webhook_endpoints")
         assert not any(w["id"] == wh_id for w in list_resp.json()["data"])
+
+
+class TestErrorInjection:
+    def test_error_injection_returns_configured_status(self, client):
+        errors = {"/v1/charges": ErrorConfig(status=500, message="Boom", rate=1.0)}
+        with patch("stripe_mock.main.mock_config") as cfg:
+            cfg.errors = errors
+            resp = client.get("/v1/charges?limit=1")
+            assert resp.status_code == 500
+            assert resp.json()["error"]["message"] == "Boom"
+
+    def test_error_injection_does_not_affect_other_routes(self, client):
+        errors = {"/v1/charges": ErrorConfig(status=500, message="Boom", rate=1.0)}
+        with patch("stripe_mock.main.mock_config") as cfg:
+            cfg.errors = errors
+            resp = client.get("/v1/products?limit=1")
+            assert resp.status_code == 200
+
+    def test_zero_rate_never_triggers(self, client):
+        errors = {"/v1/charges": ErrorConfig(status=500, message="Boom", rate=0.0)}
+        with patch("stripe_mock.main.mock_config") as cfg:
+            cfg.errors = errors
+            for _ in range(10):
+                resp = client.get("/v1/charges?limit=1")
+                assert resp.status_code == 200

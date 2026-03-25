@@ -3,13 +3,10 @@ from PostHog's external_table_definitions.py for that resource type."""
 
 import random
 import calendar
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 RNG = random.Random(42)
-
-DATA_START = datetime(2024, 3, 1, tzinfo=UTC)
-NOW = datetime(2026, 3, 1, tzinfo=UTC)
 
 
 def ts(dt: datetime) -> int:

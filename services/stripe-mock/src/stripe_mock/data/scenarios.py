@@ -2,14 +2,14 @@
 
 Each scenario function returns a dict[str, list[dict]] mapping collection names
 to lists of Stripe-like objects. The `revenue_analytics` scenario mirrors the
-StreamHog generator script's persona model.
+StreamHog generator script's persona model. All scenarios are driven by MockConfig.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
+from stripe_mock.config import MockConfig, mock_config
 from stripe_mock.data.generators import (
-    DATA_START,
-    NOW,
     RNG,
     add_months,
     make_account,
@@ -31,7 +31,6 @@ from stripe_mock.data.generators import (
     ts,
 )
 
-# Counters for globally unique IDs across all object types
 _id_counters: dict[str, int] = {}
 
 
@@ -40,77 +39,38 @@ def _next_id(prefix: str) -> int:
     return _id_counters[prefix]
 
 
-# ---------------------------------------------------------------------------
-# Product catalog (shared across scenarios)
-# ---------------------------------------------------------------------------
-
-TIERS = ["basic", "standard", "premium"]
-
-TIER_PRICES = {
-    "basic": {
-        "monthly_usd": 699,
-        "yearly_usd": 6999,
-        "monthly_eur": 649,
-        "yearly_eur": 6499,
-        "monthly_gbp": 499,
-        "yearly_gbp": 4999,
-        "monthly_jpy": 790,
-        "yearly_jpy": 7900,
-    },
-    "standard": {
-        "monthly_usd": 1549,
-        "yearly_usd": 15499,
-        "monthly_eur": 1299,
-        "yearly_eur": 12999,
-        "monthly_gbp": 1099,
-        "yearly_gbp": 10999,
-        "monthly_jpy": 1780,
-        "yearly_jpy": 17800,
-    },
-    "premium": {
-        "monthly_usd": 2299,
-        "yearly_usd": 22999,
-        "monthly_eur": 1999,
-        "yearly_eur": 19999,
-        "monthly_gbp": 1799,
-        "yearly_gbp": 17999,
-        "monthly_jpy": 2980,
-        "yearly_jpy": 29800,
-    },
-}
-
-CURRENCIES = ["usd", "eur", "gbp", "jpy"]
-INTERVALS = ["month", "year"]
+def _dt(d) -> datetime:
+    """Convert a date to a timezone-aware datetime."""
+    return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
 
-def _build_catalog() -> tuple[list[dict], list[dict], dict[str, str], dict[str, str]]:
-    """Build products + prices. Returns (products, prices, price_lookup, product_lookup).
-    price_lookup: "standard_usd_month" -> "price_000000000007"
-    product_lookup: "standard" -> "prod_000000000002"
-    """
+def _get_price(cfg: MockConfig, tier: str, currency: str, interval: str) -> int:
+    tier_prices = cfg.products.prices.get(tier)
+    if not tier_prices:
+        return 0
+    key = f"{'monthly' if interval == 'month' else 'yearly'}_{currency}"
+    return getattr(tier_prices, key, 0)
+
+
+def _build_catalog(cfg: MockConfig) -> tuple[list[dict], list[dict], dict[str, str], dict[str, str]]:
     products = []
     prices = []
     price_lookup: dict[str, str] = {}
     product_lookup: dict[str, str] = {}
+    start = _dt(cfg.start_date)
 
-    for tier in TIERS:
+    for tier in cfg.products.tiers:
         p_idx = _next_id("prod")
-        prod = make_product(p_idx, DATA_START, name=f"StreamHog {tier.title()}", description=f"StreamHog {tier} plan")
+        prod = make_product(p_idx, start, name=f"StreamHog {tier.title()}", description=f"StreamHog {tier} plan")
         products.append(prod)
         product_lookup[tier] = prod["id"]
 
-        for currency in CURRENCIES:
-            for interval in INTERVALS:
+        for currency in cfg.products.currencies:
+            for interval in cfg.products.intervals:
                 pr_idx = _next_id("price")
-                key = f"{interval}ly_{currency}" if interval == "year" else f"monthly_{currency}"
-                unit_amount = TIER_PRICES[tier][key]
+                unit_amount = _get_price(cfg, tier, currency, interval)
                 price = make_price(
-                    pr_idx,
-                    DATA_START,
-                    product_id=prod["id"],
-                    currency=currency,
-                    interval=interval,
-                    unit_amount=unit_amount,
+                    pr_idx, start, product_id=prod["id"], currency=currency, interval=interval, unit_amount=unit_amount
                 )
                 prices.append(price)
                 price_lookup[f"{tier}_{currency}_{interval}"] = price["id"]
@@ -119,9 +79,10 @@ def _build_catalog() -> tuple[list[dict], list[dict], dict[str, str], dict[str, 
 
 
 class ScenarioBuilder:
-    """Accumulates Stripe objects while building a scenario."""
-
-    def __init__(self):
+    def __init__(self, cfg: MockConfig):
+        self.cfg = cfg
+        self.data_start = _dt(cfg.start_date)
+        self.data_end = _dt(cfg.end_date)
         self.customers: list[dict] = []
         self.subscriptions: list[dict] = []
         self.invoices: list[dict] = []
@@ -177,15 +138,17 @@ class ScenarioBuilder:
         refund_at_month: tuple[int, bool, int | None] | None = None,
         trial_days: int = 0,
         coupon_percent_off: int | None = None,
-        metadata: dict | None = None,
+        persona_metadata: dict | None = None,
     ):
-        start_date = add_months(DATA_START, start_month_offset)
-        if start_date > NOW:
+        start_date = add_months(self.data_start, start_month_offset)
+        if start_date > self.data_end:
             return
+
+        merged_metadata = {**self.cfg.customer_metadata, **(persona_metadata or {})}
 
         cust_idx = _next_id("cus")
         customer = make_customer(
-            cust_idx, start_date, name=name, email=email, currency=currency, metadata=metadata or {}
+            cust_idx, start_date, name=name, email=email, currency=currency, metadata=merged_metadata
         )
         self.customers.append(customer)
 
@@ -198,7 +161,7 @@ class ScenarioBuilder:
         if not price_id:
             return
 
-        unit_amount = TIER_PRICES[tier][f"{'monthly' if interval == 'month' else 'yearly'}_{currency}"]
+        unit_amount = _get_price(self.cfg, tier, currency, interval)
         product_id = self.product_lookup[tier]
 
         sub_idx = _next_id("sub")
@@ -211,7 +174,7 @@ class ScenarioBuilder:
             currency=currency,
             interval=interval,
             product_id=product_id,
-            metadata=metadata or {},
+            metadata=merged_metadata,
         )
         if trial_days > 0:
             from datetime import timedelta
@@ -223,16 +186,17 @@ class ScenarioBuilder:
 
         self.subscriptions.append(sub)
 
-        months_from_start = (NOW.year - start_date.year) * 12 + (NOW.month - start_date.month)
+        months_from_start = (self.data_end.year - start_date.year) * 12 + (self.data_end.month - start_date.month)
         current_tier = tier
         current_interval = interval
         is_cancelled = False
+        fee_pct = self.cfg.stripe_fee_percent
+        fee_fixed = self.cfg.stripe_fee_fixed_cents
 
         for month in range(0, months_from_start + 1):
             invoice_date = add_months(start_date, month)
-            if invoice_date > NOW:
+            if invoice_date > self.data_end:
                 break
-
             if is_cancelled:
                 break
 
@@ -247,9 +211,7 @@ class ScenarioBuilder:
                 resub_idx = _next_id("sub")
                 current_price_key = f"{current_tier}_{currency}_{current_interval}"
                 current_price_id = self.price_lookup.get(current_price_key, price_id)
-                current_amount = TIER_PRICES[current_tier][
-                    f"{'monthly' if current_interval == 'month' else 'yearly'}_{currency}"
-                ]
+                current_amount = _get_price(self.cfg, current_tier, currency, current_interval)
                 sub = make_subscription(
                     resub_idx,
                     invoice_date,
@@ -264,9 +226,7 @@ class ScenarioBuilder:
 
             if upgrade_to_tier_at_month and month == upgrade_to_tier_at_month[0]:
                 current_tier = upgrade_to_tier_at_month[1]
-                new_amount = TIER_PRICES[current_tier][
-                    f"{'monthly' if current_interval == 'month' else 'yearly'}_{currency}"
-                ]
+                new_amount = _get_price(self.cfg, current_tier, currency, current_interval)
                 new_price_key = f"{current_tier}_{currency}_{current_interval}"
                 new_price_id = self.price_lookup.get(new_price_key, price_id)
                 sub["items"]["data"][0]["price"]["id"] = new_price_id
@@ -275,9 +235,7 @@ class ScenarioBuilder:
 
             if downgrade_to_tier_at_month and month == downgrade_to_tier_at_month[0]:
                 current_tier = downgrade_to_tier_at_month[1]
-                new_amount = TIER_PRICES[current_tier][
-                    f"{'monthly' if current_interval == 'month' else 'yearly'}_{currency}"
-                ]
+                new_amount = _get_price(self.cfg, current_tier, currency, current_interval)
                 new_price_key = f"{current_tier}_{currency}_{current_interval}"
                 new_price_id = self.price_lookup.get(new_price_key, price_id)
                 sub["items"]["data"][0]["price"]["id"] = new_price_id
@@ -286,7 +244,7 @@ class ScenarioBuilder:
 
             if switch_to_yearly_at_month and month == switch_to_yearly_at_month:
                 current_interval = "year"
-                unit_amount = TIER_PRICES[current_tier][f"yearly_{currency}"]
+                unit_amount = _get_price(self.cfg, current_tier, currency, "year")
 
             if is_cancelled:
                 continue
@@ -334,9 +292,10 @@ class ScenarioBuilder:
             )
             self.charges.append(charge)
 
+            fee = int(invoice_amount * fee_pct / 100) + fee_fixed
             txn_idx = _next_id("txn")
             bal_txn = make_balance_transaction(
-                txn_idx, invoice_date, amount=invoice_amount, currency=currency, source=charge["id"]
+                txn_idx, invoice_date, amount=invoice_amount, fee=fee, currency=currency, source=charge["id"]
             )
             self.balance_transactions.append(bal_txn)
 
@@ -348,7 +307,6 @@ class ScenarioBuilder:
                     ref_idx, invoice_date, amount=refund_amount, currency=currency, charge_id=charge["id"]
                 )
                 self.refunds.append(refund)
-
                 ref_txn_idx = _next_id("txn")
                 ref_bal_txn = make_balance_transaction(
                     ref_txn_idx,
@@ -367,255 +325,299 @@ class ScenarioBuilder:
                 break
 
 
-def build_revenue_analytics() -> dict[str, list[dict[str, Any]]]:
-    """Full StreamHog dataset (~50 customers, ~24 months of data)."""
+# ---------------------------------------------------------------------------
+# Persona name pools
+# ---------------------------------------------------------------------------
+
+LOYAL_MONTHLY_NAMES = [
+    ("Alice Johnson", "alice.johnson@example.com", "basic"),
+    ("Bob Smith", "bob.smith@example.com", "standard"),
+    ("Carol Williams", "carol.williams@example.com", "premium"),
+    ("David Brown", "david.brown@example.com", "basic"),
+    ("Eve Davis", "eve.davis@example.com", "standard"),
+    ("Frank Miller", "frank.miller@example.com", "premium"),
+    ("Grace Wilson", "grace.wilson@example.com", "basic"),
+    ("Henry Moore", "henry.moore@example.com", "standard"),
+    ("Iris Taylor", "iris.taylor@example.com", "premium"),
+    ("Jack Anderson", "jack.anderson@example.com", "basic"),
+    ("Karen Thomas", "karen.thomas@example.com", "standard"),
+    ("Leo Martinez", "leo.martinez@example.com", "premium"),
+    ("Monica Rivera", "monica.rivera@example.com", "basic"),
+    ("Nick Patel", "nick.patel@example.com", "standard"),
+    ("Opal Greene", "opal.greene@example.com", "premium"),
+]
+
+LOYAL_ANNUAL_NAMES = [
+    ("Maria Garcia", "maria.garcia@example.com", "standard"),
+    ("Nathan Lee", "nathan.lee@example.com", "premium"),
+    ("Olivia Kim", "olivia.kim@example.com", "basic"),
+    ("Peter Chen", "peter.chen@example.com", "premium"),
+    ("Quinn Davis", "quinn.davis@example.com", "standard"),
+    ("Rachel Park", "rachel.park@example.com", "standard"),
+    ("Steve Nguyen", "steve.nguyen@example.com", "basic"),
+    ("Tara Lopez", "tara.lopez@example.com", "premium"),
+]
+
+CHURNER_NAMES = [
+    ("Sam Turner", "sam.turner@example.com", "basic"),
+    ("Tina Roberts", "tina.roberts@example.com", "standard"),
+    ("Uma Phillips", "uma.phillips@example.com", "premium"),
+    ("Vince Campbell", "vince.campbell@example.com", "basic"),
+    ("Wendy Reed", "wendy.reed@example.com", "standard"),
+    ("Xavier Cook", "xavier.cook@example.com", "basic"),
+    ("Yuki Sato", "yuki.sato@example.com", "standard"),
+    ("Zara Mitchell", "zara.mitchell@example.com", "premium"),
+    ("Andy Cross", "andy.cross@example.com", "basic"),
+    ("Bella Ford", "bella.ford@example.com", "standard"),
+]
+
+EUR_NAMES = [
+    ("Lars Eriksson", "lars.eriksson@example.se", "standard"),
+    ("Marie Dubois", "marie.dubois@example.fr", "premium"),
+    ("Paolo Rossi", "paolo.rossi@example.it", "basic"),
+    ("Sophie Müller", "sophie.mueller@example.de", "standard"),
+    ("Ana Fernández", "ana.fernandez@example.es", "basic"),
+    ("Johan Berg", "johan.berg@example.se", "premium"),
+    ("Elisa Conti", "elisa.conti@example.it", "standard"),
+]
+
+GBP_NAMES = [
+    ("Oliver Wright", "oliver.wright@example.co.uk", "premium"),
+    ("Charlotte Hill", "charlotte.hill@example.co.uk", "standard"),
+    ("James Scott", "james.scott@example.co.uk", "basic"),
+    ("Emma Clark", "emma.clark@example.co.uk", "premium"),
+]
+
+JPY_NAMES = [
+    ("Kenji Tanaka", "kenji.tanaka@example.jp", "standard"),
+    ("Yui Nakamura", "yui.nakamura@example.jp", "premium"),
+    ("Haruto Suzuki", "haruto.suzuki@example.jp", "basic"),
+    ("Sakura Yamamoto", "sakura.yamamoto@example.jp", "standard"),
+    ("Ren Watanabe", "ren.watanabe@example.jp", "premium"),
+]
+
+LATE_JOINER_NAMES = [
+    ("Yolanda Late", "yolanda.late@example.com", "standard", "usd"),
+    ("Zach Late", "zach.late@example.com", "premium", "usd"),
+    ("Aaron Late", "aaron.late@example.com", "basic", "usd"),
+    ("Beth Late", "beth.late@example.com", "standard", "eur"),
+    ("Carl Late", "carl.late@example.com", "basic", "usd"),
+    ("Donna Late", "donna.late@example.com", "premium", "gbp"),
+    ("Ethan Late", "ethan.late@example.com", "standard", "usd"),
+    ("Faith Late", "faith.late@example.com", "premium", "usd"),
+    ("Greg Late", "greg.late@example.com", "basic", "jpy"),
+    ("Holly Late", "holly.late@example.com", "standard", "usd"),
+    ("Ivan Late", "ivan.late@example.com", "premium", "eur"),
+    ("Julia Late", "julia.late@example.com", "basic", "usd"),
+    ("Kyle Late", "kyle.late@example.com", "standard", "gbp"),
+    ("Luna Late", "luna.late@example.com", "premium", "jpy"),
+    ("Marco Late", "marco.late@example.com", "basic", "eur"),
+]
+
+
+def build_from_config(cfg: MockConfig | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Build a scenario driven entirely by MockConfig."""
+    cfg = cfg or mock_config
     _id_counters.clear()
-    RNG.seed(42)
+    RNG.seed(cfg.seed)
 
-    b = ScenarioBuilder()
-
-    products, prices, b.price_lookup, b.product_lookup = _build_catalog()
+    b = ScenarioBuilder(cfg)
+    products, prices, b.price_lookup, b.product_lookup = _build_catalog(cfg)
     b.products = products
     b.prices = prices
+    b.accounts = [make_account(1, _dt(cfg.start_date))]
 
-    b.accounts = [make_account(1, DATA_START)]
+    ct = cfg.customer_types
+    tiers = cfg.products.tiers
 
-    # --- Loyalists (12 monthly) ---
-    loyal_monthly = [
-        ("Alice Johnson", "alice.johnson@example.com", "basic"),
-        ("Bob Smith", "bob.smith@example.com", "standard"),
-        ("Carol Williams", "carol.williams@example.com", "premium"),
-        ("David Brown", "david.brown@example.com", "basic"),
-        ("Eve Davis", "eve.davis@example.com", "standard"),
-        ("Frank Miller", "frank.miller@example.com", "premium"),
-        ("Grace Wilson", "grace.wilson@example.com", "basic"),
-        ("Henry Moore", "henry.moore@example.com", "standard"),
-        ("Iris Taylor", "iris.taylor@example.com", "premium"),
-        ("Jack Anderson", "jack.anderson@example.com", "basic"),
-        ("Karen Thomas", "karen.thomas@example.com", "standard"),
-        ("Leo Martinez", "leo.martinez@example.com", "premium"),
-    ]
-    for name, email, tier in loyal_monthly:
-        b.add_customer_lifecycle(name, email, tier, "usd", "month", metadata={"persona": "loyal"})
+    # Loyalists (monthly)
+    for i in range(ct.get("loyalists_monthly", 0)):
+        name, email, tier = LOYAL_MONTHLY_NAMES[i % len(LOYAL_MONTHLY_NAMES)]
+        if i >= len(LOYAL_MONTHLY_NAMES):
+            name, email = f"Loyal Monthly {i}", f"loyal.monthly.{i}@example.com"
+        b.add_customer_lifecycle(name, email, tier, "usd", "month", persona_metadata={"persona": "loyal"})
 
-    # --- Annual loyalists (6) ---
-    annual = [
-        ("Maria Garcia", "maria.garcia@example.com", "standard"),
-        ("Nathan Lee", "nathan.lee@example.com", "premium"),
-        ("Olivia Kim", "olivia.kim@example.com", "basic"),
-        ("Peter Chen", "peter.chen@example.com", "premium"),
-        ("Quinn Davis", "quinn.davis@example.com", "standard"),
-        ("Rachel Park", "rachel.park@example.com", "standard"),
-    ]
-    for name, email, tier in annual:
-        b.add_customer_lifecycle(name, email, tier, "usd", "year", metadata={"persona": "annual_loyal"})
+    # Loyalists (annual)
+    for i in range(ct.get("loyalists_annual", 0)):
+        name, email, tier = LOYAL_ANNUAL_NAMES[i % len(LOYAL_ANNUAL_NAMES)]
+        if i >= len(LOYAL_ANNUAL_NAMES):
+            name, email = f"Loyal Annual {i}", f"loyal.annual.{i}@example.com"
+        b.add_customer_lifecycle(name, email, tier, "usd", "year", persona_metadata={"persona": "annual_loyal"})
 
-    # --- Churners (8 personas) ---
-    churners = [
-        ("Sam Turner", "sam.turner@example.com", "basic", 3),
-        ("Tina Roberts", "tina.roberts@example.com", "standard", 5),
-        ("Uma Phillips", "uma.phillips@example.com", "premium", 1),
-        ("Vince Campbell", "vince.campbell@example.com", "basic", 7),
-        ("Wendy Reed", "wendy.reed@example.com", "standard", 2),
-        ("Xavier Cook", "xavier.cook@example.com", "basic", 4),
-        ("Yuki Sato", "yuki.sato@example.com", "standard", 6),
-        ("Zara Mitchell", "zara.mitchell@example.com", "premium", 9),
-    ]
-    for name, email, tier, cancel_month in churners:
+    # Churners
+    churn_months = cfg.churn_months
+    for i in range(ct.get("churners", 0)):
+        name, email, tier = CHURNER_NAMES[i % len(CHURNER_NAMES)]
+        if i >= len(CHURNER_NAMES):
+            name, email = f"Churner {i}", f"churner.{i}@example.com"
+        cancel_month = churn_months[i % len(churn_months)]
         b.add_customer_lifecycle(
-            name, email, tier, "usd", "month", cancel_at_month=cancel_month, metadata={"persona": "churner"}
+            name, email, tier, "usd", "month", cancel_at_month=cancel_month, persona_metadata={"persona": "churner"}
         )
 
-    # --- On-and-off (resubscribers) ---
-    b.add_customer_lifecycle(
-        "Amy Bounceback",
-        "amy.bounceback@example.com",
-        "standard",
-        "usd",
-        "month",
-        cancel_at_month=4,
-        resubscribe_at_month=8,
-        metadata={"persona": "on_and_off"},
-    )
-
-    # --- Upgraders / Downgraders ---
-    b.add_customer_lifecycle(
-        "Diana Climber",
-        "diana.climber@example.com",
-        "basic",
-        "usd",
-        "month",
-        upgrade_to_tier_at_month=(6, "standard"),
-        metadata={"persona": "upgrader"},
-    )
-    b.add_customer_lifecycle(
-        "Edward Saver",
-        "edward.saver@example.com",
-        "premium",
-        "usd",
-        "month",
-        downgrade_to_tier_at_month=(5, "standard"),
-        metadata={"persona": "downgrader"},
-    )
-    b.add_customer_lifecycle(
-        "Fiona Switcher",
-        "fiona.switcher@example.com",
-        "standard",
-        "usd",
-        "month",
-        switch_to_yearly_at_month=8,
-        metadata={"persona": "interval_switcher"},
-    )
-
-    # --- Coupon users ---
-    b.add_customer_lifecycle(
-        "Gina Welcome",
-        "gina.welcome@example.com",
-        "standard",
-        "usd",
-        "month",
-        coupon_percent_off=20,
-        metadata={"persona": "coupon_user"},
-    )
-    b.add_customer_lifecycle(
-        "Ingrid Beta",
-        "ingrid.beta@example.com",
-        "premium",
-        "usd",
-        "month",
-        coupon_percent_off=100,
-        metadata={"persona": "beta_tester"},
-    )
-    b.add_customer_lifecycle(
-        "James Employee",
-        "james.employee@streamhog.com",
-        "premium",
-        "usd",
-        "month",
-        coupon_percent_off=100,
-        metadata={"persona": "employee"},
-    )
-
-    # --- Multi-currency: EUR ---
-    eur_customers = [
-        ("Lars Eriksson", "lars.eriksson@example.se", "standard"),
-        ("Marie Dubois", "marie.dubois@example.fr", "premium"),
-        ("Paolo Rossi", "paolo.rossi@example.it", "basic"),
-        ("Sophie Müller", "sophie.mueller@example.de", "standard"),
-        ("Ana Fernández", "ana.fernandez@example.es", "basic"),
-    ]
-    for name, email, tier in eur_customers:
-        b.add_customer_lifecycle(name, email, tier, "eur", "month", metadata={"persona": "loyal", "segment": "europe"})
-
-    # --- Multi-currency: GBP ---
-    gbp_customers = [
-        ("Oliver Wright", "oliver.wright@example.co.uk", "premium"),
-        ("Charlotte Hill", "charlotte.hill@example.co.uk", "standard"),
-    ]
-    for name, email, tier in gbp_customers:
-        b.add_customer_lifecycle(name, email, tier, "gbp", "month", metadata={"persona": "loyal", "segment": "uk"})
-
-    # --- Multi-currency: JPY (zero-decimal) ---
-    jpy_customers = [
-        ("Kenji Tanaka", "kenji.tanaka@example.jp", "standard"),
-        ("Yui Nakamura", "yui.nakamura@example.jp", "premium"),
-        ("Haruto Suzuki", "haruto.suzuki@example.jp", "basic"),
-    ]
-    for name, email, tier in jpy_customers:
-        b.add_customer_lifecycle(name, email, tier, "jpy", "month", metadata={"persona": "loyal", "segment": "japan"})
-
-    # --- Refund recipients ---
-    b.add_customer_lifecycle(
-        "Tom Refunded",
-        "tom.refunded@example.com",
-        "standard",
-        "usd",
-        "month",
-        refund_at_month=(3, True, None),
-        metadata={"persona": "refund_recipient"},
-    )
-    b.add_customer_lifecycle(
-        "Ursula PartialRefund",
-        "ursula.partial@example.com",
-        "premium",
-        "usd",
-        "month",
-        refund_at_month=(6, False, 500),
-        metadata={"persona": "refund_recipient"},
-    )
-    b.add_customer_lifecycle(
-        "Victor RefundChurn",
-        "victor.refundchurn@example.com",
-        "standard",
-        "usd",
-        "month",
-        cancel_at_month=4,
-        refund_at_month=(4, True, None),
-        metadata={"persona": "refund_churner"},
-    )
-
-    # --- Trial users ---
-    b.add_customer_lifecycle(
-        "Wendy TrialConvert",
-        "wendy.trialconvert@example.com",
-        "standard",
-        "usd",
-        "month",
-        trial_days=7,
-        metadata={"persona": "trial_convert"},
-    )
-    b.add_customer_lifecycle(
-        "Xander TrialChurn",
-        "xander.trialchurn@example.com",
-        "premium",
-        "usd",
-        "month",
-        trial_days=14,
-        cancel_at_month=0,
-        metadata={"persona": "trial_churn"},
-    )
-
-    # --- Late joiners (staggered start) ---
-    late_joiners = [
-        ("Yolanda Late6", "yolanda.late6@example.com", 6, "standard", "usd"),
-        ("Zach Late12", "zach.late12@example.com", 12, "premium", "usd"),
-        ("Aaron Late3", "aaron.late3@example.com", 3, "basic", "usd"),
-        ("Beth Late9", "beth.late9@example.com", 9, "standard", "eur"),
-        ("Carl Late15", "carl.late15@example.com", 15, "basic", "usd"),
-        ("Donna Late18", "donna.late18@example.com", 18, "premium", "gbp"),
-        ("Ethan Late1", "ethan.late1@example.com", 1, "standard", "usd"),
-        ("Faith Late4", "faith.late4@example.com", 4, "premium", "usd"),
-        ("Greg Late7", "greg.late7@example.com", 7, "basic", "jpy"),
-        ("Holly Late10", "holly.late10@example.com", 10, "standard", "usd"),
-        ("Ivan Late20", "ivan.late20@example.com", 20, "premium", "eur"),
-    ]
-    for name, email, offset, tier, currency in late_joiners:
+    # Resubscribers
+    for i in range(ct.get("resubscribers", 0)):
         b.add_customer_lifecycle(
-            name, email, tier, currency, "month", start_month_offset=offset, metadata={"persona": "late_joiner"}
+            f"Resubscriber {i}",
+            f"resub.{i}@example.com",
+            tiers[1 % len(tiers)],
+            "usd",
+            "month",
+            cancel_at_month=4,
+            resubscribe_at_month=8,
+            persona_metadata={"persona": "on_and_off"},
         )
 
-    # --- Edge combos ---
-    b.add_customer_lifecycle(
-        "Inga UpgradeAnnual",
-        "inga.upgradeannual@example.com",
-        "basic",
-        "usd",
-        "year",
-        upgrade_to_tier_at_month=(6, "premium"),
-        metadata={"persona": "annual_upgrader"},
-    )
+    # Upgraders
+    for i in range(ct.get("upgraders", 0)):
+        b.add_customer_lifecycle(
+            f"Upgrader {i}",
+            f"upgrader.{i}@example.com",
+            tiers[0],
+            "usd",
+            "month",
+            upgrade_to_tier_at_month=(6, tiers[min(1, len(tiers) - 1)]),
+            persona_metadata={"persona": "upgrader"},
+        )
 
-    # --- Payouts (bi-weekly) ---
-    for month in range(0, 24):
-        payout_date = add_months(DATA_START, month)
-        if payout_date > NOW:
+    # Downgraders
+    for i in range(ct.get("downgraders", 0)):
+        b.add_customer_lifecycle(
+            f"Downgrader {i}",
+            f"downgrader.{i}@example.com",
+            tiers[-1],
+            "usd",
+            "month",
+            downgrade_to_tier_at_month=(5, tiers[min(1, len(tiers) - 1)]),
+            persona_metadata={"persona": "downgrader"},
+        )
+
+    # Interval switchers
+    for i in range(ct.get("interval_switchers", 0)):
+        b.add_customer_lifecycle(
+            f"Switcher {i}",
+            f"switcher.{i}@example.com",
+            tiers[1 % len(tiers)],
+            "usd",
+            "month",
+            switch_to_yearly_at_month=8,
+            persona_metadata={"persona": "interval_switcher"},
+        )
+
+    # Coupon users
+    coupon_configs = list(cfg.coupons.items())
+    for i in range(ct.get("coupon_users", 0)):
+        coupon_name, coupon_cfg = coupon_configs[i % len(coupon_configs)] if coupon_configs else ("NONE", None)
+        pct = coupon_cfg.percent_off if coupon_cfg else 0
+        b.add_customer_lifecycle(
+            f"Coupon User {i}",
+            f"coupon.{i}@example.com",
+            tiers[-1],
+            "usd",
+            "month",
+            coupon_percent_off=pct,
+            persona_metadata={"persona": "coupon_user", "coupon": coupon_name},
+        )
+
+    # Multi-currency EUR
+    for i in range(ct.get("multi_currency_eur", 0)):
+        name, email, tier = EUR_NAMES[i % len(EUR_NAMES)]
+        if i >= len(EUR_NAMES):
+            name, email = f"EUR Customer {i}", f"eur.{i}@example.com"
+        b.add_customer_lifecycle(
+            name, email, tier, "eur", "month", persona_metadata={"persona": "loyal", "segment": "europe"}
+        )
+
+    # Multi-currency GBP
+    for i in range(ct.get("multi_currency_gbp", 0)):
+        name, email, tier = GBP_NAMES[i % len(GBP_NAMES)]
+        if i >= len(GBP_NAMES):
+            name, email = f"GBP Customer {i}", f"gbp.{i}@example.com"
+        b.add_customer_lifecycle(
+            name, email, tier, "gbp", "month", persona_metadata={"persona": "loyal", "segment": "uk"}
+        )
+
+    # Multi-currency JPY
+    for i in range(ct.get("multi_currency_jpy", 0)):
+        name, email, tier = JPY_NAMES[i % len(JPY_NAMES)]
+        if i >= len(JPY_NAMES):
+            name, email = f"JPY Customer {i}", f"jpy.{i}@example.com"
+        b.add_customer_lifecycle(
+            name, email, tier, "jpy", "month", persona_metadata={"persona": "loyal", "segment": "japan"}
+        )
+
+    # Refund recipients
+    refund_configs = [(3, True, None), (6, False, 500), (4, True, None)]
+    for i in range(ct.get("refund_recipients", 0)):
+        refund_cfg = refund_configs[i % len(refund_configs)]
+        cancel = 4 if i == 2 else None
+        b.add_customer_lifecycle(
+            f"Refund Recipient {i}",
+            f"refund.{i}@example.com",
+            tiers[1 % len(tiers)],
+            "usd",
+            "month",
+            cancel_at_month=cancel,
+            refund_at_month=refund_cfg,
+            persona_metadata={"persona": "refund_recipient"},
+        )
+
+    # Trial users
+    trial_durations = cfg.trial_days
+    for i in range(ct.get("trial_users", 0)):
+        trial = trial_durations[i % len(trial_durations)]
+        cancel = 0 if i % 2 == 1 else None
+        b.add_customer_lifecycle(
+            f"Trial User {i}",
+            f"trial.{i}@example.com",
+            tiers[-1],
+            "usd",
+            "month",
+            trial_days=trial,
+            cancel_at_month=cancel,
+            persona_metadata={"persona": "trial_churn" if cancel is not None else "trial_convert"},
+        )
+
+    # Late joiners
+    offsets = cfg.late_joiner_offsets
+    for i in range(ct.get("late_joiners", 0)):
+        offset = offsets[i % len(offsets)]
+        if i < len(LATE_JOINER_NAMES):
+            name, email, tier, currency = LATE_JOINER_NAMES[i]
+        else:
+            tier = tiers[i % len(tiers)]
+            currency = cfg.products.currencies[i % len(cfg.products.currencies)]
+            name, email = f"Late Joiner {i}", f"late.{i}@example.com"
+        b.add_customer_lifecycle(
+            name, email, tier, currency, "month", start_month_offset=offset, persona_metadata={"persona": "late_joiner"}
+        )
+
+    # Edge combos
+    for i in range(ct.get("edge_combos", 0)):
+        b.add_customer_lifecycle(
+            f"Edge Combo {i}",
+            f"edge.{i}@example.com",
+            tiers[0],
+            "usd",
+            "year",
+            upgrade_to_tier_at_month=(6, tiers[-1]),
+            persona_metadata={"persona": "annual_upgrader"},
+        )
+
+    # --- Payouts ---
+    data_start = _dt(cfg.start_date)
+    data_end = _dt(cfg.end_date)
+    total_months = (data_end.year - data_start.year) * 12 + (data_end.month - data_start.month)
+    for month in range(0, total_months, cfg.payout_frequency_months):
+        payout_date = add_months(data_start, month)
+        if payout_date > data_end:
             break
         total_revenue = sum(c["amount"] for c in b.charges if abs(c["created"] - ts(payout_date)) < 30 * 86400)
         if total_revenue > 0:
             po_idx = _next_id("po")
             b.payouts.append(make_payout(po_idx, payout_date, amount=int(total_revenue * 0.97), currency="usd"))
 
-    # --- Credit notes (a few) ---
+    # --- Credit notes ---
     if len(b.invoices) > 5:
         for i in [3, 10]:
             if i < len(b.invoices):
@@ -624,7 +626,7 @@ def build_revenue_analytics() -> dict[str, list[dict[str, Any]]]:
                 b.credit_notes.append(
                     make_credit_note(
                         cn_idx,
-                        add_months(DATA_START, 2),
+                        add_months(data_start, 2),
                         amount=inv["total"],
                         currency=inv["currency"],
                         customer_id=inv["customer"],
@@ -632,37 +634,37 @@ def build_revenue_analytics() -> dict[str, list[dict[str, Any]]]:
                     )
                 )
 
-    # --- Customer balance transactions (a few) ---
+    # --- Customer balance transactions ---
     for cust in b.customers[:3]:
         cbt_idx = _next_id("cbt")
         b.customer_balance_transactions.append(
             make_customer_balance_transaction(
-                cbt_idx, add_months(DATA_START, 1), customer_id=cust["id"], currency=cust["currency"]
+                cbt_idx, add_months(data_start, 1), customer_id=cust["id"], currency=cust["currency"]
             )
         )
 
-    # --- Invoice items (prorations from upgrades) ---
+    # --- Invoice items (prorations) ---
     for sub in b.subscriptions:
         if sub.get("metadata", {}).get("persona") in ("upgrader", "annual_upgrader"):
             ii_idx = _next_id("ii")
             b.invoice_items.append(
                 make_invoice_item(
                     ii_idx,
-                    add_months(DATA_START, 6),
+                    add_months(data_start, 6),
                     customer_id=sub["customer"],
                     subscription_id=sub["id"],
                     proration=True,
                 )
             )
 
-    # --- Disputes (rare) ---
+    # --- Disputes ---
     if len(b.charges) > 20:
         dp_idx = _next_id("dp")
         target_charge = b.charges[15]
         b.disputes.append(
             make_dispute(
                 dp_idx,
-                add_months(DATA_START, 5),
+                add_months(data_start, 5),
                 amount=target_charge["amount"],
                 currency=target_charge["currency"],
                 charge_id=target_charge["id"],
@@ -673,59 +675,62 @@ def build_revenue_analytics() -> dict[str, list[dict[str, Any]]]:
 
 
 def build_basic() -> dict[str, list[dict[str, Any]]]:
-    """Minimal dataset for quick smoke testing."""
-    _id_counters.clear()
-    RNG.seed(42)
-
-    b = ScenarioBuilder()
-    products, prices, b.price_lookup, b.product_lookup = _build_catalog()
-    b.products = products
-    b.prices = prices
-    b.accounts = [make_account(1, DATA_START)]
-
-    names = [
-        ("Test User 1", "test1@example.com", "basic"),
-        ("Test User 2", "test2@example.com", "standard"),
-        ("Test User 3", "test3@example.com", "premium"),
-        ("Test User 4", "test4@example.com", "standard"),
-        ("Test User 5", "test5@example.com", "basic"),
-    ]
-    for name, email, tier in names:
-        b.add_customer_lifecycle(name, email, tier, "usd", "month")
-
-    return b.to_collections()
+    cfg = MockConfig(
+        customer_types={
+            "loyalists_monthly": 5,
+            "loyalists_annual": 0,
+            "churners": 0,
+            "resubscribers": 0,
+            "upgraders": 0,
+            "downgraders": 0,
+            "interval_switchers": 0,
+            "coupon_users": 0,
+            "multi_currency_eur": 0,
+            "multi_currency_gbp": 0,
+            "multi_currency_jpy": 0,
+            "refund_recipients": 0,
+            "trial_users": 0,
+            "late_joiners": 0,
+            "edge_combos": 0,
+        }
+    )
+    return build_from_config(cfg)
 
 
 def build_large() -> dict[str, list[dict[str, Any]]]:
-    """500+ customers for pagination stress testing."""
+    cfg = MockConfig(
+        customer_types={
+            "loyalists_monthly": 15,
+            "loyalists_annual": 8,
+            "churners": 10,
+            "resubscribers": 5,
+            "upgraders": 5,
+            "downgraders": 5,
+            "interval_switchers": 5,
+            "coupon_users": 5,
+            "multi_currency_eur": 7,
+            "multi_currency_gbp": 4,
+            "multi_currency_jpy": 5,
+            "refund_recipients": 5,
+            "trial_users": 5,
+            "late_joiners": 15,
+            "edge_combos": 5,
+        }
+    )
+    # Multiply by repeating with different seeds
     _id_counters.clear()
-    RNG.seed(42)
-
-    b = ScenarioBuilder()
-    products, prices, b.price_lookup, b.product_lookup = _build_catalog()
-    b.products = products
-    b.prices = prices
-    b.accounts = [make_account(1, DATA_START)]
-
-    for i in range(500):
-        tier = TIERS[i % 3]
-        currency = CURRENCIES[i % 4]
-        interval = INTERVALS[i % 2]
-        start_offset = i % 20
-        b.add_customer_lifecycle(
-            f"User {i}",
-            f"user{i}@example.com",
-            tier,
-            currency,
-            interval,
-            start_month_offset=start_offset,
-        )
-
-    return b.to_collections()
+    RNG.seed(cfg.seed)
+    all_collections: dict[str, list] = {}
+    for batch in range(5):
+        cfg_batch = cfg.model_copy(update={"seed": cfg.seed + batch})
+        batch_data = build_from_config(cfg_batch)
+        for key, items in batch_data.items():
+            all_collections.setdefault(key, []).extend(items)
+    return all_collections
 
 
 SCENARIOS: dict[str, Any] = {
     "basic": build_basic,
-    "revenue_analytics": build_revenue_analytics,
+    "revenue_analytics": lambda: build_from_config(),
     "large": build_large,
 }
