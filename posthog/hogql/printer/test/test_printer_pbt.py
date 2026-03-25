@@ -76,8 +76,18 @@ class TestStringEscapingStructure:
         inner = escape_fn(s)[1:-1]
         for i, ch in enumerate(inner):
             if ch == "'":
-                assert i > 0 and inner[i - 1] == "\\", (
-                    f"Unescaped single-quote at position {i} in escaped form: {inner!r}"
+                # Count consecutive backslashes immediately before this quote.
+                # An odd count means the quote itself is escaped (\');
+                # an even count means the backslashes pair off (\\) and the
+                # quote is bare — which would be a bug.
+                n_backslashes = 0
+                j = i - 1
+                while j >= 0 and inner[j] == "\\":
+                    n_backslashes += 1
+                    j -= 1
+                assert n_backslashes % 2 == 1, (
+                    f"Single-quote at position {i} preceded by {n_backslashes} "
+                    f"backslash(es) (even = unescaped) in: {inner!r}"
                 )
 
 
@@ -110,7 +120,7 @@ class TestHogQLIdentifier:
     def test_simple_identifiers_returned_bare(self, s: str) -> None:
         assert escape_hogql_identifier(s) == s
 
-    @given(n=st.integers(min_value=0, max_value=10_000))
+    @given(n=st.integers())
     def test_integer_identifiers(self, n: int) -> None:
         assert escape_hogql_identifier(n) == str(n)
 
