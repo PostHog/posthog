@@ -2,6 +2,7 @@ import base64
 import hashlib
 from urllib.parse import urlencode
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -66,67 +67,58 @@ def _mock_response(metadata: dict | None = None, status_code: int = 200, headers
     return resp
 
 
-class TestIsCimdClientId(APIBaseTest):
-    def test_https_url_with_path(self):
-        self.assertTrue(is_cimd_client_id("https://app.example.com/metadata.json"))
-
-    def test_https_url_with_deep_path(self):
-        self.assertTrue(is_cimd_client_id("https://app.example.com/.well-known/oauth-client-metadata.json"))
-
-    def test_http_url_rejected(self):
-        self.assertFalse(is_cimd_client_id("http://app.example.com/metadata.json"))
-
-    def test_uuid_rejected(self):
-        self.assertFalse(is_cimd_client_id("a1b2c3d4e5f6"))
-
-    def test_url_without_path_rejected(self):
-        self.assertFalse(is_cimd_client_id("https://example.com/"))
-        self.assertFalse(is_cimd_client_id("https://example.com"))
-
-    def test_url_with_fragment_rejected(self):
-        self.assertFalse(is_cimd_client_id("https://example.com/metadata.json#section"))
-
-    def test_url_with_userinfo_rejected(self):
-        self.assertFalse(is_cimd_client_id("https://user:pass@example.com/metadata.json"))
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://app.example.com/metadata.json", True),
+        ("https://app.example.com/.well-known/oauth-client-metadata.json", True),
+        ("http://app.example.com/metadata.json", False),
+        ("a1b2c3d4e5f6", False),
+        ("https://example.com/", False),
+        ("https://example.com", False),
+        ("https://example.com/metadata.json#section", False),
+        ("https://user:pass@example.com/metadata.json", False),
+        (None, False),
+    ],
+)
+def test_is_cimd_client_id(url, expected):
+    assert is_cimd_client_id(url) == expected
 
 
-class TestValidateCimdUrl(APIBaseTest):
-    @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-    def test_valid_url(self, _mock):
-        valid, error = validate_cimd_url(VALID_CIMD_URL)
-        self.assertTrue(valid)
-        self.assertIsNone(error)
+@pytest.mark.parametrize(
+    "url,expected_valid,expected_error_substring",
+    [
+        ("http://app.example.com/metadata.json", False, "HTTPS"),
+        ("https://example.com/", False, "path"),
+        ("https://example.com/metadata.json#frag", False, "fragment"),
+        ("https://user@example.com/metadata.json", False, "userinfo"),
+    ],
+)
+def test_validate_cimd_url_rejects_invalid(url, expected_valid, expected_error_substring):
+    valid, error = validate_cimd_url(url)
+    assert valid == expected_valid
+    assert expected_error_substring in error
 
-    def test_http_rejected(self):
-        valid, error = validate_cimd_url("http://app.example.com/metadata.json")
-        self.assertFalse(valid)
-        self.assertIn("HTTPS", error)
 
-    def test_no_path_rejected(self):
-        valid, error = validate_cimd_url("https://example.com/")
-        self.assertFalse(valid)
-        self.assertIn("path", error)
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+def test_validate_cimd_url_accepts_valid(_mock):
+    valid, error = validate_cimd_url(VALID_CIMD_URL)
+    assert valid is True
+    assert error is None
 
-    def test_fragment_rejected(self):
-        valid, error = validate_cimd_url("https://example.com/metadata.json#frag")
-        self.assertFalse(valid)
-        self.assertIn("fragment", error)
 
-    def test_userinfo_rejected(self):
-        valid, error = validate_cimd_url("https://user@example.com/metadata.json")
-        self.assertFalse(valid)
-        self.assertIn("userinfo", error)
-
-    @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(False, "Private IP address not allowed"))
-    def test_ssrf_private_ip_blocked(self, _mock):
-        valid, error = validate_cimd_url("https://10.0.0.1/metadata.json")
-        self.assertFalse(valid)
-        self.assertIn("Private IP", error)
-
-    @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(False, "Local/metadata host"))
-    def test_ssrf_metadata_host_blocked(self, _mock):
-        valid, error = validate_cimd_url("https://169.254.169.254/metadata.json")
-        self.assertFalse(valid)
+@pytest.mark.parametrize(
+    "mock_return,url,expected_error_substring",
+    [
+        ((False, "Private IP address not allowed"), "https://10.0.0.1/metadata.json", "Private IP"),
+        ((False, "Local/metadata host"), "https://169.254.169.254/metadata.json", "Local/metadata"),
+    ],
+)
+def test_validate_cimd_url_ssrf_blocked(mock_return, url, expected_error_substring):
+    with patch("posthog.api.oauth.cimd.is_url_allowed", return_value=mock_return):
+        valid, error = validate_cimd_url(url)
+        assert valid is False
+        assert expected_error_substring in error
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
@@ -390,13 +382,15 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         return base64.urlsafe_b64encode(digest).decode().replace("=", "")
 
     def _authorize_url(self, client_id: str, redirect_uri: str = "http://127.0.0.1:3000/callback") -> str:
-        params = urlencode({
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "code_challenge": self.code_challenge,
-            "code_challenge_method": "S256",
-        })
+        params = urlencode(
+            {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+            }
+        )
         return f"/oauth/authorize/?{params}"
 
     @patch("posthog.api.oauth.cimd.requests.get")

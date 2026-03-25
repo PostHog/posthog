@@ -21,7 +21,6 @@ from django.utils import timezone
 import requests
 import structlog
 import posthoganalytics
-from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import AbstractApplication
 
 from posthog.exceptions_capture import capture_exception
@@ -248,7 +247,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         name=client_name,
         redirect_uris=redirect_uris,
         client_type=AbstractApplication.CLIENT_PUBLIC,
-        client_secret=generate_client_secret(),
+        client_secret="",
         authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
         algorithm="RS256",
         skip_authorization=False,
@@ -262,7 +261,12 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
 
 def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:
-    """Update an existing OAuthApplication from refreshed CIMD metadata."""
+    """
+    Update an existing OAuthApplication from refreshed CIMD metadata.
+
+    On validation failure, refreshes from the database so the caller never
+    sees a partially-mutated in-memory object.
+    """
     client_name = metadata.get("client_name")
     if client_name:
         try:
@@ -271,8 +275,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
         except Exception:
             pass  # Keep existing name if new one is invalid
 
-    new_redirect_uris = " ".join(metadata["redirect_uris"])
-    app.redirect_uris = new_redirect_uris
+    app.redirect_uris = " ".join(metadata["redirect_uris"])
     app.logo_uri = metadata.get("logo_uri") or None
     app.cimd_metadata_last_fetched = timezone.now()
 
@@ -282,6 +285,8 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     except ValidationError as e:
         logger.warning("cimd_update_validation_failed", url=app.cimd_metadata_url, error=str(e))
         capture_exception(e)
+        # Refresh from DB so we don't return a mutated-but-unsaved object
+        app.refresh_from_db()
 
     return app
 
