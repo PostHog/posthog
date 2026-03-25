@@ -20,6 +20,7 @@ from posthog.schema import (
 from posthog.hogql_queries.experiments.breakdown_injector import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
+    get_experiment_query_debug,
     get_variant_result,
     get_variant_results,
     validate_variant_result,
@@ -994,3 +995,60 @@ class TestValidateVariantResult:
         # Should have NOT_ENOUGH_EXPOSURES validation failure
         assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES in result.validation_failures
+
+
+class TestGetExperimentQueryDebug:
+    """Tests for get_experiment_query_debug() which generates debug SQL."""
+
+    @pytest.mark.django_db
+    def test_generates_hogql_and_clickhouse_sql(self, team):
+        """Test that function generates both HogQL and ClickHouse SQL."""
+        from posthog.hogql import ast
+
+        # Create a simple query with a table that would use sensitive params
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+            ),
+        )
+
+        hogql, clickhouse_sql = get_experiment_query_debug(select_query, team)
+
+        # HogQL should be generated
+        assert hogql is not None
+        assert len(hogql) > 0
+
+        # ClickHouse SQL should be generated
+        assert clickhouse_sql is not None
+        assert len(clickhouse_sql) > 0
+
+        # Basic sanity check - should contain SQL keywords
+        assert "SELECT" in clickhouse_sql
+
+    @pytest.mark.django_db
+    def test_uses_display_substitution(self, team):
+        """Test that function uses substitute_params_for_display."""
+        from unittest.mock import patch
+
+        from posthog.hogql import ast
+
+        # Create a simple query
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+            ),
+        )
+
+        # Patch substitute_params_for_display to verify it's called
+        with patch("posthog.hogql_queries.experiments.utils.substitute_params_for_display") as mock_display:
+            mock_display.return_value = "SELECT 1 FROM events WHERE key = '[HIDDEN]'"
+
+            hogql, clickhouse_sql = get_experiment_query_debug(select_query, team)
+
+            # Verify that substitute_params_for_display was called (not the unsafe substitute_params)
+            mock_display.assert_called_once()
+
+            # Verify the result is what was returned by our mock
+            assert clickhouse_sql == "SELECT 1 FROM events WHERE key = '[HIDDEN]'"
