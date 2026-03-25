@@ -543,23 +543,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         role="radiogroup"
                                         aria-label="Flag type"
                                         data-attr="feature-flag-type"
-                                        onKeyDown={(e) => {
-                                            if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(e.key)) {
-                                                e.preventDefault()
-                                                const currentIndex = FLAG_TYPE_OPTIONS.findIndex(
-                                                    (o) => o.value === currentFlagType
-                                                )
-                                                const delta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1
-                                                const nextIndex =
-                                                    (currentIndex + delta + FLAG_TYPE_OPTIONS.length) %
-                                                    FLAG_TYPE_OPTIONS.length
-                                                onSelectFlagType(FLAG_TYPE_OPTIONS[nextIndex].value)
-                                                // Move focus to the newly selected card
-                                                const container = e.currentTarget
-                                                const cards = container.querySelectorAll<HTMLElement>('[role="radio"]')
-                                                cards[nextIndex]?.focus()
-                                            }
-                                        }}
                                     >
                                         {FLAG_TYPE_OPTIONS.map((option) => {
                                             const isSelected = currentFlagType === option.value
@@ -568,13 +551,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     key={option.value}
                                                     role="radio"
                                                     aria-checked={isSelected}
-                                                    tabIndex={isSelected ? 0 : -1}
+                                                    tabIndex={0}
                                                     className={`rounded p-3 cursor-pointer transition-colors ${
                                                         isSelected
                                                             ? 'bg-accent-highlight-light border-2 border-accent'
                                                             : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
                                                     }`}
                                                     onClick={() => onSelectFlagType(option.value)}
+                                                    onFocus={() => onSelectFlagType(option.value)}
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter' || e.key === ' ') {
                                                             e.preventDefault()
