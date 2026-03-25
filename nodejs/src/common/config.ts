@@ -157,6 +157,23 @@ export type CommonConfig = {
     POD_TERMINATION_JITTER_MINUTES: number
 }
 
+export type ExternalRequestConfig = Pick<
+    CommonConfig,
+    | 'EXTERNAL_REQUEST_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_CONNECTIONS'
+>
+
+export function getExternalRequestConfig(): ExternalRequestConfig {
+    return {
+        EXTERNAL_REQUEST_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 3000),
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
+        EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
+    }
+}
+
 export function getDefaultCommonConfig(): CommonConfig {
     return {
         // Observability

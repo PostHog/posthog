@@ -814,13 +814,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true").json()
         self.assertEqual(response["count"], 1)
 
-    def test_dashboard_items_history_saved(self):
-        self.dashboard_api.create_insight({"filters": {"hello": "test"}, "saved": True})
-        self.dashboard_api.create_insight({"filters": {"hello": "test"}})
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true&saved=true").json()
-        self.assertEqual(response["count"], 1)
-
     def test_dashboard_item_layout(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
 
@@ -1971,7 +1964,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "resolved_date_range": ANY,
                     "query_status": None,
                     "result": None,
-                    "saved": False,
+                    "saved": True,
                     "short_id": ANY,
                     "tags": [],
                     "timezone": None,

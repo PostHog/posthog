@@ -1770,6 +1770,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     null_constant["value"] = nullptr;
     json["right"] = std::move(null_constant);
     json["op"] = ctx->NOT() ? "!=" : "==";
+    json["is_null_comparison_style"] = true;
     return json;
   }
 

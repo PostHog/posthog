@@ -16,7 +16,6 @@ export type SessionRecordingApiConfig = {
     CLICKHOUSE_USER: string
     CLICKHOUSE_PASSWORD: string | undefined
     CLICKHOUSE_SECURE: boolean
-    CLICKHOUSE_CA: string | undefined
 }
 
 export type SessionRecordingConfig = {
@@ -80,7 +79,6 @@ export function getDefaultSessionRecordingApiConfig(): SessionRecordingApiConfig
         CLICKHOUSE_USER: 'default',
         CLICKHOUSE_PASSWORD: undefined,
         CLICKHOUSE_SECURE: false,
-        CLICKHOUSE_CA: undefined,
     }
 }
 

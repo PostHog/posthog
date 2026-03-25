@@ -2,7 +2,8 @@ use crate::api::errors::{simplify_serde_error, FlagError};
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
+    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
+    HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
@@ -22,6 +23,30 @@ impl FeatureFlagList {
         Self {
             flags,
             ..Default::default()
+        }
+    }
+
+    /// Pre-compiles all regex patterns in property filters across all flags.
+    /// Called once after deserialization, before evaluation begins.
+    pub fn prepare_regexes(&mut self) {
+        for flag in &mut self.flags {
+            Self::prepare_group_regexes(&mut flag.filters.groups);
+            // super_groups currently only use Exact operators (early access enrollment),
+            // so prepare_regex() will no-op for each filter. We walk them anyway for
+            // forward-compatibility if super_groups ever gain regex-based filters.
+            if let Some(super_groups) = &mut flag.filters.super_groups {
+                Self::prepare_group_regexes(super_groups);
+            }
+        }
+    }
+
+    fn prepare_group_regexes(groups: &mut [FlagPropertyGroup]) {
+        for group in groups {
+            if let Some(properties) = &mut group.properties {
+                for filter in properties.iter_mut() {
+                    filter.prepare_regex();
+                }
+            }
         }
     }
 
@@ -190,7 +215,8 @@ impl FeatureFlagList {
 mod tests {
     use super::*;
     use crate::{
-        flags::test_helpers::get_flags_from_redis,
+        flags::{flag_models::FlagFilters, test_helpers::get_flags_from_redis},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
             insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_invalid_pg_client,
             setup_redis_client, TestContext,
@@ -1026,5 +1052,73 @@ mod tests {
             result,
             Err(FlagError::DataParsingErrorWithContext(_))
         ));
+    }
+
+    #[test]
+    fn test_prepare_regexes_compiles_regex_filters_only() {
+        let mut flag_list = FeatureFlagList::new(vec![FeatureFlag {
+            id: 1,
+            team_id: 1,
+            name: None,
+            key: "test_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!(r"^test@.*\.com$")),
+                            operator: Some(OperatorType::Regex),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                        PropertyFilter {
+                            key: "name".to_string(),
+                            value: Some(json!("Alice")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout: None,
+            },
+            active: true,
+            deleted: false,
+            ensure_experience_continuity: None,
+            version: None,
+            evaluation_runtime: None,
+            evaluation_tags: None,
+            bucketing_identifier: None,
+        }]);
+
+        flag_list.prepare_regexes();
+
+        let props = flag_list.flags[0].filters.groups[0]
+            .properties
+            .as_ref()
+            .unwrap();
+        assert!(
+            matches!(
+                props[0].compiled_regex,
+                Some(crate::properties::property_models::CompiledRegex::Compiled(
+                    _
+                ))
+            ),
+            "Regex filter should have compiled regex"
+        );
+        assert!(
+            props[1].compiled_regex.is_none(),
+            "Exact filter should NOT have compiled regex"
+        );
     }
 }

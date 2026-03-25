@@ -7,9 +7,11 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
+use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result as CoordResult;
 use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
 use personhog_coordination::store::PersonhogStore;
+use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::{Config, RouterMode};
@@ -99,14 +101,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ComponentOptions::new().is_observability(true),
     );
 
-    // Only register coordination component in leader mode
-    let coordination_handle = if config.router_mode == RouterMode::Leader {
-        Some(manager.register(
-            "coordination",
+    // Only register coordination components in leader mode
+    let (routing_table_handle, coordinator_handle) = if config.router_mode == RouterMode::Leader {
+        let rt = manager.register(
+            "routing-table",
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
-        ))
+        );
+        let coord = manager.register(
+            "coordinator",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+        );
+        (Some(rt), Some(coord))
     } else {
-        None
+        (None, None)
     };
 
     let readiness = manager.readiness_handler();
@@ -213,17 +220,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             leader_backend: Arc::clone(&leader_backend),
         });
 
-        // Start coordination (etcd registration + routing table watches)
-        let coordination_handle =
-            coordination_handle.expect("coordination handle must be registered in leader mode");
+        // Start routing table (etcd registration + assignment/handoff watches)
+        let routing_table_handle =
+            routing_table_handle.expect("routing-table handle must be registered in leader mode");
 
         tokio::spawn(async move {
-            let _guard = coordination_handle.process_scope();
+            let _guard = routing_table_handle.process_scope();
             if let Err(e) = coordination_routing_table
-                .run(coordination_handle.shutdown_token(), cutover_handler)
+                .run(routing_table_handle.shutdown_token(), cutover_handler)
                 .await
             {
-                coordination_handle.signal_failure(format!("Coordination error: {e}"));
+                routing_table_handle.signal_failure(format!("Routing table error: {e}"));
+            }
+        });
+
+        // Start coordinator (leader election + partition assignment)
+        let coordinator_handle =
+            coordinator_handle.expect("coordinator handle must be registered in leader mode");
+        let coordinator = Coordinator::new(
+            store,
+            CoordinatorConfig {
+                name: config.pod_name.clone(),
+                leader_lease_ttl: config.coordinator_lease_ttl,
+                keepalive_interval: config.coordinator_keepalive_interval(),
+                election_retry_interval: config.coordinator_election_retry_interval(),
+                rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
+            },
+            Arc::new(StickyBalancedStrategy),
+        );
+
+        tokio::spawn(async move {
+            let _guard = coordinator_handle.process_scope();
+            if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
+                coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
             }
         });
 

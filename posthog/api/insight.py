@@ -542,6 +542,14 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
+
+        # Legacy insights, some API callers (e.g. MCP),
+        # and insights created from a template may have saved=False.
+        # The saved field is a vestige of a removed "insight history" feature (2020).
+        # Some functionalities (like search) depend on saved=True, so ensure any
+        # update corrects this for older records.
+        validated_data.setdefault("saved", True)
+
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
