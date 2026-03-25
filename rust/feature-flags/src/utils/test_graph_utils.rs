@@ -1425,6 +1425,7 @@ fn create_flag_with_deps(
                 prop_type: crate::properties::property_models::PropertyType::Flag,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
     }

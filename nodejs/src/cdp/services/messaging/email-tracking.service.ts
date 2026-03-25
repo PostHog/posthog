@@ -5,7 +5,6 @@ import { ModifiedRequest } from '~/api/router'
 import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
 import { parseJSON } from '~/utils/json-parse'
-import { captureException } from '~/utils/posthog'
 
 import { logger } from '../../../utils/logger'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
@@ -218,46 +217,22 @@ export class EmailTrackingService {
         }
     }
 
-    // NOTE: this is somewhat naieve. We should expand with UA checking for things like apple's tracking prevention etc.
-    public async handleEmailTrackingPixel(req: ModifiedRequest, res: express.Response): Promise<void> {
-        const { functionId, invocationId, actionId } = this.parseTrackingParams(req.query)
-
-        try {
-            await this.trackMetric({
-                functionId,
-                invocationId,
-                actionId,
-                metricName: 'email_opened',
-                source: 'direct',
-            })
-        } catch (error) {
-            logger.error('[EmailTrackingService] handleEmailTrackingPixel: Error tracking open metric', { error })
-            captureException(error)
-        }
-
+    // Metrics are not recorded here because SES webhooks already track opens.
+    // Recording here would double-count. The pixel is still served so email
+    // clients that load it get a valid response.
+    public handleEmailTrackingPixel(_req: ModifiedRequest, res: express.Response): void {
         res.status(200).set('Content-Type', 'image/gif').send(PIXEL_GIF)
     }
 
-    public async handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): Promise<void> {
-        const { functionId, invocationId, actionId } = this.parseTrackingParams(req.query)
+    // Metrics are not recorded here because SES webhooks already track clicks.
+    // Recording here would double-count. The redirect still works so users
+    // reach their destination.
+    public handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): void {
         const { target } = req.query
 
         if (!target) {
             res.status(404).send('Not found')
             return
-        }
-
-        try {
-            await this.trackMetric({
-                functionId,
-                invocationId,
-                actionId,
-                metricName: 'email_link_clicked',
-                source: 'direct',
-            })
-        } catch (error) {
-            logger.error('[EmailTrackingService] handleEmailTrackingRedirect: Error tracking metric', { error })
-            captureException(error)
         }
 
         res.redirect(target as string)

@@ -2058,6 +2058,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
             PropertyFilter {
                 key: "age".to_string(),
@@ -2066,6 +2067,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         ];
 
@@ -2081,6 +2083,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
             PropertyFilter {
                 key: "cohort".to_string(),
@@ -2089,6 +2092,7 @@ mod tests {
                 prop_type: PropertyType::Cohort,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         ];
 
@@ -2110,6 +2114,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
             PropertyFilter {
                 key: "missing_property".to_string(), // This property is NOT in overrides
@@ -2118,6 +2123,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         ];
 
@@ -2149,6 +2155,7 @@ mod tests {
             prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
+            compiled_regex: None,
         }];
 
         let result = locally_computable_property_overrides(&overrides, &flag_property_filters);
@@ -2197,6 +2204,7 @@ mod tests {
             prop_type: PropertyType::Flag,
             negation: None,
             group_type_index: None,
+            compiled_regex: None,
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
@@ -2214,6 +2222,7 @@ mod tests {
             prop_type: PropertyType::Flag,
             group_type_index: None,
             negation: None,
+            compiled_regex: None,
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
