@@ -36,14 +36,18 @@ def _find_person_id_filter(where: Optional[ast.Expr]) -> ast.CompareOperation:
 def _extract_person_distinct_ids_from_where(where: Optional[ast.Expr]) -> list[str]:
     """Extract distinct_id constants from the personId cityHash64 IN (...) filter."""
     expr = _find_person_id_filter(where)
-    return [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in expr.right.exprs]
+    rhs = expr.right
+    assert isinstance(rhs, ast.Tuple)
+    return [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in rhs.exprs]
 
 
 def _extract_distinct_id_field_chain(where: Optional[ast.Expr]) -> list[str | int]:
     """Extract the Field chain from inside cityHash64(...) in the personId filter."""
     expr = _find_person_id_filter(where)
-    assert len(expr.left.args) == 1
-    field = expr.left.args[0]
+    lhs = expr.left
+    assert isinstance(lhs, ast.Call)
+    assert len(lhs.args) == 1
+    field = lhs.args[0]
     assert isinstance(field, ast.Field)
     return field.chain
 

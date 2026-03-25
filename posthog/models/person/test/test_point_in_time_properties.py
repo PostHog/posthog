@@ -6,15 +6,19 @@ import json
 from datetime import UTC, datetime
 from typing import cast
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
+
+from parameterized import parameterized_class
 
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 
 class TestPointInTimeProperties(TestCase):
@@ -308,3 +312,52 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
 
             assert person is None
             assert dids == []
+
+
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestGetPersonAndDistinctIdsForIdentifierIntegration(PersonhogTestMixin, BaseTest):
+    def test_lookup_by_distinct_id(self):
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["d1", "d2"],
+            properties={"email": "test@example.com"},
+        )
+
+        result_person, result_dids = get_person_and_distinct_ids_for_identifier(self.team.pk, distinct_id="d1")
+
+        assert result_person is not None
+        assert str(result_person.uuid) == str(person.uuid)
+        assert result_person.properties == {"email": "test@example.com"}
+        assert set(result_dids) == {"d1", "d2"}
+        self._assert_personhog_called("get_person_by_distinct_id")
+
+    def test_lookup_by_person_id(self):
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["d1"],
+            properties={"name": "Test"},
+        )
+
+        result_person, result_dids = get_person_and_distinct_ids_for_identifier(
+            self.team.pk, person_id=str(person.uuid)
+        )
+
+        assert result_person is not None
+        assert str(result_person.uuid) == str(person.uuid)
+        assert result_dids == ["d1"]
+        self._assert_personhog_called("get_person_by_uuid")
+
+    def test_person_not_found(self):
+        result_person, result_dids = get_person_and_distinct_ids_for_identifier(self.team.pk, distinct_id="unknown")
+
+        assert result_person is None
+        assert result_dids == []
+
+    def test_cross_team_isolation(self):
+        other_team = self.organization.teams.create(name="Other Team")
+        self._seed_person(team=other_team, distinct_ids=["shared_did"])
+
+        result_person, result_dids = get_person_and_distinct_ids_for_identifier(self.team.pk, distinct_id="shared_did")
+
+        assert result_person is None
+        assert result_dids == []

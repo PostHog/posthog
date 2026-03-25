@@ -1,8 +1,9 @@
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 
 from posthog.models.person.util import (
     _fetch_person_by_distinct_id_via_personhog,
@@ -10,6 +11,7 @@ from posthog.models.person.util import (
     _fetch_person_by_uuid_via_personhog,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
+    _personhog_routed,
     _validate_uuids_via_personhog,
     get_person_by_distinct_id,
     get_person_by_id,
@@ -21,6 +23,7 @@ from posthog.models.person.util import (
     validate_person_uuids_exist,
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 # ── Routing tests ────────────────────────────────────────────────────
 # These use mocks to test gate/fallback/metrics logic in _personhog_routed.
@@ -876,20 +879,22 @@ class TestPersonsMappedByDistinctIdViaPersonhog(SimpleTestCase):
 class TestGetPersonByPkOrUuid(SimpleTestCase):
     @patch("posthog.models.person.util.get_person_by_uuid")
     def test_routes_uuid_key_to_get_person_by_uuid(self, mock_get_by_uuid):
-        mock_get_by_uuid.return_value = "mock_person"
+        mock_person = MagicMock()
+        mock_get_by_uuid.return_value = mock_person
 
         result = get_person_by_pk_or_uuid(1, "550e8400-e29b-41d4-a716-446655440000")
 
-        assert result == "mock_person"
+        assert result == mock_person
         mock_get_by_uuid.assert_called_once_with(1, "550e8400-e29b-41d4-a716-446655440000")
 
     @patch("posthog.models.person.util.get_person_by_id")
     def test_routes_int_key_to_get_person_by_id(self, mock_get_by_id):
-        mock_get_by_id.return_value = "mock_person"
+        mock_person = MagicMock()
+        mock_get_by_id.return_value = mock_person
 
         result = get_person_by_pk_or_uuid(1, "42")
 
-        assert result == "mock_person"
+        assert result == mock_person
         mock_get_by_id.assert_called_once_with(1, 42)
 
     def test_returns_none_for_invalid_key(self):
@@ -912,3 +917,114 @@ class TestGetPersonByPkOrUuid(SimpleTestCase):
         result = get_person_by_pk_or_uuid(1, "42")
 
         assert result is None
+
+
+# ── _personhog_routed unit tests ────────────────────────────────────
+
+
+class TestPersonhogRouted(SimpleTestCase):
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_calls_personhog_fn_and_increments_counter(self, mock_errors, mock_routing, _mock_gate):
+        result = _personhog_routed("test_op", lambda: "personhog_result", lambda: "orm_result", team_id=1)
+
+        assert result == "personhog_result"
+        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
+        mock_routing.labels.return_value.inc.assert_called_once()
+        mock_errors.labels.assert_not_called()
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=False)
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_gate_off_uses_orm_and_increments_counter(self, mock_errors, mock_routing, _mock_gate):
+        result = _personhog_routed("test_op", lambda: "personhog_result", lambda: "orm_result", team_id=1)
+
+        assert result == "orm_result"
+        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name="posthog-django")
+        mock_routing.labels.return_value.inc.assert_called_once()
+        mock_errors.labels.assert_not_called()
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_exception_falls_back_and_increments_both_counters(self, mock_errors, mock_routing, _mock_gate):
+        def failing_fn():
+            raise RuntimeError("grpc timeout")
+
+        result = _personhog_routed("test_op", failing_fn, lambda: "orm_result", team_id=1)
+
+        assert result == "orm_result"
+        # Error counter incremented
+        mock_errors.labels.assert_called_once_with(
+            operation="test_op", source="personhog", error_type="grpc_error", client_name="posthog-django"
+        )
+        mock_errors.labels.return_value.inc.assert_called_once()
+        # ORM routing counter incremented
+        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name="posthog-django")
+        mock_routing.labels.return_value.inc.assert_called()
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_returning_none_is_not_treated_as_failure(self, mock_errors, mock_routing, _mock_gate):
+        result = _personhog_routed("test_op", lambda: None, lambda: "orm_result", team_id=1)
+
+        assert result is None
+        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
+        mock_errors.labels.assert_not_called()
+
+
+# ── Integration tests (dual-path) ──────────────────────────────────
+
+
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestGetPersonsMappedByDistinctIdIntegration(PersonhogTestMixin, BaseTest):
+    def test_single_person_single_distinct_id(self):
+        person = self._seed_person(team=self.team, distinct_ids=["did-1"], properties={"email": "a@example.com"})
+
+        result = get_persons_mapped_by_distinct_id(self.team.pk, ["did-1"])
+
+        assert "did-1" in result
+        assert str(result["did-1"].uuid) == str(person.uuid)
+        assert result["did-1"].properties == {"email": "a@example.com"}
+        assert result["did-1"].distinct_ids == ["did-1"]
+        self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
+
+    def test_single_person_multiple_distinct_ids(self):
+        person = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
+
+        result = get_persons_mapped_by_distinct_id(self.team.pk, ["did-1", "did-2"])
+
+        # Both distinct_ids should map to the same person
+        assert str(result["did-1"].uuid) == str(person.uuid)
+        # Each entry should carry only the distinct_id that was used as the key
+        assert result["did-1"].distinct_ids == ["did-1"]
+        if self.personhog:
+            # Personhog path deduplicates by person_id, so only one entry
+            assert len(result) == 1
+        else:
+            assert len(result) == 2
+            assert result["did-2"].distinct_ids == ["did-2"]
+
+    def test_multiple_persons(self):
+        p1 = self._seed_person(team=self.team, distinct_ids=["alice"], properties={"name": "Alice"})
+        p2 = self._seed_person(team=self.team, distinct_ids=["bob"], properties={"name": "Bob"})
+
+        result = get_persons_mapped_by_distinct_id(self.team.pk, ["alice", "bob"])
+
+        assert str(result["alice"].uuid) == str(p1.uuid)
+        assert str(result["bob"].uuid) == str(p2.uuid)
+
+    def test_missing_distinct_ids_returns_empty(self):
+        result = get_persons_mapped_by_distinct_id(self.team.pk, ["nonexistent"])
+
+        assert result == {}
+
+    def test_cross_team_isolation(self):
+        other_team = self.organization.teams.create(name="Other Team")
+        self._seed_person(team=other_team, distinct_ids=["shared_did"])
+
+        result = get_persons_mapped_by_distinct_id(self.team.pk, ["shared_did"])
+
+        assert result == {}
