@@ -28,12 +28,16 @@ echo "Pulling core Docker images..."
 docker compose -f docker-compose.dev.yml -f docker-compose.codespace.yml pull --quiet &
 PID_DOCKER=$!
 
+echo "Installing sqlx-cli..."
+cargo install sqlx-cli@0.8.3 --no-default-features --features postgres &
+PID_SQLX=$!
+
 echo "Downloading GeoIP database..."
 (./bin/download-mmdb && chmod 0644 share/GeoLite2-City.mmdb 2>/dev/null || true) &
 PID_GEOIP=$!
 
 # Wait for all parallel tasks (fail if any fail)
-wait $PID_UV $PID_PNPM $PID_DOCKER $PID_GEOIP || {
+wait $PID_UV $PID_PNPM $PID_DOCKER $PID_GEOIP $PID_SQLX || {
     echo "One or more install steps failed"
     exit 1
 }

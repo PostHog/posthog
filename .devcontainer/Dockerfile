@@ -1,6 +1,6 @@
 # PostHog Codespaces development environment
 #
-# Lean image — devcontainer features handle Rust, Go, gh CLI, sshd, and
+# Lean image — devcontainer features handle Rust, gh CLI, sshd, and
 # Docker-in-Docker. This Dockerfile installs system deps, uv, Node, and
 # pre-installs Python + JS dependencies for faster startup.
 
