@@ -3,6 +3,13 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 impl FlagPropertyGroup {
+    /// Resolves the effective aggregation group type index for this condition,
+    /// falling back to the flag-level value for backwards compatibility with
+    /// flags that haven't been re-saved through the new API.
+    pub fn effective_aggregation(&self, flag_level: Option<i32>) -> Option<i32> {
+        self.aggregation_group_type_index.or(flag_level)
+    }
+
     /// Returns true if the group is rolled out to some percentage greater than 0.0
     pub fn is_rolled_out_to_some(&self) -> bool {
         self.rollout_percentage_unwrapped() > 0.0

@@ -8,6 +8,10 @@ impl FlagFilters {
     pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
         self.aggregation_group_type_index.is_some()
             || self
+                .groups
+                .iter()
+                .any(|group| group.aggregation_group_type_index.is_some())
+            || self
                 .super_groups
                 .as_ref()
                 .is_some_and(|groups| groups.iter().any(|g| g.requires_db_properties(overrides)))
