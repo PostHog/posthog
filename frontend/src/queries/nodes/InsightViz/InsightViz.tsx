@@ -9,6 +9,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -84,9 +85,7 @@ export function InsightViz({
 
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS')
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
-    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
     const isRetention = isRetentionQuery(query.source)
 
     const showIfFull = !!query.full
@@ -124,30 +123,50 @@ export function InsightViz({
             <BindLogic logic={insightLogic} props={insightProps}>
                 <BindLogic logic={insightDataLogic} props={insightProps}>
                     <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                                    <BindLogic     logic={insightVizDataLogic} props={insightProps}>
+                        <BindLogic logic={insightVizDataLogic} props={insightProps}>
                             <div
                                 className={
                                     !isEmbedded
                                         ? clsx('InsightViz', {
                                               'InsightViz--horizontal':
                                                   editorPanelsEnabled || isFunnels || isRetention || isHorizontalAlways,
-                                              'flex-1 !gap-0 h-[calc(100vh-4rem)] -mt-4 -mx-4 -mb-4 bg-surface-secondary': editorPanelsEnabled && editMode,
+                                              '!gap-0': editorPanelsEnabled,
+                                              'flex-1 h-[calc(100vh-4rem)] -mt-4 -mx-4 -mb-4 bg-surface-secondary':
+                                                  editorPanelsEnabled && editMode,
                                           })
                                         : 'InsightCard__viz'
                                 }
                             >
                                 {context?.sceneHeader && (
-                                    <div className="w-full shrink-0 px-4 py-2 [&_.-mt-4]:mt-0">{context.sceneHeader}</div>
-                                )}
-                                <EditorFilters
-                                    query={query.source}
-                                    showing={!readOnly && showingFilters}
-                                    embedded={isEmbedded}
-                                />
-                                {!isEmbedded ? (
-                                    <div className="flex-1 min-w-0 h-full flex flex-col">
-                                        <div className={clsx('flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden', context?.sceneHeader && 'p-4')}>{display}</div>
+                                    <div className="w-full shrink-0 px-4 pt-2 [&_.-mt-4]:mt-0">
+                                        {context.sceneHeader}
                                     </div>
+                                )}
+                                {editorPanelsEnabled ? (
+                                    <EditorFilters
+                                        query={query.source}
+                                        showing={!readOnly && showingFilters}
+                                        embedded={isEmbedded}
+                                    />
+                                ) : (
+                                    !readOnly && (
+                                        <EditorFilters
+                                            query={query.source}
+                                            showing={showingFilters}
+                                            embedded={isEmbedded}
+                                        />
+                                    )
+                                )}
+                                {!isEmbedded ? (
+                                    context?.sceneHeader ? (
+                                        <div className="flex-1 min-w-0 h-full flex flex-col">
+                                            <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden pt-2 px-4 pb-4">
+                                                {display}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex-1 h-full overflow-auto">{display}</div>
+                                    )
                                 ) : (
                                     display
                                 )}

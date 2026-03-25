@@ -48,7 +48,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: E
                         sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
                         title={isRowExpanded ? 'Show less' : 'Show more'}
                         data-attr={'editor-filter-group-collapse-' + slugify(title)}
-                        className="rounded-b-none"
+                        className={clsx('rounded-b-none', isRowExpanded && 'mb-1')}
                     >
                         <div className="flex items-center gap-2 font-semibold text-[13px]">
                             <span>{title}</span>
@@ -62,30 +62,39 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: E
                         <span className="text-[13px] font-semibold text-secondary">{title}</span>
                     </div>
                 )}
-                {isRowExpanded && (
-                    <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
-                        {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
-                            if (Component && Component.name === 'component') {
-                                throw new Error(
-                                    `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
+                <div
+                    className="grid transition-all duration-200 ease-in-out"
+                    style={{ gridTemplateRows: isRowExpanded ? '1fr' : '0fr' }}
+                >
+                    <div className="overflow-hidden">
+                        <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
+                            {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
+                                if (Component && Component.name === 'component') {
+                                    throw new Error(
+                                        `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
+                                    )
+                                }
+                                return (
+                                    <Fragment key={key}>
+                                        <LemonField.Pure
+                                            label={
+                                                typeof Label === 'function' ? (
+                                                    <Label insightProps={insightProps} />
+                                                ) : (
+                                                    Label
+                                                )
+                                            }
+                                            info={tooltip}
+                                            showOptional={showOptional}
+                                        >
+                                            {Component ? <Component insightProps={insightProps} /> : null}
+                                        </LemonField.Pure>
+                                    </Fragment>
                                 )
-                            }
-                            return (
-                                <Fragment key={key}>
-                                    <LemonField.Pure
-                                        label={
-                                            typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label
-                                        }
-                                        info={tooltip}
-                                        showOptional={showOptional}
-                                    >
-                                        {Component ? <Component insightProps={insightProps} /> : null}
-                                    </LemonField.Pure>
-                                </Fragment>
-                            )
-                        })}
+                            })}
+                        </div>
                     </div>
-                )}
+                </div>
             </div>
         )
     }

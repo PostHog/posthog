@@ -1,9 +1,10 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { CSSTransition } from 'react-transition-group'
 
-import { IconArrowLeft, IconInfo, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -28,16 +29,13 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -45,7 +43,6 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
 import {
     DataVisualizationNode,
     InsightQueryNode,
@@ -63,19 +60,9 @@ import {
     EditorFilterProps,
     InsightEditorFilter,
     InsightEditorFilterGroup,
-    InsightType,
     PathType,
     PropertyGroupFilter,
 } from '~/types'
-
-const INSIGHT_TYPE_TO_ICON_TYPE: Partial<Record<InsightType, FileSystemIconType>> = {
-    [InsightType.TRENDS]: 'insight/trends',
-    [InsightType.FUNNELS]: 'insight/funnels',
-    [InsightType.RETENTION]: 'insight/retention',
-    [InsightType.PATHS]: 'insight/paths',
-    [InsightType.STICKINESS]: 'insight/stickiness',
-    [InsightType.LIFECYCLE]: 'insight/lifecycle',
-}
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
@@ -94,13 +81,9 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
-    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const { insightProps } = useValues(insightLogic)
-    const { activeView, tabs } = useValues(insightNavLogic(insightProps))
-    const { setActiveView } = useActions(insightNavLogic(insightProps))
     const {
         isTrends,
         isFunnels,
@@ -124,6 +107,17 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
     const maxSuggestionActionsBanner = useRef<HTMLDivElement>(null)
+    const panelRef = useRef<HTMLDivElement>(null)
+    const resizerProps = useMemo(
+        () => ({
+            logicKey: 'insight-editor-panel',
+            persistent: true,
+            placement: 'right' as const,
+            containerRef: panelRef,
+        }),
+        []
+    )
+    const { desiredSize: panelWidth, isResizeInProgress: isResizing } = useValues(resizerLogic(resizerProps))
 
     useEffect(() => {
         if (previousQuery && maxSuggestionActionsBanner.current) {
@@ -241,6 +235,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Series',
+            ...(editorPanelsEnabled ? { defaultExpanded: true } : {}),
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
@@ -253,7 +248,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             : undefined,
                     component: TrendsSeries,
                 },
-                isTrends && hasFormula && display !== ChartDisplayType.BoxPlot
+                !editorPanelsEnabled && isTrends && hasFormula && display !== ChartDisplayType.BoxPlot
                     ? {
                           key: 'formula',
                           label: 'Formula',
@@ -490,27 +485,126 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
 
-    const panelRef = useRef<HTMLDivElement>(null)
-    const resizerProps = useMemo(
-        () => ({
-            logicKey: 'insight-editor-panel',
-            persistent: true,
-            placement: 'right' as const,
-            containerRef: panelRef,
-        }),
-        []
+    const maxToolProps = {
+        identifier: 'create_insight' as const,
+        context: { current_query: querySource },
+        contextDescription: { text: 'Current query', icon: <QueryTypeIcon /> },
+        callback: (
+            toolOutput: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+        ) => {
+            const source = castAssistantQuery(toolOutput)
+            if (!source) {
+                return
+            }
+            let node: QuerySchema
+            if (isHogQLQuery(source)) {
+                node = { kind: NodeKind.DataVisualizationNode, source } satisfies DataVisualizationNode
+            } else if (isInsightQueryNode(source)) {
+                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+            } else {
+                node = source
+            }
+            handleInsightSuggested(node)
+            setQuery(node)
+        },
+        initialMaxPrompt: 'Show me users who ',
+        active: maxToolActive,
+    }
+
+    const filterContent = (
+        <div
+            className={clsx(
+                '@container/editor',
+                editorPanelsEnabled ? 'flex flex-col gap-2' : 'flex flex-row flex-wrap gap-8 bg-surface-primary',
+                { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
+            )}
+        >
+            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                <div
+                    key={title}
+                    className={clsx(
+                        'flex flex-col max-w-full',
+                        editorPanelsEnabled ? 'gap-2' : 'gap-4 grow shrink basis-[28rem]'
+                    )}
+                >
+                    {editorFilterGroups.map((editorFilterGroup) => (
+                        <EditorFilterGroup
+                            key={editorFilterGroup.title}
+                            editorFilterGroup={editorFilterGroup}
+                            insightProps={insightProps}
+                            query={query}
+                            asTile={editorPanelsEnabled}
+                        />
+                    ))}
+                </div>
+            ))}
+        </div>
     )
-    const { desiredSize: panelWidth, isResizeInProgress: isResizing } = useValues(resizerLogic(resizerProps))
+
+    const suggestionBanner = previousQuery ? (
+        <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
+            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
+                <div className="text-sm text-muted flex items-center gap-2 no-wrap">
+                    <span className="size-2 bg-accent-active rounded-full" />
+                    {(() => {
+                        const changedLabels = compareInsightTopLevelSections(previousQuery, suggestedQuery)
+                        const diffString = `🔍 ${pluralize(
+                            changedLabels.length,
+                            'section'
+                        )} changed: \n${changedLabels.join('\n')}`
+                        return (
+                            <div className="flex items-center gap-1">
+                                <span>{pluralize(changedLabels.length, 'change')}</span>
+                                {diffString && (
+                                    <Tooltip title={<div className="whitespace-pre-line">{diffString}</div>}>
+                                        <IconInfo className="text-sm text-muted cursor-help" />
+                                    </Tooltip>
+                                )}
+                            </div>
+                        )
+                    })()}
+                </div>
+                <LemonButton
+                    status="danger"
+                    onClick={() => onRejectSuggestedInsight()}
+                    tooltipPlacement="top"
+                    size="small"
+                    icon={<IconX />}
+                >
+                    Reject changes
+                </LemonButton>
+            </div>
+        </div>
+    ) : null
+
+    const sessionWarning = shouldShowSessionAnalysisWarning ? (
+        <LemonBanner type="info" className="mb-4">
+            When using sessions and session properties, events without session IDs will be excluded from the set of
+            results. <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
+        </LemonBanner>
+    ) : null
+
+    if (!editorPanelsEnabled) {
+        return (
+            <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
+                <div className="EditorFiltersWrapper">
+                    {sessionWarning}
+                    <div>
+                        <MaxTool {...maxToolProps}>{filterContent}</MaxTool>
+                        {suggestionBanner}
+                    </div>
+                </div>
+            </CSSTransition>
+        )
+    }
 
     return (
         <div
             ref={panelRef}
             className={clsx(
-                'EditorFiltersWrapper relative self-stretch bg-surface-secondary overflow-y-auto',
+                'EditorFiltersWrapper relative self-stretch bg-surface-secondary',
                 isResizing ? '' : 'transition-all duration-300 ease-out',
-                showing
-                    ? 'opacity-100 px-3 py-2'
-                    : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
+                showing ? 'opacity-100' : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
             )}
             style={
                 showing && panelWidth
@@ -521,128 +615,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             }
         >
             {showing && <Resizer {...resizerProps} />}
-            {shouldShowSessionAnalysisWarning ? (
-                <LemonBanner type="info" className="mb-4">
-                    When using sessions and session properties, events without session IDs will be excluded from the set
-                    of results.{' '}
-                    <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
-                </LemonBanner>
-            ) : null}
-
-            <div>
-                <MaxTool
-                    identifier="create_insight"
-                    context={{
-                        current_query: querySource,
-                    }}
-                    contextDescription={{
-                        text: 'Current query',
-                        icon: <QueryTypeIcon />,
-                    }}
-                    callback={(
-                        toolOutput:
-                            | AssistantTrendsQuery
-                            | AssistantFunnelsQuery
-                            | AssistantRetentionQuery
-                            | AssistantHogQLQuery
-                    ) => {
-                        const source = castAssistantQuery(toolOutput)
-                        if (!source) {
-                            return
-                        }
-
-                        let node: QuerySchema
-                        if (isHogQLQuery(source)) {
-                            node = {
-                                kind: NodeKind.DataVisualizationNode,
-                                source,
-                            } satisfies DataVisualizationNode
-                        } else if (isInsightQueryNode(source)) {
-                            node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                        } else {
-                            node = source
-                        }
-
-                        handleInsightSuggested(node)
-                        setQuery(node)
-                    }}
-                    initialMaxPrompt="Show me users who "
-                    className="EditorFiltersWrapper__max-tool"
-                    active={maxToolActive}
-                >
-                    <div
-                        className={clsx(
-                            '@container/editor',
-                            editorPanelsEnabled
-                                ? 'flex flex-col gap-2'
-                                : 'flex flex-row flex-wrap gap-8 bg-surface-primary',
-                            { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
-                        )}
-                    >
-                        {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                            <div
-                                key={title}
-                                className={clsx(
-                                    'flex flex-col max-w-full',
-                                    editorPanelsEnabled ? 'gap-2' : 'gap-4 grow shrink basis-[28rem]'
-                                )}
-                            >
-                                {editorFilterGroups.map((editorFilterGroup) => (
-                                    <EditorFilterGroup
-                                        key={editorFilterGroup.title}
-                                        editorFilterGroup={editorFilterGroup}
-                                        insightProps={insightProps}
-                                        query={query}
-                                        asTile={editorPanelsEnabled}
-                                    />
-                                ))}
-                            </div>
-                        ))}
-                    </div>
-                </MaxTool>
-
-                {previousQuery && (
-                    <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
-                        <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
-                            <div className="text-sm text-muted flex items-center gap-2 no-wrap">
-                                <span className="size-2 bg-accent-active rounded-full" />
-                                {(() => {
-                                    const changedLabels = compareInsightTopLevelSections(previousQuery, suggestedQuery)
-                                    const diffString = `🔍 ${pluralize(
-                                        changedLabels.length,
-                                        'section'
-                                    )} changed: \n${changedLabels.join('\n')}`
-
-                                    return (
-                                        <div className="flex items-center gap-1">
-                                            <span>{pluralize(changedLabels.length, 'change')}</span>
-                                            {diffString && (
-                                                <Tooltip
-                                                    title={<div className="whitespace-pre-line">{diffString}</div>}
-                                                >
-                                                    <IconInfo className="text-sm text-muted cursor-help" />
-                                                </Tooltip>
-                                            )}
-                                        </div>
-                                    )
-                                })()}
-                            </div>
-
-                            <LemonButton
-                                status="danger"
-                                onClick={() => {
-                                    onRejectSuggestedInsight()
-                                }}
-                                tooltipPlacement="top"
-                                size="small"
-                                icon={<IconX />}
-                            >
-                                Reject changes
-                            </LemonButton>
-                        </div>
-                    </div>
-                )}
-            </div>
+            <MaxTool {...maxToolProps} className="h-full [&_button.absolute]:!-top-1 [&_button.absolute]:!-right-1">
+                <div className={clsx('h-full overflow-y-auto', showing && 'px-3 pt-2 pb-4')}>
+                    {sessionWarning}
+                    {filterContent}
+                    {suggestionBanner}
+                </div>
+            </MaxTool>
         </div>
     )
 }

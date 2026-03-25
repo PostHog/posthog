@@ -64,9 +64,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
-    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 

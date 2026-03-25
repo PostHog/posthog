@@ -41,9 +41,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
-    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const { push } = useActions(router)
 
@@ -98,7 +96,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 forceEdit={!editorPanelsEnabled && insightMode === ItemMode.Edit}
                 noBorder={editorPanelsEnabled && insightMode === ItemMode.Edit}
                 noPadding={editorPanelsEnabled && insightMode === ItemMode.Edit}
-                hideBackButton={editorPanelsEnabled && insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
                 saveOnBlur
                 descriptionMaxLength={400}

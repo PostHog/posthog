@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalculator } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -24,6 +23,7 @@ import { ChartDisplayType, FilterType } from '~/types'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { LifecycleSeriesHeader } from './LifecycleSeriesHeader'
+import { TrendsFormula } from './TrendsFormula'
 
 const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
@@ -39,9 +39,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
-    useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS') // keep hook call for rules-of-hooks
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -82,16 +80,16 @@ export function TrendsSeries(): JSX.Element | null {
         !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
 
     const formulaFooter = showFormulaOption ? (
-        <LemonButton
-            size="small"
-            onClick={() => toggleFormulaMode()}
+        <LemonSwitch
+            className="mt-2"
+            checked={hasFormula}
+            onChange={() => toggleFormulaMode()}
             disabled={hasFormula && !canDisableFormula}
-            icon={<IconCalculator />}
+            label="Formula mode"
+            bordered
             id="trends-formula-switch"
             data-attr="trends-formula-switch"
-        >
-            {hasFormula ? 'Remove formula' : 'Add formula'}
-        </LemonButton>
+        />
     ) : null
 
     return (
@@ -165,6 +163,7 @@ export function TrendsSeries(): JSX.Element | null {
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}
                 customFooter={formulaFooter}
             />
+            {editorPanelsEnabled && hasFormula && <TrendsFormula insightProps={insightProps} />}
         </>
     )
 }

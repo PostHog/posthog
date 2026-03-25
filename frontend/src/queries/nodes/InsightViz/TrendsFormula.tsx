@@ -22,7 +22,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     useEffect(() => {
         // Don't clear the formulas so that the values are still there after toggling the formula switch
-        if (formulaNodes) {
+        if (formulaNodes && formulaNodes.length > 0) {
             setValues(formulaNodes)
             // Merge incoming formulas with existing local fields, maintaining order
             setLocalValues((prev) => {
@@ -39,11 +39,9 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
             })
         } else if (hasFormula) {
             // Always ensure at least one empty value when formula mode is enabled
-            if (values.length === 0) {
-                const emptyNode = { formula: '' }
-                setValues([emptyNode])
-                setLocalValues([emptyNode])
-            }
+            const emptyNode = { formula: '' }
+            setValues([emptyNode])
+            setLocalValues([emptyNode])
         }
     }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
