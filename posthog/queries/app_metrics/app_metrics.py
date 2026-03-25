@@ -48,6 +48,7 @@ class AppMetricsQuery:
         self.filter = filter
 
     def run(self):
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         query, params = self.query()
         dates, successes, successes_on_retry, failures = sync_execute(query, params)[0]
         return {
@@ -122,6 +123,7 @@ class AppMetricsErrorsQuery(AppMetricsQuery):
     KEYS = ("error_type", "count", "last_seen")
 
     def run(self):
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         query, params = self.query()
         results = sync_execute(query, params)
 
@@ -142,6 +144,7 @@ class AppMetricsErrorDetailsQuery:
         self.filter = filter
 
     def run(self):
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         query, params = self.query()
         return list(map(self._parse_row, sync_execute(query, params)))
 
