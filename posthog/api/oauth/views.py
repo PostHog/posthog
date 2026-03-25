@@ -4,6 +4,7 @@ import hashlib
 import calendar
 from datetime import timedelta
 from typing import TypedDict, cast
+from urllib.parse import urlparse
 
 from django.http import JsonResponse
 from django.utils import timezone
@@ -11,6 +12,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+import posthoganalytics
 from oauth2_provider.compat import login_not_required
 from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
@@ -31,8 +33,17 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.oauth.cimd import (
+    CIMD_THROTTLES,
+    CIMDFetchError,
+    CIMDValidationError,
+    get_application_by_client_id,
+    get_or_create_cimd_application,
+    is_cimd_client_id,
+)
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.scopes import get_scope_descriptions
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
@@ -115,9 +126,121 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _is_dynamic_client(self, request) -> bool:
+        """Check if the client was registered dynamically (DCR or CIMD)."""
+        if hasattr(request, "client") and request.client:
+            return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
+        return False
+
+    def _load_application(self, client_id, request):
+        """
+        Load the application from the database, supporting CIMD URL-form client_ids.
+
+        For URL-format client_ids, looks up by cimd_metadata_url.
+        Does NOT fetch metadata — that only happens in validate_client_id().
+        """
+
+        assert hasattr(request, "client"), '"request" instance has no "client" attribute'
+
+        if request.client:
+            return request.client
+
+        # Standard UUID lookup
+        try:
+            request.client = OAuthApplication.objects.get(client_id=client_id)
+            if not request.client.is_usable(request):
+                request.client = None
+                return None
+            return request.client
+        except OAuthApplication.DoesNotExist:
+            pass
+
+        # CIMD URL lookup (no metadata fetching)
+        if is_cimd_client_id(client_id):
+            try:
+                request.client = OAuthApplication.objects.get(cimd_metadata_url=client_id)
+                if not request.client.is_usable(request):
+                    request.client = None
+                    return None
+                return request.client
+            except OAuthApplication.DoesNotExist:
+                pass
+
+        return None
+
+    def validate_client_id(self, client_id, request, *args, **kwargs):
+        """
+        Validate client_id, resolving CIMD metadata documents for new clients.
+
+        For URL-format client_ids not yet in the database, fetches the metadata
+        document and creates an OAuthApplication. This only runs during
+        authorization (user authenticated via @login_required), not at the token
+        endpoint.
+        """
+
+        # Try loading existing application (standard + CIMD DB lookup)
+        if self._load_application(client_id, request) is not None:
+            return True
+
+        # For CIMD URLs with no existing application, fetch metadata and create
+        if is_cimd_client_id(client_id):
+            # Rate-limit new CIMD application creation per IP, same as DCR
+            for throttle in CIMD_THROTTLES:
+                if not throttle.allow_request(request, view=None):
+                    logger.warning(
+                        "cimd_rate_limited",
+                        client_id=client_id,
+                        scope=throttle.scope,
+                        wait=throttle.wait(),
+                    )
+                    return False
+
+            try:
+                app = get_or_create_cimd_application(client_id)
+                request.client = app
+                return True
+            except (CIMDFetchError, CIMDValidationError) as e:
+                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e))
+                return False
+
+        return False
+
+    def validate_redirect_uri(self, client_id, redirect_uri, request, *args, **kwargs):
+        """
+        Validate redirect_uri, extending RFC 8252 Section 7.3 loopback handling
+        to include 'localhost'.
+
+        Django OAuth Toolkit already allows any port for 127.0.0.1 and ::1, but
+        not for 'localhost'. Native apps like Claude Code register
+        http://localhost/callback and request http://localhost:<ephemeral>/callback.
+        """
+
+        if request.client.redirect_uri_allowed(redirect_uri):
+            return True
+
+        # Extend RFC 8252 Section 7.3 loopback port flexibility to 'localhost'.
+        #
+        # DOT's redirect_to_uri_allowed() already skips the port check when the
+        # *registered* URI uses http://127.0.0.1 or http://[::1], but 'localhost'
+        # is not in that list. Many CIMD clients (e.g. Claude Code) register
+        # http://localhost/callback (no port) and then request
+        # http://localhost:<ephemeral_port>/callback at runtime.
+        #
+        # We handle this by stripping the port from the request URI and
+        # re-checking against the registered URIs. This only applies when the
+        # request URI is http://localhost with an explicit port.
+        parsed = urlparse(redirect_uri)
+        if parsed.scheme == "http" and parsed.hostname == "localhost" and parsed.port:
+            portless = f"http://localhost{parsed.path}"
+            if parsed.query:
+                portless += f"?{parsed.query}"
+            return request.client.redirect_uri_allowed(portless)
+
+        return False
+
     def rotate_refresh_token(self, request) -> bool:
         """
-        Don't rotate refresh tokens for DCR (MCP) clients.
+        Don't rotate refresh tokens for dynamically registered (DCR/CIMD) clients.
 
         MCP clients (v0, Claude Code, Cursor, etc.) don't reliably save the new
         refresh token returned during rotation, causing sessions to break when
@@ -125,21 +248,20 @@ class OAuthValidator(OAuth2Validator):
         behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
         all issue non-rotating refresh tokens.
 
-        Non-DCR OAuth clients still get rotation per the default setting.
+        Non-dynamic OAuth clients still get rotation per the default setting.
         """
-        is_dcr = hasattr(request, "client") and request.client and getattr(request.client, "is_dcr_client", False)
-        if is_dcr:
+        if self._is_dynamic_client(request):
             return False
         return oauth2_settings.ROTATE_REFRESH_TOKEN
 
     def _get_token_expires_in(self, request) -> int:
         """
         Returns access token expiry in seconds.
-        DCR (MCP) clients get extended TTL since they don't reliably refresh.
+        Dynamically registered (DCR/CIMD) clients get extended TTL since they
+        don't reliably refresh.
         """
-        if hasattr(request, "client") and request.client:
-            if getattr(request.client, "is_dcr_client", False):
-                return 60 * 60 * 24 * 7  # 7 days
+        if self._is_dynamic_client(request):
+            return 60 * 60 * 24 * 7  # 7 days
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 
     def save_bearer_token(self, token, request, *args, **kwargs):
@@ -311,9 +433,24 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # Get application and scope details
         try:
-            application = OAuthApplication.objects.get(client_id=credentials["client_id"])
+            application = get_application_by_client_id(credentials["client_id"])
         except OAuthApplication.DoesNotExist:
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Track OAuth authorization attempts with the authenticated user
+        registration_type = "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_authorization_requested",
+            properties={
+                "client_name": application.name,
+                "app_id": str(application.pk),
+                "registration_type": registration_type,
+                "is_verified": application.is_verified,
+                "is_first_party": application.is_first_party,
+                **({"cimd_url": application.cimd_metadata_url} if application.is_cimd_client else {}),
+            },
+        )
 
         # First-party apps skip consent screen entirely
         if application.is_first_party:
@@ -351,7 +488,18 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        return render_template("index.html", request)
+        return render_template(
+            "index.html",
+            request,
+            context={
+                "oauth_application": {
+                    "name": application.name,
+                    "client_id": application.client_id,
+                    "is_verified": application.is_verified,
+                    "logo_uri": application.logo_uri,
+                }
+            },
+        )
 
     def post(self, request, *args, **kwargs):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
@@ -362,7 +510,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
+            application = get_application_by_client_id(serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
             logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -696,8 +844,6 @@ class OAuthAuthorizationServerMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request, *args, **kwargs):
-        from posthog.scopes import get_scope_descriptions
-
         # Build base URL from request
         base_url = request.build_absolute_uri("/").rstrip("/")
 
@@ -727,6 +873,8 @@ class OAuthAuthorizationServerMetadataView(APIView):
             "code_challenge_methods_supported": ["S256"],
             # Service documentation
             "service_documentation": "https://posthog.com/docs/api",
+            # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
+            "client_id_metadata_document_supported": True,
         }
 
         return JsonResponse(metadata)

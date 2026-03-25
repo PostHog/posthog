@@ -60,13 +60,21 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
         "auth_brand",
         "is_verified",
         "is_dcr_client",
+        "is_cimd_client",
         "is_first_party",
         "user_link",
         "organization_link",
         "authorization_grant_type",
     )
     list_display_links = ("id", "name")
-    list_filter = ("authorization_grant_type", "is_verified", "is_dcr_client", "is_first_party", "auth_brand")
+    list_filter = (
+        "authorization_grant_type",
+        "is_verified",
+        "is_dcr_client",
+        "is_cimd_client",
+        "is_first_party",
+        "auth_brand",
+    )
     search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
@@ -91,9 +99,9 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            return ("id", "client_id")
+            return ("id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url")
         else:
-            return ("id",)
+            return ("id", "is_dcr_client", "is_cimd_client")
 
     def get_fieldsets(self, request, obj=None):
         if obj:
@@ -104,7 +112,14 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_dcr_client", "is_first_party")}),
+                ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
+                (
+                    "CIMD",
+                    {
+                        "classes": ("collapse",),
+                        "fields": ("cimd_metadata_url", "cimd_metadata_last_fetched", "logo_uri"),
+                    },
+                ),
             )
         else:
             return (
