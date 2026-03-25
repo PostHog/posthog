@@ -1,4 +1,4 @@
-import { Attributes, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
+import { Attributes, HrTime, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
 import { Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { defaultConfig } from '~/config/config'
