@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { objectsEqual } from 'lib/utils'
+
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EndpointRequest } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
@@ -14,11 +16,19 @@ export interface EndpointSceneHeaderProps {
 }
 
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
-    const { endpoint, endpointLoading, localQuery, cacheAge, syncFrequency, isMaterialized, viewingVersion } =
-        useValues(endpointSceneLogic({ tabId }))
+    const {
+        endpoint,
+        endpointLoading,
+        localQuery,
+        cacheAge,
+        syncFrequency,
+        isMaterialized,
+        viewingVersion,
+        bucketOverrides,
+    } = useValues(endpointSceneLogic({ tabId }))
     const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
     const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
-    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(
+    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized, resetBucketOverrides } = useActions(
         endpointSceneLogic({ tabId })
     )
 
@@ -39,13 +49,16 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const hasSyncFrequencyChange = syncFrequency !== null && syncFrequency !== baseSyncFrequency
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint?.is_materialized
     const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== baseIsMaterialized
+    const baseBucketOverrides = viewingVersion?.bucket_overrides ?? endpoint?.bucket_overrides ?? {}
+    const hasBucketOverridesChange = !objectsEqual(bucketOverrides, baseBucketOverrides)
     const hasChanges =
         hasNameChange ||
         hasDescriptionChange ||
         hasQueryChange ||
         hasCacheAgeChange ||
         hasSyncFrequencyChange ||
-        hasIsMaterializedChange
+        hasIsMaterializedChange ||
+        hasBucketOverridesChange
 
     const handleSave = (): void => {
         let queryToSave = (localQuery || endpoint?.query) as any
@@ -64,6 +77,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
             query: hasQueryChange ? queryToSave : undefined,
             is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
             sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
+            bucket_overrides: hasBucketOverridesChange ? bucketOverrides : undefined,
         }
 
         updateEndpoint(endpoint.name, updatePayload, targetVersion ? { version: targetVersion } : undefined)
@@ -83,6 +97,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         setSyncFrequency(sourceSyncFrequency ?? null)
         setIsMaterialized(null)
         setLocalQuery(null)
+        resetBucketOverrides(viewingVersion?.bucket_overrides ?? endpoint.bucket_overrides ?? {})
     }
 
     return (

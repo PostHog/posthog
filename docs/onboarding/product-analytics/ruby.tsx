@@ -31,7 +31,7 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Initialize the PostHog client with your API key and host:</Markdown>
+                    <Markdown>Initialize the PostHog client with your project token and host:</Markdown>
                     <CodeBlock
                         blocks={[
                             {

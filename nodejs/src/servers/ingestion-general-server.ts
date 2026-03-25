@@ -16,10 +16,13 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { INGESTION_OUTPUT_DEFINITIONS } from '../ingestion/analytics/config/outputs'
+import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/analytics/config/producers'
 import { IngestionConsumerConfig } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
+import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -119,6 +122,7 @@ export class IngestionGeneralServer implements NodeServer {
     private postgres?: PostgresRouter
     private kafkaProducer?: KafkaProducerWrapper
     private kafkaMetricsProducer?: KafkaProducerWrapper
+    private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
     private cookielessRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
@@ -223,11 +227,24 @@ export class IngestionGeneralServer implements NodeServer {
                 internalCaptureService,
             }
 
+            // Resolve ingestion outputs — producer creation blocks until the broker
+            // is reachable (rdkafka retries indefinitely), so the server will hang
+            // here if a broker is down and the pod never becomes healthy.
+            this.ingestionProducerRegistry = new KafkaProducerRegistry(
+                this.config.KAFKA_CLIENT_RACK,
+                PRODUCER_CONFIG_MAP
+            )
+            const ingestionOutputs = await resolveIngestionOutputs(
+                this.ingestionProducerRegistry,
+                INGESTION_OUTPUT_DEFINITIONS
+            )
+
             const ingestionDeps: IngestionConsumerDeps = {
                 postgres: this.postgres,
                 redisPool: this.redisPool,
                 kafkaProducer: this.kafkaProducer,
                 kafkaMetricsProducer: this.kafkaMetricsProducer,
+                outputs: ingestionOutputs,
                 teamManager,
                 groupTypeManager,
                 groupRepository,
@@ -284,7 +301,10 @@ export class IngestionGeneralServer implements NodeServer {
             redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
-            additionalCleanup: () => this.cookielessManager?.shutdown(),
+            additionalCleanup: async () => {
+                await this.ingestionProducerRegistry?.disconnectAll()
+                this.cookielessManager?.shutdown()
+            },
         }
     }
 }

@@ -60,8 +60,8 @@ const OPTIONS = [
         label: ' No resync',
     },
     {
-        value: '5min' as DataWarehouseSyncInterval,
-        label: ' Resync every 5 mins',
+        value: '15min' as DataWarehouseSyncInterval,
+        label: ' Resync every 15 mins',
     },
     {
         value: '30min' as DataWarehouseSyncInterval,

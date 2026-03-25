@@ -41,6 +41,7 @@ export enum Scene {
     DeadLetterQueue = 'DeadLetterQueue',
     Destinations = 'Destinations',
     DebugHog = 'DebugHog',
+    DebugNotifications = 'DebugNotifications',
     DebugQuery = 'DebugQuery',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     Error404 = '404',
@@ -225,6 +226,8 @@ export interface SceneTab {
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
     pinned?: boolean
+    /** Show a small badge indicator on the tab icon */
+    badge?: boolean
 
     sceneId?: string
     sceneKey?: string

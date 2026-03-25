@@ -35,7 +35,7 @@ export enum PluginServerMode {
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
-    ingestion_error_tracking = 'ingestion-error-tracking',
+    ingestion_error_tracking = 'ingestion-errortracking',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
@@ -146,6 +146,23 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+}
+
+export type ExternalRequestConfig = Pick<
+    CommonConfig,
+    | 'EXTERNAL_REQUEST_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_CONNECTIONS'
+>
+
+export function getExternalRequestConfig(): ExternalRequestConfig {
+    return {
+        EXTERNAL_REQUEST_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 3000),
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
+        EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
+    }
 }
 
 export function getDefaultCommonConfig(): CommonConfig {

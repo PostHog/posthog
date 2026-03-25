@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -41,6 +43,7 @@ describe('SelectExistingFeatureFlagModal', () => {
         deleted: false,
         active: true,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,
@@ -80,7 +83,7 @@ describe('SelectExistingFeatureFlagModal', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                     200,
                     {
                         results: mockFeatureFlags,

@@ -115,24 +115,53 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
     include_custom_props: bool = True,
+    selected_properties: list[str] | None = None,
 ) -> Iterator[Any]:
     config = HUBSPOT_ENDPOINTS[endpoint]
     object_type = OBJECT_TYPE_SINGULAR[endpoint]
 
     # Build properties string (called once before sync loop)
-    props_str = _get_properties_str(
-        props=DEFAULT_PROPS[endpoint],
-        api_key=api_key,
-        refresh_token=refresh_token,
-        object_type=object_type,
-        include_custom_props=include_custom_props,
-        logger=logger,
-    )
-
-    # Track expected properties so we can backfill missing ones with None.
+    # Keep track of the expected properties so we can backfill missing ones with None.
     # HubSpot omits properties from the response when they have no value for a record,
     # which causes PyArrow to drop those columns entirely during schema inference.
-    expected_properties = props_str.split(",") if props_str else []
+    expected_properties: list[str] | None = None
+
+    if selected_properties:
+        # Validate selected properties against what HubSpot actually has
+        available_props = set(_get_property_names(api_key, refresh_token, object_type))
+        invalid_props = [p for p in selected_properties if p not in available_props]
+        if invalid_props:
+            logger.warning(
+                f"HubSpot: the following selected properties do not exist for {endpoint} "
+                f"and will be ignored: {invalid_props}"
+            )
+            selected_properties = [p for p in selected_properties if p in available_props]
+
+        if not selected_properties:
+            logger.warning(f"HubSpot: no valid selected properties for {endpoint}, falling back to defaults")
+            selected_properties = None
+
+    if selected_properties:
+        expected_properties = selected_properties
+        # User explicitly selected properties — use exactly those, no custom discovery
+        props_str = _get_properties_str(
+            props=selected_properties,
+            api_key=api_key,
+            refresh_token=refresh_token,
+            object_type=object_type,
+            include_custom_props=False,
+            logger=logger,
+        )
+    else:
+        props_str = _get_properties_str(
+            props=DEFAULT_PROPS[endpoint],
+            api_key=api_key,
+            refresh_token=refresh_token,
+            object_type=object_type,
+            include_custom_props=include_custom_props,
+            logger=logger,
+        )
+        expected_properties = props_str.split(",") if props_str else []
 
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
@@ -189,7 +218,8 @@ def get_rows(
 
         for result in results:
             row = _flatten_result(result)
-            _backfill_missing_properties(row, expected_properties)
+            if expected_properties:
+                _backfill_missing_properties(row, expected_properties)
             batcher.batch(row)
 
             if batcher.should_yield():
@@ -216,6 +246,7 @@ def hubspot_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
     include_custom_props: bool = True,
+    selected_properties: list[str] | None = None,
 ) -> SourceResponse:
     endpoint_config = HUBSPOT_ENDPOINTS[endpoint]
 
@@ -228,6 +259,7 @@ def hubspot_source(
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             include_custom_props=include_custom_props,
+            selected_properties=selected_properties,
         ),
         primary_keys=["id"],
         partition_count=1,

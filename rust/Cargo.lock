@@ -2581,6 +2581,7 @@ dependencies = [
  "sqlx",
  "symbolic",
  "thiserror 2.0.18",
+ "tiktoken-rs",
  "tokio",
  "tower 0.4.13",
  "tracing",
@@ -3972,104 +3973,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
 dependencies = [
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "hook-api"
-version = "0.1.0"
-dependencies = [
- "axum 0.7.9",
- "common-alloc",
- "common-continuous-profiling",
- "common-metrics",
- "envconfig",
- "eyre",
- "hook-common",
- "http-body-util",
- "metrics",
- "serde",
- "serde_derive",
- "serde_json",
- "sqlx",
- "tokio",
- "tower 0.4.13",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "hook-common"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "common-kafka",
- "http 1.4.0",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "time",
- "tokio",
-]
-
-[[package]]
-name = "hook-janitor"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum 0.7.9",
- "common-alloc",
- "common-continuous-profiling",
- "common-kafka",
- "common-metrics",
- "envconfig",
- "eyre",
- "futures",
- "health",
- "hook-common",
- "metrics",
- "rdkafka",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "hook-worker"
-version = "0.1.0"
-dependencies = [
- "axum 0.7.9",
- "chrono",
- "common-alloc",
- "common-continuous-profiling",
- "common-dns",
- "common-kafka",
- "common-metrics",
- "envconfig",
- "futures",
- "health",
- "hook-common",
- "http 1.4.0",
- "httpmock",
- "metrics",
- "rdkafka",
- "reqwest 0.12.28",
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]
@@ -6317,6 +6220,7 @@ dependencies = [
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
+ "rstest",
  "serde_json",
  "sqlx",
  "thiserror 2.0.18",
@@ -6332,6 +6236,7 @@ dependencies = [
 name = "personhog-router"
 version = "0.1.0"
 dependencies = [
+ "assignment-coordination",
  "async-trait",
  "axum 0.7.9",
  "common-alloc",
@@ -6341,6 +6246,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "personhog-common",
+ "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",
  "serde_json",

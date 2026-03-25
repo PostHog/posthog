@@ -57,24 +57,18 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].metricName).toBe('email_link_clicked')
     })
 
-    it('parses a raw Delivery event', async () => {
-        const body = [
-            {
-                eventType: 'Delivery',
-                mail: baseMail,
-                delivery: {
-                    processingTimeMillis: 1000,
-                    smtpResponse: '250 OK',
-                    reportingMTA: 'mta',
-                    timestamp: '2025-10-03T12:03:00Z',
-                    recipients: ['to@example.com'],
-                },
-            },
-        ]
-        const result = await handler.handleWebhook({ body, headers: {} })
-        expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_sent')
-    })
+    it.each([
+        ['Send', {}],
+        ['Delivery', { delivery: { timestamp: '2025-10-03T12:03:00Z' } }],
+    ] as const)(
+        'skips %s events (email_sent is recorded synchronously, not from webhooks)',
+        async (eventType, extra) => {
+            const body = [{ eventType, mail: baseMail, ...extra }]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.status).toBe(200)
+            expect(result.metrics).toHaveLength(0)
+        }
+    )
 
     it('parses a raw Bounce event and returns opt-out recipients for permanent bounces', async () => {
         const body = [

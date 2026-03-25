@@ -1,1 +1,1 @@
-1056_migrate_experiments_models
+1066_alter_insight_saved

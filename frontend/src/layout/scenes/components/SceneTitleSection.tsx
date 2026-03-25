@@ -196,13 +196,13 @@ type SceneMainTitleProps = {
     className?: string
 
     /**
-     * Optional callback to generate a name using AI
+     * Optional callback to generate metadata (name, description) using AI
      */
-    onGenerateName?: () => void
+    onGenerateMetadata?: () => void
     /**
-     * Whether name generation is currently in progress
+     * Whether metadata generation is currently in progress
      */
-    isGeneratingName?: boolean
+    isGeneratingMetadata?: boolean
     /**
      * Props for MaxTool registration - when provided,
      * the AI button in the title section registers the tool with Max
@@ -229,8 +229,8 @@ export function SceneTitleSection({
     actions,
     forceBackTo,
     className,
-    onGenerateName,
-    isGeneratingName,
+    onGenerateMetadata,
+    isGeneratingMetadata,
     maxToolProps,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -333,8 +333,8 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
-                                    onGenerateName={onGenerateName}
-                                    isGeneratingName={isGeneratingName}
+                                    onGenerateMetadata={onGenerateMetadata}
+                                    isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         hasDescription ? (
                                             <ButtonPrimitive
@@ -403,8 +403,8 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
-    onGenerateName?: () => void
-    isGeneratingName?: boolean
+    onGenerateMetadata?: () => void
+    isGeneratingMetadata?: boolean
     suffix?: React.ReactNode
 }
 
@@ -416,8 +416,8 @@ export function SceneName({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
-    onGenerateName,
-    isGeneratingName = false,
+    onGenerateMetadata,
+    isGeneratingMetadata = false,
     suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
@@ -500,20 +500,22 @@ export function SceneName({
                                 }
                             }}
                         />
-                        {onGenerateName && (
-                            <Tooltip title={isGeneratingName ? 'Thinking...' : 'Name this insight'}>
+                        {onGenerateMetadata && (
+                            <Tooltip
+                                title={isGeneratingMetadata ? 'Thinking...' : 'Auto-generate name and description'}
+                            >
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (!isGeneratingName) {
-                                            onGenerateName()
+                                        if (!isGeneratingMetadata) {
+                                            onGenerateMetadata()
                                         }
                                     }}
-                                    disabled={isGeneratingName}
+                                    disabled={isGeneratingMetadata}
                                     className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <AnimatedSparkles
-                                        triggerAnimation={isGeneratingName}
+                                        triggerAnimation={isGeneratingMetadata}
                                         className="relative size-full pl-0.5 pb-0.5"
                                     />
                                 </button>

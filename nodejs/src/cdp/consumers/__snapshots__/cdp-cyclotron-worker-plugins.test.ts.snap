@@ -1,16 +1,16 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 2`] = `
 [
   {
     "headers": undefined,
-    "key": "<REPLACED-UUID-0>",
+    "key": null,
     "topic": "log_entries_test",
     "value": {
-      "instance_id": "<REPLACED-UUID-0>",
+      "instance_id": "<REPLACED-UUID-1>",
       "level": "error",
       "log_source": "hog_function",
-      "log_source_id": "<REPLACED-UUID-1>",
+      "log_source_id": "<REPLACED-UUID-0>",
       "message": "Plugin execution failed: Service is down, retry later",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
@@ -18,11 +18,11 @@ exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 2`] 
   },
   {
     "headers": undefined,
-    "key": "<REPLACED-UUID-1>",
+    "key": null,
     "topic": "clickhouse_app_metrics2_test",
     "value": {
       "app_source": "hog_function",
-      "app_source_id": "<REPLACED-UUID-1>",
+      "app_source_id": "<REPLACED-UUID-0>",
       "count": 1,
       "metric_kind": "failure",
       "metric_name": "failed",

@@ -9,15 +9,11 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SDK_TYPE_READABLE_NAME, SdkSection } from '~/layout/navigation-3000/sidepanel/panels/SidePanelSdkDoctor'
-import {
-    type OutdatedTrafficAlert,
-    SdkType,
-    sidePanelSdkDoctorLogic,
-} from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SDK_TYPE_READABLE_NAME, SdkSection } from './SdkDoctorComponents'
+import { type OutdatedTrafficAlert, SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 import { sdkDoctorSceneLogic } from './sdkDoctorSceneLogic'
 
 export const scene: SceneExport = {
@@ -32,10 +28,10 @@ export function SdkDoctorScene(): JSX.Element {
         needsUpdatingCount,
         hasErrors,
         snoozedUntil,
-    } = useValues(sidePanelSdkDoctorLogic)
+    } = useValues(sdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
 
-    const { loadRawData, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
+    const { loadRawData, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })

@@ -67,6 +67,7 @@ class TestAITemporalModuleIntegrity:
             "collect_posthog_code_thread_messages_activity",
             "create_posthog_code_routing_rule_activity",
             "select_posthog_code_repository_activity",
+            "classify_posthog_code_task_needs_repo_activity",
             "post_posthog_code_no_repos_activity",
             "post_posthog_code_repo_picker_activity",
             "create_posthog_code_task_for_repo_activity",

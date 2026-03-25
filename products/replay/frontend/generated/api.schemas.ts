@@ -211,6 +211,7 @@ export interface SessionRecordingApi {
     readonly ongoing: boolean
     /** @nullable */
     readonly activity_score: number | null
+    readonly has_summary: boolean
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
 }
@@ -267,6 +268,7 @@ export interface PatchedSessionRecordingApi {
     readonly ongoing?: boolean
     /** @nullable */
     readonly activity_score?: number | null
+    readonly has_summary?: boolean
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }

@@ -159,6 +159,7 @@ jobs:
     release-hogvm:
         name: Release new HogVM TypeScript version
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         needs: hog-tests
         if: needs.hog-tests.outputs.is-new-version == 'true'
         permissions:

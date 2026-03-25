@@ -26,6 +26,8 @@ export interface PathItem {
 
 export interface SlidingWindowBucket {
     pageviews: number
+    newUserCount: number
+    returningUserCount: number
     devices: Map<string, Set<string>>
     browsers: Map<string, Set<string>>
     paths: Map<string, number>

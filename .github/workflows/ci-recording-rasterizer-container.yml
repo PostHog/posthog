@@ -36,6 +36,8 @@ jobs:
                         - 'common/hogvm/typescript/**'
                         - 'common/plugin_transpiler/**'
                         - 'common/esbuilder/**'
+                        - 'common/replay-shared/**'
+                        - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
                         - 'rust/cyclotron-core/**'
                         - 'Dockerfile.recording-rasterizer'
@@ -57,6 +59,7 @@ jobs:
             github.event_name == 'workflow_dispatch' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.rasterizer_files == 'true')
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 15
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow reading the repo contents
@@ -128,7 +131,7 @@ jobs:
                   file: Dockerfile.recording-rasterizer
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  platforms: linux/arm64,linux/amd64
+                  platforms: linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 
@@ -160,6 +163,7 @@ jobs:
     deploy:
         name: Deploy recording-rasterizer service
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         needs: build
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         permissions:

@@ -31,6 +31,7 @@ from posthog.clickhouse.query_tagging import (
     Feature,
     Product,
     QueryTags,
+    get_caller_source,
     get_query_tag_value,
     get_query_tags,
 )
@@ -275,7 +276,7 @@ def sync_execute(
 
     # Only enable if not explicitly disabled — setdefault preserves existing value
     if team_id is not None and is_enable_analyzer_team(team_id):
-        core_settings.setdefault("allow_experimental_analyzer", 1)
+        core_settings.setdefault("enable_analyzer", 1)
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
@@ -323,9 +324,14 @@ def sync_execute(
             stacktrace="".join(traceback.format_stack()),
         )
 
+    source_file, source_line = get_caller_source()
+    query_log_tags = tags.model_copy(deep=True)
+    query_log_tags.source_file = source_file
+    query_log_tags.source_line = source_line
+
     settings = {
         **core_settings,
-        "log_comment": tags.to_json(),
+        "log_comment": query_log_tags.to_json(),
     }
     if workload == Workload.OFFLINE:
         # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the

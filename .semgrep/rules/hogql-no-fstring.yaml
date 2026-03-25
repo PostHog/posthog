@@ -9,6 +9,9 @@ rules:
       message: |
           User-controlled data interpolated into HogQL string flows to parse function.
           Use ast.Constant in placeholders: parse_expr("{x}", placeholders={"x": ast.Constant(value=...)})
+      options:
+          taint_assume_safe_numbers: true
+          taint_assume_safe_booleans: true
       pattern-sources:
           # Direct interpolation in f-strings
           - patterns:
@@ -16,6 +19,16 @@ rules:
                       - pattern: self.query.$FIELD
                       - pattern: self.context.includeProperties
                       - pattern: self.series.math_hogql
+                - pattern-inside: f"..."
+          # Nested attribute access on self (catches schema/dataclass fields
+          # like self.metric.source.table_name, self.source_info.timestamp_field)
+          - patterns:
+                - pattern: self.$OBJ.$FIELD
+                - pattern-not: self.$OBJ.pk
+                # Internally-computed objects that don't carry user-injectable strings
+                - pattern-not: self.context.$FIELD
+                - pattern-not: self.query_date_range.$FIELD
+                - pattern-not: self.team.$FIELD
                 - pattern-inside: f"..."
           # Loop variable from taint source used in f-string
           - patterns:
@@ -37,6 +50,8 @@ rules:
       pattern-sanitizers:
           - pattern: ast.Constant(value=...)
           - pattern: ast.Tuple(exprs=...)
+          - pattern: ast.Field(chain=...)
+          - pattern: int(...)
       metadata:
           category: security
           subcategory:
@@ -109,7 +124,7 @@ rules:
               - '**/tests/**'
               - '**/.semgrep/**'
 
-    # Rule 3: Taint tracking for user input interpolated into ClickHouse queries
+    # Rule 4: Taint tracking for user input interpolated into ClickHouse queries
     # Only flags when user data is INSIDE an f-string that flows to sync_execute/async_execute.
     - id: clickhouse-injection-taint
       mode: taint
