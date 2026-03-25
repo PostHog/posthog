@@ -321,13 +321,7 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
     },
 })
 
-const ScheduledChangesListSchema = ScheduledChangesListQueryParams.extend({
-    model_name: z
-        .string()
-        .optional()
-        .describe('Filter by model type. Use "FeatureFlag" to see feature flag schedules.'),
-    record_id: z.string().optional().describe('Filter by the ID of a specific feature flag.'),
-})
+const ScheduledChangesListSchema = ScheduledChangesListQueryParams
 
 const scheduledChangesList = (): ToolBase<
     typeof ScheduledChangesListSchema,
@@ -343,8 +337,6 @@ const scheduledChangesList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
-                model_name: params.model_name,
-                record_id: params.record_id,
             },
         })
         return {
