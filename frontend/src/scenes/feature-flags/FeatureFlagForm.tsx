@@ -145,6 +145,59 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         })
     }
 
+    const currentFlagType = featureFlag?.is_remote_configuration
+        ? 'remote_config'
+        : multivariateEnabled
+          ? 'multivariate'
+          : 'boolean'
+
+    const onSelectFlagType = (value: string): void => {
+        if (value === 'remote_config') {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: true,
+            })
+            setMultivariateEnabled(false)
+        } else if (value === 'multivariate') {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: false,
+                filters: {
+                    ...featureFlag?.filters,
+                    payloads: {},
+                },
+            })
+            setMultivariateEnabled(true)
+        } else {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: false,
+            })
+            setMultivariateEnabled(false)
+        }
+    }
+
+    const FLAG_TYPE_OPTIONS = [
+        {
+            value: 'boolean',
+            icon: <IconFlag className="text-lg" />,
+            label: 'Boolean',
+            description: 'Release toggle with optional static payload',
+        },
+        {
+            value: 'multivariate',
+            icon: <IconList className="text-lg" />,
+            label: 'Multivariate',
+            description: 'Multiple variants with rollout percentages (A/B/n test)',
+        },
+        {
+            value: 'remote_config',
+            icon: <IconCode className="text-lg" />,
+            label: 'Remote config',
+            description: 'Single payload without feature flag logic',
+        },
+    ] as const
+
     if (!featureFlag) {
         return (
             <div className="flex items-center justify-center p-8">
@@ -485,108 +538,65 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <LemonLabel info="Changing type may remove existing variants or payloads.">
                                         Flag type
                                     </LemonLabel>
-                                    {(() => {
-                                        const currentType = featureFlag.is_remote_configuration
-                                            ? 'remote_config'
-                                            : multivariateEnabled
-                                              ? 'multivariate'
-                                              : 'boolean'
-                                        const onSelectType = (value: string): void => {
-                                            if (value === 'remote_config') {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: true,
-                                                })
-                                                setMultivariateEnabled(false)
-                                            } else if (value === 'multivariate') {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: false,
-                                                    filters: {
-                                                        ...featureFlag.filters,
-                                                        payloads: {},
-                                                    },
-                                                })
-                                                setMultivariateEnabled(true)
-                                            } else {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: false,
-                                                })
-                                                setMultivariateEnabled(false)
+                                    <div
+                                        className="grid grid-cols-1 md:grid-cols-3 gap-3"
+                                        role="radiogroup"
+                                        aria-label="Flag type"
+                                        data-attr="feature-flag-type"
+                                        onKeyDown={(e) => {
+                                            if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(e.key)) {
+                                                e.preventDefault()
+                                                const currentIndex = FLAG_TYPE_OPTIONS.findIndex(
+                                                    (o) => o.value === currentFlagType
+                                                )
+                                                const delta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1
+                                                const nextIndex =
+                                                    (currentIndex + delta + FLAG_TYPE_OPTIONS.length) %
+                                                    FLAG_TYPE_OPTIONS.length
+                                                onSelectFlagType(FLAG_TYPE_OPTIONS[nextIndex].value)
+                                                // Move focus to the newly selected card
+                                                const container = e.currentTarget
+                                                const cards = container.querySelectorAll<HTMLElement>('[role="radio"]')
+                                                cards[nextIndex]?.focus()
                                             }
-                                        }
-                                        return (
-                                            <div
-                                                className="grid grid-cols-1 md:grid-cols-3 gap-3"
-                                                role="radiogroup"
-                                                aria-label="Flag type"
-                                                data-attr="feature-flag-type"
-                                            >
-                                                {(
-                                                    [
-                                                        {
-                                                            value: 'boolean',
-                                                            icon: <IconFlag className="text-lg" />,
-                                                            label: 'Boolean',
-                                                            description: 'Release toggle with optional static payload',
-                                                        },
-                                                        {
-                                                            value: 'multivariate',
-                                                            icon: <IconList className="text-lg" />,
-                                                            label: 'Multivariate',
-                                                            description:
-                                                                'Multiple variants with rollout percentages (A/B/n test)',
-                                                        },
-                                                        {
-                                                            value: 'remote_config',
-                                                            icon: <IconCode className="text-lg" />,
-                                                            label: 'Remote config',
-                                                            description: 'Single payload without feature flag logic',
-                                                        },
-                                                    ] as const
-                                                ).map((option) => {
-                                                    const isSelected = currentType === option.value
-                                                    return (
-                                                        <div
-                                                            key={option.value}
-                                                            role="radio"
-                                                            aria-checked={isSelected}
-                                                            tabIndex={0}
-                                                            className={`rounded border p-3 cursor-pointer transition-colors ${
-                                                                isSelected
-                                                                    ? 'bg-accent-highlight-light border-2 border-accent'
-                                                                    : 'bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
-                                                            }`}
-                                                            onClick={() => onSelectType(option.value)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter' || e.key === ' ') {
-                                                                    e.preventDefault()
-                                                                    onSelectType(option.value)
-                                                                }
-                                                            }}
-                                                            data-attr={`feature-flag-type-${option.value}`}
-                                                        >
-                                                            <div className="flex flex-col gap-1">
-                                                                <div className="flex items-center gap-2">
-                                                                    {option.icon}
-                                                                    <span className="font-medium flex-1">
-                                                                        {option.label}
-                                                                    </span>
-                                                                    {isSelected && (
-                                                                        <IconCheckCircle className="text-accent text-base" />
-                                                                    )}
-                                                                </div>
-                                                                <span className="text-xs text-muted">
-                                                                    {option.description}
-                                                                </span>
-                                                            </div>
+                                        }}
+                                    >
+                                        {FLAG_TYPE_OPTIONS.map((option) => {
+                                            const isSelected = currentFlagType === option.value
+                                            return (
+                                                <div
+                                                    key={option.value}
+                                                    role="radio"
+                                                    aria-checked={isSelected}
+                                                    tabIndex={isSelected ? 0 : -1}
+                                                    className={`rounded p-3 cursor-pointer transition-colors ${
+                                                        isSelected
+                                                            ? 'bg-accent-highlight-light border-2 border-accent'
+                                                            : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                                    }`}
+                                                    onClick={() => onSelectFlagType(option.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault()
+                                                            onSelectFlagType(option.value)
+                                                        }
+                                                    }}
+                                                    data-attr={`feature-flag-type-${option.value}`}
+                                                >
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2">
+                                                            {option.icon}
+                                                            <span className="font-medium flex-1">{option.label}</span>
+                                                            {isSelected && (
+                                                                <IconCheckCircle className="text-accent text-base" />
+                                                            )}
                                                         </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        )
-                                    })()}
+                                                        <span className="text-xs text-muted">{option.description}</span>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
                                     <div className="text-secondary text-xs mt-1">
                                         {featureFlag.is_remote_configuration ? (
                                             <>
