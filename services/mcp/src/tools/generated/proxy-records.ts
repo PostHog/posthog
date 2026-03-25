@@ -12,13 +12,16 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ProxyListSchema = z.object({})
 
-const proxyList = (): ToolBase<typeof ProxyListSchema, Schemas.ProxyRecordListResponse & { _posthogUrl: string }> => ({
+const proxyList = (): ToolBase<
+    typeof ProxyListSchema,
+    Schemas.ProxyRecordListResponse[] & { _posthogUrl: string }
+> => ({
     name: 'proxy-list',
     schema: ProxyListSchema,
     // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.ProxyRecordListResponse>({
+        const result = await context.api.request<Schemas.ProxyRecordListResponse[]>({
             method: 'GET',
             path: `/api/organizations/${orgId}/proxy_records/`,
         })

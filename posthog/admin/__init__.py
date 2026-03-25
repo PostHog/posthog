@@ -73,7 +73,6 @@ def register_all_admin():
         Plugin,
         PluginConfig,
         Project,
-        Survey,
         Team,
         Text,
         User,
@@ -89,6 +88,7 @@ def register_all_admin():
     from products.links.backend.models import Link
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
+    from products.surveys.backend.models import Survey
     from products.tasks.backend.admin import (
         CodeInviteAdmin,
         CodeInviteRedemptionAdmin,

@@ -1680,6 +1680,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: 'Unreleased',
         href: urls.visualReviewRuns(),
         iconType: 'visual_review' as FileSystemIconType,
+        flag: FEATURE_FLAGS.VISUAL_REVIEW,
         tags: ['alpha'],
         sceneKey: 'VisualReviewRuns',
         sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],

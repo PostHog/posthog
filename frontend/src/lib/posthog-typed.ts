@@ -665,6 +665,7 @@ interface EventSchemas {
     'dashboard subscription updated': Record<string, any>
     'dashboard updated': Record<string, any>
     'dashboard whitelabel toggled': Record<string, any>
+    'dashboard widget copied to other dashboard': Record<string, any>
     'data_attributes team setting updated': Record<string, any>
     'data pipelines notice clicked': Record<string, any>
     'data pipelines notice dismissed': Record<string, any>
@@ -1237,7 +1238,6 @@ interface EventSchemas {
     "EWjjW6Pc')) OR 407=(SELECT 407 FROM PG_SLEEP(15))--": Record<string, any>
     'exceeded max page limit loading toolbar element stats pages': Record<string, any>
     EXLwcYuf: Record<string, any>
-    'experiment archived': Record<string, any>
     'experimentation call prompt action': Record<string, any>
     'experiment completed': Record<string, any>
     'experiment created': Record<string, any>
