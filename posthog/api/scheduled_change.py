@@ -1,6 +1,7 @@
 from typing import Any
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 
 from posthog.api.feature_flag import CanEditFeatureFlag
@@ -162,6 +163,27 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "model_name",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description='Filter by model type. Use "FeatureFlag" to see feature flag schedules.',
+            ),
+            OpenApiParameter(
+                "record_id",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the ID of a specific feature flag.",
+            ),
+        ],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         model_name = self.request.query_params.get("model_name")

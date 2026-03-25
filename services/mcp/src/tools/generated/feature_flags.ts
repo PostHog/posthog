@@ -336,7 +336,9 @@ const scheduledChangesList = (): ToolBase<
             path: `/api/projects/${projectId}/scheduled_changes/`,
             query: {
                 limit: params.limit,
+                model_name: params.model_name,
                 offset: params.offset,
+                record_id: params.record_id,
             },
         })
         return {

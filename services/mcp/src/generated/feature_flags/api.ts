@@ -807,7 +807,12 @@ export const ScheduledChangesListParams = /* @__PURE__ */ zod.object({
 
 export const ScheduledChangesListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    model_name: zod
+        .string()
+        .optional()
+        .describe('Filter by model type. Use "FeatureFlag" to see feature flag schedules.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    record_id: zod.string().optional().describe('Filter by the ID of a specific feature flag.'),
 })
 
 /**
