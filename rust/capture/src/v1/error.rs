@@ -15,37 +15,17 @@ const ERROR_METRIC_KEY: &str = "capture_v1_analytics_error";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorResponse {
-    #[serde(rename = "type")]
-    pub error_type: String,
-    pub code: String,
-    pub detail: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub missing_headers: Option<Vec<String>>,
+    pub error: String,
+    pub error_description: String,
+    pub error_uri: String,
 }
 
 impl ErrorResponse {
     fn new(error: &Error) -> Self {
-        let detail = if error.status_code().is_server_error() {
-            error
-                .status_code()
-                .canonical_reason()
-                .unwrap_or("server error")
-                .to_string()
-        } else {
-            error.to_string()
-        };
-
-        let missing_headers = match error {
-            Error::MissingRequiredHeaders(headers) => Some(headers.clone()),
-            _ => None,
-        };
-
         Self {
-            error_type: error.error_type().to_string(),
-            code: error.tag().to_string(),
-            detail,
-            missing_headers,
+            error: error.tag().to_string(),
+            error_description: error.description(),
+            error_uri: error.error_uri().to_string(),
         }
     }
 }
@@ -122,38 +102,6 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn error_type(&self) -> &'static str {
-        match self {
-            Self::MissingRequiredHeaders(_)
-            | Self::InvalidHeaderValue(_)
-            | Self::RequestDecodingError(_)
-            | Self::RequestParsingError(_)
-            | Self::EmptyBody
-            | Self::EmptyBatch
-            | Self::InvalidBatch(_)
-            | Self::MissingEventName
-            | Self::EventNameTooLong
-            | Self::MissingDistinctId
-            | Self::DistinctIdTooLarge
-            | Self::MissingEventUuid
-            | Self::InvalidEventTimestamp
-            | Self::RequestTimeout
-            | Self::BodyReadTimeout(_) => "validation_error",
-
-            Self::MissingApiToken | Self::InvalidApiToken(_) => "authentication_error",
-
-            Self::PayloadTooLarge(_)
-            | Self::UnsupportedContentType(_)
-            | Self::UnsupportedEncoding(_) => "payload_error",
-
-            Self::BillingLimitExceeded | Self::RateLimited(_) => "rate_limit_error",
-
-            Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => {
-                "server_error"
-            }
-        }
-    }
-
     pub fn tag(&self) -> &'static str {
         match self {
             Self::MissingRequiredHeaders(_) => "missing_required_headers",
@@ -182,6 +130,28 @@ impl Error {
             Self::ServiceUnavailable(_) => "service_unavailable",
             Self::GatewayTimeout => "gateway_timeout",
         }
+    }
+
+    pub fn description(&self) -> String {
+        match self {
+            Self::RequestDecodingError(_) => "Failed to decode request body.".to_string(),
+            Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
+            Self::InvalidApiToken(_) => {
+                "The provided API token is not valid or has been revoked.".to_string()
+            }
+            Self::RateLimited(_) => "Rate limit exceeded.".to_string(),
+            Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
+                .status_code()
+                .canonical_reason()
+                .unwrap_or("server error")
+                .to_string(),
+            _ => self.to_string(),
+        }
+    }
+
+    // TODO: turn into a per-error match arm with specific doc links
+    pub fn error_uri(&self) -> &'static str {
+        "https://posthog.com/docs/api"
     }
 
     pub fn log_level(&self) -> Level {
@@ -321,7 +291,7 @@ macro_rules! log_stat_error {
     // Internal: emit without Context
     (@emit $err:expr, $($fields:tt)*) => {{
         let err = &$err;
-        let msg = format!("{} ({}): {}", err.error_type(), err.tag(), err);
+        let msg = format!("{}: {}", err.tag(), err);
         match err.log_level() {
             ::tracing::Level::WARN => ::tracing::warn!($($fields)* "{}", msg),
             _ => ::tracing::error!($($fields)* "{}", msg),
@@ -332,7 +302,7 @@ macro_rules! log_stat_error {
     (@emit_ctx $err:expr, $ctx:expr, $($extra:tt)*) => {{
         let err = &$err;
         let ctx = &$ctx;
-        let msg = format!("{} ({}): {}", err.error_type(), err.tag(), err);
+        let msg = format!("{}: {}", err.tag(), err);
         match err.log_level() {
             ::tracing::Level::WARN => ::tracing::warn!(
                 token = %ctx.api_token,

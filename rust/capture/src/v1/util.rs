@@ -142,7 +142,7 @@ async fn read_decompressed(
         let to_read = std::cmp::min(remaining, chunk_size);
         buf.reserve(to_read);
         let n = reader.read_buf(&mut buf).await.map_err(|e| {
-            Error::RequestDecodingError(format!("{encoding} decompression failed: {e}"))
+            Error::RequestDecodingError(format!("{encoding} decompression failed: {e:#}"))
         })?;
         if n == 0 {
             break;
