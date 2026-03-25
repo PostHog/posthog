@@ -25,6 +25,14 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
     useFeatureFlag: jest.fn(() => false),
 }))
 
+jest.mock('lib/logic/featureFlagLogic', () => ({
+    featureFlagLogic: {},
+}))
+
+jest.mock('lib/logic/userPreferencesLogic', () => ({
+    userPreferencesLogic: {},
+}))
+
 jest.mock('lib/components/AppShortcuts/AppShortcut', () => ({
     AppShortcut: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -119,6 +127,10 @@ jest.mock('./components/FixErrorButton', () => ({
     FixErrorButton: () => null,
 }))
 
+jest.mock('./editorSizingLogic', () => ({
+    editorSizingLogic: {},
+}))
+
 jest.mock('./ConnectionSelector', () => ({
     ConnectionSelector: () => null,
 }))
@@ -133,6 +145,10 @@ jest.mock('./QueryPane', () => ({
 
 jest.mock('./QueryVariablesMenu', () => ({
     QueryVariablesMenu: () => null,
+}))
+
+jest.mock('./sqlEditorLogic', () => ({
+    sqlEditorLogic: {},
 }))
 
 describe('QueryWindow', () => {

@@ -731,14 +731,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             }
         },
-        setSkipHogQLLayer: ({ skipHogQLLayer }) => {
+        setSkipHogQLLayer: async ({ skipHogQLLayer }, breakpoint) => {
+            // Wait for the reducer update from this action before syncing the active tab and URL.
+            await breakpoint(0)
+
+            const currentSourceQuery = sqlEditorLogic.findMounted()?.values.sourceQuery ?? values.sourceQuery
+            const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
+                currentSourceQuery as typeof currentSourceQuery & { connectionId?: string }
+
             actions.setSourceQuery({
-                ...values.sourceQuery,
+                ...sourceQueryWithoutLegacyConnectionId,
                 source: {
-                    ...values.sourceQuery.source,
+                    ...currentSourceQuery.source,
                     skipHogQLLayer: skipHogQLLayer || undefined,
                 },
-            })
+            } as typeof currentSourceQuery)
             actions.syncUrlWithQuery()
         },
         initialize: async () => {
