@@ -346,7 +346,7 @@ jobs:
               run: cargo check --all-features
 
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # main
 
             - name: Install cargo-shear
               run: cargo binstall --no-confirm cargo-shear@1.1.12
