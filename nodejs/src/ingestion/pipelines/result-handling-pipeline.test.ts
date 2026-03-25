@@ -3,7 +3,9 @@ import { Message } from 'node-rdkafka'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
+import { logDroppedMessage, produceMessageToDLQ, redirectMessageToTopic } from '../../worker/ingestion/pipeline-helpers'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, REDIRECT_OUTPUT } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { createContext, createNewBatchPipeline } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
@@ -13,7 +15,7 @@ import { dlq, drop, ok, redirect } from './results'
 jest.mock('../../worker/ingestion/pipeline-helpers', () => ({
     logDroppedMessage: jest.fn(),
     redirectMessageToTopic: jest.fn(),
-    sendMessageToDLQ: jest.fn(),
+    produceMessageToDLQ: jest.fn(),
 }))
 
 // Mock the metrics
@@ -27,20 +29,32 @@ jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
 
 const mockLogDroppedMessage = logDroppedMessage as jest.MockedFunction<typeof logDroppedMessage>
 const mockRedirectMessageToTopic = redirectMessageToTopic as jest.MockedFunction<typeof redirectMessageToTopic>
-const mockSendMessageToDLQ = sendMessageToDLQ as jest.MockedFunction<typeof sendMessageToDLQ>
+const mockProduceMessageToDLQ = produceMessageToDLQ as jest.MockedFunction<typeof produceMessageToDLQ>
 const mockIngestionPipelineResultCounter = ingestionPipelineResultCounter as jest.Mocked<
     typeof ingestionPipelineResultCounter
 >
 
 describe('ResultHandlingPipeline', () => {
-    let mockKafkaProducer: KafkaProducerWrapper
+    let mockDlqProducer: KafkaProducerWrapper
+    let mockRedirectProducer: KafkaProducerWrapper
+    let mockIngestionWarningsProducer: KafkaProducerWrapper
     let mockPromiseScheduler: PromiseScheduler
     let config: PipelineConfig
 
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockKafkaProducer = {
+        mockDlqProducer = {
+            producer: {} as any,
+            queueMessages: jest.fn(),
+        } as unknown as KafkaProducerWrapper
+
+        mockRedirectProducer = {
+            producer: {} as any,
+            queueMessages: jest.fn(),
+        } as unknown as KafkaProducerWrapper
+
+        mockIngestionWarningsProducer = {
             producer: {} as any,
             queueMessages: jest.fn(),
         } as unknown as KafkaProducerWrapper
@@ -50,8 +64,14 @@ describe('ResultHandlingPipeline', () => {
         } as unknown as PromiseScheduler
 
         config = {
-            kafkaProducer: mockKafkaProducer,
-            dlqTopic: 'test-dlq',
+            outputs: new IngestionOutputs({
+                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockDlqProducer },
+                [REDIRECT_OUTPUT]: { topic: '', producer: mockRedirectProducer },
+                [INGESTION_WARNINGS_OUTPUT]: {
+                    topic: 'ingestion_warnings_test',
+                    producer: mockIngestionWarningsProducer,
+                },
+            }),
             promiseScheduler: mockPromiseScheduler,
         }
     })
@@ -155,7 +175,7 @@ describe('ResultHandlingPipeline', () => {
 
             // Now verify the mock was called
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
-                mockKafkaProducer,
+                mockRedirectProducer,
                 mockPromiseScheduler,
                 messages[1],
                 'overflow-topic',
@@ -208,7 +228,7 @@ describe('ResultHandlingPipeline', () => {
 
             // Now verify the mock was called
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
-                mockKafkaProducer,
+                mockRedirectProducer,
                 mockPromiseScheduler,
                 messagesWithHeaders[0],
                 'overflow-topic',
@@ -228,7 +248,7 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should handle dlq results and add side effects', async () => {
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
+            mockProduceMessageToDLQ.mockResolvedValue(undefined)
 
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
@@ -262,8 +282,10 @@ describe('ResultHandlingPipeline', () => {
             await Promise.all(sideEffects)
 
             // Now verify the mock was called
-            expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
-                mockKafkaProducer,
+            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
+                mockDlqProducer,
+                mockIngestionWarningsProducer,
+                'ingestion_warnings_test',
                 messages[1],
                 testError,
                 'unknown',
@@ -272,7 +294,7 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should send DLQ messages with event and uuid headers', async () => {
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
+            mockProduceMessageToDLQ.mockResolvedValue(undefined)
 
             const messagesWithHeaders: Message[] = [
                 {
@@ -312,8 +334,10 @@ describe('ResultHandlingPipeline', () => {
             await Promise.all(sideEffects)
 
             // Now verify the mock was called
-            expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
-                mockKafkaProducer,
+            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
+                mockDlqProducer,
+                mockIngestionWarningsProducer,
+                'ingestion_warnings_test',
                 messagesWithHeaders[0],
                 testError,
                 'unknown',
@@ -321,7 +345,7 @@ describe('ResultHandlingPipeline', () => {
             )
 
             // Verify the message passed to DLQ has the correct headers
-            const calledMessage = (mockSendMessageToDLQ as jest.Mock).mock.calls[0][1]
+            const calledMessage = (mockProduceMessageToDLQ as jest.Mock).mock.calls[0][3]
             expect(calledMessage.headers).toEqual([
                 { distinct_id: Buffer.from('user-123') },
                 { token: Buffer.from('test-token') },
@@ -331,7 +355,7 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should handle dlq result without error and create default error', async () => {
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
+            mockProduceMessageToDLQ.mockResolvedValue(undefined)
 
             const messages: Message[] = [
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 1 } as Message,
@@ -358,21 +382,23 @@ describe('ResultHandlingPipeline', () => {
             await Promise.all(sideEffects)
 
             // Now verify the mock was called
-            expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
-                mockKafkaProducer,
+            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
+                mockDlqProducer,
+                mockIngestionWarningsProducer,
+                'ingestion_warnings_test',
                 messages[0],
                 expect.any(Error),
                 'unknown',
                 'test-dlq'
             )
 
-            const errorArg = (mockSendMessageToDLQ as jest.Mock).mock.calls[0][2]
+            const errorArg = (mockProduceMessageToDLQ as jest.Mock).mock.calls[0][4]
             expect(errorArg.message).toBe('test dlq reason')
         })
 
         it('should handle mixed results correctly', async () => {
             mockRedirectMessageToTopic.mockResolvedValue(undefined)
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
+            mockProduceMessageToDLQ.mockResolvedValue(undefined)
 
             const messages: Message[] = [
                 { value: Buffer.from('success1'), topic: 'test', partition: 0, offset: 1 } as Message,
@@ -415,7 +441,7 @@ describe('ResultHandlingPipeline', () => {
             // Verify all non-success results were handled
             expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'dropped item', 'unknown')
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
-                mockKafkaProducer,
+                mockRedirectProducer,
                 mockPromiseScheduler,
                 messages[3],
                 'overflow-topic',
@@ -423,8 +449,10 @@ describe('ResultHandlingPipeline', () => {
                 true,
                 true
             )
-            expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
-                mockKafkaProducer,
+            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
+                mockDlqProducer,
+                mockIngestionWarningsProducer,
+                'ingestion_warnings_test',
                 messages[4],
                 expect.any(Error),
                 'unknown',
@@ -574,7 +602,7 @@ describe('ResultHandlingPipeline', () => {
 
             // Now verify the mock was called with default parameters
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
-                mockKafkaProducer,
+                mockRedirectProducer,
                 mockPromiseScheduler,
                 messages[0],
                 'overflow-topic',
@@ -587,14 +615,26 @@ describe('ResultHandlingPipeline', () => {
 })
 
 describe('Integration tests', () => {
-    let mockKafkaProducer: KafkaProducerWrapper
+    let mockDlqProducer: KafkaProducerWrapper
+    let mockRedirectProducer: KafkaProducerWrapper
+    let mockIngestionWarningsProducer: KafkaProducerWrapper
     let mockPromiseScheduler: PromiseScheduler
     let config: PipelineConfig
 
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockKafkaProducer = {
+        mockDlqProducer = {
+            producer: {} as any,
+            queueMessages: jest.fn(),
+        } as unknown as KafkaProducerWrapper
+
+        mockRedirectProducer = {
+            producer: {} as any,
+            queueMessages: jest.fn(),
+        } as unknown as KafkaProducerWrapper
+
+        mockIngestionWarningsProducer = {
             producer: {} as any,
             queueMessages: jest.fn(),
         } as unknown as KafkaProducerWrapper
@@ -604,8 +644,14 @@ describe('Integration tests', () => {
         } as unknown as PromiseScheduler
 
         config = {
-            kafkaProducer: mockKafkaProducer,
-            dlqTopic: 'test-dlq',
+            outputs: new IngestionOutputs({
+                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockDlqProducer },
+                [REDIRECT_OUTPUT]: { topic: '', producer: mockRedirectProducer },
+                [INGESTION_WARNINGS_OUTPUT]: {
+                    topic: 'ingestion_warnings_test',
+                    producer: mockIngestionWarningsProducer,
+                },
+            }),
             promiseScheduler: mockPromiseScheduler,
         }
     })
@@ -673,8 +719,10 @@ describe('Integration tests', () => {
             await Promise.all(sideEffects)
         }
 
-        expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
-            mockKafkaProducer,
+        expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
+            mockDlqProducer,
+            mockIngestionWarningsProducer,
+            'ingestion_warnings_test',
             messages[0],
             expect.any(Error),
             'unknown',

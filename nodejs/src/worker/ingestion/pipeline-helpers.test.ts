@@ -1,11 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from './pipeline-helpers'
-import { captureIngestionWarning } from './utils'
+import { produceIngestionWarning } from './utils'
 
 // Mock all dependencies
 jest.mock('../../utils/logger')
@@ -16,13 +17,13 @@ jest.mock('./utils', () => {
     const actual = jest.requireActual('./utils')
     return {
         ...actual,
-        captureIngestionWarning: jest.fn(),
+        produceIngestionWarning: jest.fn(),
     }
 })
 
 const mockLogger = logger as jest.Mocked<typeof logger>
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
-const mockCaptureIngestionWarning = captureIngestionWarning as jest.MockedFunction<typeof captureIngestionWarning>
+const mockProduceIngestionWarning = produceIngestionWarning as jest.MockedFunction<typeof produceIngestionWarning>
 
 describe('sendMessageToDLQ', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
@@ -51,7 +52,7 @@ describe('sendMessageToDLQ', () => {
             ],
         } as Message
 
-        mockCaptureIngestionWarning.mockResolvedValue(true)
+        mockProduceIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send message to DLQ with proper headers and logging', async () => {
@@ -70,8 +71,9 @@ describe('sendMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
+        expect(mockProduceIngestionWarning).toHaveBeenCalledWith(
             mockKafkaProducer,
+            KAFKA_INGESTION_WARNINGS,
             42,
             'pipeline_step_dlq',
             {
@@ -118,7 +120,7 @@ describe('sendMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
+        expect(mockProduceIngestionWarning).not.toHaveBeenCalled()
     })
 
     it('should handle different header value types', async () => {

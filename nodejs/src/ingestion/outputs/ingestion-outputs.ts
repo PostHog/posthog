@@ -26,6 +26,11 @@ export interface IngestionOutput {
 export class IngestionOutputs<O extends string> {
     constructor(private outputs: Record<O, IngestionOutput>) {}
 
+    /** Return the raw output config (topic + producer) for the given output name. */
+    resolve(output: O): IngestionOutput {
+        return this.outputs[output]
+    }
+
     /**
      * Produce a single message to the given output.
      *

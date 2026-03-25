@@ -8,7 +8,16 @@ import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { EVENTS_OUTPUT, EventOutput, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
+import {
+    DLQ_OUTPUT,
+    DlqOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    INGESTION_WARNINGS_OUTPUT,
+    IngestionWarningsOutput,
+    REDIRECT_OUTPUT,
+    RedirectOutput,
+} from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -115,7 +124,7 @@ export function createErrorTrackingPipeline(
     const topHogWrapper = createTopHogWrapper(topHog)
 
     // Create outputs configuration for the emit step
-    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput>({
+    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | RedirectOutput>({
         [EVENTS_OUTPUT]: {
             topic: outputTopic,
             producer: kafkaProducer,
@@ -124,11 +133,18 @@ export function createErrorTrackingPipeline(
             topic: KAFKA_INGESTION_WARNINGS,
             producer: ingestionWarningProducer,
         },
+        [DLQ_OUTPUT]: {
+            topic: dlqTopic,
+            producer: kafkaProducer,
+        },
+        [REDIRECT_OUTPUT]: {
+            topic: '', // redirect topic comes from the pipeline result
+            producer: kafkaProducer,
+        },
     })
 
     const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+        outputs,
         promiseScheduler,
     }
 

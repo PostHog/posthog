@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { captureIngestionWarning } from './utils'
+import { produceIngestionWarning } from './utils'
 
 /**
  * Helper function to copy and extend headers from a Kafka message
@@ -71,8 +72,11 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
 /**
  * Send a Kafka message to the dead letter queue with proper logging and metrics
  */
-export async function sendMessageToDLQ(
+/** Send a message to DLQ with explicit producer and ingestion warnings topic. */
+export async function produceMessageToDLQ(
     kafkaProducer: KafkaProducerWrapper,
+    ingestionWarningsProducer: KafkaProducerWrapper,
+    ingestionWarningsTopic: string,
     originalMessage: Message,
     error: unknown,
     stepName: string,
@@ -92,8 +96,9 @@ export async function sendMessageToDLQ(
 
     try {
         if (messageInfo.teamId) {
-            await captureIngestionWarning(
-                kafkaProducer,
+            await produceIngestionWarning(
+                ingestionWarningsProducer,
+                ingestionWarningsTopic,
                 parseInt(messageInfo.teamId, 10),
                 'pipeline_step_dlq',
                 {
@@ -134,6 +139,28 @@ export async function sendMessageToDLQ(
             extra: { originalMessage, error: dlqError },
         })
     }
+}
+
+/**
+ * Legacy wrapper — uses the same producer for DLQ and ingestion warnings,
+ * with the hardcoded KAFKA_INGESTION_WARNINGS topic.
+ */
+export async function sendMessageToDLQ(
+    kafkaProducer: KafkaProducerWrapper,
+    originalMessage: Message,
+    error: unknown,
+    stepName: string,
+    dlqTopic: string
+): Promise<void> {
+    return produceMessageToDLQ(
+        kafkaProducer,
+        kafkaProducer,
+        KAFKA_INGESTION_WARNINGS,
+        originalMessage,
+        error,
+        stepName,
+        dlqTopic
+    )
 }
 
 /**

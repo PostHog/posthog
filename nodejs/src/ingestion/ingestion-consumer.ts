@@ -36,7 +36,7 @@ import {
     createJoinedIngestionPipeline,
 } from './analytics'
 import { AiEventOutput, EventOutput, HeatmapsOutput } from './analytics/outputs'
-import { IngestionWarningsOutput } from './common/outputs'
+import { DlqOutput, IngestionWarningsOutput, RedirectOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -59,7 +59,9 @@ export interface IngestionConsumerDeps {
     redisPool: RedisPool
     kafkaProducer: KafkaProducerWrapper
     kafkaMetricsProducer: KafkaProducerWrapper
-    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput>
+    outputs: IngestionOutputs<
+        EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput | DlqOutput | RedirectOutput
+    >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -236,7 +238,6 @@ export class IngestionConsumer {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
-            dlqTopic: this.dlqTopic,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,

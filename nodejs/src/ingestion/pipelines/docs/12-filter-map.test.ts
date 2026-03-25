@@ -23,7 +23,8 @@ import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-inges
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../../common/outputs'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, REDIRECT_OUTPUT } from '../../common/outputs'
+import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newBatchPipelineBuilder } from '../builders'
 import { createContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'
@@ -55,8 +56,14 @@ describe('Filter Map', () => {
             }),
         }
         const pipelineConfig = {
-            kafkaProducer: mockKafkaProducer as any,
-            dlqTopic: 'test-dlq',
+            outputs: new IngestionOutputs({
+                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockKafkaProducer as any },
+                [REDIRECT_OUTPUT]: { topic: '', producer: mockKafkaProducer as any },
+                [INGESTION_WARNINGS_OUTPUT]: {
+                    topic: 'clickhouse_ingestion_warnings',
+                    producer: mockKafkaProducer as any,
+                },
+            }),
             promiseScheduler,
         }
 

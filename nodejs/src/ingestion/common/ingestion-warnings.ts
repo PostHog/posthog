@@ -59,6 +59,33 @@ export async function captureIngestionWarning(
     return Promise.resolve(false)
 }
 
+/** Produce an ingestion warning with an explicit producer and topic. */
+export async function produceIngestionWarning(
+    kafkaProducer: KafkaProducerWrapper,
+    ingestionWarningsTopic: string,
+    teamId: TeamId,
+    type: string,
+    details: Record<string, any>,
+    debounce?: { key?: string; alwaysSend?: boolean }
+): Promise<boolean> {
+    const emitted = shouldEmitWarning(teamId, type, debounce)
+    ingestionWarningCounter.inc({ type, emitted: emitted.toString() })
+
+    if (emitted) {
+        return kafkaProducer
+            .queueMessages({
+                topic: ingestionWarningsTopic,
+                messages: [{ value: serializeIngestionWarning(teamId, type, details) }],
+            })
+            .then(() => true)
+            .catch((error: unknown) => {
+                logger.warn('⚠️', 'Failed to produce ingestion warning', { error, team_id: teamId, type, details })
+                return false
+            })
+    }
+    return Promise.resolve(false)
+}
+
 /** Produce an ingestion warning through the outputs abstraction. */
 export async function emitIngestionWarning(
     outputs: IngestionOutputs<IngestionWarningsOutput>,

@@ -11,6 +11,7 @@ import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../config/kafka-topics'
 export {
     ingestionWarningCounter,
     captureIngestionWarning,
+    produceIngestionWarning,
     emitIngestionWarning,
 } from '../../ingestion/common/ingestion-warnings'
 

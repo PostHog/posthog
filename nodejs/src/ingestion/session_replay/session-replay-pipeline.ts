@@ -9,7 +9,14 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
+import {
+    DLQ_OUTPUT,
+    DlqOutput,
+    INGESTION_WARNINGS_OUTPUT,
+    IngestionWarningsOutput,
+    REDIRECT_OUTPUT,
+    RedirectOutput,
+} from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -76,16 +83,23 @@ export function createSessionReplayPipeline(
         isDebugLoggingEnabled,
     } = config
 
-    const outputs = new IngestionOutputs<IngestionWarningsOutput>({
+    const outputs = new IngestionOutputs<IngestionWarningsOutput | DlqOutput | RedirectOutput>({
         [INGESTION_WARNINGS_OUTPUT]: {
             topic: KAFKA_INGESTION_WARNINGS,
             producer: ingestionWarningProducer,
         },
+        [DLQ_OUTPUT]: {
+            topic: dlqTopic,
+            producer: kafkaProducer,
+        },
+        [REDIRECT_OUTPUT]: {
+            topic: '', // redirect topic comes from the pipeline result
+            producer: kafkaProducer,
+        },
     })
 
     const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+        outputs,
         promiseScheduler,
     }
 
