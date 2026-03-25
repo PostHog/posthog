@@ -127,7 +127,8 @@ export function ExperimentMetricForm({
     openExposureCriteriaModal?: (exposureCriteria?: ExperimentExposureCriteria) => void
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
-    const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
+    const isPercentileMathTypesEnabled = useFeatureFlag('EXPERIMENT_PERCENTILE_MATH_TYPES')
+    const allowedMathTypes = getAllowedMathTypes(metric.metric_type, isPercentileMathTypesEnabled)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 

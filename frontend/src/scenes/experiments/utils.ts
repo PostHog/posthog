@@ -670,10 +670,21 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
     }
 }
 
+const PERCENTILE_MATH_TYPES: ExperimentMetricMathType[] = [
+    ExperimentMetricMathType.Median,
+    ExperimentMetricMathType.P75,
+    ExperimentMetricMathType.P90,
+    ExperimentMetricMathType.P95,
+    ExperimentMetricMathType.P99,
+]
+
 /**
  * returns the allowed math types that can be used when creating a metric
  */
-export function getAllowedMathTypes(metricType: ExperimentMetricType): ExperimentMetricMathType[] {
+export function getAllowedMathTypes(
+    metricType: ExperimentMetricType,
+    percentileMathTypesEnabled?: boolean
+): ExperimentMetricMathType[] {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
             return [
@@ -684,11 +695,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
-                ExperimentMetricMathType.Median,
-                ExperimentMetricMathType.P75,
-                ExperimentMetricMathType.P90,
-                ExperimentMetricMathType.P95,
-                ExperimentMetricMathType.P99,
+                ...(percentileMathTypesEnabled ? PERCENTILE_MATH_TYPES : []),
                 ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.HogQL,
             ]
@@ -702,11 +709,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
-                ExperimentMetricMathType.Median,
-                ExperimentMetricMathType.P75,
-                ExperimentMetricMathType.P90,
-                ExperimentMetricMathType.P95,
-                ExperimentMetricMathType.P99,
+                ...(percentileMathTypesEnabled ? PERCENTILE_MATH_TYPES : []),
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
