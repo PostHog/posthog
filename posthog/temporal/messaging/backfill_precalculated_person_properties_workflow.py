@@ -17,7 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.messaging.filter_storage import get_filters
+from posthog.temporal.messaging.filter_storage import get_filters, get_person_properties
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
@@ -130,6 +130,17 @@ class CohortFilters:
 
 
 @dataclasses.dataclass
+class BackfillPrecalculatedPersonPropertiesResult:
+    """Result from backfilling precalculated person properties."""
+
+    persons_processed: int
+    events_produced: int
+    events_flushed: int
+    last_person_id: str | None  # None if no persons were processed
+    duration_seconds: float
+
+
+@dataclasses.dataclass
 class BackfillPrecalculatedPersonPropertiesInputs:
     """Inputs for the precalculated person properties backfill workflow."""
 
@@ -137,8 +148,8 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     filter_storage_key: str  # Redis key containing the filters
     cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
-    offset: int = 0
-    limit: int | None = None  # Total persons to process (None = all)
+    cursor: str = "00000000-0000-0000-0000-000000000000"  # UUID cursor for pagination
+    end_person_id: str | None = None  # Optional end boundary for this worker
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -148,15 +159,15 @@ class BackfillPrecalculatedPersonPropertiesInputs:
             "cohort_ids": self.cohort_ids,
             "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
-            "offset": self.offset,
-            "limit": self.limit,
+            "cursor": self.cursor,
+            "end_person_id": self.end_person_id,
         }
 
 
 @temporalio.activity.defn
 async def backfill_precalculated_person_properties_activity(
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
-) -> None:
+) -> BackfillPrecalculatedPersonPropertiesResult:
     """
     Backfill precalculated person properties for a batch of persons across multiple cohorts.
 
@@ -181,181 +192,195 @@ async def backfill_precalculated_person_properties_activity(
 
     logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
 
+    # Get pre-computed person properties from storage
+    person_properties = await asyncio.to_thread(get_person_properties, inputs.filter_storage_key)
+
+    if person_properties:
+        logger.info(f"Detected {len(person_properties)} unique person properties in use: {person_properties}")
+    else:
+        logger.info("No person properties detected or using legacy storage format")
+
     logger.info(
         f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
-        f"processing {len(filters)} total filters across {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
+        f"processing {len(filters)} total filters from cursor {inputs.cursor}"
+        + (f" to end boundary {inputs.end_person_id}" if inputs.end_person_id else "")
     )
 
     async with Heartbeater(
-        details=(f"Processing persons (offset={inputs.offset}, batch_size={inputs.batch_size})",)
+        details=(f"Processing persons from {inputs.cursor} to {inputs.end_person_id or 'end'}",)
     ) as heartbeater:
         start_time = time.time()
         kafka_producer = KafkaProducer()
 
-        current_offset = inputs.offset
         total_processed = 0
         total_events_produced = 0
         total_flushed = 0
         FLUSH_BATCH_SIZE = 10_000  # Flush every 10k messages to allow heartbeats
         pending_kafka_messages = []
 
-        while True:
-            # Check if we've hit the limit
-            if inputs.limit is not None and total_processed >= inputs.limit:
-                break
+        # Build optimized query to only fetch needed person properties
+        MAX_OPTIMIZED_PROPERTIES = 50  # Safety limit to avoid query complexity issues
 
-            # Calculate batch size for this iteration
-            remaining = inputs.limit - total_processed if inputs.limit is not None else inputs.batch_size
-            current_batch_size = min(inputs.batch_size, remaining)
+        if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
+            # Only select the specific properties we need
+            property_selects = []
+            for prop in person_properties:
+                # Use JSON extract to get only the specific property
+                escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
+                property_selects.append(f"JSONExtractString(argMax(properties, version), '{escaped_prop}') as `{prop}`")
 
-            heartbeater.details = (f"Fetching batch at offset {current_offset} (batch_size={current_batch_size})",)
+            properties_clause = ",\n                ".join(property_selects)
+            logger.info(
+                f"Optimized query: fetching only {len(person_properties)} specific properties instead of all properties"
+            )
+        else:
+            # Fallback to all properties if we have too many properties or can't determine which ones are needed
+            properties_clause = "argMax(properties, version) as properties"
+            if person_properties and len(person_properties) > MAX_OPTIMIZED_PROPERTIES:
+                logger.warning(
+                    f"Too many properties ({len(person_properties)} > {MAX_OPTIMIZED_PROPERTIES}) - falling back to fetching all properties for performance"
+                )
+            else:
+                logger.warning(
+                    "Falling back to fetching all properties - could not determine specific properties needed"
+                )
 
-            # Query person table for current batch with their distinct_ids
-            persons_query = """
-                SELECT
-                    p.person_id,
-                    p.properties,
-                    pdi.distinct_ids
-                FROM (
-                    SELECT
-                        id as person_id,
-                        argMax(properties, version) as properties
-                    FROM person
-                    WHERE team_id = %(team_id)s
-                    GROUP BY id
-                    HAVING argMax(is_deleted, version) = 0
-                ) p
-                INNER JOIN (
-                    SELECT
-                        person_id,
-                        groupArray(distinct_id) as distinct_ids
-                    FROM (
-                        SELECT
-                            argMax(person_id, version) as person_id,
-                            distinct_id
-                        FROM person_distinct_id2
-                        WHERE team_id = %(team_id)s
-                        GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0
-                    )
-                    GROUP BY person_id
-                ) pdi ON p.person_id = pdi.person_id
-                ORDER BY p.person_id
-                LIMIT %(limit)s
-                OFFSET %(offset)s
-                FORMAT JSONEachRow
-            """
+        persons_query = f"""
+            SELECT
+                id as person_id,
+                {properties_clause}
+            FROM person
+            WHERE team_id = %(team_id)s
+              AND id > %(cursor)s
+        """
 
-            query_params = {
-                "team_id": inputs.team_id,
-                "limit": current_batch_size,
-                "offset": current_offset,
-            }
+        # Add end boundary condition if specified
+        if inputs.end_person_id:
+            persons_query += " AND id <= %(end_person_id)s"
 
-            batch_count = 0
+        persons_query += """
+            GROUP BY id
+            HAVING argMax(is_deleted, version) = 0
+            ORDER BY id
+            LIMIT %(batch_size)s
+            FORMAT JSONEachRow
+        """
 
-            with tags_context(
-                team_id=inputs.team_id,
-                feature=Feature.BEHAVIORAL_COHORTS,
-                product=Product.MESSAGING,
-                query_type="person_properties_backfill",
-            ):
-                async with get_client(team_id=inputs.team_id) as client:
-                    async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
-                        batch_count += 1
-                        person_id = str(row["person_id"])
+        query_params = {
+            "team_id": inputs.team_id,
+            "cursor": inputs.cursor,
+            "batch_size": inputs.batch_size,
+        }
 
-                        person_properties = parse_person_properties(row.get("properties"), person_id)
-                        distinct_ids = row["distinct_ids"]
+        if inputs.end_person_id:
+            query_params["end_person_id"] = inputs.end_person_id
 
-                        globals_dict = {
-                            "person": {
-                                "id": person_id,
-                                "properties": person_properties,
-                            },
-                            "project": {
-                                "id": inputs.team_id,
-                            },
-                        }
+        last_person_id = inputs.cursor
+        batch_count = 0
 
-                        # Evaluate each filter once per person and send results to all cohorts that use it
-                        for filter_obj in filters:
+        with tags_context(
+            team_id=inputs.team_id,
+            feature=Feature.BEHAVIORAL_COHORTS,
+            product=Product.MESSAGING,
+            query_type="person_properties_backfill",
+        ):
+            async with get_client(team_id=inputs.team_id) as client:
+                async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
+                    batch_count += 1
+                    person_id = str(row["person_id"])
+                    last_person_id = person_id  # Track the last person ID for next cursor
+
+                    # Handle both optimized (individual property columns) and fallback (full properties JSON) formats
+                    if person_properties and "properties" not in row:
+                        # Optimized format: reconstruct properties dict from individual columns
+                        reconstructed_properties = {}
+                        for property_name in person_properties:
+                            value = row.get(property_name)
+                            if value:  # Only include non-empty values
+                                reconstructed_properties[property_name] = value
+
+                        parsed_properties = parse_person_properties(reconstructed_properties, person_id)
+                    else:
+                        # Fallback format: use full properties JSON
+                        parsed_properties = parse_person_properties(row.get("properties"), person_id)
+
+                    globals_dict = {
+                        "person": {
+                            "id": person_id,
+                            "properties": parsed_properties,
+                        },
+                        "project": {
+                            "id": inputs.team_id,
+                        },
+                    }
+
+                    # Evaluate each filter once per person and send results to all cohorts that use it
+                    for filter_obj in filters:
+                        try:
+                            result = await asyncio.to_thread(
+                                execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
+                            )
+                            matches = bool(result.result) if result else False
+                        except Exception as e:
+                            logger.warning(
+                                f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
+                                person_id=person_id,
+                                condition_hash=filter_obj.condition_hash,
+                                error=str(e),
+                            )
+                            matches = False
+
+                        # Send results to all cohorts that use this filter
+                        for cohort_id in filter_obj.cohort_ids:
+                            # Use person_id as distinct_id for backfilling
+                            event = {
+                                "distinct_id": person_id,
+                                "person_id": person_id,
+                                "team_id": inputs.team_id,
+                                "condition": filter_obj.condition_hash,
+                                "matches": matches,
+                                "source": f"cohort_backfill_{cohort_id}",
+                            }
+
+                            # Produce to Kafka without blocking - collect send results for later flushing
                             try:
-                                result = await asyncio.to_thread(
-                                    execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
+                                send_result = kafka_producer.produce(
+                                    topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                    key=event["distinct_id"],
+                                    data=event,
                                 )
-                                matches = bool(result.result) if result else False
+                                pending_kafka_messages.append(send_result)
+                                total_events_produced += 1
+
+                                # Flush in batches to allow heartbeats
+                                if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
+                                    flushed = await flush_kafka_batch(
+                                        kafka_producer,
+                                        pending_kafka_messages,
+                                        inputs.team_id,
+                                        total_processed,  # Use total processed count
+                                        heartbeater,
+                                        logger,
+                                    )
+                                    total_flushed += flushed
+                                    pending_kafka_messages.clear()
+
                             except Exception as e:
                                 logger.warning(
-                                    f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
+                                    f"Failed to produce Kafka message for distinct_id {event['distinct_id']}: {e}",
+                                    distinct_id=event["distinct_id"],
                                     person_id=person_id,
-                                    condition_hash=filter_obj.condition_hash,
                                     error=str(e),
                                 )
-                                matches = False
+                                # Continue processing even if Kafka produce fails
 
-                            # Send results to all cohorts that use this filter
-                            for cohort_id in filter_obj.cohort_ids:
-                                # ALWAYS emit - both matches and non-matches for EACH distinct_id
-                                for distinct_id in distinct_ids:
-                                    event = {
-                                        "distinct_id": distinct_id,
-                                        "person_id": person_id,
-                                        "team_id": inputs.team_id,
-                                        "condition": filter_obj.condition_hash,
-                                        "matches": matches,
-                                        "source": f"cohort_backfill_{cohort_id}",
-                                    }
+        logger.info(f"Processed {batch_count} persons from {inputs.cursor} to {last_person_id}")
+        total_processed = batch_count
 
-                                    # Produce to Kafka without blocking - collect send results for later flushing
-                                    try:
-                                        send_result = kafka_producer.produce(
-                                            topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                                            key=event["distinct_id"],
-                                            data=event,
-                                        )
-                                        pending_kafka_messages.append(send_result)
-                                        total_events_produced += 1
-
-                                        # Flush in batches to allow heartbeats
-                                        if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
-                                            flushed = await flush_kafka_batch(
-                                                kafka_producer,
-                                                pending_kafka_messages,
-                                                inputs.team_id,
-                                                current_offset,
-                                                heartbeater,
-                                                logger,
-                                            )
-                                            total_flushed += flushed
-                                            pending_kafka_messages.clear()
-
-                                    except Exception as e:
-                                        logger.warning(
-                                            f"Failed to produce Kafka message for distinct_id {event['distinct_id']}: {e}",
-                                            distinct_id=event["distinct_id"],
-                                            person_id=person_id,
-                                            error=str(e),
-                                        )
-                                        # Continue processing even if Kafka produce fails
-
-            # No more persons, we're done
-            if batch_count == 0:
-                break
-
-            logger.info(f"Streamed {batch_count} persons at offset {current_offset}")
-
-            total_processed += batch_count
-            current_offset += batch_count
-
-            # Update heartbeat
-            heartbeater.details = (
-                f"Processed {total_processed} persons, produced {total_events_produced} events, flushed {total_flushed}",
-            )
-
-            # If we got fewer persons than batch_size, we're done
-            if batch_count < current_batch_size:
-                break
+        # Update heartbeat
+        heartbeater.details = (
+            f"Processed {total_processed} persons, produced {total_events_produced} events, flushed {total_flushed}",
+        )
 
         # Flush any remaining messages
         if pending_kafka_messages:
@@ -364,7 +389,7 @@ async def backfill_precalculated_person_properties_activity(
                 kafka_producer,
                 pending_kafka_messages,
                 inputs.team_id,
-                current_offset,
+                total_processed,  # Use total processed count instead of cursor for logging
                 heartbeater,
                 logger,
                 is_final=True,
@@ -386,6 +411,14 @@ async def backfill_precalculated_person_properties_activity(
             duration_seconds=duration_seconds,
         )
 
+        return BackfillPrecalculatedPersonPropertiesResult(
+            persons_processed=total_processed,
+            events_produced=total_events_produced,
+            events_flushed=total_flushed,
+            last_person_id=last_person_id if batch_count > 0 else None,
+            duration_seconds=duration_seconds,
+        )
+
 
 @temporalio.workflow.defn(name="backfill-precalculated-person-properties")
 class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
@@ -398,7 +431,9 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         raise NotImplementedError("Use start_workflow() to trigger this workflow programmatically")
 
     @temporalio.workflow.run
-    async def run(self, inputs: BackfillPrecalculatedPersonPropertiesInputs) -> None:
+    async def run(
+        self, inputs: BackfillPrecalculatedPersonPropertiesInputs
+    ) -> BackfillPrecalculatedPersonPropertiesResult:
         """Run the workflow to backfill precalculated person properties."""
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
@@ -408,7 +443,7 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         )
 
         # Process the batch of persons
-        await temporalio.workflow.execute_activity(
+        result = await temporalio.workflow.execute_activity(
             backfill_precalculated_person_properties_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(hours=12),  # Long timeout for large batches
@@ -420,4 +455,9 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
             ),
         )
 
-        workflow_logger.info("Precalculated person properties backfill workflow completed")
+        workflow_logger.info(
+            f"Precalculated person properties backfill workflow completed: "
+            f"processed {result.persons_processed} persons, last_id: {result.last_person_id}"
+        )
+
+        return result

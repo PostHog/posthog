@@ -300,16 +300,19 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 condition_hash="age_filter_25",
                 bytecode=["mock_bytecode_age_25"],
                 cohort_ids=[100],
+                property_key="age",
             ),
             PersonPropertyFilter(
                 condition_hash="country_filter_us",
                 bytecode=["mock_bytecode_country_us"],
                 cohort_ids=[100],
+                property_key="country",
             ),
             PersonPropertyFilter(
                 condition_hash="age_filter_35",
                 bytecode=["mock_bytecode_age_35"],
                 cohort_ids=[200],
+                property_key="age",
             ),
         ]
 
@@ -489,6 +492,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 condition_hash="age_filter_25",
                 bytecode=["mock_bytecode_age_25"],
                 cohort_ids=[100, 200],  # This condition is shared between both cohorts
+                property_key="age",
             ),
         ]
 
