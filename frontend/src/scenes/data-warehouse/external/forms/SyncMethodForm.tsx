@@ -142,8 +142,8 @@ export const SyncMethodForm = ({
                         <LemonTag type="success">Recommended</LemonTag>
                     </div>
                     <p className="mb-2">
-                        When using webhook sync, we'll receive real-time updates from your source via webhooks. This
-                        provides the fastest data freshness with minimal sync overhead.
+                        When using webhook sync, we'll receive updates from your source via webhooks. This provides the
+                        fastest data freshness with minimal sync overhead.
                     </p>
                     {isNewSource && (
                         <LemonBanner type="info" className="mt-2">

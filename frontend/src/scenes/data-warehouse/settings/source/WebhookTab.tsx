@@ -238,7 +238,7 @@ function WebhookDeleteSection({
             onClick={handleDelete}
             loading={deleting}
             disabledReason={
-                !canDelete ? 'Disable incremental syncing on all tables before deleting the webhook' : undefined
+                !canDelete ? 'Disable syncing on all webhook tables before deleting the webhook' : undefined
             }
         >
             Delete webhook
@@ -253,8 +253,8 @@ function WebhookDeleteSection({
                     <p className="mb-0">Remove the webhook from PostHog and the source.</p>
                     {!canDelete && (
                         <p className="text-muted text-xs mt-1 mb-0">
-                            Tables using incremental sync depend on this webhook. Switch them to full refresh or disable
-                            syncing first.
+                            Tables using webhook sync mode depend on this webhook. Switch them to an alternative sync
+                            mode or disable syncing first.
                         </p>
                     )}
                 </div>

@@ -314,7 +314,7 @@ function WebhookSetupStep(): JSX.Element {
 
     return (
         <WebhookSetupForm
-            sourceName={selectedConnector?.label ?? 'source'}
+            sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
             sourceConfig={selectedConnector}
             webhookTables={webhookTables}
             webhookResult={webhookResult}
