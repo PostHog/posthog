@@ -1,8 +1,8 @@
 locals {
   # ===========================================================================
   # SLO operation config. Add new operations here to auto-generate insights.
-  # Each operation must emit slo_operation_completed events with matching
-  # properties.operation value (see posthog/slo/types.py:SloOperation).
+  # Each operation must emit slo_operation_started and slo_operation_completed
+  # events with matching properties.operation value (see posthog/slo/types.py).
   # ===========================================================================
   slo_operations = {
     subscription_delivery = {
@@ -157,7 +157,7 @@ resource "posthog_insight" "slo_burn_rate" {
   for_each = local.slo_operation_regions
 
   name        = "SLO: Burn Rates - ${each.value.name} (${each.value.slo}%) — ${each.value.region}"
-  description = "[Investigate failures with AI](/ai?ask=Investigate+${each.value.operation}+failures+in+${each.value.region}+region+slo_operation_completed+events+last+24h)"
+  description = "[Investigate failures with AI](/ai?ask=Investigate+${each.value.operation}+failures+in+${each.value.region}+region.+Check+slo_operation_started+events+without+matching+slo_operation_completed+success+outcomes+in+the+last+24h)"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
