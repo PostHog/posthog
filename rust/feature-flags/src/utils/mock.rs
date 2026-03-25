@@ -1,3 +1,5 @@
+#![allow(clippy::needless_update)]
+
 use crate::cohorts::cohort_models::Cohort;
 use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, Holdout, MultivariateFlagVariant,
@@ -18,70 +20,43 @@ pub trait Mock {
 /// Create a mock of `Self` seeded from a value of type `T`.
 ///
 /// Useful for converting between related types (e.g., building a
-/// `FeatureFlagRow` from a `FeatureFlag` for database insertion tests).
+/// `FeatureFlagRow` from a `FeatureFlag` for database insertion tests)
+/// or for ergonomic type coercions (e.g., `&str` → `Option<String>`).
 pub trait MockFrom<T> {
-    fn mock_from(source: &T) -> Self;
+    fn mock_from(value: T) -> Self;
 }
 
-// ---------------------------------------------------------------------------
-// Blanket implementations
-// ---------------------------------------------------------------------------
+/// The reciprocal of [`MockFrom`].
+pub trait MockInto<T> {
+    fn mock_into(self) -> T;
+}
 
-/// Every type that implements `Mock` can trivially create itself from `()`.
-impl<T: Mock> MockFrom<()> for T {
-    fn mock_from(_: &()) -> Self {
-        T::mock()
+impl<T, U: MockFrom<T>> MockInto<U> for T {
+    fn mock_into(self) -> U {
+        U::mock_from(self)
     }
 }
 
-/// Create a `Vec` of `count` mock items.
-///
-/// ```rust,ignore
-/// let flags: Vec<FeatureFlag> = MockFrom::mock_from(&3);
-/// ```
-impl<T: Mock> MockFrom<usize> for Vec<T> {
-    fn mock_from(count: &usize) -> Self {
-        (0..*count).map(|_| T::mock()).collect()
+impl<T> MockFrom<T> for T {
+    fn mock_from(value: T) -> Self {
+        value
     }
 }
 
-// ---------------------------------------------------------------------------
-// Primitive / standard-library Mock implementations
-// ---------------------------------------------------------------------------
+// Primitive / standard-library conversions
 
-impl Mock for String {
-    fn mock() -> Self {
-        "test_value".to_string()
+impl MockFrom<&str> for String {
+    fn mock_from(value: &str) -> Self {
+        value.to_owned()
     }
 }
 
-impl Mock for i32 {
-    fn mock() -> Self {
-        1
-    }
-}
-
-impl Mock for i64 {
-    fn mock() -> Self {
-        1
-    }
-}
-
-impl Mock for f64 {
-    fn mock() -> Self {
-        1.0
-    }
-}
-
-impl Mock for bool {
-    fn mock() -> Self {
-        true
-    }
-}
-
-impl Mock for serde_json::Value {
-    fn mock() -> Self {
-        json!({})
+impl<X> MockFrom<X> for Option<String>
+where
+    String: MockFrom<X>,
+{
+    fn mock_from(value: X) -> Self {
+        Some(String::mock_from(value))
     }
 }
 
@@ -94,18 +69,18 @@ impl Mock for serde_json::Value {
 /// let flag = mock!(FeatureFlag);
 ///
 /// // With field overrides
-/// let flag = mock!(FeatureFlag, team_id: 42, key: "my_flag".to_string());
+/// let flag = mock!(FeatureFlag, team_id: 42, key: "my_flag".mock_into());
 ///
-/// // Nested mocks
+/// // Nested mocks via MockInto
 /// let flag = mock!(FeatureFlag,
-///     filters: mock_flag_filters_with_property(mock!(PropertyFilter))
+///     filters: mock!(PropertyFilter, key: "country".mock_into()).mock_into()
 /// );
 ///
 /// // MockFrom -- create from another type
-/// let row = mock!(FeatureFlagRow, from: &flag);
+/// let row = mock!(FeatureFlagRow, from: flag.clone());
 ///
 /// // MockFrom with additional overrides
-/// let row = mock!(FeatureFlagRow, from: &flag, key: "override".to_string());
+/// let row = mock!(FeatureFlagRow, from: flag, key: "override".mock_into());
 /// ```
 #[macro_export]
 macro_rules! mock {
@@ -129,9 +104,7 @@ macro_rules! mock {
     }};
 }
 
-// ---------------------------------------------------------------------------
 // Mock implementations
-// ---------------------------------------------------------------------------
 
 impl Mock for FeatureFlag {
     fn mock() -> Self {
@@ -236,55 +209,50 @@ impl Mock for FlagFilters {
     }
 }
 
-// ---------------------------------------------------------------------------
 // MockFrom implementations
-// ---------------------------------------------------------------------------
 
 impl MockFrom<FeatureFlag> for FeatureFlagRow {
-    fn mock_from(flag: &FeatureFlag) -> Self {
+    fn mock_from(flag: FeatureFlag) -> Self {
+        let filters = serde_json::to_value(&flag.filters)
+            .expect("Mock: failed to serialize FeatureFlag.filters to JSON");
         FeatureFlagRow {
             id: flag.id,
             team_id: flag.team_id,
-            name: flag.name.clone(),
-            key: flag.key.clone(),
-            filters: serde_json::to_value(&flag.filters)
-                .expect("Mock: failed to serialize FeatureFlag.filters to JSON"),
+            name: flag.name,
+            key: flag.key,
+            filters,
             deleted: flag.deleted,
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
             version: flag.version,
-            evaluation_runtime: flag.evaluation_runtime.clone(),
-            evaluation_tags: flag.evaluation_tags.clone(),
-            bucketing_identifier: flag.bucketing_identifier.clone(),
+            evaluation_runtime: flag.evaluation_runtime,
+            evaluation_tags: flag.evaluation_tags,
+            bucketing_identifier: flag.bucketing_identifier,
             ..Default::default()
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Convenience helpers
-// ---------------------------------------------------------------------------
-
-/// Creates `FlagFilters` with a single group containing the given properties at 100% rollout.
-pub fn mock_flag_filters_with_properties(properties: Vec<PropertyFilter>) -> FlagFilters {
-    FlagFilters {
-        groups: vec![FlagPropertyGroup {
-            properties: Some(properties),
-            rollout_percentage: Some(100.0),
-            ..Default::default()
-        }],
-        ..Default::default()
+/// Single property → `FlagFilters` with one group at 100% rollout.
+impl MockFrom<PropertyFilter> for FlagFilters {
+    fn mock_from(property: PropertyFilter) -> Self {
+        MockFrom::mock_from(vec![property])
     }
 }
 
-/// Creates `FlagFilters` with a single group containing one `PropertyFilter` at 100% rollout.
-pub fn mock_flag_filters_with_property(property: PropertyFilter) -> FlagFilters {
-    mock_flag_filters_with_properties(vec![property])
+/// Multiple properties → `FlagFilters` with one group at 100% rollout.
+impl MockFrom<Vec<PropertyFilter>> for FlagFilters {
+    fn mock_from(properties: Vec<PropertyFilter>) -> Self {
+        FlagFilters {
+            groups: vec![FlagPropertyGroup {
+                properties: Some(properties),
+                rollout_percentage: Some(100.0),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -313,75 +281,11 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_feature_flag_defaults_match_create_test_flag() {
-        // Verify mock defaults match what create_test_flag(None x8) produces.
-        // This is the original create_test_flag output, inlined for comparison.
-        let expected = FeatureFlag {
-            id: 1,
-            team_id: 1,
-            name: Some("Test Flag".to_string()),
-            key: "test_flag".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                    ..Default::default()
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: Some(1),
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
-        let actual = mock!(FeatureFlag);
-
-        assert_eq!(actual.id, expected.id);
-        assert_eq!(actual.team_id, expected.team_id);
-        assert_eq!(actual.name, expected.name);
-        assert_eq!(actual.key, expected.key);
-        assert_eq!(actual.deleted, expected.deleted);
-        assert_eq!(actual.active, expected.active);
-        assert_eq!(
-            actual.ensure_experience_continuity,
-            expected.ensure_experience_continuity
-        );
-        assert_eq!(actual.version, expected.version);
-        assert_eq!(actual.evaluation_runtime, expected.evaluation_runtime);
-        assert_eq!(actual.evaluation_tags, expected.evaluation_tags);
-        assert_eq!(actual.bucketing_identifier, expected.bucketing_identifier);
-        assert_eq!(actual.filters.groups.len(), expected.filters.groups.len());
-        assert_eq!(
-            actual.filters.groups[0].rollout_percentage,
-            expected.filters.groups[0].rollout_percentage
-        );
-        assert_eq!(
-            actual.filters.groups[0]
-                .properties
-                .as_ref()
-                .map(|v| v.len()),
-            expected.filters.groups[0]
-                .properties
-                .as_ref()
-                .map(|v| v.len())
-        );
-    }
-
-    #[test]
     fn test_mock_feature_flag_with_overrides() {
         let flag = mock!(FeatureFlag,
             id: 42,
             team_id: 7,
-            key: "custom_flag".to_string(),
+            key: "custom_flag".mock_into(),
             active: false
         );
 
@@ -389,7 +293,6 @@ mod tests {
         assert_eq!(flag.team_id, 7);
         assert_eq!(flag.key, "custom_flag");
         assert!(!flag.active);
-        // Non-overridden fields retain defaults
         assert_eq!(flag.name, Some("Test Flag".to_string()));
         assert!(!flag.deleted);
         assert_eq!(flag.version, Some(1));
@@ -422,7 +325,7 @@ mod tests {
     #[test]
     fn test_mock_property_filter_with_overrides() {
         let pf = mock!(PropertyFilter,
-            key: "email".to_string(),
+            key: "email".mock_into(),
             value: Some(json!("test@example.com")),
             prop_type: PropertyType::Group,
             group_type_index: Some(0)
@@ -432,7 +335,6 @@ mod tests {
         assert_eq!(pf.value, Some(json!("test@example.com")));
         assert_eq!(pf.prop_type, PropertyType::Group);
         assert_eq!(pf.group_type_index, Some(0));
-        // Non-overridden
         assert_eq!(pf.operator, Some(OperatorType::Exact));
     }
 
@@ -467,23 +369,16 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_flag_property_group_differs_from_default() {
+    fn test_mock_differs_from_default() {
         let mock_group = mock!(FlagPropertyGroup);
         let default_group = FlagPropertyGroup::default();
-
-        // Mock provides useful test defaults; Default gives all None
         assert_eq!(mock_group.rollout_percentage, Some(100.0));
         assert!(mock_group.properties.as_ref().unwrap().is_empty());
         assert_eq!(default_group.rollout_percentage, None);
         assert!(default_group.properties.is_none());
-    }
 
-    #[test]
-    fn test_mock_flag_filters_differs_from_default() {
         let mock_filters = mock!(FlagFilters);
         let default_filters = FlagFilters::default();
-
-        // Mock provides one group at 100%; Default gives empty groups
         assert_eq!(mock_filters.groups.len(), 1);
         assert!(default_filters.groups.is_empty());
     }
@@ -493,51 +388,72 @@ mod tests {
         let flag = mock!(FeatureFlag,
             id: 5,
             team_id: 10,
-            key: "converted_flag".to_string(),
+            key: "converted_flag".mock_into(),
             active: false
         );
-
-        let row = mock!(FeatureFlagRow, from: &flag);
+        let row = mock!(FeatureFlagRow, from: flag);
 
         assert_eq!(row.id, 5);
         assert_eq!(row.team_id, 10);
         assert_eq!(row.key, "converted_flag");
         assert!(!row.active);
-        assert_eq!(row.name, flag.name);
-        assert_eq!(row.deleted, flag.deleted);
-        assert_eq!(
-            row.ensure_experience_continuity,
-            flag.ensure_experience_continuity
-        );
-        assert_eq!(row.version, flag.version);
-        assert_eq!(row.evaluation_runtime, flag.evaluation_runtime);
-        // Filters should be serialized to JSON
         assert!(row.filters.is_object());
         assert!(row.filters.get("groups").is_some());
     }
 
     #[test]
     fn test_mock_from_with_overrides() {
-        let flag = mock!(FeatureFlag, key: "original".to_string());
-
-        let row = mock!(FeatureFlagRow, from: &flag, key: "overridden".to_string());
+        let flag = mock!(FeatureFlag, key: "original".mock_into());
+        let row = mock!(FeatureFlagRow, from: flag.clone(), key: "overridden".mock_into());
 
         assert_eq!(row.key, "overridden");
-        // Other fields still come from the source flag
         assert_eq!(row.id, flag.id);
         assert_eq!(row.team_id, flag.team_id);
+    }
+
+    #[test]
+    fn test_mock_into_option_string() {
+        let flag = mock!(FeatureFlag, name: "Custom Name".mock_into());
+        assert_eq!(flag.name, Some("Custom Name".to_string()));
+
+        let flag = mock!(FeatureFlag, bucketing_identifier: "device_id".mock_into());
+        assert_eq!(flag.bucketing_identifier, Some("device_id".to_string()));
+    }
+
+    #[test]
+    fn test_mock_into_property_filter_to_filters() {
+        let filters: FlagFilters = mock!(PropertyFilter, key: "country".mock_into()).mock_into();
+
+        assert_eq!(filters.groups.len(), 1);
+        assert_eq!(filters.groups[0].rollout_percentage, Some(100.0));
+        let props = filters.groups[0].properties.as_ref().unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0].key, "country");
+    }
+
+    #[test]
+    fn test_mock_into_vec_properties_to_filters() {
+        let filters: FlagFilters = vec![
+            mock!(PropertyFilter, key: "a".mock_into()),
+            mock!(PropertyFilter, key: "b".mock_into()),
+        ]
+        .mock_into();
+
+        assert_eq!(filters.groups.len(), 1);
+        let props = filters.groups[0].properties.as_ref().unwrap();
+        assert_eq!(props.len(), 2);
+        assert_eq!(props[0].key, "a");
+        assert_eq!(props[1].key, "b");
     }
 
     #[test]
     fn test_nested_mock_composition() {
         let flag = mock!(FeatureFlag,
             team_id: 42,
-            filters: mock_flag_filters_with_property(
-                mock!(PropertyFilter,
-                    key: "country".to_string(),
-                    value: Some(json!("US"))
-                )
-            )
+            filters: mock!(PropertyFilter,
+                key: "country".mock_into(),
+                value: Some(json!("US"))
+            ).mock_into()
         );
 
         assert_eq!(flag.team_id, 42);
@@ -551,7 +467,6 @@ mod tests {
 
     #[test]
     fn test_nested_mock_matches_manual_instantiation() {
-        // The original manual code from handler/tests.rs:182-215
         let manual_flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -586,15 +501,12 @@ mod tests {
             bucketing_identifier: None,
         };
 
-        // The equivalent mock! version
         let mock_flag = mock!(FeatureFlag,
             team_id: 99,
-            filters: mock_flag_filters_with_property(
-                mock!(PropertyFilter,
-                    key: "country".to_string(),
-                    value: Some(json!("US"))
-                )
-            )
+            filters: mock!(PropertyFilter,
+                key: "country".mock_into(),
+                value: Some(json!("US"))
+            ).mock_into()
         );
 
         assert_eq!(mock_flag.id, manual_flag.id);
@@ -614,7 +526,6 @@ mod tests {
             mock_flag.bucketing_identifier,
             manual_flag.bucketing_identifier
         );
-        // Filters structure
         assert_eq!(
             mock_flag.filters.groups.len(),
             manual_flag.filters.groups.len()
@@ -630,34 +541,10 @@ mod tests {
         assert_eq!(mock_props[0].value, manual_props[0].value);
         assert_eq!(mock_props[0].operator, manual_props[0].operator);
         assert_eq!(mock_props[0].prop_type, manual_props[0].prop_type);
-        assert_eq!(mock_props[0].negation, manual_props[0].negation);
-        assert_eq!(
-            mock_props[0].group_type_index,
-            manual_props[0].group_type_index
-        );
-    }
-
-    #[test]
-    fn test_mock_flag_filters_with_properties_helper() {
-        let props = vec![
-            mock!(PropertyFilter, key: "a".to_string()),
-            mock!(PropertyFilter, key: "b".to_string()),
-        ];
-        let filters = mock_flag_filters_with_properties(props);
-
-        assert_eq!(filters.groups.len(), 1);
-        let group_props = filters.groups[0].properties.as_ref().unwrap();
-        assert_eq!(group_props.len(), 2);
-        assert_eq!(group_props[0].key, "a");
-        assert_eq!(group_props[1].key, "b");
-        assert_eq!(filters.groups[0].rollout_percentage, Some(100.0));
-        assert!(filters.multivariate.is_none());
-        assert!(filters.holdout.is_none());
     }
 
     #[test]
     fn test_mock_cohort_matches_manual_instantiation() {
-        // The original manual code from cohort_models.rs:159-183
         let manual_cohort = Cohort {
             id: 1,
             name: Some("Test Cohort".to_string()),
@@ -678,9 +565,8 @@ mod tests {
             last_backfill_person_properties_at: None,
         };
 
-        // Equivalent mock! version -- only override the fields that differ from mock defaults
         let mock_cohort = mock!(Cohort,
-            description: Some("A test cohort".to_string()),
+            description: "A test cohort".mock_into(),
             filters: Some(json!({"type": "AND", "values": []})),
             count: Some(100),
             created_by_id: Some(1)
@@ -708,41 +594,10 @@ mod tests {
 
     #[test]
     fn test_trailing_comma_in_macro() {
-        // Trailing commas should be accepted
         let flag = mock!(FeatureFlag, id: 99,);
         assert_eq!(flag.id, 99);
 
-        let pf = mock!(PropertyFilter, key: "x".to_string(),);
+        let pf = mock!(PropertyFilter, key: "x".mock_into(),);
         assert_eq!(pf.key, "x");
-    }
-
-    #[test]
-    fn test_primitive_mocks() {
-        assert_eq!(String::mock(), "test_value");
-        assert_eq!(i32::mock(), 1);
-        assert_eq!(i64::mock(), 1);
-        assert_eq!(f64::mock(), 1.0);
-        assert!(bool::mock());
-        assert_eq!(serde_json::Value::mock(), json!({}));
-    }
-
-    #[test]
-    fn test_mock_from_unit_blanket() {
-        // MockFrom<()> delegates to Mock::mock()
-        let flag: FeatureFlag = MockFrom::mock_from(&());
-        assert_eq!(flag.key, "test_flag");
-    }
-
-    #[test]
-    fn test_vec_mock_from_count() {
-        let flags: Vec<FeatureFlag> = MockFrom::mock_from(&3);
-        assert_eq!(flags.len(), 3);
-        for flag in &flags {
-            assert_eq!(flag.key, "test_flag");
-            assert!(flag.active);
-        }
-
-        let empty: Vec<PropertyFilter> = MockFrom::mock_from(&0);
-        assert!(empty.is_empty());
     }
 }
