@@ -351,6 +351,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .nullish()
         .describe(
@@ -1088,6 +1094,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .nullish()
         .describe(
