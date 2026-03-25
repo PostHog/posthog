@@ -2,6 +2,7 @@ import {
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
+    KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_INGESTION_WARNINGS,
 } from '../../src/config/kafka-topics'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from '../../src/ingestion/analytics/outputs'
@@ -15,7 +16,7 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
         [AI_EVENTS_OUTPUT]: { topic: KAFKA_CLICKHOUSE_AI_EVENTS_JSON, producer: kafkaProducer },
         [HEATMAPS_OUTPUT]: { topic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS, producer: kafkaProducer },
         [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: kafkaProducer },
-        [DLQ_OUTPUT]: { topic: 'test-dlq', producer: kafkaProducer },
+        [DLQ_OUTPUT]: { topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, producer: kafkaProducer },
         [REDIRECT_OUTPUT]: { topic: '', producer: kafkaProducer },
     })
 }
