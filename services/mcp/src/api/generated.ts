@@ -32139,6 +32139,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     */
+    ordering?: string;
     };
 
     export type DashboardsListParams = {
