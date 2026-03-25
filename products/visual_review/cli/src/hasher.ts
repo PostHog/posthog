@@ -5,25 +5,19 @@
  * This ensures identical visual content = identical hash,
  * regardless of PNG compression settings or metadata.
  *
- * Uses pngjs (pure JS) instead of sharp to avoid native binary issues
- * when the CLI is distributed as a tarball across platforms.
+ * Uses sharp (native libvips) for fast PNG decode.
  */
 import { Blake3Hasher } from '@napi-rs/blake-hash'
-import { PNG } from 'pngjs'
-
-function decodePng(pngData: Buffer): { data: Buffer; width: number; height: number } {
-    const png = PNG.sync.read(pngData)
-    return { data: png.data, width: png.width, height: png.height }
-}
+import sharp from 'sharp'
 
 /**
  * Hash PNG image data by decoding to RGBA and hashing the pixel buffer.
  * Returns hex-encoded BLAKE3 hash.
  */
 export async function hashImage(pngData: Buffer): Promise<string> {
-    const { data } = decodePng(pngData)
+    const { data } = await sharp(pngData).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     const hasher = new Blake3Hasher()
-    hasher.update(data)
+    hasher.update(data as unknown as Uint8Array)
     return hasher.digest('hex')
 }
 
@@ -31,8 +25,8 @@ export async function hashImage(pngData: Buffer): Promise<string> {
  * Get image dimensions from PNG data.
  */
 export async function getImageDimensions(pngData: Buffer): Promise<{ width: number; height: number }> {
-    const { width, height } = decodePng(pngData)
-    return { width, height }
+    const metadata = await sharp(pngData).metadata()
+    return { width: metadata.width!, height: metadata.height! }
 }
 
 /**
@@ -41,14 +35,12 @@ export async function getImageDimensions(pngData: Buffer): Promise<{ width: numb
 export async function hashImageWithDimensions(
     pngData: Buffer
 ): Promise<{ hash: string; width: number; height: number }> {
-    const { data, width, height } = decodePng(pngData)
-
+    const { data, info } = await sharp(pngData).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     const hasher = new Blake3Hasher()
-    hasher.update(data)
-
+    hasher.update(data as unknown as Uint8Array)
     return {
         hash: hasher.digest('hex'),
-        width,
-        height,
+        width: info.width,
+        height: info.height,
     }
 }

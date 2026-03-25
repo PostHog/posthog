@@ -252,10 +252,17 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     }> = []
 
     log(`Found ${scanned.length} snapshots, hashing...`)
-    for (const { identifier, filePath } of scanned) {
-        const data = readFileSync(filePath)
-        const { hash, width, height } = await hashImageWithDimensions(data)
-        snapshots.push({ identifier, hash, width, height, data })
+    const HASH_CONCURRENCY = 16
+    for (let i = 0; i < scanned.length; i += HASH_CONCURRENCY) {
+        const batch = scanned.slice(i, i + HASH_CONCURRENCY)
+        const results = await Promise.all(
+            batch.map(async ({ identifier, filePath }) => {
+                const data = readFileSync(filePath)
+                const { hash, width, height } = await hashImageWithDimensions(data)
+                return { identifier, hash, width, height, data }
+            })
+        )
+        snapshots.push(...results)
     }
 
     // 3. Read baseline hashes (signed format — sent as-is, backend verifies)
