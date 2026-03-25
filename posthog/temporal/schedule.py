@@ -14,6 +14,8 @@ from temporalio.client import (
     ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
     ScheduleIntervalSpec,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleRange,
     ScheduleSpec,
 )
@@ -106,6 +108,10 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
+        # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
+        # Safe because child workflows use idempotent IDs (process-subscription-{id})
+        # so Temporal rejects duplicate starts for the same subscription.
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
     if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):
