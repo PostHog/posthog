@@ -682,6 +682,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
 
+    # Fields safe to pass through to DashboardTile.objects.update_or_create defaults
+    TILE_DISPLAY_FIELDS = {
+        "color",
+        "layouts",
+        "filters_overrides",
+        "show_description",
+        "transparent_background",
+        "deleted",
+    }
+
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[str | None, bool]:
         """Returns (tile_type, created) for new tile creation, or (None, False) for updates."""
@@ -718,6 +728,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if existing_text_id:
                 try:
                     text = Text.objects.get(id=existing_text_id, team_id=instance.team_id)
+                    if not DashboardTile.objects.filter(dashboard=instance, text_id=existing_text_id).exists():
+                        raise serializers.ValidationError({"text": "Text tile not found."})
                     for attr, val in validated_data.items():
                         setattr(text, attr, val)
                     text.save()
@@ -726,10 +738,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             else:
                 text = Text.objects.create(**validated_data)
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
+            tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
             _, created = DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 dashboard=instance,
-                defaults={**tile_data, "text": text, "dashboard": instance},
+                defaults={**tile_defaults, "text": text, "dashboard": instance},
             )
             return "text", created
         elif tile_data.get("button_tile", None):
@@ -762,6 +775,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if existing_button_id:
                 try:
                     button_tile = ButtonTile.objects.get(id=existing_button_id, team_id=instance.team_id)
+                    if not DashboardTile.objects.filter(dashboard=instance, button_tile_id=existing_button_id).exists():
+                        raise serializers.ValidationError({"button_tile": "Button tile not found."})
                     for attr, val in validated_data.items():
                         setattr(button_tile, attr, val)
                     button_tile.save()
@@ -770,10 +785,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             else:
                 button_tile = ButtonTile.objects.create(**validated_data)
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
+            tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
             _, created = DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 dashboard=instance,
-                defaults={**tile_data, "button_tile": button_tile, "dashboard": instance},
+                defaults={**tile_defaults, "button_tile": button_tile, "dashboard": instance},
             )
             return "button", created
         elif (
@@ -787,10 +803,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
+            tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 dashboard=instance,
-                defaults={**tile_data, "dashboard": instance},
+                defaults={**tile_defaults, "dashboard": instance},
             )
 
         return None, False
