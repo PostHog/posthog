@@ -363,7 +363,7 @@ def get_source_aggregation_expr(
         elif math_type in PERCENTILE_LEVELS:
             level = PERCENTILE_LEVELS[math_type]
             return parse_expr(
-                f"coalesce(quantile({{level}})(toFloat({table_alias}.value)), 0)",
+                f"quantile({{level}})(coalesce(toFloat({table_alias}.value), 0))",
                 placeholders={"level": ast.Constant(value=level)},
             )
         elif math_type == ExperimentMetricMathType.HOGQL:

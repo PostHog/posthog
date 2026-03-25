@@ -784,12 +784,16 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("direct", False),
-            ("precomputed", True),
+            ("median_direct", False, ExperimentMetricMathType.MEDIAN, 35, 140),
+            ("median_precomputed", True, ExperimentMetricMathType.MEDIAN, 35, 140),
+            ("p90_direct", False, ExperimentMetricMathType.P90, None, None),
+            ("p90_precomputed", True, ExperimentMetricMathType.P90, None, None),
         ]
     )
     @freeze_time("2024-01-01T12:00:00Z")
-    def test_property_median_metric(self, name, use_precomputation):
+    def test_property_percentile_metric(
+        self, name, use_precomputation, math_type, expected_control_sum, expected_test_sum
+    ):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
@@ -839,97 +843,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         metric = ExperimentMeanMetric(
             source=EventsNode(
                 event="purchase",
-                math=ExperimentMetricMathType.MEDIAN,
-                math_property="amount",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        self._save_experiment_with_precomputation(experiment, use_precomputation)
-
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
-
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
-
-        # median of [10,20,30] = 20, median of [5,15,25] = 15, sum = 35
-        # median of [50,60,70] = 60, median of [40,80,90] = 80, sum = 140
-        self.assertEqual(control_variant.sum, 35)
-        self.assertEqual(test_variant.sum, 140)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
-
-    @parameterized.expand(
-        [
-            ("direct", False),
-            ("precomputed", True),
-        ]
-    )
-    @freeze_time("2024-01-01T12:00:00Z")
-    def test_property_p90_metric(self, name, use_precomputation):
-        self._setup_precomputation_test(use_precomputation)
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
-        experiment.save()
-
-        ff_property = f"$feature/{feature_flag.key}"
-
-        def _create_events_for_user(variant: str, amounts: list[int]) -> list[dict]:
-            purchase_events = [
-                {
-                    "event": "purchase",
-                    "timestamp": f"2024-01-02T12:01:{i:02d}",
-                    "properties": {
-                        ff_property: variant,
-                        "amount": amount,
-                    },
-                }
-                for i, amount in enumerate(amounts)
-            ]
-            return [
-                {
-                    "event": "$feature_flag_called",
-                    "timestamp": "2024-01-02T12:00:00",
-                    "properties": {
-                        "$feature_flag_response": variant,
-                        ff_property: variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                },
-                *purchase_events,
-            ]
-
-        journeys_for(
-            {
-                "control_1": _create_events_for_user("control", [10, 20, 30]),
-                "control_2": _create_events_for_user("control", [5, 15, 25]),
-                "test_1": _create_events_for_user("test", [50, 60, 70]),
-                "test_2": _create_events_for_user("test", [40, 80, 90]),
-            },
-            self.team,
-        )
-
-        flush_persons_and_events()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(
-                event="purchase",
-                math=ExperimentMetricMathType.P90,
+                math=math_type,
                 math_property="amount",
             ),
         )
@@ -957,6 +871,16 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
+
+        if expected_control_sum is not None:
+            self.assertEqual(control_variant.sum, expected_control_sum)
+        else:
+            self.assertGreater(control_variant.sum, 0)
+
+        if expected_test_sum is not None:
+            self.assertEqual(test_variant.sum, expected_test_sum)
+        else:
+            self.assertGreater(test_variant.sum, 0)
 
     @parameterized.expand(
         [
