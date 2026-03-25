@@ -279,7 +279,8 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_successful_explanation(self):
+    @patch("products.logs.backend.explain.report_user_action")
+    def test_successful_explanation(self, mock_report):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
@@ -314,7 +315,12 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         assert len(data["probable_causes"]) == 1
         assert len(data["immediate_actions"]) == 1
 
-    def test_caches_result(self):
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs explain requested"
+        assert mock_report.call_args[0][2]["cached"] is False
+
+    @patch("products.logs.backend.explain.report_user_action")
+    def test_caches_result(self, mock_report):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
@@ -345,6 +351,9 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
             assert response1.status_code == status.HTTP_200_OK
             assert mock_client.chat.completions.create.call_count == 1
 
+            assert mock_report.call_args[0][1] == "logs explain requested"
+            assert mock_report.call_args[0][2]["cached"] is False
+
             # Second request should use cache
             response2 = self.client.post(
                 f"/api/environments/{self.team.id}/logs/explainLogWithAI/",
@@ -352,6 +361,9 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
             )
             assert response2.status_code == status.HTTP_200_OK
             assert mock_client.chat.completions.create.call_count == 1  # Still 1, used cache
+
+            assert mock_report.call_count == 2
+            assert mock_report.call_args[0][2]["cached"] is True
 
     def test_force_refresh_bypasses_cache(self):
         self.organization.is_ai_data_processing_approved = True
