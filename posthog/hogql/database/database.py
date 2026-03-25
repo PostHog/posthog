@@ -631,7 +631,7 @@ class Database(BaseModel):
                     id=str(db_schema.id),
                     name=db_schema.name,
                     should_sync=db_schema.should_sync,
-                    incremental=db_schema.is_incremental,
+                    incremental=db_schema.is_incremental or db_schema.is_webhook,
                     status=db_schema.status,
                     last_synced_at=str(db_schema.last_synced_at),
                 )
