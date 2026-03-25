@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
 from products.conversations.backend.models import TeamConversationsEmailConfig
@@ -11,6 +12,8 @@ from products.conversations.backend.models import TeamConversationsEmailConfig
 class TestEmailConnectDomainCaseInsensitivity(BaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.client.force_login(self.user)
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
@@ -57,6 +60,43 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
 
         assert response.status_code == 409
         assert "already in use" in response.json()["error"]
+
+
+class TestEmailChannelPermissions(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def test_member_cannot_connect_email(self):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "s@example.com", "from_name": "S"},
+            content_type="application/json",
+        )
+        assert response.status_code == 403
+
+    def test_member_cannot_disconnect_email(self):
+        response = self.client.post(
+            "/api/conversations/v1/email/disconnect",
+            content_type="application/json",
+        )
+        assert response.status_code == 403
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_admin_can_connect_email(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "s@example.com", "from_name": "S"},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
 
 
 class TestEmailInboundRegionRouting(BaseTest):

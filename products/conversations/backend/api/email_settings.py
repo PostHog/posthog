@@ -25,6 +25,7 @@ from products.conversations.backend.mailgun import (
     verify_domain as mailgun_verify_domain,
 )
 from products.conversations.backend.models import TeamConversationsEmailConfig
+from products.conversations.backend.permissions import IsConversationsAdmin
 
 logger = structlog.get_logger(__name__)
 
@@ -96,7 +97,7 @@ class EmailStatusView(APIView):
 
 
 class EmailConnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         user = request.user
@@ -323,7 +324,7 @@ class EmailSendTestView(APIView):
 
 
 class EmailDisconnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         user = request.user
