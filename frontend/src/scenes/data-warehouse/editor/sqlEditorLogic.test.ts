@@ -533,11 +533,11 @@ describe('sqlEditorLogic', () => {
                 ...logic.values.sourceQuery,
                 source: {
                     ...logic.values.sourceQuery.source,
-                    skipHogQLLayer: true,
+                    skipDirectHogQL: true,
                 },
             })
 
-            expect(logic.values.sourceQuery.source.skipHogQLLayer).toEqual(true)
+            expect(logic.values.sourceQuery.source.skipDirectHogQL).toEqual(true)
 
             logic.actions.runQuery()
             await new Promise((resolve) => setTimeout(resolve, 0))
@@ -547,7 +547,7 @@ describe('sqlEditorLogic', () => {
                 kind: NodeKind.HogQLQuery,
                 query: 'SELECT 1',
                 connectionId: 'conn-123',
-                skipHogQLLayer: true,
+                skipDirectHogQL: true,
             })
 
             performQuerySpy.mockRestore()

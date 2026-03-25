@@ -145,7 +145,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const connectionId = values.sourceQuery?.source.connectionId
     if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
         hash['c'] = connectionId
-        if (values.sourceQuery?.source.skipHogQLLayer) {
+        if (values.sourceQuery?.source.skipDirectHogQL) {
             hash['shl'] = '1'
         }
     }
@@ -338,7 +338,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ...state,
                     source: {
                         ...state.source,
-                        skipHogQLLayer: skipHogQLLayer || undefined,
+                        skipDirectHogQL: skipHogQLLayer || undefined,
                     },
                 }),
             },
@@ -743,7 +743,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 ...sourceQueryWithoutLegacyConnectionId,
                 source: {
                     ...currentSourceQuery.source,
-                    skipHogQLLayer: skipHogQLLayer || undefined,
+                    skipDirectHogQL: skipHogQLLayer || undefined,
                 },
             } as typeof currentSourceQuery)
             actions.syncUrlWithQuery()
@@ -1280,7 +1280,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
             },
         ],
-        skipHogQLLayerEnabled: [(s) => [s.sourceQuery], (sourceQuery) => sourceQuery.source.skipHogQLLayer ?? false],
+        skipHogQLLayerEnabled: [(s) => [s.sourceQuery], (sourceQuery) => sourceQuery.source.skipDirectHogQL ?? false],
         isEditingMaterializedView: [
             (s) => [s.editingView],
             (editingView) => {
@@ -1544,7 +1544,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
                 String(hashParams.shl) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
-            const currentSkipHogQLLayer = values.sourceQuery.source.skipHogQLLayer ?? false
+            const currentSkipHogQLLayer = values.sourceQuery.source.skipDirectHogQL ?? false
 
             if (connectionIdFromHash !== currentConnectionId || skipHogQLLayerFromHash !== currentSkipHogQLLayer) {
                 const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
@@ -1555,7 +1555,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
-                        skipHogQLLayer: skipHogQLLayerFromHash || undefined,
+                        skipDirectHogQL: skipHogQLLayerFromHash || undefined,
                     },
                 })
             }

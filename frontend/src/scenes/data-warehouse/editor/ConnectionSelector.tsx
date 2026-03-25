@@ -45,7 +45,7 @@ export function ConnectionSelector(): JSX.Element | null {
                         source: {
                             ...sourceQuery.source,
                             connectionId: undefined,
-                            skipHogQLLayer: undefined,
+                            skipDirectHogQL: undefined,
                         },
                     } as typeof sourceQuery)
                     syncUrlWithQuery()

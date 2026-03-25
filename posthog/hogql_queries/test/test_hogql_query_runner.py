@@ -215,7 +215,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             HogQLQuery(
                 query="select 1::int as value",
                 connectionId=str(source.id),
-                skipHogQLLayer=True,
+                skipDirectHogQL=True,
             )
         )
 

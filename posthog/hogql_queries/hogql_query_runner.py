@@ -100,7 +100,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             if source is None:
                 raise ExposedHogQLError("Invalid connectionId for this team")
 
-        if self.query.skipHogQLLayer and self.query.connectionId:
+        if self.query.skipDirectHogQL and self.query.connectionId:
             return execute_hogql_query(
                 query_type="HogQLQuery",
                 query=self.query.query,

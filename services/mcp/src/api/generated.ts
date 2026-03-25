@@ -4145,7 +4145,7 @@ export namespace Schemas {
        * Run the selected connection query directly without translating it through HogQL first
        * @nullable
        */
-      skipHogQLLayer?: boolean | null;
+      skipDirectHogQL?: boolean | null;
       tags?: QueryLogTags | null;
       /**
        * Constant values that can be referenced with the {placeholder} syntax in the query

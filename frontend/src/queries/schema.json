@@ -18387,7 +18387,7 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
-                "skipHogQLLayer": {
+                "skipDirectHogQL": {
                     "description": "Run the selected connection query directly without translating it through HogQL first",
                     "type": "boolean"
                 },
