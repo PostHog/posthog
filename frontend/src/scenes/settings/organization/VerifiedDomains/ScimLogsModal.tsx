@@ -1,6 +1,8 @@
+import { IconRefresh } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -57,7 +59,7 @@ function LogDetailExpanded({ log }: { log: SCIMRequestLogType }): JSX.Element {
 export function ScimLogsModal(): JSX.Element {
     const { scimLogsModalId, scimLogs, scimLogsLoading, scimLogsStatusFilter, scimLogsSearch, scimLogsPage } =
         useValues(verifiedDomainsLogic)
-    const { setScimLogsModalId, setScimLogsStatusFilter, setScimLogsSearch, setScimLogsPage } =
+    const { setScimLogsModalId, setScimLogsStatusFilter, setScimLogsSearch, setScimLogsPage, reloadScimLogs } =
         useActions(verifiedDomainsLogic)
 
     const columns: LemonTableColumns<SCIMRequestLogType> = [
@@ -130,6 +132,14 @@ export function ScimLogsModal(): JSX.Element {
                         onChange={setScimLogsSearch}
                         className="max-w-60"
                         size="small"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={reloadScimLogs}
+                        loading={scimLogsLoading}
+                        tooltip="Reload logs"
                     />
                 </div>
 
