@@ -23,6 +23,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     ReloadFlagsSnippet,
     RemixInstallation,
     RubyInstallation,
@@ -35,12 +36,13 @@ import { JSEventCapture, NodeEventCapture, PythonEventCapture } from '@posthog/s
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations (defined once, not recreated on render)
 // These include both event capture (from product-analytics) and flag snippets
 const JS_WEB_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,
@@ -49,7 +51,7 @@ const JS_WEB_SNIPPETS = {
 }
 
 const REACT_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,
@@ -248,6 +250,10 @@ const FeatureFlagsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     snippets: SSR_FRAMEWORK_SNIPPETS,
     wizardIntegrationName: 'Svelte',
 })
+const FeatureFlagsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
 const FeatureFlagsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
@@ -279,6 +285,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: FeatureFlagsPythonInstructionsWrapper,
     [SDKKey.REACT]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: FeatureFlagsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: FeatureFlagsReactRouterInstructionsWrapper,
     [SDKKey.TANSTACK_START]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructionsWrapper,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructionsWrapper,

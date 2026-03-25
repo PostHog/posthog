@@ -180,6 +180,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -258,6 +259,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -342,6 +344,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -374,6 +377,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(0),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -466,6 +470,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(1),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -558,6 +563,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let independent_flag = create_test_flag_with_property(
@@ -571,6 +577,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let parent_flag = create_test_flag_that_depends_on_flag(
@@ -692,6 +699,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
@@ -705,6 +713,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
@@ -874,6 +883,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let independent_flag = create_test_flag_with_property(
@@ -887,6 +897,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let intermediate_flag = create_test_flag_with_properties(
@@ -901,6 +912,7 @@ mod tests {
                     prop_type: PropertyType::Person,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 },
                 PropertyFilter {
                     key: leaf_flag.id.to_string(),
@@ -909,6 +921,7 @@ mod tests {
                     prop_type: PropertyType::Flag,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 },
             ],
         );
@@ -998,6 +1011,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let independent_flag = create_test_flag_with_property(
@@ -1011,6 +1025,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let parent_flag = create_test_flag_that_depends_on_flag(
@@ -1179,6 +1194,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
@@ -1192,6 +1208,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
@@ -1486,6 +1503,7 @@ mod tests {
                 prop_type: PropertyType::Flag,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             }]),
             rollout_percentage: Some(100.0),
             ..Default::default()
@@ -1559,6 +1577,7 @@ mod tests {
                     prop_type: PropertyType::Person,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 },
                 PropertyFilter {
                     key: dependent_flag_id.to_string(),
@@ -1567,6 +1586,7 @@ mod tests {
                     prop_type: PropertyType::Flag,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 },
                 PropertyFilter {
                     key: "age".to_string(),
@@ -1575,6 +1595,7 @@ mod tests {
                     prop_type: PropertyType::Person,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 },
             ]),
             rollout_percentage: Some(100.0),
@@ -1724,6 +1745,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1879,6 +1901,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         },
                         PropertyFilter {
                             key: "email".to_string(),
@@ -1887,6 +1910,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         },
                     ]),
                     rollout_percentage: Some(100.0),
@@ -2136,6 +2160,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2203,6 +2228,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2313,6 +2339,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2326,6 +2353,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2562,6 +2590,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2641,6 +2670,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -2654,6 +2684,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2677,6 +2708,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2807,6 +2839,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -2820,6 +2853,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2843,6 +2877,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2925,6 +2960,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -2938,6 +2974,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2961,6 +2998,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3112,6 +3150,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3211,6 +3250,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3310,6 +3350,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3430,6 +3471,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3529,6 +3571,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3628,6 +3671,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3719,6 +3763,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3805,6 +3850,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3906,6 +3952,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3985,6 +4032,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4094,6 +4142,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4186,6 +4235,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4219,6 +4269,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4328,6 +4379,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("control".to_string()), // Override to always show "control" variant
@@ -4402,6 +4454,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("nonexistent_variant".to_string()), // Override with invalid variant
@@ -4512,6 +4565,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4546,6 +4600,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4580,6 +4635,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4749,6 +4805,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4871,6 +4928,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4946,6 +5004,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -5050,6 +5109,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -5294,6 +5354,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -5360,6 +5421,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -5577,6 +5639,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5595,6 +5658,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5608,6 +5672,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5625,6 +5690,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -6080,6 +6146,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "focus".to_string(),
@@ -6088,6 +6155,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "os".to_string(),
@@ -6096,6 +6164,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             },
                         ]),
                         rollout_percentage: Some(100.0),
@@ -6111,6 +6180,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -6341,6 +6411,7 @@ mod tests {
                                 prop_type: PropertyType::Group,
                                 group_type_index: Some(1), // organization type
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "region".to_string(),
@@ -6349,6 +6420,7 @@ mod tests {
                                 prop_type: PropertyType::Group,
                                 group_type_index: Some(1),
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "feature_access".to_string(),
@@ -6357,6 +6429,7 @@ mod tests {
                                 prop_type: PropertyType::Group,
                                 group_type_index: Some(1),
                                 negation: None,
+                                compiled_regex: None,
                             },
                         ]),
                         rollout_percentage: Some(100.0),
@@ -6372,6 +6445,7 @@ mod tests {
                             prop_type: PropertyType::Group,
                             group_type_index: Some(1),
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -6648,6 +6722,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         ..Default::default()
@@ -6918,6 +6993,7 @@ mod tests {
             flags: vec![filtered_continuity_flag, active_normal_flag],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7112,6 +7188,7 @@ mod tests {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7209,6 +7286,7 @@ mod tests {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7404,6 +7482,7 @@ mod tests {
             flags: vec![flag_a, flag_b, flag_c],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -8330,6 +8409,7 @@ mod tests {
                         prop_type: PropertyType::Flag,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0), // 100% rollout - doesn't need lookup on its own
                     variant: None,
@@ -8440,6 +8520,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -8543,6 +8624,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -8652,6 +8734,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -9013,6 +9096,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(0),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -9046,6 +9130,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(1),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -9348,5 +9433,96 @@ mod tests {
             .get("flag_b")
             .expect("flag_b should be present");
         assert!(flag_b_result.enabled, "flag_b (no deps) should be enabled");
+    }
+
+    #[tokio::test]
+    async fn test_parallel_path_no_person_with_groups() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "industry".to_string(),
+                        value: Some(json!("tech")),
+                        operator: None,
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(1),
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1),
+                payloads: None,
+                super_groups: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "org_123",
+                json!({"industry": "tech"}),
+            )
+            .await
+            .unwrap();
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+
+        // Use a distinct_id with no matching person in DB — exercises the parallel
+        // path where person is None but group properties are fetched from DB.
+        let mut matcher = FeatureFlagMatcher::new(
+            "anonymous_user_no_person".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                FeatureFlagList {
+                    flags: vec![flag.clone()],
+                    ..Default::default()
+                },
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        let flag_detail = result.flags.get("test_flag").unwrap();
+        assert!(
+            flag_detail.enabled,
+            "Group flag should match from DB properties even without a person"
+        );
     }
 }

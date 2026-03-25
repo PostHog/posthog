@@ -32,6 +32,7 @@ from .cockroachdb.source import CockroachDBSource
 from .common.registry import SourceRegistry
 from .confluence.source import ConfluenceSource
 from .convertkit.source import ConvertKitSource
+from .convex.source import ConvexSource
 from .copper.source import CopperSource
 from .customer_io.source import CustomerIOSource
 from .datadog.source import DatadogSource
@@ -174,6 +175,7 @@ __all__ = [
     "CockroachDBSource",
     "ConfluenceSource",
     "ConvertKitSource",
+    "ConvexSource",
     "CopperSource",
     "CustomerIOSource",
     "DatadogSource",
