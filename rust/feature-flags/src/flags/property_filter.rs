@@ -276,12 +276,26 @@ mod tests {
     }
 
     #[test]
-    fn test_precompiled_regex_matches_same_as_on_the_fly() {
-        use crate::properties::property_matching::match_property;
+    fn test_prepare_regex_noop_when_value_is_none() {
+        let mut filter = PropertyFilter {
+            key: "email".to_string(),
+            value: None,
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+        };
 
-        let props = HashMap::from([("email".to_string(), serde_json::json!("user@example.com"))]);
+        filter.prepare_regex();
+        // None value means no pattern to compile — compiled_regex stays None,
+        // which falls through to the on-the-fly path in match_property().
+        assert!(filter.compiled_regex.is_none());
+    }
 
-        let filter_raw = PropertyFilter {
+    #[test]
+    fn test_prepare_regex_is_idempotent() {
+        let mut filter = PropertyFilter {
             key: "email".to_string(),
             value: Some(serde_json::json!(r"^user@.*\.com$")),
             operator: Some(OperatorType::Regex),
@@ -290,25 +304,42 @@ mod tests {
             negation: None,
             compiled_regex: None,
         };
-        let result_raw = match_property(&filter_raw, &props, false);
 
-        let mut filter_compiled = filter_raw.clone();
-        filter_compiled.prepare_regex();
-        let result_compiled = match_property(&filter_compiled, &props, false);
+        filter.prepare_regex();
+        assert!(matches!(
+            filter.compiled_regex,
+            Some(CompiledRegex::Compiled(_))
+        ));
 
-        assert_eq!(result_raw, result_compiled);
+        // Second call should be a no-op (early return on is_some())
+        filter.prepare_regex();
+        assert!(matches!(
+            filter.compiled_regex,
+            Some(CompiledRegex::Compiled(_))
+        ));
     }
 
-    #[test]
-    fn test_precompiled_not_regex_matches_same_as_on_the_fly() {
+    use test_case::test_case;
+
+    #[test_case(OperatorType::Regex, r"^user@.*\.com$", "user@example.com", Ok(true); "regex match")]
+    #[test_case(OperatorType::Regex, r"^admin@", "user@example.com", Ok(false); "regex no match")]
+    #[test_case(OperatorType::NotRegex, r"^admin@", "user@example.com", Ok(true); "not_regex match")]
+    #[test_case(OperatorType::NotRegex, r"^user@.*\.com$", "user@example.com", Ok(false); "not_regex no match")]
+    #[test_case(OperatorType::Regex, r"(a+)+$", "aaaaaaaaaaaaaaaaaaaaaaab", Ok(false); "backtrack-heavy regex")]
+    fn test_precompiled_matches_same_as_on_the_fly(
+        operator: OperatorType,
+        pattern: &str,
+        property_value: &str,
+        expected: Result<bool, crate::properties::property_matching::FlagMatchingError>,
+    ) {
         use crate::properties::property_matching::match_property;
 
-        let props = HashMap::from([("email".to_string(), serde_json::json!("user@example.com"))]);
+        let props = HashMap::from([("key".to_string(), serde_json::json!(property_value))]);
 
         let filter_raw = PropertyFilter {
-            key: "email".to_string(),
-            value: Some(serde_json::json!(r"^admin@")),
-            operator: Some(OperatorType::NotRegex),
+            key: "key".to_string(),
+            value: Some(serde_json::json!(pattern)),
+            operator: Some(operator),
             prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
@@ -321,6 +352,6 @@ mod tests {
         let result_compiled = match_property(&filter_compiled, &props, false);
 
         assert_eq!(result_raw, result_compiled);
-        assert_eq!(result_compiled, Ok(true));
+        assert_eq!(result_compiled, expected);
     }
 }
