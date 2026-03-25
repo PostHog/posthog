@@ -53,7 +53,7 @@ locals {
         GROUP BY hour
     ),
     hour_range AS (
-        SELECT toStartOfHour(now()) - INTERVAL number HOUR AS hour FROM numbers(840)
+        SELECT toStartOfHour(now()) - INTERVAL number HOUR AS hour FROM numbers(841)
     ),
     base AS (
         SELECT
