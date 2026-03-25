@@ -129,6 +129,7 @@ impl RawNodeFrame {
         let before = self
             .pre_context
             .iter()
+            .rev()
             .enumerate()
             .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
