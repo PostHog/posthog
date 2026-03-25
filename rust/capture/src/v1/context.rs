@@ -184,7 +184,7 @@ mod tests {
             &InsecureClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             &AxumQuery(Query::default()),
             Method::POST,
-            "/i/v1/e",
+            crate::v1::analytics::router::CAPTURE_V1_PATH,
         )
     }
 

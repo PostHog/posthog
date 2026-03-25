@@ -8,14 +8,17 @@ use chrono::Utc;
 use super::header::POSTHOG_REQUEST_ID;
 use crate::router::State;
 
+pub const CAPTURE_V1_PATH: &str = "/i/v1/general/analytics/events";
+const CAPTURE_V1_PATH_TRAILING: &str = "/i/v1/general/analytics/events/";
+
 pub fn router() -> Router<State> {
     Router::new()
         .route(
-            "/i/v1/e",
+            CAPTURE_V1_PATH,
             axum::routing::post(super::handler::handle_request),
         )
         .route(
-            "/i/v1/e/",
+            CAPTURE_V1_PATH_TRAILING,
             axum::routing::post(super::handler::handle_request),
         )
         .layer(axum::middleware::from_fn(v1_common_headers))
