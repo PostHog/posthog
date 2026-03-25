@@ -1,0 +1,244 @@
+{
+    "$defs": {
+        "AnnotationContext": {
+            "properties": {
+                "date": {
+                    "default": "",
+                    "title": "Date",
+                    "type": "string"
+                },
+                "content": {
+                    "default": "",
+                    "title": "Content",
+                    "type": "string"
+                }
+            },
+            "title": "AnnotationContext",
+            "type": "object"
+        },
+        "EventContext": {
+            "properties": {
+                "name": {
+                    "title": "Name",
+                    "type": "string"
+                },
+                "count": {
+                    "default": 0,
+                    "title": "Count",
+                    "type": "integer"
+                },
+                "users": {
+                    "default": 0,
+                    "title": "Users",
+                    "type": "integer"
+                }
+            },
+            "required": ["name"],
+            "title": "EventContext",
+            "type": "object"
+        },
+        "ExperimentContext": {
+            "properties": {
+                "name": {
+                    "title": "Name",
+                    "type": "string"
+                },
+                "status": {
+                    "default": "",
+                    "title": "Status",
+                    "type": "string"
+                },
+                "url_match": {
+                    "default": "",
+                    "title": "Url Match",
+                    "type": "string"
+                }
+            },
+            "required": ["name"],
+            "title": "ExperimentContext",
+            "type": "object"
+        },
+        "FlagContext": {
+            "properties": {
+                "key": {
+                    "title": "Key",
+                    "type": "string"
+                },
+                "active": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Active"
+                },
+                "rollout_percentage": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Rollout Percentage"
+                }
+            },
+            "required": ["key"],
+            "title": "FlagContext",
+            "type": "object"
+        },
+        "RouteContext": {
+            "properties": {
+                "route_key": {
+                    "title": "Route Key",
+                    "type": "string"
+                },
+                "description": {
+                    "default": "",
+                    "title": "Description",
+                    "type": "string"
+                },
+                "url_patterns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "title": "Url Patterns",
+                    "type": "array"
+                },
+                "pageviews_30d": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Pageviews 30D"
+                },
+                "traffic_share": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Traffic Share"
+                },
+                "unique_users_30d": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Unique Users 30D"
+                },
+                "rage_clicks_30d": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Rage Clicks 30D"
+                },
+                "top_errors": {
+                    "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                    },
+                    "title": "Top Errors",
+                    "type": "array"
+                },
+                "replay_url": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Replay Url"
+                }
+            },
+            "required": ["route_key"],
+            "title": "RouteContext",
+            "type": "object"
+        }
+    },
+    "properties": {
+        "pr": {
+            "additionalProperties": true,
+            "title": "Pr",
+            "type": "object"
+        },
+        "app_total_pageviews_30d": {
+            "anyOf": [
+                {
+                    "type": "integer"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "title": "App Total Pageviews 30D"
+        },
+        "routes": {
+            "items": {
+                "$ref": "#/$defs/RouteContext"
+            },
+            "title": "Routes",
+            "type": "array"
+        },
+        "events": {
+            "items": {
+                "$ref": "#/$defs/EventContext"
+            },
+            "title": "Events",
+            "type": "array"
+        },
+        "feature_flags": {
+            "items": {
+                "$ref": "#/$defs/FlagContext"
+            },
+            "title": "Feature Flags",
+            "type": "array"
+        },
+        "experiments": {
+            "items": {
+                "$ref": "#/$defs/ExperimentContext"
+            },
+            "title": "Experiments",
+            "type": "array"
+        },
+        "annotations": {
+            "items": {
+                "$ref": "#/$defs/AnnotationContext"
+            },
+            "title": "Annotations",
+            "type": "array"
+        }
+    },
+    "title": "PostHogContext",
+    "type": "object"
+}

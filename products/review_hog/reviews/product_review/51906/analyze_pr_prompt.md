@@ -9,19 +9,19 @@ Keep your output compact — the next steps don't need exhaustive detail, they n
   "number": 51906,
   "title": "feat(inbox): Error tracking signal sources UI",
   "body": "## Problem\r\n\r\nInbox signal sources had no way to turn on the new Error Tracking signals of #51645 from the UI, and when those signals showed up they looked generic (raw `error_tracking / issue_created` etc.) compared to the other integrations.\r\n\r\n## Changes\r\n\r\n![CleanShot 2026-03-23 at 11 02 17](https://github.com/user-attachments/assets/06374742-e9e9-41fa-a92a-61b2b20a2a48)\r\n\r\nAdding a \"PostHog Error Tracking\" toggle that toggles all three `SignalSourceConfig` types (`issue_created`, `issue_reopened`, `issue_spiking`) so it matches what Cymbal actually checks on emit.\r\n\r\nDedicated error tracking card - fingerprint, spike baseline/current when relevant, link to the issue. Debug graph + detail panel use the same labeling. Nicer header lines for session replay / DW sources too while I was there.\r\n\r\n## How did you test this code?\r\n\r\nShould have Storybook \u2026 but not yet. Tested locally with actual error tracking \r\n\r\n## Publish to changelog?\r\n\r\nNo, not rolled out yet\r\n\r\n## Docs update\r\n\r\nskip-inkeep-docs (n/a)\r\n",
-  "state": "open",
+  "state": "closed",
   "draft": false,
   "created_at": "2026-03-23T10:28:29+00:00",
-  "updated_at": "2026-03-25T21:17:38+00:00",
+  "updated_at": "2026-03-26T01:04:01+00:00",
   "author": "Twixes",
   "author_association": "MEMBER",
   "base_branch": "master",
   "head_branch": "03-23-feat_inbox_error_tracking_signal_sources_and_ui",
-  "mergeable_state": "blocked",
+  "mergeable_state": "unknown",
   "requested_reviewers": [],
   "assignee": null,
   "labels": [],
-  "commits": 19,
+  "commits": 21,
   "additions": 291,
   "deletions": 33,
   "changed_files": 12
@@ -122,6 +122,7 @@ Group changed files by feature area (files sharing a parent directory). For each
 ### 2. Find PostHog events and feature flags
 
 In the changed files, look for:
+
 - **PostHog event names** — `posthog.capture()` calls, wrapper functions, action dispatchers. Just extract the event name strings.
 - **Feature flag keys** — string literals passed to flag-checking functions.
 
@@ -155,11 +156,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
           "type": "array"
         }
       },
-      "required": [
-        "route_key",
-        "description",
-        "url_patterns"
-      ],
+      "required": ["route_key", "description", "url_patterns"],
       "title": "AffectedRoute",
       "type": "object"
     },
@@ -183,11 +180,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
           "type": "string"
         }
       },
-      "required": [
-        "number",
-        "title",
-        "author"
-      ],
+      "required": ["number", "title", "author"],
       "title": "PRInfo",
       "type": "object"
     }
@@ -220,9 +213,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
       "type": "array"
     }
   },
-  "required": [
-    "pr"
-  ],
+  "required": ["pr"],
   "title": "PRManifest",
   "type": "object"
 }

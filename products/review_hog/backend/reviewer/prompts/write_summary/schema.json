@@ -1,0 +1,80 @@
+{
+    "$defs": {
+        "Question": {
+            "properties": {
+                "question": {
+                    "description": "Question with data context for the PR author",
+                    "title": "Question",
+                    "type": "string"
+                }
+            },
+            "required": ["question"],
+            "title": "Question",
+            "type": "object"
+        },
+        "RiskSignal": {
+            "properties": {
+                "title": {
+                    "description": "Short risk title",
+                    "title": "Title",
+                    "type": "string"
+                },
+                "explanation": {
+                    "description": "1-2 sentence explanation with data",
+                    "title": "Explanation",
+                    "type": "string"
+                }
+            },
+            "required": ["title", "explanation"],
+            "title": "RiskSignal",
+            "type": "object"
+        },
+        "TasteObservation": {
+            "properties": {
+                "observation": {
+                    "description": "Single observation about product taste",
+                    "title": "Observation",
+                    "type": "string"
+                }
+            },
+            "required": ["observation"],
+            "title": "TasteObservation",
+            "type": "object"
+        }
+    },
+    "description": "Raw structured output from the write_summary step. Items may contain code references.",
+    "properties": {
+        "one_liner": {
+            "description": "One sentence: what does this change for users, grounded in data",
+            "title": "One Liner",
+            "type": "string"
+        },
+        "risk_signals": {
+            "description": "Risk signals worth flagging",
+            "items": {
+                "$ref": "#/$defs/RiskSignal"
+            },
+            "title": "Risk Signals",
+            "type": "array"
+        },
+        "questions": {
+            "description": "1-3 pointed questions for the author",
+            "items": {
+                "$ref": "#/$defs/Question"
+            },
+            "title": "Questions",
+            "type": "array"
+        },
+        "taste": {
+            "description": "Taste observations about consistency, defaults, affordances",
+            "items": {
+                "$ref": "#/$defs/TasteObservation"
+            },
+            "title": "Taste",
+            "type": "array"
+        }
+    },
+    "required": ["one_liner", "questions"],
+    "title": "ProductReviewRaw",
+    "type": "object"
+}

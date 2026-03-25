@@ -8,31 +8,17 @@ You are the second step in a product review pipeline. The previous step produced
     "number": 51906,
     "title": "feat(inbox): Error tracking signal sources UI",
     "author": "Twixes",
-    "description": "Adds a PostHog Error Tracking toggle to the inbox signal sources UI that controls three signal types (issue_created, issue_reopened, issue_spiking), plus dedicated error tracking signal cards and improved labeling for session replay and data warehouse sources."
+    "description": "Adds a PostHog Error Tracking toggle to the inbox signal sources UI that controls three signal types (issue_created, issue_reopened, issue_spiking), plus dedicated error tracking signal cards with fingerprint and spike details."
   },
   "affected_routes": [
     {
       "route_key": "inbox",
-      "description": "Actionable reports automatically generated from user session analysis and other signals",
-      "url_patterns": [
-        "/inbox",
-        "/inbox/:reportId"
-      ]
-    },
-    {
-      "route_key": "debugQuery",
-      "description": "Debug query interface including signal graph and detail panel for inspecting signals",
-      "url_patterns": [
-        "/debug"
-      ]
+      "description": "Unified inbox showing prioritized signals from multiple product sources (session replay, error tracking, data warehouse integrations)",
+      "url_patterns": ["/inbox", "/inbox/:reportId"]
     }
   ],
-  "posthog_events": [
-    "signals source interest"
-  ],
-  "feature_flag_keys": [
-    "PRODUCT_AUTONOMY"
-  ]
+  "posthog_events": ["signals source interest"],
+  "feature_flag_keys": ["product-autonomy"]
 }
 ```
 
@@ -41,23 +27,29 @@ You are the second step in a product review pipeline. The previous step produced
 Use PostHog MCP tools with a 30-day lookback window.
 
 ### App-wide baseline
+
 Query total pageviews across the entire app in the last 30 days. This single number lets the summary step say "this page accounts for X% of all traffic" instead of raw numbers that mean nothing without context.
 
 ### For each route's URL patterns:
+
 - **Pageview volume**: total pageviews, unique users (use HogQL or trends query, match `$current_url` with LIKE, replacing `:param` with `%`)
 - **Rage clicks**: total `$rageclick` count on those URLs
 - **Errors**: top 3 `$exception` types and counts on those URLs
 
 ### For each PostHog event name:
+
 - **Event count** and **unique users** in the last 30 days
 
 ### For each feature flag key:
+
 - Whether it's **active** and its **rollout percentage**
 
 ### Active experiments on affected pages:
+
 Query for experiments whose filter conditions match the affected URL patterns. If there's a live A/B test running on a page this PR touches, the reviewer needs to know.
 
 ### Annotations:
+
 - Search for annotations matching the route keys. Skip anything older than 60 days.
 
 ## Session replay links
@@ -65,11 +57,13 @@ Query for experiments whose filter conditions match the affected URL patterns. I
 For each affected route, construct a pre-filtered PostHog replay URL so the reviewer can watch real users on the affected pages. Don't fetch actual recordings — just build the URL.
 
 The URL format is:
+
 ```
 https://us.posthog.com/project/<PROJECT_ID>/replay/home?filters=<encoded_filters>
 ```
 
 Where the filters JSON structure is:
+
 ```json
 {
   "filter_test_accounts": true,
@@ -77,22 +71,28 @@ Where the filters JSON structure is:
   "date_to": null,
   "filter_group": {
     "type": "AND",
-    "values": [{
-      "type": "AND",
-      "values": [{
-        "key": "$current_url",
-        "value": "<url_pattern>",
-        "operator": "icontains",
-        "type": "event"
-      }]
-    }]
+    "values": [
+      {
+        "type": "AND",
+        "values": [
+          {
+            "key": "$current_url",
+            "value": "<url_pattern>",
+            "operator": "icontains",
+            "type": "event"
+          }
+        ]
+      }
+    ]
   },
-  "duration": [{
-    "type": "recording",
-    "key": "active_seconds",
-    "value": 5,
-    "operator": "gt"
-  }],
+  "duration": [
+    {
+      "type": "recording",
+      "key": "active_seconds",
+      "value": 5,
+      "operator": "gt"
+    }
+  ],
   "order": "start_time",
   "order_direction": "DESC"
 }
@@ -140,9 +140,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
           "type": "integer"
         }
       },
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "title": "EventContext",
       "type": "object"
     },
@@ -163,9 +161,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
           "type": "string"
         }
       },
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "title": "ExperimentContext",
       "type": "object"
     },
@@ -200,9 +196,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
           "title": "Rollout Percentage"
         }
       },
-      "required": [
-        "key"
-      ],
+      "required": ["key"],
       "title": "FlagContext",
       "type": "object"
     },
@@ -293,9 +287,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
           "title": "Replay Url"
         }
       },
-      "required": [
-        "route_key"
-      ],
+      "required": ["route_key"],
       "title": "RouteContext",
       "type": "object"
     }
@@ -360,6 +352,7 @@ Return ONLY valid JSON conforming to this schema (no markdown formatting, no exp
 ```
 
 ### Notes
+
 - If a query fails, skip it and move on. Don't let one failure block the output.
 - Only include events with nonzero counts. Dead events are not useful context.
 - Only include annotations from the last 60 days.

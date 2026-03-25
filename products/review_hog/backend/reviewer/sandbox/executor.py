@@ -24,7 +24,7 @@ _sandbox_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 _CLOUD_TEAM_ID = 2
 _CLOUD_USER_ID = 196695
 _CLOUD_REPOSITORY = "posthog/posthog"
-_LOCAL_REPOSITORY = "sortafreel/posthog"
+_LOCAL_REPOSITORY = "adboio/posthog"
 
 
 async def _resolve_context() -> CustomPromptSandboxContext:

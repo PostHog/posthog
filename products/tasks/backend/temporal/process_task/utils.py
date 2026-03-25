@@ -49,14 +49,19 @@ def get_sandbox_mcp_configs(
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
     - eu.posthog.com → https://mcp-eu.posthog.com/mcp
     - Other hosts → empty list (MCP not available)
+
+    SANDBOX_MCP_TOKEN and SANDBOX_MCP_PROJECT_ID override the token and project_id
+    respectively (useful for local dev pointing at prod MCP).
     """
     url = _resolve_mcp_url()
     if not url:
         return []
+    effective_token = settings.SANDBOX_MCP_TOKEN or token
+    effective_project_id = settings.SANDBOX_MCP_PROJECT_ID or project_id
     read_only = not has_write_scopes(scopes)
     headers = [
-        {"name": "Authorization", "value": f"Bearer {token}"},
-        {"name": "x-posthog-project-id", "value": str(project_id)},
+        {"name": "Authorization", "value": f"Bearer {effective_token}"},
+        {"name": "x-posthog-project-id", "value": str(effective_project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
     ]

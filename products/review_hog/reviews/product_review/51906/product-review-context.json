@@ -1,53 +1,43 @@
 {
-  "pr": {
-    "number": 51906,
-    "title": "feat(inbox): Error tracking signal sources UI",
-    "author": "Twixes"
-  },
-  "app_total_pageviews_30d": null,
-  "routes": [
-    {
-      "route_key": "inbox",
-      "description": "Actionable reports automatically generated from user session analysis and other signals",
-      "url_patterns": [
-        "/inbox",
-        "/inbox/:reportId"
-      ],
-      "pageviews_30d": null,
-      "traffic_share": null,
-      "unique_users_30d": null,
-      "rage_clicks_30d": null,
-      "top_errors": [],
-      "replay_url": "https://us.posthog.com/project/2/replay/home?filters=%7B%22filter_test_accounts%22%3Atrue%2C%22date_from%22%3A%22-30d%22%2C%22date_to%22%3Anull%2C%22filter_group%22%3A%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22key%22%3A%22%24current_url%22%2C%22value%22%3A%22/inbox%22%2C%22operator%22%3A%22icontains%22%2C%22type%22%3A%22event%22%7D%5D%7D%5D%7D%2C%22duration%22%3A%5B%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22active_seconds%22%2C%22value%22%3A5%2C%22operator%22%3A%22gt%22%7D%5D%2C%22order%22%3A%22start_time%22%2C%22order_direction%22%3A%22DESC%22%7D"
+    "pr": {
+        "number": 51906,
+        "title": "feat(inbox): Error tracking signal sources UI",
+        "author": "Twixes",
+        "description": "Adds a PostHog Error Tracking toggle to the inbox signal sources UI that controls three signal types (issue_created, issue_reopened, issue_spiking), plus dedicated error tracking signal cards with fingerprint and spike details."
     },
-    {
-      "route_key": "debugQuery",
-      "description": "Debug query interface including signal graph and detail panel for inspecting signals",
-      "url_patterns": [
-        "/debug"
-      ],
-      "pageviews_30d": null,
-      "traffic_share": null,
-      "unique_users_30d": null,
-      "rage_clicks_30d": null,
-      "top_errors": [],
-      "replay_url": "https://us.posthog.com/project/2/replay/home?filters=%7B%22filter_test_accounts%22%3Atrue%2C%22date_from%22%3A%22-30d%22%2C%22date_to%22%3Anull%2C%22filter_group%22%3A%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22key%22%3A%22%24current_url%22%2C%22value%22%3A%22/debug%22%2C%22operator%22%3A%22icontains%22%2C%22type%22%3A%22event%22%7D%5D%7D%5D%7D%2C%22duration%22%3A%5B%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22active_seconds%22%2C%22value%22%3A5%2C%22operator%22%3A%22gt%22%7D%5D%2C%22order%22%3A%22start_time%22%2C%22order_direction%22%3A%22DESC%22%7D"
-    }
-  ],
-  "events": [
-    {
-      "name": "signals source interest",
-      "count": 0,
-      "users": 0
-    }
-  ],
-  "feature_flags": [
-    {
-      "key": "PRODUCT_AUTONOMY",
-      "active": null,
-      "rollout_percentage": null
-    }
-  ],
-  "experiments": [],
-  "annotations": []
+    "app_total_pageviews_30d": 34593000,
+    "routes": [
+        {
+            "route_key": "inbox",
+            "description": "Unified inbox showing prioritized signals from multiple product sources (session replay, error tracking, data warehouse integrations)",
+            "url_patterns": ["/inbox", "/inbox/:reportId"],
+            "pageviews_30d": 1660,
+            "traffic_share": "0.0048%",
+            "unique_users_30d": 160,
+            "rage_clicks_30d": 12,
+            "top_errors": [
+                {
+                    "exception_type": "OperationalError",
+                    "count": 2
+                }
+            ],
+            "replay_url": "https://us.posthog.com/project/2/replay/home?filters=%7B%22filter_test_accounts%22%3A%20true%2C%20%22date_from%22%3A%20%22-30d%22%2C%20%22date_to%22%3A%20null%2C%20%22filter_group%22%3A%20%7B%22type%22%3A%20%22AND%22%2C%20%22values%22%3A%20%5B%7B%22type%22%3A%20%22AND%22%2C%20%22values%22%3A%20%5B%7B%22key%22%3A%20%22%24current_url%22%2C%20%22value%22%3A%20%22/inbox%22%2C%20%22operator%22%3A%20%22icontains%22%2C%20%22type%22%3A%20%22event%22%7D%5D%7D%5D%7D%2C%20%22duration%22%3A%20%5B%7B%22type%22%3A%20%22recording%22%2C%20%22key%22%3A%20%22active_seconds%22%2C%20%22value%22%3A%205%2C%20%22operator%22%3A%20%22gt%22%7D%5D%2C%20%22order%22%3A%20%22start_time%22%2C%20%22order_direction%22%3A%20%22DESC%22%7D"
+        }
+    ],
+    "events": [
+        {
+            "name": "signals source interest",
+            "count": 1,
+            "users": 1
+        }
+    ],
+    "feature_flags": [
+        {
+            "key": "product-autonomy",
+            "active": true,
+            "rollout_percentage": null
+        }
+    ],
+    "experiments": [],
+    "annotations": []
 }

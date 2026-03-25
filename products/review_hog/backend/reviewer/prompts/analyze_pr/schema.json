@@ -1,0 +1,84 @@
+{
+    "$defs": {
+        "AffectedRoute": {
+            "properties": {
+                "route_key": {
+                    "description": "Short identifier for the route (e.g., 'surveyWizard')",
+                    "title": "Route Key",
+                    "type": "string"
+                },
+                "description": {
+                    "description": "One-line product description of what this page does",
+                    "title": "Description",
+                    "type": "string"
+                },
+                "url_patterns": {
+                    "description": "URL patterns this route serves (e.g., ['/surveys/guided/:id'])",
+                    "items": {
+                        "type": "string"
+                    },
+                    "title": "Url Patterns",
+                    "type": "array"
+                }
+            },
+            "required": ["route_key", "description", "url_patterns"],
+            "title": "AffectedRoute",
+            "type": "object"
+        },
+        "PRInfo": {
+            "properties": {
+                "number": {
+                    "title": "Number",
+                    "type": "integer"
+                },
+                "title": {
+                    "title": "Title",
+                    "type": "string"
+                },
+                "author": {
+                    "title": "Author",
+                    "type": "string"
+                },
+                "description": {
+                    "default": "",
+                    "title": "Description",
+                    "type": "string"
+                }
+            },
+            "required": ["number", "title", "author"],
+            "title": "PRInfo",
+            "type": "object"
+        }
+    },
+    "properties": {
+        "pr": {
+            "$ref": "#/$defs/PRInfo"
+        },
+        "affected_routes": {
+            "items": {
+                "$ref": "#/$defs/AffectedRoute"
+            },
+            "title": "Affected Routes",
+            "type": "array"
+        },
+        "posthog_events": {
+            "description": "PostHog event names found in changed code",
+            "items": {
+                "type": "string"
+            },
+            "title": "Posthog Events",
+            "type": "array"
+        },
+        "feature_flag_keys": {
+            "description": "Feature flag keys found in changed code",
+            "items": {
+                "type": "string"
+            },
+            "title": "Feature Flag Keys",
+            "type": "array"
+        }
+    },
+    "required": ["pr"],
+    "title": "PRManifest",
+    "type": "object"
+}

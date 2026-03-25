@@ -1,1 +1,0 @@
-Now I have enough context. Let me check the toggle behavior — specifically, the `errorTrackingIsFullyEnabled` which uses an "all three must be enabled" check, and what happens with partial states.

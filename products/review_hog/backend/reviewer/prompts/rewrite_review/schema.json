@@ -1,0 +1,60 @@
+{
+    "$defs": {
+        "RewrittenItem": {
+            "properties": {
+                "original": {
+                    "description": "The original text from the raw review",
+                    "title": "Original",
+                    "type": "string"
+                },
+                "rewritten": {
+                    "description": "The item rewritten in product/user terms, no code identifiers",
+                    "title": "Rewritten",
+                    "type": "string"
+                },
+                "product_relevance": {
+                    "description": "Product relevance score 1-10. 10 = pure user impact, 1 = pure code/architecture nitpick",
+                    "maximum": 10,
+                    "minimum": 1,
+                    "title": "Product Relevance",
+                    "type": "integer"
+                }
+            },
+            "required": ["original", "rewritten", "product_relevance"],
+            "title": "RewrittenItem",
+            "type": "object"
+        }
+    },
+    "description": "Output of the rewrite step. Items are in product language with relevance scores.",
+    "properties": {
+        "one_liner": {
+            "description": "One-liner rewritten in product terms if needed",
+            "title": "One Liner",
+            "type": "string"
+        },
+        "risk_signals": {
+            "items": {
+                "$ref": "#/$defs/RewrittenItem"
+            },
+            "title": "Risk Signals",
+            "type": "array"
+        },
+        "questions": {
+            "items": {
+                "$ref": "#/$defs/RewrittenItem"
+            },
+            "title": "Questions",
+            "type": "array"
+        },
+        "taste": {
+            "items": {
+                "$ref": "#/$defs/RewrittenItem"
+            },
+            "title": "Taste",
+            "type": "array"
+        }
+    },
+    "required": ["one_liner"],
+    "title": "ProductReviewRewritten",
+    "type": "object"
+}
