@@ -166,7 +166,7 @@ export const liveWorldMapLogic = kea<liveWorldMapLogicType>([
             if (hasNewActivity) {
                 const heat = computeHeat(lastActivity)
                 actions.setCountryHeat(heat)
-                startHeatInterval(cache, actions)
+                startHeatInterval(cache as HeatCache, actions as Pick<typeof actions, 'setCountryHeat'>)
             }
         },
     })),
@@ -176,7 +176,7 @@ export const liveWorldMapLogic = kea<liveWorldMapLogicType>([
             cache.lastActivity = {}
         },
         beforeUnmount: () => {
-            stopHeatInterval(cache)
+            stopHeatInterval(cache as HeatCache)
         },
     })),
 ])
@@ -196,11 +196,15 @@ function computeHeat(lastActivity: Record<string, number>): Record<string, numbe
     return heat
 }
 
+interface HeatCache {
+    lastActivity: Record<string, number>
+    heatInterval: ReturnType<typeof setInterval> | null
+}
+
 // Only run the heat decay interval while there are active heat values.
 // Stops automatically when all heat has decayed to 0.
 function startHeatInterval(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    cache: Record<string, any>,
+    cache: HeatCache,
     actions: { setCountryHeat: (heat: Record<string, number>) => void }
 ): void {
     if (cache.heatInterval) {
@@ -209,7 +213,7 @@ function startHeatInterval(
     cache.heatInterval = setInterval(() => {
         const heat = computeHeat(cache.lastActivity || {})
         if (Object.keys(heat).length === 0) {
-            stopHeatInterval(cache)
+            stopHeatInterval(cache as HeatCache)
             actions.setCountryHeat({})
             return
         }
@@ -217,8 +221,7 @@ function startHeatInterval(
     }, HEAT_UPDATE_INTERVAL_MS)
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function stopHeatInterval(cache: Record<string, any>): void {
+function stopHeatInterval(cache: HeatCache): void {
     if (cache.heatInterval) {
         clearInterval(cache.heatInterval)
         cache.heatInterval = null

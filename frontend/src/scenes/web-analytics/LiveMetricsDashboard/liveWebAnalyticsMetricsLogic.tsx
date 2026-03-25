@@ -3,7 +3,9 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -41,7 +43,7 @@ const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
@@ -196,6 +198,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         pauseStream: () => {
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()
+            cache.batch = []
+            cache.geoBatch = []
+            stopFlushInterval(cache as FlushCache)
         },
         resumeStream: () => {
             if (cache.hasInitialized) {
@@ -204,10 +209,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     autoClose: 2000,
                 })
             }
+            startFlushInterval(cache as FlushCache, actions as FlushActions, values as FlushValues)
             actions.loadInitialData()
         },
         loadInitialData: async () => {
             actions.setIsLoading(true)
+
+            const geoEnabled = !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_MAP]
 
             try {
                 const now = Date.now()
@@ -219,9 +227,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.newerThan = handoff
 
                 actions.updateConnection()
-                actions.updateGeoConnection()
+                if (geoEnabled) {
+                    actions.updateGeoConnection()
+                } else {
+                    cache.geoConnection?.abort()
+                    cache.geoConnection = null
+                    cache.geoBatch = []
+                }
                 const [usersPageviewsResponse, deviceResponse, browserResponse, pathsResponse, geoResponse] =
-                    await loadQueryData(dateFrom, handoff)
+                    await loadQueryData(dateFrom, handoff, geoEnabled)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -229,7 +243,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addBreakdownDataToBuckets(deviceResponse, bucketMap, (b) => b.devices)
                 addBreakdownDataToBuckets(browserResponse, bucketMap, (b) => b.browsers)
                 addPathDataToBuckets(pathsResponse, bucketMap)
-                addGeoDataToBuckets(geoResponse, bucketMap)
+                if (geoResponse) {
+                    addGeoDataToBuckets(geoResponse, bucketMap)
+                }
 
                 actions.setInitialData([...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })))
             } catch (error) {
@@ -321,25 +337,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             })
         },
     })),
-    events(({ actions, cache }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             cache.batch = [] as LiveEvent[]
             cache.geoBatch = [] as LiveGeoEvent[]
 
             actions.loadInitialData()
-
-            // Flush both event and geo batches on a fixed interval
-            // to cap kea dispatches at a predictable rate regardless of event volume
-            cache.flushInterval = setInterval(() => {
-                if (cache.batch.length > 0) {
-                    actions.addEvents(cache.batch, cache.newerThan)
-                    cache.batch = []
-                }
-                if (cache.geoBatch.length > 0) {
-                    actions.addGeoEvents(cache.geoBatch)
-                    cache.geoBatch = []
-                }
-            }, FLUSH_INTERVAL_MS)
+            startFlushInterval(cache as FlushCache, actions as FlushActions, values as FlushValues)
 
             // Ensures that our graph continues to update and old data "falls off"
             // even if new events aren't coming in
@@ -356,9 +360,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         beforeUnmount: () => {
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()
-            if (cache.flushInterval) {
-                clearInterval(cache.flushInterval)
-            }
+            stopFlushInterval(cache as FlushCache)
             if (cache.minuteTickTimeout) {
                 clearTimeout(cache.minuteTickTimeout)
             }
@@ -366,10 +368,54 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     })),
 ])
 
+interface FlushCache {
+    batch: LiveEvent[]
+    geoBatch: LiveGeoEvent[]
+    newerThan: Date
+    flushInterval: ReturnType<typeof setInterval> | null
+}
+
+interface FlushActions {
+    addEvents: (events: LiveEvent[], newerThan: Date) => void
+    addGeoEvents: (events: LiveGeoEvent[]) => void
+}
+
+interface FlushValues {
+    featureFlags: Record<string, string | boolean | undefined>
+}
+
+const stopFlushInterval = (cache: FlushCache): void => {
+    if (cache.flushInterval) {
+        clearInterval(cache.flushInterval)
+        cache.flushInterval = null
+    }
+}
+
+// Flush both event and geo batches on a fixed interval
+// to cap kea dispatches at a predictable rate regardless of event volume
+const startFlushInterval = (cache: FlushCache, actions: FlushActions, values: FlushValues): void => {
+    if (cache.flushInterval) {
+        return
+    }
+    cache.flushInterval = setInterval(() => {
+        if (cache.batch.length > 0) {
+            actions.addEvents(cache.batch, cache.newerThan)
+            cache.batch = []
+        }
+        if (cache.geoBatch.length > 0 && values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_MAP]) {
+            actions.addGeoEvents(cache.geoBatch)
+            cache.geoBatch = []
+        }
+    }, FLUSH_INTERVAL_MS)
+}
+
 const loadQueryData = async (
     dateFrom: Date,
-    dateTo: Date
-): Promise<[HogQLQueryResponse, HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse, HogQLQueryResponse]> => {
+    dateTo: Date,
+    includeGeo: boolean
+): Promise<
+    [HogQLQueryResponse, HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse, HogQLQueryResponse | null]
+> => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
@@ -489,7 +535,7 @@ const loadQueryData = async (
         performQuery(deviceQuery),
         performQuery(browserQuery),
         performQuery(pathsQuery),
-        performQuery(geoQuery),
+        includeGeo ? performQuery(geoQuery) : Promise.resolve(null),
     ])
 }
 
