@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 import jwt
+import requests as req
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -335,6 +336,173 @@ class TestVercelProxyAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
         assert response.json() == {"error": "Failed to reach Vercel API"}
+
+
+@patch("ee.api.authentication.get_cached_instance_license")
+class TestVercelProxyCrossRegion(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.license_key = "test_license_id::test_license_secret"
+        self.license = License.objects.create(key=self.license_key, plan="enterprise", valid_until=datetime.now(UTC))
+        self.unauthenticated_client = APIClient()
+        self.other_org = Organization.objects.create(name="EU Org")
+
+    def _create_billing_service_token(
+        self,
+        organization_id: str | None = None,
+        audience: str = BillingServiceAuthentication.EXPECTED_AUDIENCE,
+    ) -> str:
+        secret = self.license_key.split("::")[1]
+        exp = datetime.now(UTC) + timedelta(minutes=15)
+        payload = {"exp": exp, "aud": audience}
+        if organization_id is not None:
+            payload["organization_id"] = organization_id
+        return jwt.encode(payload, secret, algorithm="HS256")
+
+    def _get_auth_headers(self, organization_id: str | None = None) -> dict:
+        if organization_id is None:
+            organization_id = str(self.other_org.id)
+        token = self._create_billing_service_token(organization_id=organization_id)
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    @patch("ee.api.vercel.vercel_proxy.requests.post")
+    @patch("ee.api.vercel.vercel_proxy.django_settings")
+    def test_cross_region_proxy_to_eu_when_integration_not_found_locally(self, mock_settings, mock_post, mock_license):
+        mock_license.return_value = self.license
+        mock_settings.SITE_URL = "https://us.posthog.com"
+        mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+        mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = 200
+        mock_eu_response.content = b'{"invoice_id": "inv_eu_123"}'
+        mock_eu_response.json.return_value = {"invoice_id": "inv_eu_123"}
+        mock_post.return_value = mock_eu_response
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {"path": "/billing/invoices", "method": "POST", "body": {"amount": 50}},
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"invoice_id": "inv_eu_123"}
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.kwargs["url"] == "https://eu.posthog.com/api/vercel/proxy/"
+        assert "Authorization" in call_kwargs.kwargs["headers"]
+
+    @patch("ee.api.vercel.vercel_proxy.requests.post")
+    @patch("ee.api.vercel.vercel_proxy.django_settings")
+    def test_cross_region_returns_404_when_eu_also_returns_404(self, mock_settings, mock_post, mock_license):
+        mock_license.return_value = self.license
+        mock_settings.SITE_URL = "https://us.posthog.com"
+        mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+        mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = 404
+        mock_eu_response.content = b'{"error": "No Vercel integration found for this organization"}'
+        mock_eu_response.json.return_value = {"error": "No Vercel integration found for this organization"}
+        mock_post.return_value = mock_eu_response
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {"path": "/billing/invoices", "method": "POST", "body": {}},
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"error": "No Vercel integration found for this organization"}
+
+    @patch("ee.api.vercel.vercel_proxy.requests.post")
+    @patch("ee.api.vercel.vercel_proxy.django_settings")
+    def test_cross_region_returns_404_when_eu_proxy_network_error(self, mock_settings, mock_post, mock_license):
+        mock_license.return_value = self.license
+        mock_settings.SITE_URL = "https://us.posthog.com"
+        mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+        mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+        mock_post.side_effect = req.RequestException("Connection refused")
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {"path": "/billing/invoices", "method": "POST", "body": {}},
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"error": "No Vercel integration found for this organization"}
+
+    def test_cross_region_not_attempted_in_eu_region(self, mock_license):
+        mock_license.return_value = self.license
+
+        with patch("ee.api.vercel.vercel_proxy.django_settings") as mock_settings:
+            mock_settings.SITE_URL = "https://eu.posthog.com"
+            mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+            mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+            with patch("ee.api.vercel.vercel_proxy.requests.post") as mock_post:
+                response = self.unauthenticated_client.post(
+                    "/api/vercel/proxy/",
+                    {"path": "/billing/invoices", "method": "POST", "body": {}},
+                    format="json",
+                    **self._get_auth_headers(),
+                )
+
+                assert response.status_code == status.HTTP_404_NOT_FOUND
+                mock_post.assert_not_called()
+
+    def test_cross_region_not_attempted_in_dev_env(self, mock_license):
+        mock_license.return_value = self.license
+
+        with patch("ee.api.vercel.vercel_proxy.django_settings") as mock_settings:
+            mock_settings.SITE_URL = "http://localhost:8000"
+            mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+            mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+            with patch("ee.api.vercel.vercel_proxy.requests.post") as mock_post:
+                response = self.unauthenticated_client.post(
+                    "/api/vercel/proxy/",
+                    {"path": "/billing/invoices", "method": "POST", "body": {}},
+                    format="json",
+                    **self._get_auth_headers(),
+                )
+
+                assert response.status_code == status.HTTP_404_NOT_FOUND
+                mock_post.assert_not_called()
+
+    @patch("ee.api.vercel.vercel_proxy.requests.post")
+    @patch("ee.api.vercel.vercel_proxy.django_settings")
+    def test_cross_region_forwards_auth_header(self, mock_settings, mock_post, mock_license):
+        mock_license.return_value = self.license
+        mock_settings.SITE_URL = "https://us.posthog.com"
+        mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+        mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = 200
+        mock_eu_response.content = b'{"ok": true}'
+        mock_eu_response.json.return_value = {"ok": True}
+        mock_post.return_value = mock_eu_response
+
+        auth_headers = self._get_auth_headers()
+
+        self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {"path": "/billing/invoices", "method": "POST", "body": {}},
+            format="json",
+            **auth_headers,
+        )
+
+        call_kwargs = mock_post.call_args.kwargs
+        assert call_kwargs["headers"]["Authorization"] == auth_headers["HTTP_AUTHORIZATION"]
+        assert call_kwargs["json"]["path"] == "/billing/invoices"
+        assert call_kwargs["json"]["method"] == "POST"
 
 
 @patch("ee.api.authentication.get_cached_instance_license")

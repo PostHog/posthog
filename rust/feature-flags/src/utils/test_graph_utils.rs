@@ -1386,6 +1386,7 @@ fn make_flag_list(
         flags,
         filtered_out_flag_ids,
         evaluation_metadata: None,
+        cohorts: None,
     }
 }
 
@@ -1424,6 +1425,7 @@ fn create_flag_with_deps(
                 prop_type: crate::properties::property_models::PropertyType::Flag,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
     }
@@ -2850,6 +2852,7 @@ mod precomputed_dependency_graph_tests {
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
             }),
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
@@ -2878,6 +2881,7 @@ mod precomputed_dependency_graph_tests {
                     (3, HashSet::new()),
                 ]),
             }),
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();

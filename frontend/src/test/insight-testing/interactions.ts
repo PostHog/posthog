@@ -23,7 +23,7 @@ async function clickSelect(dataAttr: string, optionText: string | RegExp): Promi
     await userEvent.click(options[0])
 }
 
-async function searchAndSelect(triggerAttr: string, searchText: string, resultAttr: string): Promise<void> {
+export async function searchAndSelect(triggerAttr: string, searchText: string, resultAttr: string): Promise<void> {
     await userEvent.click(screen.getByTestId(triggerAttr))
 
     const searchInput = await screen.findByTestId('taxonomic-filter-searchfield')
@@ -33,7 +33,7 @@ async function searchAndSelect(triggerAttr: string, searchText: string, resultAt
     await waitFor(
         () => {
             const el = screen.getByTestId(resultAttr)
-            expect(el.textContent).toContain(searchText)
+            expect(el.textContent?.toLowerCase()).toContain(searchText.toLowerCase())
         },
         { timeout: DEBOUNCE_TIMEOUT }
     )

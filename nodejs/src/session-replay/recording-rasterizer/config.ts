@@ -27,7 +27,7 @@ export const config = {
 
     // Recording API
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6738',
-    recordingApiSecret: process.env.RECORDING_API_SECRET || '',
+    recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
 
     // Player
     siteUrl: process.env.SITE_URL || 'http://localhost:8000',

@@ -48,7 +48,8 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     query_metadata = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    saved = models.BooleanField(default=False)
+    # DEPRECATED: legacy field from a removed history feature. Retained to filter out old saved=False records.
+    saved = models.BooleanField(default=True)
     created_at = models.DateTimeField(null=True, blank=True, auto_now_add=True)
     refreshing = models.BooleanField(default=False)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)

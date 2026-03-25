@@ -1338,7 +1338,22 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     google_cloud_integration.service_account_email, inputs.team_id
                 )
                 await ensure_our_google_cloud_credentials_are_valid()
-            bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            try:
+                bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            except Exception:
+                LOGGER.exception("Initialize client from service account failed")
+                # TODO: Migrate everyone and remove this
+                if (
+                    inputs.private_key is None
+                    or inputs.private_key_id is None
+                    or inputs.token_uri is None
+                    or inputs.client_email is None
+                ):
+                    # We cannot fallback to using inputs
+                    raise
+                bq_client = BigQueryClient.from_service_account_inputs(
+                    inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
+                )
 
         else:
             # TODO: Migrate everyone and remove this
