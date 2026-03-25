@@ -768,13 +768,10 @@ YotAcSbU3p5bzd11wpyebYHB"""
             response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
         )
 
-        # Cannot start SAML flow
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
-        )
+        # Cannot start SAML flow - sso_login catches AuthFailed and redirects
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.url, "/login?error_code=improperly_configured_sso")
 
         # Attempting to use SAML fails
         _session = self.client.session
