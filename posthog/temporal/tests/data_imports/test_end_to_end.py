@@ -3347,7 +3347,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_charge["data"],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchema.SyncType.WEBHOOK,
     )
 
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)

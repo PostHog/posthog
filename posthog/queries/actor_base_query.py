@@ -276,9 +276,10 @@ def _fetch_people_via_personhog(
     uuids = [str(pid) for pid in people_ids]
     resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
 
-    valid_persons = [p for p in resp.persons if p.id and p.team_id == team_id]
+    present_persons = [p for p in resp.persons if p.id]
+    valid_persons = [p for p in present_persons if p.team_id == team_id]
 
-    mismatched = len(resp.persons) - len(valid_persons)
+    mismatched = len(present_persons) - len(valid_persons)
     if mismatched:
         PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_people", client_name=get_client_name()).inc(mismatched)
         logger.warning("personhog_team_mismatch", operation="get_people", team_id=team_id, dropped=mismatched)

@@ -147,7 +147,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._schema = schema
         self._source = source
         self._table = table
-        self._is_incremental = schema.is_incremental
+        self._is_incremental = schema.is_incremental or schema.is_webhook
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
@@ -266,7 +266,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
-        if self._schema.is_incremental:
+        if self._schema.is_incremental or self._schema.is_webhook:
             write_type = "incremental"
         elif self._schema.is_append:
             write_type = "append"
