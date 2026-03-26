@@ -13,6 +13,7 @@ from django.db.models.functions import Now
 from django.utils import timezone
 
 import pydantic
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
@@ -38,6 +39,8 @@ from products.experiments.backend.models.experiment import (
 )
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -792,7 +795,10 @@ class ExperimentService:
                 if metric_result and metric_result.result:
                     completed_metadata["significant"] = metric_result.result.get("significant", False)
         except Exception:
-            pass
+            logger.exception(
+                "Failed to look up metric significance",
+                experiment_id=experiment.id,
+            )
 
         # Outcome event with enriched data (duration, end_date) for analyzing experiment quality and duration patterns.
         report_user_action(
