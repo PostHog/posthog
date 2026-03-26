@@ -1282,7 +1282,20 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
     exceptions are caught and logged rather than bubbling up to the caller.
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
-        return
+        installation = VercelIntegration._get_installation_for_organization(team.organization)
+        if not installation or installation.config.get("type") != "connectable":
+            return
+        Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"type": "connectable"},
+        )
+        logger.info(
+            "Auto-created Vercel resource for connectable installation",
+            team_id=team.pk,
+            integration="vercel",
+        )
 
     try:
         sync_func()
