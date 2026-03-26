@@ -149,13 +149,15 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
     """Mark the deletion request as failed if any op fails."""
     from django.utils import timezone
 
-    request_id = (
-        context.instance.get_run_by_id(context.run_id)
-        .run_config.get("ops", {})
-        .get("load_deletion_request", {})
-        .get("config", {})
-        .get("request_id")
-    )
+    run = context.instance.get_run_by_id(context.run_id)
+    if run is None:
+        return
+
+    run_config = run.run_config
+    if not isinstance(run_config, dict):
+        return
+
+    request_id = run_config.get("ops", {}).get("load_deletion_request", {}).get("config", {}).get("request_id")
     if not request_id:
         return
 
