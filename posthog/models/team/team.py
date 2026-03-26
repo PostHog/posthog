@@ -16,7 +16,7 @@ import pytz
 import pydantic
 import posthoganalytics
 
-from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -785,7 +785,7 @@ class Team(UUIDTClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
-        with tags_context(product=Product.FEATURE_FLAGS, feature="query"):
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
             return sync_execute(
                 f"""
                 SELECT count(1) FROM (
@@ -799,7 +799,7 @@ class Team(UUIDTClassicModel):
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
-        with tags_context(product=Product.FEATURE_FLAGS, feature="query"):
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
             # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
             return sync_execute(
                 f"""
