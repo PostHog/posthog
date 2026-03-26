@@ -1,12 +1,23 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardType, InsightShortId, InsightType, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardBasicType,
+    DashboardType,
+    InsightShortId,
+    InsightType,
+    QueryBasedInsightModel,
+    UserBasicType,
+} from '~/types'
 
 import { addToDashboardModalLogic } from './addToDashboardModalLogic'
 
@@ -40,6 +51,28 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     color: null,
     user_access_level: AccessControlLevel.Editor,
 } as QueryBasedInsightModel
+
+const OTHER_USER_UUID = 'other-user-uuid'
+
+const mkDashboard = (
+    id: number,
+    name: string,
+    pinned: boolean,
+    createdByUuid: string | null = null
+): DashboardBasicType => ({
+    id,
+    name,
+    description: '',
+    pinned,
+    created_at: '2021-01-01T00:00:00.000Z',
+    created_by: createdByUuid ? ({ uuid: createdByUuid } as UserBasicType) : null,
+    last_accessed_at: null,
+    last_viewed_at: null,
+    is_shared: false,
+    deleted: false,
+    creation_mode: 'default',
+    user_access_level: AccessControlLevel.Editor,
+})
 
 describe('addToDashboardModalLogic', () => {
     let logic: ReturnType<typeof addToDashboardModalLogic.build>
@@ -98,5 +131,58 @@ describe('addToDashboardModalLogic', () => {
             .toMatchValues({
                 _dashboardToNavigateTo: 99,
             })
+    })
+
+    it('orders dashboards: on insight first, then pinned, then mine, then the rest', async () => {
+        const insightOnlyOnDash2: QueryBasedInsightModel = {
+            ...MOCK_INSIGHT,
+            dashboards: [2],
+            dashboard_tiles: [{ dashboard_id: 2 }] as any,
+        }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [insightOnlyOnDash2],
+                },
+                '/api/environments/:team_id/dashboards/': {
+                    results: [
+                        mkDashboard(1, 'Pinned other', true, OTHER_USER_UUID),
+                        mkDashboard(2, 'Current mine', false, MOCK_USER_UUID),
+                        mkDashboard(3, 'Mine unpinned', false, MOCK_USER_UUID),
+                        mkDashboard(4, 'Other unpinned', false, OTHER_USER_UUID),
+                    ],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/insights/:id': async (req) => {
+                    const payload = await req.json()
+                    return [200, { ...insightOnlyOnDash2, ...payload }]
+                },
+            },
+        })
+        initKeaTests()
+
+        const dashboards = dashboardsModel()
+        dashboards.mount()
+        await expectLogic(dashboards, () => {
+            dashboards.actions.loadDashboards()
+        }).toFinishAllListeners()
+
+        const insightProps = { dashboardItemId: Insight1 }
+        const insightLog = insightLogic(insightProps)
+        insightLog.mount()
+        insightLog.actions.loadInsightSuccess(insightOnlyOnDash2)
+
+        logic = addToDashboardModalLogic(insightProps)
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            orderedDashboards: [
+                expect.objectContaining({ id: 2 }),
+                expect.objectContaining({ id: 1 }),
+                expect.objectContaining({ id: 3 }),
+                expect.objectContaining({ id: 4 }),
+            ],
+        })
     })
 })
