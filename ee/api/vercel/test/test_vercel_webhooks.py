@@ -151,7 +151,6 @@ class TestVercelWebhooks(VercelTestBase):
             "type": "integration-configuration.removed",
             "payload": {
                 "configuration": {"id": self.installation_id},
-                "installationIds": [self.installation_id],
             },
         }
         signature = self._sign_payload(payload)
@@ -162,22 +161,28 @@ class TestVercelWebhooks(VercelTestBase):
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_deauthorization_with_installation_ids_fallback(self):
-        self.installation.config["type"] = "connectable"
-        self.installation.save()
-
+    def test_deauthorization_with_empty_configuration_returns_400(self):
         payload = {
             "type": "integration-configuration.removed",
-            "payload": {
-                "installationIds": [self.installation_id],
-            },
+            "payload": {"configuration": {}},
         }
         signature = self._sign_payload(payload)
 
         response = self._post_webhook(payload, signature=signature)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
+    def test_deauthorization_with_no_config_fields_returns_400(self):
+        payload = {
+            "type": "integration-configuration.removed",
+            "payload": {"user": {"id": "usr_123"}},
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     def test_deauthorization_unknown_config_succeeds(self):

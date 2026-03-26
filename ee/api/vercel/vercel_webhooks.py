@@ -38,14 +38,8 @@ def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
 
 
 def _extract_config_id(payload: dict[str, Any]) -> str | None:
-    # Marketplace billing events use "installationId" at the top level.
-    # Deauthorization events use "configuration.id" or "installationIds[0]".
-    return (
-        payload.get("installationId")
-        or payload.get("configuration", {}).get("id")
-        or (payload.get("installationIds") or [None])[0]
-    )
-
+    # Billing events use "installationId". Deauthorization events use "configuration.id".
+    return payload.get("installationId") or payload.get("configuration", {}).get("id")
 
 def _is_billing_event(event_type: str | None) -> bool:
     return bool(event_type and event_type.startswith(BILLING_EVENT_PREFIX))
