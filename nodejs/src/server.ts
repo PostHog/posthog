@@ -363,7 +363,8 @@ export class PluginServer implements NodeServer {
             groupRepository = new DualReadGroupRepository(
                 postgresGroupRepository,
                 grpcClient,
-                this.config.PERSONHOG_ROLLOUT_PERCENTAGE
+                this.config.PERSONHOG_ROLLOUT_PERCENTAGE,
+                this.config.PLUGIN_SERVER_MODE ?? 'unknown'
             )
             logger.info(
                 '🔌',
