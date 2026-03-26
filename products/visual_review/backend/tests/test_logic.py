@@ -262,6 +262,124 @@ class TestRunOperations:
         assert run.snapshots.count() == 0
         assert len(uploads) == 0
 
+    def test_add_snapshots_to_run(self, repo):
+        run, uploads = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+        )
+        assert run.total_snapshots == 0
+
+        # Shard 1
+        added, _uploads = logic.add_snapshots_to_run(
+            run_id=run.id,
+            team_id=repo.team_id,
+            snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+            baseline_hashes={},
+            unchanged_count=50,
+        )
+        assert added == 1
+        run.refresh_from_db()
+        assert run.total_snapshots == 51
+        assert run.new_count == 1
+
+        # Shard 2
+        added, _uploads = logic.add_snapshots_to_run(
+            run_id=run.id,
+            team_id=repo.team_id,
+            snapshots=[{"identifier": "card", "content_hash": "h2"}],
+            baseline_hashes={},
+            unchanged_count=49,
+        )
+        assert added == 1
+        run.refresh_from_db()
+        assert run.total_snapshots == 101
+        assert run.new_count == 2
+        assert run.snapshots.count() == 2
+
+    def test_add_snapshots_idempotent(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+        )
+
+        for _ in range(2):
+            logic.add_snapshots_to_run(
+                run_id=run.id,
+                team_id=repo.team_id,
+                snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+                baseline_hashes={},
+            )
+
+        assert run.snapshots.count() == 1
+
+    def test_add_snapshots_rejects_non_pending(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+        )
+        logic.mark_run_completed(run.id)
+
+        with pytest.raises(ValueError, match="pending"):
+            logic.add_snapshots_to_run(
+                run_id=run.id,
+                team_id=repo.team_id,
+                snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+                baseline_hashes={},
+            )
+
+    def test_create_run_with_purpose(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+            purpose="observe",
+        )
+        assert run.purpose == "observe"
+
+    def test_approve_rejects_observe_runs(self, repo):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+            baseline_hashes={},
+            purpose="observe",
+        )
+        logic.mark_run_completed(run.id)
+
+        with pytest.raises(ValueError, match="Observational"):
+            logic.approve_run(
+                run_id=run.id,
+                user_id=1,
+                approved_snapshots=[{"identifier": "btn", "new_hash": "h1"}],
+            )
+
     def test_get_run(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
