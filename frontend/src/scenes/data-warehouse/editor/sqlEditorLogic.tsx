@@ -1590,14 +1590,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setEditorSource(searchParams.source)
             }
             if (searchParams.dashboard) {
-<<<<<<< HEAD
                 const parsed = parseInt(searchParams.dashboard, 10)
                 if (!isNaN(parsed)) {
                     actions.setDashboardId(parsed)
                 }
-=======
-                actions.setDashboardId(parseInt(searchParams.dashboard, 10))
->>>>>>> de4dcf8894cfd1bebea4953e50a813446b7a1ed4
             }
             if (
                 !searchParams.open_query &&
