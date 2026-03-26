@@ -69,7 +69,10 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class = PublicSourceConfigSerializer
 
-    @extend_schema(responses={200: PublicSourceConfigSerializer(many=True)})
+    @extend_schema(
+        responses={200: serializers.DictField(child=PublicSourceConfigSerializer())},
+        description="Returns a map of source type identifiers to their full SourceConfig.",
+    )
     def list(self, request: Request) -> Response:
         sources = SourceRegistry.get_all_sources()
 
