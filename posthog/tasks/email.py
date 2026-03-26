@@ -944,10 +944,8 @@ def send_hog_functions_daily_digest() -> None:
     Send daily digest email to teams with HogFunctions that have failures.
     Queries ClickHouse first to find failures, then fans out to team-specific tasks.
     """
-    from posthog.schema import ProductKey
-
     from posthog.clickhouse.client import sync_execute
-    from posthog.clickhouse.query_tagging import Feature, tag_queries
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
     logger.info("Starting HogFunctions daily digest task")
 
@@ -963,8 +961,8 @@ def send_hog_functions_daily_digest() -> None:
     AND metric_kind = 'failure'
     """
 
-    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.QUERY)
-    failed_teams_data = sync_execute(failures_query, {})
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.DIGEST):
+        failed_teams_data = sync_execute(failures_query, {})
 
     if not failed_teams_data:
         logger.info("No HogFunctions with failures found")
@@ -1012,10 +1010,8 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         team_id: The team ID to process
         hog_function_ids: Optional list of specific hog function IDs to process
     """
-    from posthog.schema import ProductKey
-
     from posthog.clickhouse.client import sync_execute
-    from posthog.clickhouse.query_tagging import Feature, tag_queries
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.models.hog_functions.hog_function import HogFunction
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
@@ -1048,11 +1044,11 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     final_query = metrics_query.format(hog_function_filter=hog_function_filter)
 
-    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.QUERY)
-    metrics_data = sync_execute(
-        final_query,
-        query_params,
-    )
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.DIGEST):
+        metrics_data = sync_execute(
+            final_query,
+            query_params,
+        )
 
     if not metrics_data:
         logger.info(f"No functions with metrics found for team {team_id}")
