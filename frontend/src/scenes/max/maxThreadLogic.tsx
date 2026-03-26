@@ -694,10 +694,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
                     const offlineMessage = 'You appear to be offline. Please check your internet connection.'
 
-                    // Network exception errors might be overwritten by the API wrapper, so we check for the generic Error type.
-                    if (e instanceof Error && e.message.toLowerCase().includes('failed to fetch')) {
-                        // Failed to fetch -> request failed to connect.
-                        // If the conversation is in progress, we retry up to 15 times.
+                    // Network errors surface differently across browsers and may be wrapped by handleFetch:
+                    //   Chrome/Edge: "Failed to fetch"
+                    //   Firefox:     "NetworkError when attempting to fetch resource."
+                    //   Safari:      "Load failed"
+                    //   handleFetch: ApiError with status === undefined (fetch itself threw)
+                    const isNetworkError =
+                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof ApiError && !e.status)
+
+                    if (isNetworkError) {
                         if (values.conversation?.status === ConversationStatus.InProgress) {
                             if (generationAttempt > 15) {
                                 relevantErrorMessage.content = offlineMessage
@@ -706,16 +712,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 return
                             }
                         } else {
-                            // No started conversation, show the offline message.
                             relevantErrorMessage.content = offlineMessage
-                        }
-                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
-                        // Network error -> request failed in progress.
-                        if (generationAttempt > 15) {
-                            relevantErrorMessage.content = offlineMessage
-                        } else {
-                            await retry()
-                            return
                         }
                     } else if (e instanceof ApiError) {
                         if (e.status === 400) {
