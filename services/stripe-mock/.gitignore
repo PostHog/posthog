@@ -2,3 +2,4 @@
 *.egg-info/
 __pycache__/
 .pytest_cache/
+stripe-mock.config.local.yaml

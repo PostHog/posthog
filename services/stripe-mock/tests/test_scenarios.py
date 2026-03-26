@@ -56,44 +56,44 @@ class TestBasicScenario:
 
 class TestRevenueAnalyticsScenario:
     def test_customer_count(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         assert len(collections["customers"]) == 60
 
     def test_has_multi_currency(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         currencies = {c["currency"] for c in collections["customers"]}
         assert currencies == {"usd", "eur", "gbp", "jpy"}
 
     def test_has_canceled_subscriptions(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         statuses = {s["status"] for s in collections["subscriptions"]}
         assert "canceled" in statuses
         assert "active" in statuses
 
     def test_has_refunds(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         assert len(collections["refunds"]) >= 2
 
     def test_has_disputes(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         assert len(collections["disputes"]) >= 1
 
     def test_has_credit_notes(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         assert len(collections["credit_notes"]) >= 2
 
     def test_has_trial_subscriptions(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         trialing = [s for s in collections["subscriptions"] if s["trial_start"] is not None]
         assert len(trialing) >= 1
 
     def test_invoices_have_line_items(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         invoices_with_lines = [i for i in collections["invoices"] if i["lines"]["data"]]
         assert len(invoices_with_lines) == len(collections["invoices"])
 
     def test_subscriptions_reference_valid_customers(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         customer_ids = {c["id"] for c in collections["customers"]}
         for sub in collections["subscriptions"]:
             assert sub["customer"] in customer_ids, (
@@ -101,7 +101,7 @@ class TestRevenueAnalyticsScenario:
             )
 
     def test_charges_reference_valid_customers(self):
-        collections = build_from_config()
+        collections = build_from_config(MockConfig())
         customer_ids = {c["id"] for c in collections["customers"]}
         for charge in collections["charges"]:
             assert charge["customer"] in customer_ids, (

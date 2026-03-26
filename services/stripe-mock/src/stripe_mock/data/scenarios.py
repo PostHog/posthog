@@ -138,6 +138,7 @@ class ScenarioBuilder:
         refund_at_month: tuple[int, bool, int | None] | None = None,
         trial_days: int = 0,
         coupon_percent_off: int | None = None,
+        coupon_duration_months: int | None = None,
         persona_metadata: dict | None = None,
     ):
         start_date = add_months(self.data_start, start_month_offset)
@@ -250,7 +251,8 @@ class ScenarioBuilder:
                 continue
 
             invoice_amount = unit_amount
-            if coupon_percent_off and month < 3:
+            coupon_limit = coupon_duration_months if coupon_duration_months else float("inf")
+            if coupon_percent_off and month < coupon_limit:
                 invoice_amount = int(unit_amount * (100 - coupon_percent_off) / 100)
 
             inv_idx = _next_id("inv")
@@ -509,6 +511,7 @@ def build_from_config(cfg: MockConfig | None = None) -> dict[str, list[dict[str,
     for i in range(ct.get("coupon_users", 0)):
         coupon_name, coupon_cfg = coupon_configs[i % len(coupon_configs)] if coupon_configs else ("NONE", None)
         pct = coupon_cfg.percent_off if coupon_cfg else 0
+        duration = coupon_cfg.duration_months if coupon_cfg and coupon_cfg.duration != "forever" else None
         b.add_customer_lifecycle(
             f"Coupon User {i}",
             f"coupon.{i}@example.com",
@@ -516,6 +519,7 @@ def build_from_config(cfg: MockConfig | None = None) -> dict[str, list[dict[str,
             "usd",
             "month",
             coupon_percent_off=pct,
+            coupon_duration_months=duration,
             persona_metadata={"persona": "coupon_user", "coupon": coupon_name},
         )
 

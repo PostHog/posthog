@@ -50,6 +50,8 @@ DEFAULT_LIMIT = 100
 
 
 def _stripe_base_addresses() -> dict:
+    # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
+    # when running the stripe-mock dev service. No-op in production where the var is unset.
     base = os.environ.get("STRIPE_API_BASE")
     return {"api": base} if base else {}
 

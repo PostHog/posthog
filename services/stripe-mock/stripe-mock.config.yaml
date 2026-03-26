@@ -10,14 +10,13 @@
 # seed: 42
 
 # --- Customer metadata (injected into every customer.metadata field) ---
-customer_metadata:
-    #   source: "stripe-mock"
-    #   environment: "development"
-    posthog_distinct_id: 'P46EfYSZRDW2sHTThcgNnPPf1CphrNjnSMXGF6770k5'
+# customer_metadata:
+#   source: "stripe-mock"
+#   environment: "development"
 
 # --- Customer persona distribution (count per type) ---
-customer_types:
-    loyalists_monthly: 1
+# customer_types:
+#   loyalists_monthly: 12
 #   loyalists_annual: 6
 #   churners: 8
 #   resubscribers: 1
