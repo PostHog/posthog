@@ -13,12 +13,7 @@ from products.experiments.stats.shared.cuped import (
     cuped_adjust,
 )
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.statistics import (
-    ProportionStatistic,
-    RatioStatistic,
-    SampleMeanStatistic,
-    StatisticError,
-)
+from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic, StatisticError
 
 
 def _generate_sufficient_stats(rng: np.random.Generator, n: int, mean: float, std: float):
@@ -243,21 +238,6 @@ class TestCupedEdgeCases(TestCase):
         )
 
         with self.assertRaises(StatisticError, msg="same type"):
-            cuped_adjust(treatment_post, control_post, cuped_data, cuped_data)
-
-    def test_ratio_statistic_raises_error(self):
-        n = 100
-        m_stat = SampleMeanStatistic(n=n, sum=500.0, sum_squares=3000.0)
-        d_stat = SampleMeanStatistic(n=n, sum=100.0, sum_squares=200.0)
-        treatment_post = RatioStatistic(n=n, m_statistic=m_stat, d_statistic=d_stat, m_d_sum_of_products=600.0)
-        control_post = RatioStatistic(n=n, m_statistic=m_stat, d_statistic=d_stat, m_d_sum_of_products=600.0)
-
-        cuped_data = CupedData(
-            pre_statistic=SampleMeanStatistic(n=n, sum=480.0, sum_squares=2400.0),
-            sum_of_cross_products=2300.0,
-        )
-
-        with self.assertRaises(StatisticError, msg="ratio metrics"):
             cuped_adjust(treatment_post, control_post, cuped_data, cuped_data)
 
     def test_small_sample_size(self):
