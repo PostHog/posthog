@@ -422,12 +422,15 @@ experimental_sessions_backfill_job = define_asset_job(
 )
 
 
-def _get_experimental_chunking(config: ExperimentalSessionsBackfillConfig) -> tuple[int, str]:
-    """Return (num_chunks, chunk_expression) for the experimental backfill.
+def _get_experimental_chunking(config: ExperimentalSessionsBackfillConfig) -> tuple[int, str, Callable[[int], str]]:
+    """Return (num_chunks, description, chunk_where_fn) for the experimental backfill.
+
+    chunk_where_fn(chunk_i) returns a SQL condition string for that chunk.
 
     Supports two mutually exclusive chunking strategies:
     - team_id_chunks: splits by team_id % N (can be uneven for large teams)
-    - distinct_id_chunks: splits by cityHash64(distinct_id) % N (more even distribution)
+    - distinct_id_chunks: splits by cityHash64(distinct_id) range — uses contiguous
+      ranges instead of modulo so ClickHouse can skip granules via the primary index
 
     Raises ValueError if both are specified.
     """
@@ -439,12 +442,24 @@ def _get_experimental_chunking(config: ExperimentalSessionsBackfillConfig) -> tu
 
     if has_team:
         num_chunks = max(1, config.team_id_chunks or 1)
-        return num_chunks, "team_id"
+        return num_chunks, "team_id", lambda i: f"team_id % {num_chunks} = {i}"
     elif has_distinct:
         num_chunks = max(1, config.distinct_id_chunks or 1)
-        return num_chunks, "cityHash64(distinct_id)"
+        max_uint64 = 2**64
+        chunk_size = max_uint64 // num_chunks
+
+        def distinct_id_range(i: int) -> str:
+            low = i * chunk_size
+            high = (i + 1) * chunk_size
+            if i == 0:
+                return f"cityHash64(distinct_id) < {high}"
+            if i == num_chunks - 1:
+                return f"cityHash64(distinct_id) >= {low}"
+            return f"cityHash64(distinct_id) >= {low} AND cityHash64(distinct_id) < {high}"
+
+        return num_chunks, "cityHash64(distinct_id) range", distinct_id_range
     else:
-        return 1, "team_id"
+        return 1, "team_id", lambda i: "1"
 
 
 def _do_experimental_backfill(
@@ -466,11 +481,11 @@ def _do_experimental_backfill(
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    num_chunks, chunk_expr = _get_experimental_chunking(config)
+    num_chunks, chunk_desc, chunk_where_fn = _get_experimental_chunking(config)
 
     context.log.info(
         f"Running backfill for Dagster partitions {partition_range_str} "
-        f"(where='{where_clause}', chunking={num_chunks} chunks on {chunk_expr}) "
+        f"(where='{where_clause}', chunking={num_chunks} chunks on {chunk_desc}) "
         f"using commit {get_git_commit_short() or 'unknown'}"
     )
     if debug_url := metabase_debug_query_url(context.run_id):
@@ -490,10 +505,9 @@ def _do_experimental_backfill(
                 wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
 
                 if num_chunks > 1:
-                    chunk_where_clause = f"({where_clause}) AND {chunk_expr} % {num_chunks} = {chunk_i}"
-                    context.log.info(
-                        f"Processing chunk {chunk_i + 1}/{num_chunks} ({chunk_expr} % {num_chunks} = {chunk_i})"
-                    )
+                    chunk_condition = chunk_where_fn(chunk_i)
+                    chunk_where_clause = f"({where_clause}) AND {chunk_condition}"
+                    context.log.info(f"Processing chunk {chunk_i + 1}/{num_chunks} ({chunk_condition})")
                 else:
                     chunk_where_clause = where_clause
 

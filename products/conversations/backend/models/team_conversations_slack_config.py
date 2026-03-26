@@ -21,6 +21,13 @@ class TeamConversationsSlackConfig(models.Model):
         indexes = [
             models.Index(fields=["slack_team_id"], name="conv_slack_cfg_team_id_idx"),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slack_team_id"],
+                condition=models.Q(slack_team_id__isnull=False),
+                name="unique_slack_team_id",
+            ),
+        ]
 
 
 register_team_extension_signal(TeamConversationsSlackConfig, logger=logger)
