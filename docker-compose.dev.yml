@@ -114,7 +114,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        image: ghcr.io/posthog/posthog-node:master
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
         ports:
             - '6738:6738'
         environment:
@@ -145,7 +145,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-general
-        image: ghcr.io/posthog/posthog-node:master
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
         ports:
             - '6739:6738'
         environment:

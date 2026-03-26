@@ -110,22 +110,21 @@ class HobbyTester:
         )
 
     def _get_node_image_fallback_script(self):
-        """Return bash script to check if posthog-node image exists on DockerHub.
+        """Return bash script to resolve the posthog-node image tag.
 
-        If the node image doesn't exist for this commit (it's only built when
-        node files change), rewrite the compose file to use :latest for the
-        plugins service so that docker compose pull doesn't fail.
+        Checks DockerHub for a commit-specific tag. If found, exports
+        POSTHOG_NODE_TAG so the hobby-installer writes it to .env and
+        docker-compose uses the branch image. Otherwise falls back to 'latest'.
         """
         return (
             "if curl -sf "
             "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT "
             "> /dev/null 2>&1; then "
             "echo posthog-node image found on DockerHub; "
+            "export POSTHOG_NODE_TAG=$CURRENT_COMMIT; "
             "else "
-            "echo posthog-node image not found, using latest for plugins service; "
-            "sed -i "
-            "'s|${REGISTRY_URL}-node:${POSTHOG_APP_TAG}|posthog/posthog-node:latest|g' "
-            "posthog/docker-compose.hobby.yml; "
+            "echo posthog-node image not found, using latest; "
+            "export POSTHOG_NODE_TAG=latest; "
             "fi"
         )
 
