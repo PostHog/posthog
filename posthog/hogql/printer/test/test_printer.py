@@ -2153,6 +2153,25 @@ class TestPrinter(BaseTest):
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_assume_not_null_prevents_ifnull_wrapping_in_comparison(self):
+        # base64Encode has no type signatures → returns UnknownType(nullable=True)
+        # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
+        sql_without = self._expr("event = base64Encode('test')")
+        self.assertIn("ifNull(", sql_without)
+
+        # assumeNotNull forces nullable=False → both sides non-nullable → no wrapping
+        sql_with = self._expr("event = assumeNotNull(base64Encode('test'))")
+        self.assertNotIn("ifNull(", sql_with)
+        self.assertTrue(sql_with.startswith("equals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_not_equals(self):
+        sql_without = self._expr("event != base64Encode('test')")
+        self.assertIn("ifNull(", sql_without)
+
+        sql_with = self._expr("event != assumeNotNull(base64Encode('test'))")
+        self.assertNotIn("ifNull(", sql_with)
+        self.assertTrue(sql_with.startswith("notEquals("))
+
     def test_field_nullable_boolean(self):
         PropertyDefinition.objects.create(
             team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
@@ -4444,6 +4463,17 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            ("is_null", "event is null", "(events.event IS NULL)"),
+            ("is_not_null", "event is not null", "(events.event IS NOT NULL)"),
+            ("eq_null", "event = null", "(events.event = NULL)"),
+            ("neq_null", "event != null", "(events.event != NULL)"),
+        ]
+    )
+    def test_null_comparisons_in_postgres(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
             (
                 "SELECT event FROM events",
                 "SELECT events.event FROM events LIMIT 50000",
@@ -5220,6 +5250,32 @@ class TestPostgresPrinter(BaseTest):
             direct_postgres_connection_metadata={"available_functions": ["date_bin"]},
         )
 
+        self.assertEqual(
+            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
+            "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+        )
+
+    @parameterized.expand(
+        [
+            ("semicolon_injection", "evil; DROP TABLE users --"),
+            ("parenthesis_injection", "evil()--"),
+            ("spaces", "read text"),
+            ("dash_char", "read-text"),
+            ("dot_char", "schema.func"),
+        ]
+    )
+    def test_invalid_function_names_rejected(self, _name: str, func_name: str):
+        node = ast.Call(name=func_name, args=[ast.Constant(value=1)])
+        with self.assertRaises(QueryError):
+            self._expr(node)
+
+    def test_connection_metadata_filters_invalid_function_names(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={"available_functions": ["date_bin", "evil;drop", "read text"]},
+        )
+        # date_bin should work, but the invalid names should be filtered out
         self.assertEqual(
             self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
             "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",

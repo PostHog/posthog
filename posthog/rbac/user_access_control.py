@@ -259,6 +259,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "project"
     if name == "featureflag":
         return "feature_flag"
+    if name == "earlyaccessfeature":
+        return "early_access_feature"
     if name == "plugin_config":
         return "plugin"
     if name == "sessionrecording":

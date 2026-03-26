@@ -18,6 +18,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RubyInstallation,
     RubyOnRailsInstallation,
@@ -37,12 +38,13 @@ import { JSEventCapture, NodeEventCapture, PythonEventCapture } from '@posthog/s
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations
 // JS Web SDKs - client-side with full JS capabilities
 const JS_WEB_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,
@@ -53,7 +55,7 @@ const JS_WEB_SNIPPETS = {
 
 // React - client-side with React hooks
 const REACT_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,
@@ -187,6 +189,10 @@ const ExperimentsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     snippets: SSR_FRAMEWORK_SNIPPETS,
     wizardIntegrationName: 'Svelte',
 })
+const ExperimentsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
 const ExperimentsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
@@ -260,6 +266,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ExperimentsPythonInstructionsWrapper,
     [SDKKey.REACT]: ExperimentsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ExperimentsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: ExperimentsReactRouterInstructionsWrapper,
     [SDKKey.TANSTACK_START]: withOnboardingDocsWrapper({
         Installation: ReactInstallation,
         snippets: REACT_SNIPPETS,

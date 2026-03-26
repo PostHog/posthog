@@ -10,6 +10,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
@@ -43,7 +44,7 @@ export interface JoinedIngestionPipelineConfig {
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
     groupId: string
-    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput>
+    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput>
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
 }
@@ -219,7 +220,7 @@ export function createJoinedIngestionPipeline<
                                     })
                                 )
                         )
-                        .handleIngestionWarnings(kafkaProducer)
+                        .handleIngestionWarnings(outputs)
                 )
         )
         .handleResults(pipelineConfig)

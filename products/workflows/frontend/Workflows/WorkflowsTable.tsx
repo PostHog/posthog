@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import {
-    LemonCheckbox,
-    LemonDivider,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MailHog } from 'lib/components/hedgehogs'
@@ -31,6 +23,12 @@ import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowStatusFilter, workflowsLogic } from './workflowsLogic'
+
+const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
+    active: { label: 'Active', type: 'success' },
+    draft: { label: 'Draft', type: 'default' },
+    archived: { label: 'Archived', type: 'muted' },
+}
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
     const hasMessagingAction = useMemo(() => {
@@ -95,15 +93,14 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     const logic = workflowsLogic()
     const {
-        activeWorkflows,
-        draftWorkflows,
-        archivedWorkflows,
+        filteredWorkflows,
         workflowsLoading,
+        workflows,
         hasLoadedWorkflows,
         filters,
-        visibleStatuses,
         selectedArchivedWorkflowIds,
         allArchivedSelected,
+        selectedArchivedCount,
     } = useValues(logic)
     const {
         loadWorkflows,
@@ -113,12 +110,12 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         restoreWorkflow,
         deleteWorkflow,
         deleteSelectedWorkflows,
-        toggleArchivedWorkflowSelection,
-        selectAllArchivedWorkflows,
-        clearArchivedWorkflowSelection,
         setSearchTerm,
         setCreatedBy,
         setStatusFilter,
+        toggleArchivedWorkflowSelection,
+        selectAllArchivedWorkflows,
+        clearArchivedWorkflowSelection,
     } = useActions(logic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
 
@@ -136,7 +133,32 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         loadWorkflows()
     })
 
+    const isArchived = filters.status === 'archived'
+
     const columns: LemonTableColumns<HogFlow> = [
+        ...(isArchived
+            ? [
+                  {
+                      title: (
+                          <LemonCheckbox
+                              checked={allArchivedSelected ? true : selectedArchivedCount > 0 ? 'indeterminate' : false}
+                              onChange={(checked: boolean) =>
+                                  checked
+                                      ? selectAllArchivedWorkflows(filteredWorkflows.map((w) => w.id))
+                                      : clearArchivedWorkflowSelection()
+                              }
+                          />
+                      ),
+                      width: 0,
+                      render: (_: any, item: HogFlow) => (
+                          <LemonCheckbox
+                              checked={selectedArchivedWorkflowIds.has(item.id)}
+                              onChange={() => toggleArchivedWorkflowSelection(item.id)}
+                          />
+                      ),
+                  },
+              ]
+            : []),
         {
             title: 'Name',
             key: 'name',
@@ -155,7 +177,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                 )
             },
         },
-
         {
             title: 'Type',
             width: 0,
@@ -163,7 +184,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                 return <WorkflowTypeTag workflow={item} />
             },
         },
-
         {
             title: 'Trigger',
             width: 0,
@@ -220,6 +240,14 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                         />
                     </Link>
                 )
+            },
+        },
+        {
+            title: 'Status',
+            width: 0,
+            render: (_, item) => {
+                const config = STATUS_CONFIG[item.status] || STATUS_CONFIG.draft
+                return <LemonTag type={config.type}>{config.label}</LemonTag>
             },
         },
         {
@@ -283,12 +311,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     ]
 
     const showProductIntroduction =
-        hasLoadedWorkflows &&
-        !workflowsLoading &&
-        activeWorkflows.length === 0 &&
-        draftWorkflows.length === 0 &&
-        !filters.search &&
-        !filters.createdBy
+        hasLoadedWorkflows && !workflowsLoading && workflows.length === 0 && !filters.search && !filters.createdBy
 
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
@@ -308,27 +331,31 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
             {!showProductIntroduction && (
                 <>
                     <div className="flex justify-between gap-2 flex-wrap mb-4">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search for workflows"
+                            onChange={setSearchTerm}
+                            value={filters.search}
+                        />
                         <div className="flex items-center gap-2">
-                            <LemonInput
-                                type="search"
-                                placeholder="Search for workflows"
-                                onChange={setSearchTerm}
-                                value={filters.search}
-                            />
-                            <LemonSegmentedButton
-                                value={filters.status}
+                            <span>
+                                <b>Status</b>
+                            </span>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                size="small"
                                 onChange={(value) => setStatusFilter(value as WorkflowStatusFilter)}
                                 options={[
-                                    { value: 'all', label: 'All' },
-                                    { value: 'active', label: 'Active' },
-                                    { value: 'draft', label: 'Draft' },
-                                    { value: 'archived', label: 'Archived' },
+                                    { label: 'All', value: 'all' },
+                                    { label: 'Active', value: 'active' },
+                                    { label: 'Draft', value: 'draft' },
+                                    { label: 'Archived', value: 'archived' },
                                 ]}
-                                size="small"
+                                value={filters.status}
                             />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span>Created by:</span>
+                            <span className="ml-1">
+                                <b>Created by</b>
+                            </span>
                             <MemberSelect
                                 value={filters.createdBy}
                                 onChange={(user) => setCreatedBy(user?.uuid || null)}
@@ -336,92 +363,32 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                         </div>
                     </div>
 
-                    {visibleStatuses.includes('active') && (
-                        <div className="mb-6">
-                            <h3 className="mb-2">Active</h3>
-                            <LemonTable
-                                dataSource={activeWorkflows}
-                                loading={workflowsLoading}
-                                rowKey="id"
-                                columns={columns}
-                                defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
-                                pagination={{ pageSize: 20 }}
-                                nouns={['workflow', 'workflows']}
-                                emptyState="No active workflows"
-                            />
+                    {isArchived && selectedArchivedCount > 0 && (
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-muted text-sm">
+                                {selectedArchivedCount} workflow{selectedArchivedCount !== 1 ? 's' : ''} selected
+                            </span>
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                onClick={deleteSelectedWorkflows}
+                            >
+                                Delete selected
+                            </LemonButton>
                         </div>
                     )}
 
-                    {visibleStatuses.includes('draft') && (
-                        <div className="mb-6">
-                            <h3 className="mb-2">Draft</h3>
-                            <LemonTable
-                                dataSource={draftWorkflows}
-                                loading={workflowsLoading}
-                                rowKey="id"
-                                columns={columns}
-                                defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
-                                pagination={{ pageSize: 20 }}
-                                nouns={['workflow', 'workflows']}
-                                emptyState="No draft workflows"
-                            />
-                        </div>
-                    )}
-
-                    {visibleStatuses.includes('archived') && (
-                        <div className="mb-6">
-                            <div className="flex items-center gap-2 mb-2 min-h-8">
-                                <h3 className="m-0">Archived</h3>
-                                <div className="flex-1" />
-                                <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    size="small"
-                                    className={selectedArchivedWorkflowIds.size > 0 ? 'visible' : 'invisible'}
-                                    onClick={() => deleteSelectedWorkflows()}
-                                >
-                                    Delete selected ({selectedArchivedWorkflowIds.size})
-                                </LemonButton>
-                            </div>
-                            <LemonTable
-                                dataSource={archivedWorkflows}
-                                loading={workflowsLoading}
-                                rowKey="id"
-                                columns={[
-                                    {
-                                        title: (
-                                            <LemonCheckbox
-                                                checked={
-                                                    allArchivedSelected
-                                                        ? true
-                                                        : selectedArchivedWorkflowIds.size > 0
-                                                          ? 'indeterminate'
-                                                          : false
-                                                }
-                                                onChange={(checked) =>
-                                                    checked
-                                                        ? selectAllArchivedWorkflows(archivedWorkflows.map((w) => w.id))
-                                                        : clearArchivedWorkflowSelection()
-                                                }
-                                            />
-                                        ),
-                                        width: 0,
-                                        render: (_, item) => (
-                                            <LemonCheckbox
-                                                checked={selectedArchivedWorkflowIds.has(item.id)}
-                                                onChange={() => toggleArchivedWorkflowSelection(item.id)}
-                                            />
-                                        ),
-                                    },
-                                    ...columns,
-                                ]}
-                                defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
-                                pagination={{ pageSize: 20 }}
-                                nouns={['workflow', 'workflows']}
-                                emptyState="No archived workflows"
-                            />
-                        </div>
-                    )}
+                    <LemonTable
+                        dataSource={filteredWorkflows}
+                        loading={workflowsLoading}
+                        rowKey="id"
+                        columns={columns}
+                        defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
+                        pagination={{ pageSize: 30 }}
+                        nouns={['workflow', 'workflows']}
+                        emptyState="No workflows matching filters"
+                    />
                 </>
             )}
         </div>

@@ -409,29 +409,8 @@ def databricks_integration(team, user):
     )
 
 
-@pytest.fixture
-def enable_databricks(team):
-    with unittest.mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ) as feature_enabled:
-        yield
-        feature_enabled.assert_called_once_with(
-            "databricks-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-
 def test_can_run_databricks_test_step_for_new_destination(
-    client: HttpClient, organization, team, user, databricks_integration, enable_databricks
+    client: HttpClient, organization, team, user, databricks_integration
 ):
     destination_data = {
         "type": "Databricks",
@@ -491,7 +470,6 @@ def test_integration_is_required_for_databricks_destination_tests(
     organization,
     team,
     user,
-    enable_databricks,
 ):
     destination_data = {
         "type": "Databricks",

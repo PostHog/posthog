@@ -364,7 +364,6 @@
                 "plan",
                 "execution",
                 "survey",
-                "onboarding",
                 "research",
                 "flags",
                 "llm_analytics",
@@ -1184,7 +1183,16 @@
             ]
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql", "revenue_analytics"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "event_metadata",
+                "session",
+                "hogql",
+                "data_warehouse_person_property",
+                "revenue_analytics"
+            ],
             "type": "string"
         },
         "AssistantEventType": {
@@ -2325,7 +2333,6 @@
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
-                "recommend_products",
                 "search_llm_traces"
             ],
             "type": "string"
@@ -13868,6 +13875,43 @@
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
+        "ErrorTrackingSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "fingerprint": {
+                    "type": "string"
+                }
+            },
+            "required": ["fingerprint"],
+            "type": "object"
+        },
+        "ErrorTrackingSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ErrorTrackingSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "error_tracking",
+                    "type": "string"
+                },
+                "source_type": {
+                    "enum": ["issue_created", "issue_reopened", "issue_spiking"],
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "ErrorTrackingSimilarIssuesQuery": {
             "additionalProperties": false,
             "properties": {
@@ -16242,7 +16286,8 @@
                 "Brevo",
                 "Postmark",
                 "Granola",
-                "BuildBetter"
+                "BuildBetter",
+                "Convex"
             ],
             "type": "string"
         },
@@ -23383,7 +23428,17 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "event_metadata",
+                "group",
+                "session",
+                "hogql",
+                "data_warehouse_person_property",
+                "revenue_analytics"
+            ],
             "type": "string"
         },
         "NativeMarketingSource": {
@@ -32599,10 +32654,29 @@
                 },
                 {
                     "$ref": "#/definitions/LinearIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingSignalInput"
                 }
             ],
             "required": ["source_product"],
             "type": "object"
+        },
+        "SignalSourceProduct": {
+            "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
+            "type": "string"
+        },
+        "SignalSourceType": {
+            "enum": [
+                "session_analysis_cluster",
+                "evaluation",
+                "issue",
+                "ticket",
+                "issue_created",
+                "issue_reopened",
+                "issue_spiking"
+            ],
+            "type": "string"
         },
         "SimilarIssue": {
             "additionalProperties": false,

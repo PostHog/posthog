@@ -66,7 +66,6 @@
         "summary": "Get all experiments in the project.",
         "title": "Get all experiments",
         "required_scopes": ["experiment:read"],
-        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -126,7 +125,6 @@
         "summary": "Get details of a specific experiment.",
         "title": "Get experiment details",
         "required_scopes": ["experiment:read"],
-        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -186,7 +184,6 @@
         "summary": "Get a specific insight by ID.",
         "title": "Get insight",
         "required_scopes": ["insight:read"],
-        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -216,7 +213,6 @@
         "summary": "Get all insights in the project with optional filtering.",
         "title": "Get all insights",
         "required_scopes": ["insight:read"],
-        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -531,7 +527,6 @@
         "required_scopes": ["survey:read"],
         "feature": "surveys",
         "title": "Get survey",
-        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -546,7 +541,6 @@
         "required_scopes": ["survey:read"],
         "feature": "surveys",
         "title": "Get all surveys",
-        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

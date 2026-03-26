@@ -69,4 +69,8 @@ function DialogClose({ className = '' }: { className?: string }): JSX.Element {
     )
 }
 
-export { DialogPrimitive, DialogPrimitiveTitle, DialogClose }
+function DialogTrigger({ children, ...rest }: React.ComponentProps<typeof Dialog.Trigger>): JSX.Element {
+    return <Dialog.Trigger {...rest}>{children}</Dialog.Trigger>
+}
+
+export { DialogPrimitive, DialogPrimitiveTitle, DialogClose, DialogTrigger }
