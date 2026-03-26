@@ -319,6 +319,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
