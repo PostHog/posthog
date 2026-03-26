@@ -102,6 +102,29 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
 
-## Skills
+## Agent automation
 
-Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.
+When you want to shape agent behavior, prefer these approaches in order:
+
+1. **AGENTS.md / CLAUDE.md instructions** — conventions, rules, templates.
+   Cheapest, most portable, works across all agents. Try this first.
+2. **Skills** (`.agents/skills/`) — multi-step domain workflows, product-specific procedures.
+   Scaffold with `hogli init:skill`. Source of truth is `.agents/skills`, symlinked to `.claude/skills`.
+3. **lint-staged / husky** — file-level validation at commit time.
+   Add rules in root `package.json` under `lint-staged`.
+4. **CI checks** — PR-level enforcement (tests, build validation).
+5. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement.
+
+### Claude Code hooks
+
+Hooks in `.claude/settings.json` are reserved for environment bootstrapping (`SessionStart` only).
+Do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks for behavioral enforcement —
+they add latency on every tool call, are fragile to input variations, and only work in Claude Code.
+
+If AGENTS.md instructions alone are insufficient, consider:
+
+- A **skill** with built-in verification steps
+- A **lint-staged rule** that catches issues at commit time
+- A **CI check** for PR-level enforcement
+
+Changes to `.claude/hooks/` trigger a lint-staged warning at commit time.
