@@ -30,7 +30,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    const { insightProps, highlightedSeries, editingDisabledReason } = useValues(insightLogic)
+    const { insightProps, highlightedSeries, canEditInsight } = useValues(insightLogic)
     const {
         display,
         trendsFilter,
@@ -127,7 +127,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                             />
                         )
                     }
-                    disabledReason={editingDisabledReason}
+                    disabledReason={!canEditInsight ? 'You need editor access to modify this insight.' : undefined}
                 />
             </div>
             {display === ChartDisplayType.ActionsPie && (

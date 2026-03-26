@@ -82,6 +82,7 @@ export function copyIndexHtml(
     const cssFile =
         relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
+    const jsFileFallback = `${entry}.js`
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
@@ -89,6 +90,9 @@ export function copyIndexHtml(
             } catch (error) {
                 console.error('Error loading chunk: "' + file + '"')
                 console.error(error)
+                if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
+                    await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+                }
             }
         }
         window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})

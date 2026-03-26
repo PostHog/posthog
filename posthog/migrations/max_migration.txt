@@ -1,1 +1,1 @@
-1067_add_dashboardtemplate_is_featured
+1070_add_unique_cohort_kind_per_team
