@@ -2,10 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconInfo } from '@posthog/icons'
 
-import { LemonCollapse as LemonCollapseComponent } from './LemonCollapse'
+import { LemonCollapse as LemonCollapseComponent, type LemonCollapseProps } from './LemonCollapse'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonCollapseComponent> = {
+type Story = StoryObj<LemonCollapseProps<string>>
+const meta: Meta<LemonCollapseProps<string>> = {
     title: 'Lemon UI/Lemon Collapse',
     component: LemonCollapseComponent,
     args: {

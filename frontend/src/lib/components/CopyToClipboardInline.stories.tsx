@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { CopyToClipboardInline } from './CopyToClipboard'
+import { CopyToClipboardInline, type InlineProps } from './CopyToClipboard'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof CopyToClipboardInline> = {
+type Story = StoryObj<InlineProps>
+const meta: Meta<InlineProps> = {
     title: 'Lemon UI/Copy To Clipboard Inline',
     component: CopyToClipboardInline,
     tags: ['autodocs'],

@@ -4,8 +4,8 @@ import { LemonSearchableSelect, LemonSearchableSelectProps, LemonSelectOptions }
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonSearchableSelect> = {
+type Story = StoryObj<LemonSearchableSelectProps<any>>
+const meta: Meta<LemonSearchableSelectProps<any>> = {
     title: 'Lemon UI/Lemon Searchable Select',
     component: LemonSearchableSelect,
     args: {
@@ -16,7 +16,7 @@ const meta: Meta<typeof LemonSearchableSelect> = {
         ] as LemonSelectOptions<string>,
     },
     tags: ['autodocs'],
-    render: (props: LemonSearchableSelectProps<any>) => {
+    render: (props) => {
         return (
             <div className="flex flex-row items-center w-full border p-4 gap-2">
                 {(['small', 'medium', 'large', undefined] as const).map((size, index) => (

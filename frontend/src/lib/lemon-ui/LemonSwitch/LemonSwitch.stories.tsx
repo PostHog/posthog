@@ -12,15 +12,15 @@ const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Elem
     return <RawLemonSwitch {...props} checked={isChecked} onChange={setIsChecked} />
 }
 
-type Story = StoryObj<typeof RawLemonSwitch>
-const meta: Meta<typeof LemonSwitch> = {
+type Story = StoryObj<LemonSwitchProps>
+const meta: Meta<LemonSwitchProps> = {
     title: 'Lemon UI/Lemon Switch',
     component: LemonSwitch,
     args: {
         label: 'Switch this!',
     },
     tags: ['autodocs'],
-    render: (props: LemonSwitchProps) => {
+    render: (props) => {
         return <LemonSwitch {...props} />
     },
 }

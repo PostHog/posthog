@@ -4,8 +4,8 @@ import { IconBook, IconCalculator, IconCalendar, IconGear } from '@posthog/icons
 
 import { LemonSegmentedSelect, LemonSegmentedSelectProps } from './LemonSegmentedSelect'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonSegmentedSelect> = {
+type Story = StoryObj<LemonSegmentedSelectProps<string>>
+const meta: Meta<LemonSegmentedSelectProps<string>> = {
     title: 'Lemon UI/Lemon Segmented Select',
     component: LemonSegmentedSelect,
     argTypes: {
@@ -30,7 +30,7 @@ const meta: Meta<typeof LemonSegmentedSelect> = {
         ],
     },
     tags: ['autodocs'],
-    render: (props: Omit<LemonSegmentedSelectProps<any>, 'value'>) => {
+    render: (props) => {
         return <LemonSegmentedSelect {...props} value={props.options[1]?.value} />
     },
 }

@@ -7,8 +7,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from '../LemonField'
 import { LemonDialog, LemonDialogProps, LemonFormDialog, LemonFormDialogProps } from './LemonDialog'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonDialog> = {
+type Story = StoryObj<LemonDialogProps>
+const meta: Meta<LemonDialogProps> = {
     title: 'Lemon UI/Lemon Dialog',
     component: LemonDialog,
     args: {
@@ -103,8 +103,8 @@ export const Customised: Story = {
     },
 }
 
-export const Form: StoryObj = {
-    render: (props: LemonFormDialogProps) => {
+export const Form: StoryObj<LemonFormDialogProps> = {
+    render: (props) => {
         const onClick = (): void => {
             LemonDialog.openForm(props)
         }

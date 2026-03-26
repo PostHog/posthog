@@ -132,10 +132,10 @@ const StoryWrapper: React.FC<StoryWrapperProps> = ({ logicProps, item, groupType
     )
 }
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<StoryWrapperProps>
 const meta: Meta<StoryWrapperProps> = {
     title: 'Components/Definition popover',
-    component: ControlledDefinitionPopover,
+    component: ControlledDefinitionPopover as any,
     decorators: [
         mswDecorator({
             get: {

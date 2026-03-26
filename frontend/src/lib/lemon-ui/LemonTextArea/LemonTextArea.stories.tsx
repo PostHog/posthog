@@ -5,12 +5,12 @@ import { IconTrash } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { LemonTextArea } from './LemonTextArea'
+import { LemonTextArea, type LemonTextAreaProps } from './LemonTextArea'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonTextArea> = {
+type Story = StoryObj<LemonTextAreaProps>
+const meta: Meta<LemonTextAreaProps> = {
     title: 'Lemon UI/Lemon Text Area',
-    component: LemonTextArea,
+    component: LemonTextArea as any,
     args: {
         value: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
     },
