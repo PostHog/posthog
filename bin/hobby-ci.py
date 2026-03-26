@@ -21,6 +21,7 @@ import requests
 import digitalocean  # type: ignore
 
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
+FALLBACK_SIZE = "s-8vcpu-32gb"
 
 
 class HobbyTester:
@@ -248,18 +249,50 @@ runcmd:
         if self.pr_number and self.pr_number != "unknown":
             tags.append(f"pr:{self.pr_number}")
 
-        self.droplet = digitalocean.Droplet(
-            token=self.token,
-            name=self.name,
-            region=self.region,
-            image=self.image,
-            size_slug=self.size,
-            user_data=self.user_data,
-            ssh_keys=keys,
-            tags=tags,
+        # Fallback candidates: try larger sizes first (PostHog needs ≥16 GB RAM),
+        # then fall back across regions. sfo3 has had capacity issues since ~Mar 17 2026.
+        fallback_candidates = list(
+            dict.fromkeys(
+                [
+                    (self.region, self.size),
+                    (self.region, FALLBACK_SIZE),
+                    ("nyc3", self.size),
+                    ("nyc3", FALLBACK_SIZE),
+                    ("ams3", self.size),
+                    ("ams3", FALLBACK_SIZE),
+                ]
+            )
         )
-        self.droplet.create()
-        return self.droplet
+
+        last_error = None
+        for region, size in fallback_candidates:
+            print(f"Attempting droplet creation: region={region}, size={size}")
+            droplet = digitalocean.Droplet(
+                token=self.token,
+                name=self.name,
+                region=region,
+                image=self.image,
+                size_slug=size,
+                user_data=self.user_data,
+                ssh_keys=keys,
+                tags=tags,
+            )
+            try:
+                droplet.create()
+                if region != self.region or size != self.size:
+                    print(f"Droplet created with fallback: region={region}, size={size}")
+                self.region = region
+                self.size = size
+                self.droplet = droplet
+                return self.droplet
+            except digitalocean.DataReadError as e:
+                err_lower = str(e).lower()
+                if "not available in this region" not in err_lower and "size is unavailable" not in err_lower:
+                    raise
+                print(f"Droplet creation failed (region={region}, size={size}): {e}")
+                last_error = e
+
+        raise RuntimeError(f"Droplet creation failed for all region/size combinations. Last error: {last_error}")
 
     def get_droplet_info(self):
         """Fetch droplet information from DigitalOcean API for debugging"""
