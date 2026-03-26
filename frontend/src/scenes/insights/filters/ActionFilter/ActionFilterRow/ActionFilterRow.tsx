@@ -3,6 +3,7 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useState } from 'react'
@@ -383,10 +384,11 @@ export function ActionFilterRow({
     const propertyFiltersButton = (
         <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
-                icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
+                icon={<IconFilter />}
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
                 noPadding
+                active={propertyFiltersVisible}
                 onClick={() => {
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
@@ -494,7 +496,7 @@ export function ActionFilterRow({
 
     return (
         <li
-            className="ActionFilterRow relative"
+            className="ActionFilterRow relative @max-[400px]/editor-panel:border @max-[400px]/editor-panel:rounded @max-[400px]/editor-panel:p-2"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props
@@ -504,7 +506,7 @@ export function ActionFilterRow({
                 transition,
             }}
         >
-            <div className="ActionFilterRow-content">
+            <div className="ActionFilterRow-content @max-[400px]/editor-panel:flex-wrap @max-[400px]/editor-panel:w-full @max-[400px]/editor-panel:items-center @max-[400px]/editor-panel:justify-between @max-[400px]/editor-panel:[&>*+*]:ml-0">
                 {renderRow ? (
                     renderRow({
                         seriesIndicator,
@@ -521,8 +523,16 @@ export function ActionFilterRow({
                             <div className="ActionFilterRow__start">{rowStartElements}</div>
                         ) : null}
                         {/* central section flexible */}
-                        <div className="ActionFilterRow__center">
-                            <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
+                        <div
+                            className={clsx(
+                                'ActionFilterRow__center',
+                                rowStartElements.length > 0 &&
+                                    '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
+                            )}
+                        >
+                            <div className="flex-1 min-w-36 @max-[400px]/editor-panel:min-w-0 overflow-hidden">
+                                {filterElement}
+                            </div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
@@ -681,7 +691,7 @@ export function ActionFilterRow({
                         </div>
                         {/* right section fixed */}
                         {(rowEndElements.length > 0 || showPopupMenu) && (
-                            <div className="ActionFilterRow__end">
+                            <div className="ActionFilterRow__end @max-[400px]/editor-panel:gap-1">
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}

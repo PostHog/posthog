@@ -544,7 +544,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         <div
             className={clsx(
                 '@container/editor',
-                editorPanelsEnabled ? 'flex flex-col gap-2' : 'flex flex-row flex-wrap gap-8 bg-surface-primary',
+                editorPanelsEnabled ? 'flex flex-col gap-3' : 'flex flex-row flex-wrap gap-8 bg-surface-primary',
                 { 'p-4 rounded border': !embedded && !editorPanelsEnabled }
             )}
         >
@@ -553,7 +553,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key={title}
                     className={clsx(
                         'flex flex-col max-w-full',
-                        editorPanelsEnabled ? 'gap-2' : 'gap-4 grow shrink basis-[28rem]'
+                        editorPanelsEnabled ? 'gap-3' : 'gap-4 grow shrink basis-[28rem]'
                     )}
                 >
                     {editorFilterGroups.map((editorFilterGroup) => (
@@ -631,7 +631,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         <div
             ref={panelRef}
             className={clsx(
-                'EditorFiltersWrapper relative self-stretch',
+                'EditorFiltersWrapper relative self-stretch @container/editor-panel',
                 isResizing ? '' : 'transition-all duration-300 ease-out',
                 showing ? 'opacity-100' : 'w-0 min-w-0 max-w-0 opacity-0 overflow-hidden border-0 !p-0'
             )}

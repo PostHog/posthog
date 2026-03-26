@@ -131,14 +131,14 @@ export function InsightViz({
                                               'InsightViz--horizontal':
                                                   editorPanelsEnabled || isFunnels || isRetention || isHorizontalAlways,
                                               '!gap-0': editorPanelsEnabled,
-                                              'flex-1 h-[calc(100vh-4rem)] -mt-4 -mx-4 -mb-4 bg-surface-secondary':
+                                              'flex-1 h-[calc(100vh-4rem)] -mt-4 -mx-4 -mb-4':
                                                   editorPanelsEnabled && editMode,
                                           })
                                         : 'InsightCard__viz'
                                 }
                             >
                                 {context?.sceneHeader && (
-                                    <div className="w-full shrink-0 px-4 pt-2 [&_.-mt-4]:mt-0 bg-surface-secondary z-10 relative">
+                                    <div className="w-full shrink-0 px-4 pt-2 [&_.-mt-4]:mt-0 z-10 relative">
                                         {context.sceneHeader}
                                     </div>
                                 )}

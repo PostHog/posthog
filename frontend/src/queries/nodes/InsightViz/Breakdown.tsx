@@ -11,9 +11,7 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
         insightVizDataLogic(insightProps)
     )
     const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
-    useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR') // keep hook call for rules-of-hooks
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     return (
         <>

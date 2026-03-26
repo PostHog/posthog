@@ -34,9 +34,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    // TODO(insight-editor-panels): Replace hardcoded `true` with the feature flag before merging
-    const editorPanelsEnabled = true
-    useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR') // keep hook call for rules-of-hooks
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
     const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
     const isFunnelDwhStepPopoverVariant =
         supportsDwhFunnels && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_STEP_UI] === 'popover'

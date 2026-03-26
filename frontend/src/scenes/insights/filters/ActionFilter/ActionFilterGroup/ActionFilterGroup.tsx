@@ -116,7 +116,7 @@ export function ActionFilterGroup({
             }}
         >
             <div
-                className={clsx('flex flex-col overflow-hidden', {
+                className={clsx('flex flex-col overflow-hidden min-w-0', {
                     'border border-primary rounded hover:border-secondary': insightType === InsightType.TRENDS,
                 })}
             >
@@ -127,7 +127,7 @@ export function ActionFilterGroup({
                         insightType === InsightType.FUNNELS ? 'py-4' : 'py-3'
                     )}
                 >
-                    <div className="flex flex-wrap items-center gap-0 min-w-0">
+                    <div className="flex flex-wrap items-center gap-0 min-w-0 @max-[400px]/editor-panel:contents">
                         {sortable && filterCount > 1 && (
                             <span className="ActionFilterRowDragHandle" {...listeners}>
                                 <SortableDragIcon />
@@ -151,7 +151,7 @@ export function ActionFilterGroup({
 
                         {mathAvailability !== MathAvailability.None &&
                             mathAvailability !== MathAvailability.FunnelsOnly && (
-                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2 min-w-0 @max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1">
                                     <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
                                     <MathSelector
                                         size="small"
