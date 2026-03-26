@@ -270,11 +270,8 @@ def _roundtrip_check(expr: ast.Expr) -> None:
         assume(False)
         return  # type: ignore[unreachable]
 
-    try:
-        parsed = parse_expr(printed1)
-    except BaseHogQLError:
-        assume(False)
-        return  # type: ignore[unreachable]
+    # If the parser can't handle what the printer produced, that's a real bug
+    parsed = parse_expr(printed1)
 
     printed2 = _print_hogql(parsed)
     assert printed1 == printed2, f"Round-trip mismatch:\n  pass 1: {printed1!r}\n  pass 2: {printed2!r}"
@@ -342,10 +339,12 @@ class TestConstantRoundTrip:
         _roundtrip_check(ast.Constant(value=s))
 
     @given(n=_SAFE_INTEGER)
+    @settings(max_examples=500)
     def test_integer_constant_roundtrip(self, n: int) -> None:
         _roundtrip_check(ast.Constant(value=n))
 
     @given(f=_SAFE_FLOAT)
+    @settings(max_examples=500)
     def test_float_constant_roundtrip(self, f: float) -> None:
         node = ast.Constant(value=f)
         printed = _print_hogql(node)
