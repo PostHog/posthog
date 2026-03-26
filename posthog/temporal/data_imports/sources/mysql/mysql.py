@@ -189,9 +189,7 @@ def _get_rows_to_sync(
     cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
 ) -> int:
     try:
-        # Set a statement timeout to avoid long-running COUNT(*) queries
-        # killing the connection on large tables. 60s is generous for a count.
-        cursor.execute("SET SESSION MAX_EXECUTION_TIME = 60000")
+        query = f"SELECT /*+ MAX_EXECUTION_TIME(60000) */ COUNT(*) FROM ({inner_query}) as t"
 
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
