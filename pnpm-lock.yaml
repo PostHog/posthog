@@ -886,6 +886,9 @@ importers:
       country-flag-emoji-polyfill:
         specifier: ^0.1.8
         version: 0.1.8
+      cronstrue:
+        specifier: ^3.14.0
+        version: 3.14.0
       crypto-browserify:
         specifier: ^3.12.0
         version: 3.12.1
@@ -13135,6 +13138,10 @@ packages:
     resolution: {integrity: sha512-BoZaseYGXOo5j5HUwTaegIog3JJbuH4BbrY9A1ArLjXpy+RWb3mV28F/9Gv1dDA7E2L8kngWva4NWisnLTyfgQ==}
     engines: {node: '>=20'}
 
+  cronstrue@3.14.0:
+    resolution: {integrity: sha512-XnW4vuK/jPJjmTyDWiej1Zq36Od7ITwxaV2O1pzHZuyMVvdy7NAvyvIBzybt+idqSpfqYuoDG7uf/ocGtJVWxA==}
+    hasBin: true
+
   cross-fetch@3.1.5:
     resolution: {integrity: sha512-lvb1SBsI0Z7GDwmuid+mU3kWVBwTVUbe7S0H52yaaAdQOXq2YktTCZdlAcNKFzE6QtRz0snpw9bNiPeOIkkQvw==}
 
@@ -21446,8 +21453,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.393.0:
-    resolution: {integrity: sha512-308ulSy+ywhJYLSviUWBxgGNymQWvtWkZEehnxDxzf04tMoN2SzeXgqXjl1FyO7TkdOVy4L1V5JG+L8FCjyg9w==}
+  unlayer-types@1.394.0:
+    resolution: {integrity: sha512-0y7+/QQ8MxCjPcpWK3rz7pQXsNGQAUGI6JlBKHQBneqOAWeCVET6Ohd5KVgD95Rm8v6ZLRn5TJvjdsRwIWHHUg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -35625,6 +35632,8 @@ snapshots:
 
   cron-schedule@6.0.0: {}
 
+  cronstrue@3.14.0: {}
+
   cross-fetch@3.1.5(encoding@0.1.13):
     dependencies:
       node-fetch: 2.6.7(encoding@0.1.13)
@@ -44099,7 +44108,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.393.0
+      unlayer-types: 1.394.0
 
   react-error-overlay@6.0.9: {}
 
@@ -46470,7 +46479,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.393.0: {}
+  unlayer-types@1.394.0: {}
 
   unpipe@1.0.0: {}
 

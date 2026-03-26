@@ -1,3 +1,4 @@
+import cronstrue from 'cronstrue'
 import {
     actions,
     afterMount,
@@ -528,6 +529,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
+        setCronExpression: (cronExpression: string | null) => ({ cronExpression }),
+        setRepeatsValue: (value: RecurrenceInterval | 'none' | 'cron') => ({ value }),
         setEndDate: (endDate: Dayjs | null) => ({ endDate }),
         stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         resumeRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
@@ -901,6 +904,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setRecurrenceInterval: (_, { interval }) => interval,
                 // Reset when switching to AddReleaseCondition (recurring not supported for that operation)
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? null : state,
+            },
+        ],
+        cronExpression: [
+            null as string | null,
+            {
+                setCronExpression: (_, { cronExpression }) => cronExpression,
                 setScheduledChangeOperation: (state, { changeType }) =>
                     changeType === ScheduledChangeOperationType.AddReleaseCondition ? null : state,
             },
@@ -1447,6 +1458,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         scheduled_at: scheduleDateMarker.toISOString(),
                         is_recurring: values.isRecurring,
                         recurrence_interval: values.recurrenceInterval,
+                        cron_expression: values.cronExpression,
                         // Use end-of-day in project timezone to ensure consistent behavior
                         // across all users in the project
                         end_date: values.endDate
@@ -1503,6 +1515,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
+        setRepeatsValue: ({ value }) => {
+            if (value === 'none') {
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
+                actions.setCronExpression(null)
+                actions.setEndDate(null)
+            } else if (value === 'cron') {
+                actions.setIsRecurring(true)
+                actions.setRecurrenceInterval(null)
+                actions.setCronExpression(values.cronExpression ?? '')
+            } else {
+                actions.setIsRecurring(true)
+                actions.setRecurrenceInterval(value)
+                actions.setCronExpression(null)
+            }
+        },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
         generateUsageDashboard: async () => {
             if (props.id) {
@@ -1712,6 +1740,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
                 actions.setRecurrenceInterval(null)
+                actions.setCronExpression(null)
                 actions.setEndDate(null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
@@ -2055,6 +2084,55 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }))
                 return errors
             },
+        ],
+        repeatsValue: [
+            (s) => [s.isRecurring, s.cronExpression, s.recurrenceInterval],
+            (isRecurring, cronExpression, recurrenceInterval): RecurrenceInterval | 'none' | 'cron' =>
+                isRecurring ? (cronExpression !== null ? 'cron' : (recurrenceInterval ?? 'none')) : 'none',
+        ],
+        cronPreview: [
+            (s) => [s.cronExpression],
+            (cronExpression): string | null => {
+                if (!cronExpression) {
+                    return null
+                }
+                try {
+                    return cronstrue.toString(cronExpression)
+                } catch {
+                    return cronExpression
+                }
+            },
+        ],
+        activeRecurringSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter((sc) => sc.is_recurring && !sc.executed_at),
+        ],
+        pausedRecurringSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter(
+                    (sc) => !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression) && !sc.executed_at
+                ),
+        ],
+        upcomingOneTimeSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter(
+                    (sc) => !sc.is_recurring && !sc.recurrence_interval && !sc.cron_expression && !sc.executed_at
+                ),
+        ],
+        completedSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) => scheduledChanges.filter((sc) => !!sc.executed_at),
+        ],
+        activeSchedules: [
+            (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
+            (activeRecurring, pausedRecurring, upcomingOneTime) => [
+                ...activeRecurring,
+                ...pausedRecurring,
+                ...upcomingOneTime,
+            ],
         ],
         emailDomain: [(s) => [s.user], (user) => user?.email?.split('@')[1] || 'example.com'],
         templates: [
