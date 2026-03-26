@@ -15,7 +15,7 @@ export type HealthIssueKind =
     | 'materialized_view_failure'
     | 'external_data_failure'
 
-interface CategoryConfig {
+export interface CategoryConfig {
     label: string
     description: string
     healthyDescription?: string
