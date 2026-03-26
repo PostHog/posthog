@@ -1379,6 +1379,142 @@ class TestExperimentService(APIBaseTest):
         assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
+    # End
+    # ------------------------------------------------------------------
+
+    def test_end_experiment_success(self):
+        experiment = self._create_running_experiment(name="End Test", feature_flag_key="end-flag")
+
+        assert experiment.is_running
+        assert experiment.end_date is None
+
+        ended = self._service().end_experiment(experiment)
+
+        ended.refresh_from_db()
+        assert ended.is_stopped
+        assert ended.end_date is not None
+
+    @parameterized.expand(
+        [
+            ("active_flag", True),
+            ("paused_flag", False),
+        ]
+    )
+    def test_end_experiment_leaves_feature_flag_unchanged(self, _name: str, flag_active: bool):
+        experiment = self._create_running_experiment(name=f"End Flag {_name}", feature_flag_key=f"end-flag-{_name}")
+        if not flag_active:
+            self._service().pause_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is flag_active
+
+        ended = self._service().end_experiment(experiment)
+
+        ended.feature_flag.refresh_from_db()
+        assert ended.feature_flag.active is flag_active
+        assert ended.feature_flag.filters == experiment.feature_flag.filters
+
+    def test_end_experiment_with_conclusion(self):
+        experiment = self._create_running_experiment(name="End Conclusion", feature_flag_key="end-conclusion-flag")
+
+        ended = self._service().end_experiment(
+            experiment,
+            conclusion="won",
+            conclusion_comment="Test variant clearly won",
+        )
+
+        ended.refresh_from_db()
+        assert ended.is_stopped
+        assert ended.conclusion == "won"
+        assert ended.conclusion_comment == "Test variant clearly won"
+
+    def test_end_experiment_draft_raises(self):
+        experiment = self._create_launchable_experiment(name="End Draft", feature_flag_key="end-draft-flag")
+
+        assert experiment.is_draft
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().end_experiment(experiment)
+
+        assert "not been launched" in str(ctx.exception)
+
+    def test_end_experiment_already_ended_raises(self):
+        experiment = self._create_ended_experiment(name="End Already", feature_flag_key="end-already-flag")
+
+        assert experiment.is_stopped
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().end_experiment(experiment)
+
+        assert "already ended" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_reports_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Analytics", feature_flag_key="end-analytics-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        assert mock_report_user_action.call_count == 2
+        event_names = [call.args[1] for call in mock_report_user_action.call_args_list]
+        assert "experiment completed" in event_names
+        assert "experiment stopped" in event_names
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_includes_duration(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Duration", feature_flag_key="end-duration-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert "duration" in metadata
+        assert isinstance(metadata["duration"], int)
+        assert metadata["duration"] >= 0
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_includes_significant_when_results_exist(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Significant", feature_flag_key="end-significant-flag")
+        assert experiment.metrics is not None
+        metric_uuid = experiment.metrics[0]["uuid"]
+
+        assert experiment.start_date is not None
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid=metric_uuid,
+            query_from=experiment.start_date,
+            query_to=timezone.now(),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"significant": True, "variants": []},
+            completed_at=timezone.now(),
+        )
+
+        mock_request = MagicMock()
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert metadata["significant"] is True
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_omits_significant_when_no_results(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End No Results", feature_flag_key="end-no-results-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert "significant" not in metadata
+
+    # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------
 
