@@ -146,7 +146,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             <div className="mb-4 max-w-100">
                 <LemonInput
                     type="search"
-                    placeholder="Filter templates"
+                    placeholder="Search dashboard templates (min. 3 characters)"
                     onChange={setTemplateFilter}
                     value={templateFilter}
                     fullWidth
