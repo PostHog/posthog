@@ -46,6 +46,53 @@
     'refreshing',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_EarlyAccessFeature
+  list([
+    'created_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_Experiment
+  list([
+    'archived',
+    'conclusion',
+    'conclusion_comment',
+    'created_at',
+    'deleted',
+    'end_date',
+    'start_date',
+    'status',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_ExperimentHoldout
+  list([
+    'created_at',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_ExperimentSavedMetric
+  list([
+    'created_at',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_ExperimentToSavedMetric
+  list([
+    'created_at',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_FeatureFlag
+  list([
+    '_evaluation_tag_names',
+    'analytics_dashboards',
+    'deleted',
+    'last_called_at',
+    'performed_rollback',
+    'rollback_conditions',
+    'usage_dashboard',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Insight
   list([
     'dashboard',
@@ -57,6 +104,21 @@
     'refresh_attempt',
     'refreshing',
     'short_id',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_Survey
+  list([
+    'headline_response_count',
+    'headline_summary',
+    'internal_response_sampling_flag',
+    'internal_targeting_flag',
+    'linked_flag',
+    'question_summaries',
+    'targeting_flag',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_Survey_actions
+  list([
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Text
@@ -117,6 +179,71 @@
     'transparent_background',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_EarlyAccessFeature
+  list([
+    'description',
+    'documentation_url',
+    'name',
+    'payload',
+    'stage',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_Experiment
+  list([
+    'description',
+    'exposure_criteria',
+    'exposure_preaggregation_enabled',
+    'filters',
+    'metrics',
+    'metrics_secondary',
+    'name',
+    'parameters',
+    'primary_metrics_ordered_uuids',
+    'scheduling_config',
+    'secondary_metrics',
+    'secondary_metrics_ordered_uuids',
+    'stats_config',
+    'type',
+    'variants',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_ExperimentHoldout
+  list([
+    'description',
+    'filters',
+    'name',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_ExperimentSavedMetric
+  list([
+    'description',
+    'metadata',
+    'name',
+    'query',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_ExperimentToSavedMetric
+  list([
+    'metadata',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_FeatureFlag
+  list([
+    'active',
+    'bucketing_identifier',
+    'created_at',
+    'ensure_experience_continuity',
+    'evaluation_runtime',
+    'filters',
+    'has_encrypted_payloads',
+    'has_enriched_analytics',
+    'is_remote_configuration',
+    'key',
+    'name',
+    'updated_at',
+    'version',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Insight
   list([
     'color',
@@ -136,6 +263,41 @@
     'query_metadata',
     'saved',
     'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_Survey
+  list([
+    'appearance',
+    'archived',
+    'conditions',
+    'created_at',
+    'current_iteration',
+    'current_iteration_start_date',
+    'description',
+    'enable_iframe_embedding',
+    'enable_partial_responses',
+    'end_date',
+    'form_content',
+    'iteration_count',
+    'iteration_frequency_days',
+    'iteration_start_dates',
+    'name',
+    'questions',
+    'response_sampling_daily_limits',
+    'response_sampling_interval',
+    'response_sampling_interval_type',
+    'response_sampling_limit',
+    'response_sampling_start_date',
+    'responses_limit',
+    'schedule',
+    'start_date',
+    'translations',
+    'type',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_Survey_actions
+  list([
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Text
@@ -172,12 +334,69 @@
     'text',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
+  list([
+    'feature_flag',
+    'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_Experiment
+  list([
+    'created_by',
+    'exposure_cohort',
+    'feature_flag',
+    'holdout',
+    'saved_metrics',
+    'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_ExperimentHoldout
+  list([
+    'created_by',
+    'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_ExperimentSavedMetric
+  list([
+    'created_by',
+    'experiments',
+    'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_ExperimentToSavedMetric
+  list([
+    'experiment',
+    'saved_metric',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_FeatureFlag
+  list([
+    'created_by',
+    'last_modified_by',
+    'team',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_Insight
   list([
     'created_by',
     'last_modified_by',
     'subscriptions_dashboard_export',
     'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_Survey
+  list([
+    'actions',
+    'created_by',
+    'linked_insight',
+    'product_tours',
+    'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_Survey_actions
+  list([
+    'action',
+    'survey',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_Text
@@ -357,6 +576,200 @@
     'text_id',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_EarlyAccessFeature
+  list([
+    'ActiveStage',
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    'Stage',
+    '__doc__',
+    '__module__',
+    '__repr__',
+    '__str__',
+    '_meta',
+    'created_at',
+    'feature_flag_id',
+    'get_file_system_representation',
+    'get_file_system_unfiled',
+    'get_next_by_created_at',
+    'get_previous_by_created_at',
+    'get_stage_display',
+    'id',
+    'team_id',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_Experiment
+  list([
+    'DoesNotExist',
+    'ExperimentType',
+    'MultipleObjectsReturned',
+    'Status',
+    '__annotations__',
+    '__doc__',
+    '__module__',
+    '__str__',
+    '_meta',
+    'archived',
+    'computed_status',
+    'conclusion',
+    'conclusion_comment',
+    'created_at',
+    'created_by_id',
+    'deleted',
+    'end_date',
+    'experimentmetricresult_set',
+    'experimenttimeseriesrecalculation_set',
+    'experimenttosavedmetric_set',
+    'exposure_cohort_id',
+    'feature_flag_id',
+    'get_analytics_metadata',
+    'get_conclusion_display',
+    'get_feature_flag_key',
+    'get_file_system_representation',
+    'get_file_system_unfiled',
+    'get_next_by_created_at',
+    'get_next_by_updated_at',
+    'get_previous_by_created_at',
+    'get_previous_by_updated_at',
+    'get_stats_config',
+    'get_status_display',
+    'get_type_display',
+    'holdout_id',
+    'id',
+    'is_draft',
+    'is_launched',
+    'is_running',
+    'is_stopped',
+    'save',
+    'start_date',
+    'status',
+    'team_id',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_ExperimentHoldout
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    '__doc__',
+    '__module__',
+    '_meta',
+    'created_at',
+    'created_by_id',
+    'experiment_set',
+    'get_next_by_created_at',
+    'get_next_by_updated_at',
+    'get_previous_by_created_at',
+    'get_previous_by_updated_at',
+    'id',
+    'save',
+    'team_id',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_ExperimentSavedMetric
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    '__doc__',
+    '__module__',
+    '_meta',
+    'created_at',
+    'created_by_id',
+    'experimenttosavedmetric_set',
+    'get_next_by_created_at',
+    'get_next_by_updated_at',
+    'get_previous_by_created_at',
+    'get_previous_by_updated_at',
+    'id',
+    'tagged_items',
+    'team_id',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_ExperimentToSavedMetric
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    '__doc__',
+    '__module__',
+    '__str__',
+    '_meta',
+    'created_at',
+    'experiment_id',
+    'get_next_by_created_at',
+    'get_next_by_updated_at',
+    'get_previous_by_created_at',
+    'get_previous_by_updated_at',
+    'id',
+    'objects',
+    'saved_metric_id',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_FeatureFlag
+  list([
+    'BUCKETING_IDENTIFIER_CHOICES',
+    'DoesNotExist',
+    'EVALUATION_RUNTIME_CHOICES',
+    'MultipleObjectsReturned',
+    '__annotations__',
+    '__doc__',
+    '__module__',
+    '__str__',
+    '_evaluation_tag_names',
+    '_meta',
+    '_payloads',
+    'access',
+    'aggregation_group_type_index',
+    'analytics_dashboards',
+    'conditions',
+    'created_by_id',
+    'deleted',
+    'evaluation_tag_names',
+    'experiment_set',
+    'featureflagdashboards_set',
+    'featureflagoverride_set',
+    'features',
+    'flag_evaluation_contexts',
+    'get_analytics_metadata',
+    'get_bucketing_identifier_display',
+    'get_cohort_ids',
+    'get_evaluation_runtime_display',
+    'get_file_system_representation',
+    'get_file_system_unfiled',
+    'get_filters',
+    'get_next_by_created_at',
+    'get_payload',
+    'get_previous_by_created_at',
+    'has_feature_enrollment',
+    'holdout',
+    'id',
+    'last_called_at',
+    'last_modified_by_id',
+    'objects',
+    'objects_including_soft_deleted',
+    'performed_rollback',
+    'product_tours_internal_targeting_flag',
+    'product_tours_linked_flag',
+    'rollback_conditions',
+    'rollout_percentage',
+    'scheduled_changes_dispatcher',
+    'super_conditions',
+    'surveys_internal_response_sampling_flag',
+    'surveys_internal_targeting_flag',
+    'surveys_linked_flag',
+    'surveys_targeting_flag',
+    'tagged_items',
+    'team_id',
+    'transform_cohort_filters_for_easy_evaluation',
+    'usage_dashboard',
+    'usage_dashboard_has_enriched_insights',
+    'usage_dashboard_id',
+    'uses_cohorts',
+    'variants',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_Insight
   list([
     'DoesNotExist',
@@ -417,6 +830,58 @@
     'threshold_set',
     'type',
     'url',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_Survey
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    'Schedule',
+    'SurveySamplingIntervalType',
+    'SurveyType',
+    '__doc__',
+    '__module__',
+    '_meta',
+    'created_by_id',
+    'get_file_system_representation',
+    'get_file_system_unfiled',
+    'get_internal_flag_ids',
+    'get_next_by_created_at',
+    'get_next_by_updated_at',
+    'get_previous_by_created_at',
+    'get_previous_by_updated_at',
+    'get_response_sampling_interval_type_display',
+    'get_schedule_display',
+    'get_type_display',
+    'headline_response_count',
+    'headline_summary',
+    'id',
+    'internal_response_sampling_flag',
+    'internal_response_sampling_flag_id',
+    'internal_targeting_flag',
+    'internal_targeting_flag_id',
+    'is_publicly_shareable',
+    'linked_flag',
+    'linked_flag_id',
+    'linked_insight_id',
+    'question_summaries',
+    'response_archives',
+    'targeting_flag',
+    'targeting_flag_id',
+    'team_id',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_Survey_actions
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    '__doc__',
+    '__module__',
+    '_meta',
+    'action_id',
+    'id',
+    'objects',
+    'survey_id',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_Text

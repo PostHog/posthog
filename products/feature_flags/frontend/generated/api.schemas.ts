@@ -188,7 +188,7 @@ export interface FeatureFlagApi {
     performed_rollback?: boolean | null
     readonly can_edit: boolean
     tags?: unknown[]
-    evaluation_tags?: unknown[]
+    evaluation_contexts?: unknown[]
     readonly usage_dashboard: number
     analytics_dashboards?: number[]
     /** @nullable */
@@ -675,8 +675,8 @@ export interface FeatureFlagCreateRequestSchemaApi {
     active?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
-    /** Evaluation context tags. Must be a subset of `tags`. */
-    evaluation_tags?: string[]
+    /** Evaluation contexts that control where this flag evaluates at runtime. */
+    evaluation_contexts?: string[]
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -690,8 +690,8 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     active?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
-    /** Evaluation context tags. Must be a subset of `tags`. */
-    evaluation_tags?: string[]
+    /** Evaluation contexts that control where this flag evaluates at runtime. */
+    evaluation_contexts?: string[]
 }
 
 export interface ChangeApi {
@@ -806,7 +806,6 @@ export interface MinimalFeatureFlagApi {
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    readonly evaluation_tags: readonly string[]
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -859,9 +858,9 @@ export type FeatureFlagsListParams = {
      */
     excluded_properties?: string
     /**
-     * Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
+     * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
-    has_evaluation_tags?: FeatureFlagsListHasEvaluationTags
+    has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts
     /**
      * Number of results to return per page.
      */
@@ -898,10 +897,10 @@ export const FeatureFlagsListEvaluationRuntime = {
     Server: 'server',
 } as const
 
-export type FeatureFlagsListHasEvaluationTags =
-    (typeof FeatureFlagsListHasEvaluationTags)[keyof typeof FeatureFlagsListHasEvaluationTags]
+export type FeatureFlagsListHasEvaluationContexts =
+    (typeof FeatureFlagsListHasEvaluationContexts)[keyof typeof FeatureFlagsListHasEvaluationContexts]
 
-export const FeatureFlagsListHasEvaluationTags = {
+export const FeatureFlagsListHasEvaluationContexts = {
     False: 'false',
     True: 'true',
 } as const
