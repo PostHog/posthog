@@ -1,5 +1,28 @@
 // Signal taxonomy types - shared contract between emitters and consumers
 
+// ── Source taxonomy enums ───────────────────────────────────────────────────────
+
+export enum SignalSourceProduct {
+    SESSION_REPLAY = 'session_replay',
+    LLM_ANALYTICS = 'llm_analytics',
+    GITHUB = 'github',
+    LINEAR = 'linear',
+    ZENDESK = 'zendesk',
+    ERROR_TRACKING = 'error_tracking',
+}
+
+export enum SignalSourceType {
+    SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
+    EVALUATION = 'evaluation',
+    ISSUE = 'issue',
+    TICKET = 'ticket',
+    ISSUE_CREATED = 'issue_created',
+    ISSUE_REOPENED = 'issue_reopened',
+    ISSUE_SPIKING = 'issue_spiking',
+}
+
+// ── Per-product signal extras & inputs ──────────────────────────────────────────
+
 // Session replay segment cluster
 
 export interface SessionReplaySegment {

@@ -455,7 +455,7 @@ def create_or_update_slack_ticket(
         channel_source=Channel.SLACK,
         channel_detail=channel_detail,
         widget_session_id="",  # Not used for Slack tickets
-        distinct_id="",  # Will be linked later if email matches a person
+        distinct_id=user_info.get("email") or "",
         status=Status.NEW,
         anonymous_traits={
             "name": user_info["name"],

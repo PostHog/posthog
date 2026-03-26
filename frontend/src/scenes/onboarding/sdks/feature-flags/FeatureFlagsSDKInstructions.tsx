@@ -36,12 +36,13 @@ import { JSEventCapture, NodeEventCapture, PythonEventCapture } from '@posthog/s
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations (defined once, not recreated on render)
 // These include both event capture (from product-analytics) and flag snippets
 const JS_WEB_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,
@@ -50,7 +51,7 @@ const JS_WEB_SNIPPETS = {
 }
 
 const REACT_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,

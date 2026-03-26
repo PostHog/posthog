@@ -1240,15 +1240,34 @@ impl FeatureFlagMatcher {
         // When properties ARE needed, we compute once and reuse for all conditions.
         let mut cached_properties: Option<HashMap<String, Value>> = None;
 
-        // Evaluate any super conditions first.
-        // Super conditions (early access features) always use person properties, even for
-        // group-based flags. This is because early access enrollment is a person-level concept.
-        // The API validates that group-based flags cannot have early access features attached.
-        if let Some(super_groups) = &flag.filters.super_groups {
+        // Evaluate feature enrollment (early access features) first.
+        // Enrollment is a person-level concept — always uses person properties, even for
+        // group-based flags. The API validates that group-based flags cannot have early access
+        // features attached.
+        //
+        // New format: `feature_enrollment: true` — the enrollment property key is derived
+        // from the flag key as `$feature_enrollment/{flag_key}`.
+        // Legacy format: `super_groups` array with explicit property filters.
+        // New format takes precedence when both are present.
+        if flag.filters.feature_enrollment == Some(true) {
+            let enrollment_key = FlagFilters::enrollment_key(&flag.key);
+            let person_properties = self.get_person_properties(property_overrides)?;
+
+            if let Some(v) = person_properties.get(&enrollment_key) {
+                let is_match = v == "true" || v == &Value::Bool(true);
+                let payload = self.get_matching_payload(None, flag);
+                return Ok(FeatureFlagMatch {
+                    matches: is_match,
+                    variant: None,
+                    reason: FeatureFlagMatchReason::SuperConditionValue,
+                    condition_index: Some(0),
+                    payload,
+                });
+            }
+            // Person doesn't have enrollment property set — fall through to normal conditions
+        } else if let Some(super_groups) = &flag.filters.super_groups {
             if let Some(super_condition) = super_groups.first() {
-                // Only fetch person properties if the super condition has property filters
-                // Super conditions are used for feature enrollment (aka early access features)
-                // There can only be one condition ever in super conditions.
+                // Legacy path: evaluate super_groups property filters directly.
                 if super_condition
                     .properties
                     .as_ref()

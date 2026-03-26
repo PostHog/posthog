@@ -7,6 +7,7 @@ from .column_configuration_admin import ColumnConfigurationAdmin
 from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
 from .data_color_theme_admin import DataColorThemeAdmin
+from .data_deletion_request_admin import DataDeletionRequestAdmin
 from .data_warehouse_table_admin import DataWarehouseTableAdmin
 from .duckgres_server_admin import DuckgresServerAdmin
 from .ducklake_catalog_admin import DuckLakeCatalogAdmin
@@ -41,6 +42,7 @@ __all__ = [
     "BatchImportAdmin",
     "CohortAdmin",
     "ColumnConfigurationAdmin",
+    "DataDeletionRequestAdmin",
     "DashboardAdmin",
     "DashboardTemplateAdmin",
     "DataColorThemeAdmin",
