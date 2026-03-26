@@ -41,6 +41,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
         APPEND = "append", "append"
+        WEBHOOK = "webhook", "webhook"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -92,8 +93,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.sync_type == self.SyncType.APPEND
 
     @property
+    def is_webhook(self):
+        return self.sync_type == self.SyncType.WEBHOOK
+
+    @property
     def should_use_incremental_field(self):
-        return self.is_incremental or self.is_append
+        return self.is_incremental or self.is_append or self.is_webhook
 
     @property
     def incremental_field(self) -> str | None:

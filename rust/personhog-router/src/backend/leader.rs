@@ -5,10 +5,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
-use personhog_proto::personhog::leader::v1::{
-    LeaderGetPersonRequest, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
+use personhog_proto::personhog::types::v1::{
+    GetPersonRequest, GetPersonResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
 };
-use personhog_proto::personhog::types::v1::{GetPersonRequest, GetPersonResponse};
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tonic::{Request, Status};

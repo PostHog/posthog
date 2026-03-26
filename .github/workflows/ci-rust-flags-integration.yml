@@ -6,7 +6,7 @@ on:
         paths:
             - 'rust/feature-flags/**'
             - 'posthog/api/test/rust_integration/**'
-            - 'posthog/api/feature_flags/**'
+            - 'posthog/api/feature_flag.py'
             - 'posthog/api/cohort.py'
             - 'posthog/models/feature_flag/**'
             - 'posthog/models/cohort/**'
@@ -17,7 +17,7 @@ on:
         paths:
             - 'rust/feature-flags/**'
             - 'posthog/api/test/rust_integration/**'
-            - 'posthog/api/feature_flags/**'
+            - 'posthog/api/feature_flag.py'
             - 'posthog/api/cohort.py'
             - 'posthog/models/feature_flag/**'
             - 'posthog/models/cohort/**'
