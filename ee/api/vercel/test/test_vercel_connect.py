@@ -331,6 +331,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has a Vercel integration" in response.json()["detail"]
         assert OrganizationIntegration.objects.filter(integration_id="icfg_existing").exists()
+
     @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
     def test_stale_integration_deleted_and_new_one_created(self, _mock_orphaned):
         OrganizationIntegration.objects.create(
@@ -356,7 +357,6 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         )
         assert new_integration.integration_id == "icfg_connect_test"
-
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
