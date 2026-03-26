@@ -54,9 +54,11 @@ type HeatmapData = {
     duplicateCellCount: number
 }
 
+type HeatmapDataSettings = Pick<HeatmapSettings, 'xAxisColumn' | 'yAxisColumn' | 'valueColumn'>
+
 const buildHeatmapData = (
     rows: any[],
-    heatmapSettings: HeatmapSettings,
+    heatmapSettings: HeatmapDataSettings,
     columnIndexes: Record<string, number>
 ): HeatmapData => {
     const xValues: string[] = []
@@ -156,11 +158,12 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
     const { updateChartSettings } = useActions(dataVisualizationLogic)
 
     const heatmapSettings = chartSettings.heatmap ?? {}
+    const { xAxisColumn, yAxisColumn, valueColumn } = heatmapSettings
     const sorting = useMemo(
         () => getSortingFromHeatmapSettings(heatmapSettings),
         [heatmapSettings.sortColumn, heatmapSettings.sortOrder]
     )
-    const selectedColumns = [heatmapSettings.xAxisColumn, heatmapSettings.yAxisColumn, heatmapSettings.valueColumn]
+    const selectedColumns = [xAxisColumn, yAxisColumn, valueColumn]
     const rows =
         response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
     const columnIndexes = useMemo(() => {
@@ -192,8 +195,8 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
             }
         }
 
-        return buildHeatmapData(rows, heatmapSettings, columnIndexes)
-    }, [rows, hasSelection, hasValidColumns, heatmapSettings, columnIndexes])
+        return buildHeatmapData(rows, { xAxisColumn, yAxisColumn, valueColumn }, columnIndexes)
+    }, [rows, hasSelection, hasValidColumns, xAxisColumn, yAxisColumn, valueColumn, columnIndexes])
 
     useEffect(() => {
         if (
