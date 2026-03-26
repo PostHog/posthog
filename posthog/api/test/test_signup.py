@@ -1270,6 +1270,111 @@ class TestSignupAPI(APIBaseTest):
                     User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
 
 
+class TestSignupChallengeAPI(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        TEST_clear_instance_license_cache()
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar.create_challenge_nonce", return_value="challenge:abc123:uuid")
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_signup_challenge_returns_428_with_nonce_and_site_key(
+        self, mock_call_api, mock_log_event, mock_create_nonce
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "challenge@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, 428)
+        data = response.json()
+        self.assertEqual(data["code"], "challenge_required")
+        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:abc123:uuid")
+        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @patch("posthoganalytics.capture")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_signup_challenge_resubmit_with_valid_token_succeeds(
+        self, mock_capture, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "challenge@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+                "turnstile_token": "valid_token",
+                "challenge_nonce": "challenge:abc123:uuid",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="challenge@posthog.com")
+        self.assertEqual(user.first_name, "John")
+
+
+class TestInviteSignupChallengeAPI(APIBaseTest):
+    CONFIG_EMAIL = None
+
+    @patch("posthog.workos_radar.create_challenge_nonce", return_value="challenge:invite123:uuid")
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_invite_signup_challenge_returns_428_with_nonce_and_site_key(
+        self, mock_call_api, mock_log_event, mock_create_nonce
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="invite+challenge@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Jane",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+
+        self.assertEqual(response.status_code, 428)
+        data = response.json()
+        self.assertEqual(data["code"], "challenge_required")
+        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:invite123:uuid")
+        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+
 class TestPasskeySignupAPI(APIBaseTest):
     """
     Tests passkey signup flow, specifically that the temporary UUID generated during
