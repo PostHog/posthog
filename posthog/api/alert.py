@@ -176,7 +176,6 @@ class AlertSerializer(serializers.ModelSerializer):
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        allow_null=True,
         help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
@@ -323,10 +322,6 @@ class AlertSerializer(serializers.ModelSerializer):
                 AlertSubscription.objects.get_or_create(
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
-
-        # Ignore null calculation_interval — treat as "don't change"
-        if validated_data.get("calculation_interval") is None:
-            validated_data.pop("calculation_interval", None)
 
         calculation_interval_changed = (
             "calculation_interval" in validated_data
