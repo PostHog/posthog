@@ -51,7 +51,7 @@ _SAFE_STRING = st.text(
 _SAFE_INTEGER = st.integers(min_value=-(10**15), max_value=10**15)
 
 _SAFE_FLOAT = st.floats(allow_nan=False, allow_infinity=False, min_value=-(10**15), max_value=10**15).filter(
-    lambda f: f == 0.0 or (abs(f) > 1e-10 and abs(f) < 1e15)
+    lambda f: f == 0.0 or abs(f) > 1e-10
 )
 
 # A subset of functions that are known to the HogQL printer/parser and accept
@@ -129,7 +129,7 @@ def _constant_strategy() -> st.SearchStrategy[ast.Constant]:
 
 
 def _field_strategy() -> st.SearchStrategy[ast.Field]:
-    return st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3).map(lambda chain: ast.Field(chain=list[str | int](chain)))
+    return st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3).map(lambda chain: ast.Field(chain=chain))
 
 
 def _make_call(name_nargs: tuple[str, int], args: list[ast.Expr]) -> ast.Call:
@@ -339,17 +339,11 @@ class TestConstantRoundTrip:
     @given(s=_SAFE_STRING)
     @settings(max_examples=500)
     def test_string_constant_roundtrip(self, s: str) -> None:
-        node = ast.Constant(value=s)
-        printed = _print_hogql(node)
-        parsed = parse_expr(printed)
-        assert _print_hogql(parsed) == printed
+        _roundtrip_check(ast.Constant(value=s))
 
     @given(n=_SAFE_INTEGER)
     def test_integer_constant_roundtrip(self, n: int) -> None:
-        node = ast.Constant(value=n)
-        printed = _print_hogql(node)
-        parsed = parse_expr(printed)
-        assert _print_hogql(parsed) == printed
+        _roundtrip_check(ast.Constant(value=n))
 
     @given(f=_SAFE_FLOAT)
     def test_float_constant_roundtrip(self, f: float) -> None:
@@ -357,24 +351,19 @@ class TestConstantRoundTrip:
         printed = _print_hogql(node)
         parsed = parse_expr(printed)
         reprinted = _print_hogql(parsed)
-        # Floats may lose precision through string representation,
-        # so we compare the parsed float values rather than exact strings
         if printed == reprinted:
             return
-        # Both should parse to the same numeric value
-        parsed_original = float(printed)
-        parsed_roundtrip = float(reprinted)
+        # Floats may lose precision through string representation,
+        # so compare the numeric values rather than exact strings
+        parsed_value = float(reprinted)
         if f == 0.0:
-            assert parsed_roundtrip == 0.0
+            assert parsed_value == 0.0
         else:
-            assert math.isclose(parsed_original, parsed_roundtrip, rel_tol=1e-10)
+            assert math.isclose(f, parsed_value, rel_tol=1e-10)
 
     @pytest.mark.parametrize("value", [True, False, None])
     def test_literal_roundtrip(self, value: Any) -> None:
-        node = ast.Constant(value=value)
-        printed = _print_hogql(node)
-        parsed = parse_expr(printed)
-        assert _print_hogql(parsed) == printed
+        _roundtrip_check(ast.Constant(value=value))
 
 
 class TestFieldRoundTrip:
@@ -382,10 +371,7 @@ class TestFieldRoundTrip:
 
     @given(chain=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3))
     def test_field_roundtrip(self, chain: list[str]) -> None:
-        node = ast.Field(chain=list[str | int](chain))
-        printed = _print_hogql(node)
-        parsed = parse_expr(printed)
-        assert _print_hogql(parsed) == printed
+        _roundtrip_check(ast.Field(chain=chain))
 
 
 class TestArrayAccessRoundTrip:
@@ -470,9 +456,8 @@ class TestLambdaRoundTrip:
     @given(
         fn_name=st.sampled_from(_LAMBDA_FUNCTIONS),
         arg_name=_SAFE_IDENTIFIER,
-        body_field=_SAFE_IDENTIFIER,
     )
-    def test_lambda_in_array_function_roundtrip(self, fn_name: str, arg_name: str, body_field: str) -> None:
+    def test_lambda_in_array_function_roundtrip(self, fn_name: str, arg_name: str) -> None:
         node = ast.Call(
             name=fn_name,
             args=[
