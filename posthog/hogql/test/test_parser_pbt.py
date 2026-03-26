@@ -420,6 +420,50 @@ class TestIsDistinctFromRoundTrip:
         _roundtrip_check(node)
 
 
+class TestInfixAliasParenthesization:
+    """Regression tests: aliases as operands of infix keyword operators must be
+    parenthesized by the printer so that AS doesn't steal precedence."""
+
+    @pytest.mark.parametrize(
+        "node",
+        [
+            pytest.param(
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=""),
+                    right=ast.Alias(alias="x", expr=ast.Constant(value=True)),
+                ),
+                id="is_distinct_from_with_alias_rhs",
+            ),
+            pytest.param(
+                ast.IsDistinctFrom(
+                    left=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    right=ast.Constant(value=1),
+                    negated=True,
+                ),
+                id="is_not_distinct_from_with_alias_lhs",
+            ),
+            pytest.param(
+                ast.BetweenExpr(
+                    expr=ast.Alias(alias="x", expr=ast.Field(chain=["a"])),
+                    low=ast.Constant(value=1),
+                    high=ast.Constant(value=10),
+                ),
+                id="between_with_alias_expr",
+            ),
+            pytest.param(
+                ast.BetweenExpr(
+                    expr=ast.Constant(value=5),
+                    low=ast.Alias(alias="lo", expr=ast.Constant(value=1)),
+                    high=ast.Alias(alias="hi", expr=ast.Constant(value=10)),
+                ),
+                id="between_with_alias_bounds",
+            ),
+        ],
+    )
+    def test_alias_in_infix_operator_roundtrips(self, node: ast.Expr) -> None:
+        _roundtrip_check(node)
+
+
 class TestLambdaRoundTrip:
     """Focused round-trip tests for lambda expressions within array functions."""
 
