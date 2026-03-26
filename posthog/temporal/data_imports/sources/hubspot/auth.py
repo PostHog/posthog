@@ -42,6 +42,11 @@ def _update_source_job_inputs(source_id: str, access_token: str) -> None:
     try:
         source = ExternalDataSource.objects.get(id=source_id)
         job_inputs = source.job_inputs or {}
+
+        # Only persist for legacy sources that store credentials directly in job_inputs
+        if "hubspot_integration_id" in job_inputs:
+            return
+
         job_inputs["hubspot_secret_key"] = access_token
         source.job_inputs = job_inputs
         source.save(update_fields=["job_inputs"])
