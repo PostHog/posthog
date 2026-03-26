@@ -39,7 +39,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
     )
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
-    const schemaOptions = (source?.schemas ?? [])
+    const schemaOptions = [...(source?.schemas ?? [])]
         .sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name))
         .map((schema) => ({
             key: schema.name,
