@@ -33,6 +33,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
@@ -42,6 +43,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { queryExportContext } from '~/queries/query'
@@ -296,6 +298,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -348,6 +351,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
+            },
+        ],
+        dashboardId: [
+            null as number | null,
+            {
+                setDashboardId: (_, { dashboardId }) => dashboardId,
             },
         ],
         editingInsight: [
@@ -937,10 +946,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 effectiveVisualizationType
             )
 
+            const dashboardId = values.dashboardId
             const insight = await insightsApi.create({
                 name,
                 query: { ...values.sourceQuery, display } as DataVisualizationNode,
                 saved: true,
+                ...(dashboardId ? { dashboards: [dashboardId] } : {}),
             })
             const logic = insightLogic({
                 dashboardItemId: insight.short_id,
@@ -952,9 +963,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.timeouts = cache.timeouts || []
             cache.timeouts.push(timeoutId)
 
-            lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
-
-            router.actions.push(urls.insightView(insight.short_id))
+            if (dashboardId) {
+                dashboardsModel.findMounted()?.actions.updateDashboardInsight(insight)
+                dashboardLogic
+                    .findMounted({ id: dashboardId })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.success('Insight saved & added to dashboard', {
+                    button: {
+                        label: 'View Insights list',
+                        action: () => router.actions.push(urls.savedInsights()),
+                    },
+                })
+                actions.setDashboardId(null)
+                router.actions.push(urls.dashboard(dashboardId, insight.short_id))
+            } else {
+                lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
+                router.actions.push(urls.insightView(insight.short_id))
+            }
         },
         saveAsEndpoint: async () => {
             LemonDialog.openForm({
@@ -1031,11 +1056,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 loadedLogic.actions.setInsight(savedInsight, { overrideQuery: true, fromPersistentApi: true })
             }
 
-            lemonToast.info(
-                `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
-            )
-
-            router.actions.push(urls.insightView(savedInsight.short_id))
+            const dashboardId = values.dashboardId
+            if (dashboardId) {
+                dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
+                dashboardLogic
+                    .findMounted({ id: dashboardId })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.success('Insight updated', {
+                    button: {
+                        label: 'View Insights list',
+                        action: () => router.actions.push(urls.savedInsights()),
+                    },
+                })
+                actions.setDashboardId(null)
+                router.actions.push(urls.dashboard(dashboardId, savedInsight.short_id))
+            } else {
+                lemonToast.info(
+                    `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
+                )
+                router.actions.push(urls.insightView(savedInsight.short_id))
+            }
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             if (values.activeTab?.view) {
@@ -1339,8 +1379,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource],
-            (editingInsight, insightLoading, editingView, viewLoading, editorSource) => {
+            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource, s.dashboardId],
+            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId) => {
                 if (editingInsight) {
                     const forceBackTo: Breadcrumb = {
                         key: editingInsight.short_id,
@@ -1408,6 +1448,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
+                if (dashboardId) {
+                    const forceBackTo: Breadcrumb = {
+                        key: 'dashboard',
+                        name: 'Back to dashboard',
+                        path: urls.dashboard(dashboardId),
+                        iconType: 'dashboard',
+                    }
+
+                    return {
+                        forceBackTo,
+                        name: 'New SQL query',
+                        resourceType: { type: 'sql_editor' },
+                    }
+                }
+
                 return {
                     name: 'New SQL query',
                     resourceType: { type: 'sql_editor' },
@@ -1416,11 +1471,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
 
         saveAsMenuItems: [
-            (s) => [s.editorSource],
-            (editorSource): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
+            (s) => [s.editorSource, s.dashboardId],
+            (editorSource, dashboardId): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
-                    label: 'Save as insight',
+                    label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
                 }
                 const saveAsEndpointItem: SaveAsMenuItem = {
                     action: 'endpoint',
@@ -1488,6 +1543,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             if (searchParams.source === 'endpoint' || searchParams.source === 'insight') {
                 actions.setEditorSource(searchParams.source)
+            }
+            if (searchParams.dashboard) {
+                actions.setDashboardId(parseInt(searchParams.dashboard, 10))
             }
             if (
                 !searchParams.open_query &&
