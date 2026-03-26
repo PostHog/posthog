@@ -228,7 +228,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
 
 def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
-    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, name="find_flags_with_enriched_analytics")
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="find_flags_with_enriched_analytics")
     result = sync_execute(
         """
         SELECT team_id, JSONExtractString(properties, 'feature_flag') as flag_key
