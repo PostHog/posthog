@@ -5,7 +5,6 @@ import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { urls } from 'scenes/urls'
 
 export function CreateOrganizationModal({
     isVisible,
@@ -60,13 +59,6 @@ export function CreateOrganizationModal({
                     >
                         Create organization
                     </LemonButton>
-                    {inline && (
-                        <div className="w-full text-right text-xs">
-                            <span className="text-muted">
-                                or <Link to={urls.settings('user')}>manage your account</Link>
-                            </span>
-                        </div>
-                    )}
                 </>
             }
             onClose={closeModal}
