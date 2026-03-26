@@ -7,6 +7,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
+import type { PostgresRouterConfig } from '../utils/db/postgres'
 import { isDevEnv, isProdEnv } from '../utils/env-utils'
 
 // =============================================================================
@@ -30,22 +31,8 @@ export type KafkaBrokerConfig = Pick<
     | 'KAFKA_SASL_PASSWORD'
 >
 
-/** PostgreSQL connection config — all database URLs and connection pool settings */
-export type DatabaseConnectionConfig = Pick<
-    CommonConfig,
-    | 'DATABASE_URL'
-    | 'DATABASE_READONLY_URL'
-    | 'PERSONS_DATABASE_URL'
-    | 'PERSONS_READONLY_DATABASE_URL'
-    | 'BEHAVIORAL_COHORTS_DATABASE_URL'
-    | 'PLUGIN_STORAGE_DATABASE_URL'
-    | 'POSTGRES_CONNECTION_POOL_SIZE'
-    | 'POSTHOG_DB_NAME'
-    | 'POSTHOG_DB_USER'
-    | 'POSTHOG_DB_PASSWORD'
-    | 'POSTHOG_POSTGRES_HOST'
-    | 'POSTHOG_POSTGRES_PORT'
->
+/** PostgreSQL connection config for the ingestion server — excludes behavioral cohorts */
+export type DatabaseConnectionConfig = Omit<PostgresRouterConfig, 'BEHAVIORAL_COHORTS_DATABASE_URL'>
 
 /** Redis connection config — URLs, hosts, and pool sizing */
 export type RedisConnectionsConfig = Pick<
