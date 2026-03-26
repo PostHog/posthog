@@ -4738,7 +4738,7 @@ export namespace Schemas {
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly */
-      calculation_interval?: CalculationIntervalEnum | NullEnum | null;
+      calculation_interval?: CalculationIntervalEnum;
       /**
        * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
        * @nullable
@@ -21217,7 +21217,7 @@ export namespace Schemas {
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly */
-      calculation_interval?: CalculationIntervalEnum | NullEnum | null;
+      calculation_interval?: CalculationIntervalEnum;
       /**
        * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
        * @nullable
