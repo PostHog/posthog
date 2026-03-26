@@ -1539,7 +1539,6 @@ When set, the specified dashboard's filters and date range override will be appl
             filter = filter.shallow_clone(overrides=filter_overrides)
 
         query_dict = filter_to_query(filter.to_dict()).model_dump()
-        query_dict = upgrade(query_dict)
 
         refresh = refresh_requested_by_client(request)
         if refresh:
