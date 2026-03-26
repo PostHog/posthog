@@ -26,7 +26,7 @@ from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.slo.types import SloArea, SloOperation, SloOutcome, SloStartedProperties
+from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
 from posthog.tasks.alerts.checks import check_alert, check_alert_task, check_alerts_task
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -1176,15 +1176,15 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
     @patch("posthog.tasks.alerts.checks.check_alert")
     def test_slo_emits_correct_events(
         self,
-        _name,
-        side_effect,
-        calculation_interval,
-        expected_outcome,
-        expected_error_extra,
-        mock_check_alert,
-        mock_slo_started,
-        mock_slo_completed,
-    ):
+        _name: str,
+        side_effect: Exception | None,
+        calculation_interval: str,
+        expected_outcome: SloOutcome,
+        expected_error_extra: dict | None,
+        mock_check_alert: MagicMock,
+        mock_slo_started: MagicMock,
+        mock_slo_completed: MagicMock,
+    ) -> None:
         mock_check_alert.return_value = None
         mock_check_alert.side_effect = side_effect
 
@@ -1204,25 +1204,29 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             ),
             extra_properties={"calculation_interval": calculation_interval},
         )
-        mock_slo_completed.assert_called_once()
-        completed_props = mock_slo_completed.call_args.kwargs["properties"]
-        assert completed_props.outcome == expected_outcome
-        assert completed_props.duration_ms is not None
-        assert completed_props.duration_ms >= 0
-        completed_extra = mock_slo_completed.call_args.kwargs["extra_properties"]
-        assert completed_extra["calculation_interval"] == calculation_interval
-        if expected_error_extra:
-            for key, value in expected_error_extra.items():
-                assert completed_extra[key] == value
-        else:
-            assert "error_type" not in completed_extra
+        mock_slo_completed.assert_called_once_with(
+            distinct_id=self.alert_id,
+            properties=SloCompletedProperties(
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_CHECK,
+                team_id=self.team.id,
+                resource_id=self.alert_id,
+                outcome=expected_outcome,
+                duration_ms=mock_slo_completed.call_args.kwargs["properties"].duration_ms,
+            ),
+            extra_properties={
+                "calculation_interval": calculation_interval,
+                **(expected_error_extra or {}),
+            },
+        )
+        assert mock_slo_completed.call_args.kwargs["properties"].duration_ms >= 0
 
     @patch("posthog.tasks.alerts.checks.check_alert_task")
-    def test_check_alerts_task_passes_team_id_to_check_alert_task(self, mock_task):
+    def test_check_alerts_task_passes_team_id_to_check_alert_task(self, mock_task: MagicMock) -> None:
         # check_alert_task.si(...) returns a signature; we need to capture what .si is called with
         captured_si_args: list[tuple] = []
 
-        def fake_si(*args, **kwargs):
+        def fake_si(*args: object, **kwargs: object) -> MagicMock:
             captured_si_args.append(args)
             sig = MagicMock()
             sig.set.return_value = sig

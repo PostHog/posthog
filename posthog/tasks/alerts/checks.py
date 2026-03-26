@@ -195,20 +195,20 @@ def check_alerts_task() -> None:
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
 def check_alert_task(alert_id: str, team_id: int = 0, calculation_interval: str | None = None) -> None:
-    emit_slo_started(
-        distinct_id=alert_id,
-        properties=SloStartedProperties(
-            area=SloArea.ANALYTIC_PLATFORM,
-            operation=SloOperation.ALERT_CHECK,
-            team_id=team_id,
-            resource_id=alert_id,
-        ),
-        extra_properties={"calculation_interval": calculation_interval},
-    )
     outcome = SloOutcome.FAILURE
     started_at = time.monotonic()
     error_extra: dict | None = None
     try:
+        emit_slo_started(
+            distinct_id=alert_id,
+            properties=SloStartedProperties(
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_CHECK,
+                team_id=team_id,
+                resource_id=alert_id,
+            ),
+            extra_properties={"calculation_interval": calculation_interval},
+        )
         with ph_scoped_capture() as capture_ph_event:
             check_alert(alert_id, capture_ph_event)
         outcome = SloOutcome.SUCCESS
