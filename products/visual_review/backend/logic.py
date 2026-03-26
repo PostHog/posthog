@@ -209,8 +209,11 @@ def is_run_stale(run: Run) -> bool:
 _HAS_CHANGES = Q(changed_count__gt=0) | Q(new_count__gt=0) | Q(removed_count__gt=0)
 _CURRENT = Q(superseded_by__isnull=True)
 
+_ON_PR = Q(pr_number__isnull=False)
+
 REVIEW_STATE_FILTERS: dict[str, Q] = {
-    "needs_review": Q(status=RunStatus.COMPLETED) & _HAS_CHANGES & Q(approved=False) & _CURRENT,
+    # Only PR runs need human review — master/branch pushes without a PR are just drift
+    "needs_review": Q(status=RunStatus.COMPLETED) & _HAS_CHANGES & Q(approved=False) & _CURRENT & _ON_PR,
     "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES) | Q(approved=True),
     "processing": Q(status__in=[RunStatus.PENDING, RunStatus.PROCESSING]) & _CURRENT,
     "stale": Q(superseded_by__isnull=False) & Q(approved=False) & _HAS_CHANGES,
