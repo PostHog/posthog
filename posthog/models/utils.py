@@ -33,7 +33,8 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
-BASE57 = "".join(c for c in BASE62 if c not in "01OIl")  # Base62 minus visually ambiguous characters
+AMBIGUOUS_CHARS = frozenset("01OIl")
+BASE57 = "".join(c for c in BASE62 if c not in AMBIGUOUS_CHARS)  # Base62 minus visually ambiguous characters
 EncryptionModeType = Literal["sha256", "pbkdf2"]
 SHA256_HASH_PREFIX = "sha256$"
 
@@ -340,7 +341,7 @@ def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> st
     while number != 0:
         number, index = divmod(number, len(alphabet))
         value = alphabet[index] + value
-    return value or "0"
+    return value or alphabet[0]
 
 
 class Percentile(models.Aggregate):

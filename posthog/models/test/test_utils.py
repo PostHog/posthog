@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from parameterized import parameterized
 
 from posthog.models.utils import (
+    AMBIGUOUS_CHARS,
     BASE57,
     convert_legacy_metric,
     convert_legacy_metrics,
@@ -62,7 +63,6 @@ def test_mask_key_value():
     assert mask_key_value("") == "********"  # Empty string
 
 
-AMBIGUOUS_CHARS = set("01OIl")
 BASE57_SET = set(BASE57)
 
 
