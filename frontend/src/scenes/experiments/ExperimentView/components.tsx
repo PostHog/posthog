@@ -402,7 +402,7 @@ export function PageHeaderCustom(): JSX.Element {
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={() => setDuplicateModalOpen(true)}>
                             <IconCopy />
-                            Use as template
+                            Duplicate
                         </ButtonPrimitive>
 
                         {isExperimentLaunched && (

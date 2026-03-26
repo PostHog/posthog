@@ -347,7 +347,7 @@ const ExperimentsTable = ({
                                             : undefined
                                     }
                                 >
-                                    Use as template
+                                    Duplicate
                                 </LemonButton>
                                 <ExperimentSurveyButton
                                     experiment={experiment}
