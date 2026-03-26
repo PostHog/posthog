@@ -31805,6 +31805,7 @@ export namespace Schemas {
     * `TaggedItem` - TaggedItem
     * `Subscription` - Subscription
     * `PersonalAPIKey` - PersonalAPIKey
+    * `ProjectSecretAPIKey` - ProjectSecretAPIKey
     * `User` - User
     * `Action` - Action
     * `AlertConfiguration` - AlertConfiguration
@@ -31877,6 +31878,7 @@ export namespace Schemas {
       TaggedItem: 'TaggedItem',
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
+      ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -31935,6 +31937,7 @@ export namespace Schemas {
     * `TaggedItem` - TaggedItem
     * `Subscription` - Subscription
     * `PersonalAPIKey` - PersonalAPIKey
+    * `ProjectSecretAPIKey` - ProjectSecretAPIKey
     * `User` - User
     * `Action` - Action
     * `AlertConfiguration` - AlertConfiguration
@@ -31995,6 +31998,7 @@ export namespace Schemas {
       TaggedItem: 'TaggedItem',
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
+      ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
