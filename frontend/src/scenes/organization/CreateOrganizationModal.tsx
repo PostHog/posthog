@@ -61,7 +61,7 @@ export function CreateOrganizationModal({
                         Create organization
                     </LemonButton>
                     {inline && (
-                        <div className="w-full text-center mt-2">
+                        <div className="w-full text-right text-xs">
                             <span className="text-muted">
                                 or <Link to={urls.settings('user')}>manage your account</Link>
                             </span>
