@@ -137,14 +137,6 @@ class EmailConnectView(APIView):
         from_name: str = serializer.validated_data["from_name"]
         domain = from_email.split("@")[1]
 
-        # Guard: config limit per team
-        current_count = TeamConversationsEmailConfig.objects.filter(team=team).count()
-        if current_count >= MAX_EMAIL_CONFIGS_PER_TEAM:
-            return Response(
-                {"error": f"Maximum of {MAX_EMAIL_CONFIGS_PER_TEAM} email addresses per team."},
-                status=400,
-            )
-
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
             return Response(
@@ -183,6 +175,16 @@ class EmailConnectView(APIView):
 
         try:
             with transaction.atomic():
+                # Lock team row to serialize concurrent connects and enforce the config limit
+                Team.objects.select_for_update().get(id=team.id)
+
+                current_count = TeamConversationsEmailConfig.objects.filter(team=team).count()
+                if current_count >= MAX_EMAIL_CONFIGS_PER_TEAM:
+                    return Response(
+                        {"error": f"Maximum of {MAX_EMAIL_CONFIGS_PER_TEAM} email addresses per team."},
+                        status=400,
+                    )
+
                 config = TeamConversationsEmailConfig.objects.create(
                     team=team,
                     inbound_token=secrets.token_hex(16),

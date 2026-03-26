@@ -167,21 +167,21 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAddEmailFormVisible: (_, { visible }) => visible,
-                connectEmailDone: () => false,
+                connectEmailDone: (state, { config }) => (config ? false : state),
             },
         ],
         newEmailFromEmail: [
             '',
             {
                 setNewEmailFromEmail: (_, { value }) => value,
-                connectEmailDone: () => '',
+                connectEmailDone: (state, { config }) => (config ? '' : state),
             },
         ],
         newEmailFromName: [
             '',
             {
                 setNewEmailFromName: (_, { value }) => value,
-                connectEmailDone: () => '',
+                connectEmailDone: (state, { config }) => (config ? '' : state),
             },
         ],
         emailConnecting: [
@@ -468,9 +468,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return
             }
             actions.disconnectEmailDone(configId)
-            // If this was the last config, update team setting
-            const remaining = values.emailConfigs.filter((c) => c.id !== configId)
-            if (remaining.length === 0) {
+            if (values.emailConfigs.length === 0) {
                 actions.updateCurrentTeam({
                     conversations_settings: {
                         ...values.currentTeam?.conversations_settings,
