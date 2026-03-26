@@ -225,6 +225,38 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('uses the first numeric column as x-axis when enabling a line chart on all-numeric data', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['screen_width', 'screen_height'],
+            types: [
+                ['screen_width', 'Int64'],
+                ['screen_height', 'Int64'],
+            ],
+            results: [
+                [1920, 1080],
+                [1440, 900],
+            ],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            effectiveVisualizationType: ChartDisplayType.ActionsLineGraph,
+            selectedXAxis: 'screen_width',
+            selectedYAxis: [
+                {
+                    name: 'screen_height',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+            ],
+        })
+    })
+
     it('fills x-axis labels with empty values when no x-axis is selected', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['first_value', 'second_value', 'third_value'],

@@ -319,6 +319,29 @@ const applyAutoHeatmapSettings = (
     })
 }
 
+const shouldUseFirstNumericColumnAsLineChartXAxis = (
+    columns: Column[],
+    numericalColumns: Column[],
+    selectedXAxis: string | null,
+    selectedYAxis: (SelectedYAxis | null)[] | null
+): boolean => {
+    if (selectedXAxis !== null || columns.length < 2 || numericalColumns.length < 2) {
+        return false
+    }
+
+    if (!columns.every((column) => column.type.isNumerical)) {
+        return false
+    }
+
+    if (!selectedYAxis || selectedYAxis.length !== numericalColumns.length) {
+        return false
+    }
+
+    const selectedYAxisNames = new Set(selectedYAxis.map((series) => series?.name))
+
+    return numericalColumns.every((column) => selectedYAxisNames.has(column.name))
+}
+
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     key((props) => props.key),
     path(['queries', 'nodes', 'DataVisualization', 'dataVisualizationLogic']),
@@ -1103,6 +1126,26 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 display: visualizationType,
             }))
+
+            if (
+                visualizationType === ChartDisplayType.ActionsLineGraph &&
+                shouldUseFirstNumericColumnAsLineChartXAxis(
+                    values.columns,
+                    values.numericalColumns,
+                    values.selectedXAxis,
+                    values.selectedYAxis
+                )
+            ) {
+                const [xAxisColumn] = values.numericalColumns
+                const xAxisSeriesIndex =
+                    values.selectedYAxis?.findIndex((series) => series?.name === xAxisColumn.name) ?? -1
+
+                actions.updateXSeries(xAxisColumn.name)
+
+                if (xAxisSeriesIndex > -1) {
+                    actions.deleteYSeries(xAxisSeriesIndex)
+                }
+            }
 
             const isAutoHeatmap =
                 visualizationType === ChartDisplayType.Auto &&
