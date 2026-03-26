@@ -345,29 +345,14 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         user = User.objects.get(id=user_id)
         assert user.email == "valid@partner.com"
 
-    def test_put_rejects_email_change_to_non_matching_domain(self):
-        self.client.credentials(**self.scim_headers)
-
-        # Create a valid SCIM user first
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
-            self._scim_user_data("valid@example.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        user_id = response.json()["id"]
-
-        response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            self._scim_user_data("hijacked@evil.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        user = User.objects.get(id=user_id)
-        assert user.email == "valid@example.com"
-
-    def test_handle_replace_rejects_email_change_to_non_matching_domain(self):
+    @parameterized.expand(
+        [
+            ("put",),
+            ("patch_replace",),
+            ("patch_add",),
+        ]
+    )
+    def test_rejects_email_change_to_non_matching_domain(self, method: str):
         self.client.credentials(**self.scim_headers)
 
         response = self.client.post(
@@ -378,42 +363,37 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED
         user_id = response.json()["id"]
 
-        response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-                "Operations": [{"op": "replace", "path": "emails", "value": [{"value": "hijacked@evil.com"}]}],
-            },
-            format="json",
-        )
+        response = self._change_email(method, user_id, "hijacked@evil.com")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         user = User.objects.get(id=user_id)
         assert user.email == "valid@example.com"
 
-    def test_handle_add_rejects_email_change_to_non_matching_domain(self):
-        self.client.credentials(**self.scim_headers)
-
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
-            self._scim_user_data("valid@example.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        user_id = response.json()["id"]
-
-        response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-                "Operations": [{"op": "add", "path": "emails", "value": [{"value": "hijacked@evil.com"}]}],
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        user = User.objects.get(id=user_id)
-        assert user.email == "valid@example.com"
+    def _change_email(self, method: str, user_id: str, new_email: str):
+        if method == "put":
+            return self.client.put(
+                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                self._scim_user_data(new_email),
+                format="json",
+            )
+        elif method == "patch_replace":
+            return self.client.patch(
+                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "emails", "value": [{"value": new_email}]}],
+                },
+                format="json",
+            )
+        elif method == "patch_add":
+            return self.client.patch(
+                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "add", "path": "emails", "value": [{"value": new_email}]}],
+                },
+                format="json",
+            )
 
     def _create_user_with_unowned_email(self) -> str:
         """Create a user whose current email domain is not owned by the SCIM org."""
@@ -429,49 +409,18 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         )
         return str(user.id)
 
-    def test_put_rejects_email_change_when_org_does_not_own_current_domain(self):
+    @parameterized.expand(
+        [
+            ("put",),
+            ("patch_replace",),
+            ("patch_add",),
+        ]
+    )
+    def test_rejects_email_change_when_org_does_not_own_current_domain(self, method: str):
         self.client.credentials(**self.scim_headers)
         user_id = self._create_user_with_unowned_email()
 
-        response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            self._scim_user_data("attacker@example.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        user = User.objects.get(id=user_id)
-        assert user.email == "victim@external.com"
-
-    def test_patch_replace_rejects_email_change_when_org_does_not_own_current_domain(self):
-        self.client.credentials(**self.scim_headers)
-        user_id = self._create_user_with_unowned_email()
-
-        response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-                "Operations": [{"op": "replace", "path": "emails", "value": [{"value": "attacker@example.com"}]}],
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        user = User.objects.get(id=user_id)
-        assert user.email == "victim@external.com"
-
-    def test_patch_add_rejects_email_change_when_org_does_not_own_current_domain(self):
-        self.client.credentials(**self.scim_headers)
-        user_id = self._create_user_with_unowned_email()
-
-        response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-                "Operations": [{"op": "add", "path": "emails", "value": [{"value": "attacker@example.com"}]}],
-            },
-            format="json",
-        )
+        response = self._change_email(method, user_id, "attacker@example.com")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         user = User.objects.get(id=user_id)
