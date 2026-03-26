@@ -39,17 +39,10 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 }
                 return newValues
             })
-        } else if (hasFormula) {
-            // Always ensure at least one empty value when formula mode is enabled
-            if (editorPanelsEnabled) {
-                const emptyNode = { formula: '' }
-                setValues([emptyNode])
-                setLocalValues([emptyNode])
-            } else if (values.length === 0) {
-                const emptyNode = { formula: '' }
-                setValues([emptyNode])
-                setLocalValues([emptyNode])
-            }
+        } else if (hasFormula && (editorPanelsEnabled || values.length === 0)) {
+            const emptyNode = { formula: '' }
+            setValues([emptyNode])
+            setLocalValues([emptyNode])
         }
     }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
