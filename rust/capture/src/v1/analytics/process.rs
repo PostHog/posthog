@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::response::Response;
-use super::types::{Batch, Event, EventResult, Metadata, WrappedEvent};
+use super::types::{Batch, Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::router;
@@ -68,7 +68,7 @@ fn validate_events(context: &Context, batch: Batch) -> Vec<WrappedEvent> {
         .into_iter()
         .enumerate()
         .map(|(ordinal, event)| {
-            let validation = validate_event(&mut uuids, &event.metadata).and_then(|raw_ts| {
+            let validation = validate_event(&mut uuids, &event).and_then(|raw_ts| {
                 if event.properties.get().as_bytes().first() != Some(&b'{') {
                     return Err(Error::MalformedEventProperties);
                 }
@@ -142,26 +142,26 @@ fn observe_malformed_events(context: &Context, malformed: &HashMap<&'static str,
     );
 }
 
-fn validate_event(uuids: &mut HashSet<Uuid>, meta: &Metadata) -> Result<DateTime<Utc>, Error> {
-    if meta.name.is_empty() {
+fn validate_event(uuids: &mut HashSet<Uuid>, event: &Event) -> Result<DateTime<Utc>, Error> {
+    if event.name.is_empty() {
         return Err(Error::MissingEventName);
     }
-    if meta.name.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
+    if event.name.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
         return Err(Error::EventNameTooLong);
     }
-    if meta.distinct_id.is_empty() {
+    if event.distinct_id.is_empty() {
         return Err(Error::MissingDistinctId);
     }
-    if meta.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
+    if event.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
         return Err(Error::DistinctIdTooLarge);
     }
 
-    let parsed = Uuid::parse_str(&meta.uuid).map_err(|_| Error::MissingEventUuid)?;
+    let parsed = Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
     if !uuids.insert(parsed) {
-        return Err(Error::DuplicateEventUuid(meta.uuid.clone()));
+        return Err(Error::DuplicateEventUuid(event.uuid.clone()));
     }
 
-    let ts = DateTime::parse_from_rfc3339(&meta.timestamp)
+    let ts = DateTime::parse_from_rfc3339(&event.timestamp)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|_| Error::InvalidEventTimestamp)?;
     Ok(ts)
@@ -172,7 +172,12 @@ fn normalize_timestamp(
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if event.metadata.ignore_attempt_timestamp.unwrap_or(false) {
+    if event
+        .options
+        .as_ref()
+        .and_then(|o| o.ignore_attempt_timestamp)
+        .unwrap_or(false)
+    {
         return raw_event_ts;
     }
 
@@ -232,10 +237,10 @@ async fn apply_restrictions(
         }
 
         let event_ctx = EventContext {
-            distinct_id: Some(&event.event.metadata.distinct_id),
+            distinct_id: Some(&event.event.distinct_id),
             session_id: None,
-            event_name: Some(&event.event.metadata.name),
-            event_uuid: Some(&event.event.metadata.uuid),
+            event_name: Some(&event.event.name),
+            event_uuid: Some(&event.event.uuid),
             now_ts,
         };
 
@@ -278,16 +283,14 @@ async fn apply_token_distinct_id_limits(
         if event.result != EventResult::Ok {
             continue;
         }
-        let cache_key = GlobalRateLimitKey::TokenDistinctId(
-            &context.api_token,
-            &event.event.metadata.distinct_id,
-        )
-        .to_cache_key();
+        let cache_key =
+            GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
+                .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
             event.result = EventResult::Limited;
             event.destination = Destination::Drop;
             event.details = Some("event rate limited by distinct_id");
-            let did = event.event.metadata.distinct_id.as_str();
+            let did = event.event.distinct_id.as_str();
             if !limited_distinct_ids.contains(&did) {
                 limited_distinct_ids.push(did);
             }
@@ -345,7 +348,7 @@ mod tests {
     use crate::event_restrictions::{
         Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
-    use crate::v1::analytics::types::{Batch, Event, Metadata};
+    use crate::v1::analytics::types::{Batch, Event, Options};
     use crate::v1::sinks::Destination;
     use crate::v1::Error;
 
@@ -353,24 +356,15 @@ mod tests {
         RawValue::from_string(s.to_owned()).unwrap()
     }
 
-    fn valid_metadata() -> Metadata {
-        Metadata {
+    fn valid_event() -> Event {
+        Event {
             name: "$pageview".to_string(),
             uuid: Uuid::new_v4().to_string(),
             distinct_id: "user-42".to_string(),
             timestamp: "2026-03-19T14:29:58.123Z".to_string(),
-            cookieless_mode: None,
-            ignore_attempt_timestamp: None,
-            product_tour_id: None,
-            process_person_profile: None,
             session_id: None,
             window_id: None,
-        }
-    }
-
-    fn valid_event() -> Event {
-        Event {
-            metadata: valid_metadata(),
+            options: None,
             properties: raw_obj("{}"),
         }
     }
@@ -407,10 +401,10 @@ mod tests {
     #[test]
     fn event_bad_uuid() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.uuid = "not-a-uuid".to_string();
+        let mut event = valid_event();
+        event.uuid = "not-a-uuid".to_string();
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::MissingEventUuid)
         ));
     }
@@ -418,10 +412,10 @@ mod tests {
     #[test]
     fn event_empty_uuid() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.uuid = String::new();
+        let mut event = valid_event();
+        event.uuid = String::new();
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::MissingEventUuid)
         ));
     }
@@ -431,8 +425,8 @@ mod tests {
     #[test]
     fn event_valid() {
         let mut uuids = HashSet::new();
-        let meta = valid_metadata();
-        let ts = validate_event(&mut uuids, &meta);
+        let event = valid_event();
+        let ts = validate_event(&mut uuids, &event);
         assert!(ts.is_ok());
         assert_eq!(
             ts.unwrap(),
@@ -445,10 +439,10 @@ mod tests {
     #[test]
     fn event_empty_name() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.name = String::new();
+        let mut event = valid_event();
+        event.name = String::new();
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::MissingEventName)
         ));
     }
@@ -456,10 +450,10 @@ mod tests {
     #[test]
     fn event_name_too_long() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.name = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH + 1);
+        let mut event = valid_event();
+        event.name = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH + 1);
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::EventNameTooLong)
         ));
     }
@@ -467,18 +461,18 @@ mod tests {
     #[test]
     fn event_name_at_max_length_ok() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.name = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH);
-        assert!(validate_event(&mut uuids, &meta).is_ok());
+        let mut event = valid_event();
+        event.name = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH);
+        assert!(validate_event(&mut uuids, &event).is_ok());
     }
 
     #[test]
     fn event_empty_distinct_id() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.distinct_id = String::new();
+        let mut event = valid_event();
+        event.distinct_id = String::new();
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::MissingDistinctId)
         ));
     }
@@ -486,10 +480,10 @@ mod tests {
     #[test]
     fn event_distinct_id_too_large() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.distinct_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1);
+        let mut event = valid_event();
+        event.distinct_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1);
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::DistinctIdTooLarge)
         ));
     }
@@ -497,18 +491,18 @@ mod tests {
     #[test]
     fn event_distinct_id_at_max_size_ok() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.distinct_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE);
-        assert!(validate_event(&mut uuids, &meta).is_ok());
+        let mut event = valid_event();
+        event.distinct_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE);
+        assert!(validate_event(&mut uuids, &event).is_ok());
     }
 
     #[test]
     fn event_bad_timestamp() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.timestamp = "yesterday".to_string();
+        let mut event = valid_event();
+        event.timestamp = "yesterday".to_string();
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::InvalidEventTimestamp)
         ));
     }
@@ -516,10 +510,10 @@ mod tests {
     #[test]
     fn event_empty_timestamp() {
         let mut uuids = HashSet::new();
-        let mut meta = valid_metadata();
-        meta.timestamp = String::new();
+        let mut event = valid_event();
+        event.timestamp = String::new();
         assert!(matches!(
-            validate_event(&mut uuids, &meta),
+            validate_event(&mut uuids, &event),
             Err(Error::InvalidEventTimestamp)
         ));
     }
@@ -527,11 +521,11 @@ mod tests {
     #[test]
     fn event_duplicate_uuid() {
         let mut uuids = HashSet::new();
-        let meta = valid_metadata();
-        assert!(validate_event(&mut uuids, &meta).is_ok());
-        let dup = Metadata {
-            uuid: meta.uuid.clone(),
-            ..valid_metadata()
+        let event = valid_event();
+        assert!(validate_event(&mut uuids, &event).is_ok());
+        let dup = Event {
+            uuid: event.uuid.clone(),
+            ..valid_event()
         };
         assert!(matches!(
             validate_event(&mut uuids, &dup),
@@ -565,8 +559,8 @@ mod tests {
             historical_migration: false,
             capture_internal: None,
             batch: vec![Event {
-                metadata: valid_metadata(),
                 properties: raw_obj("[1,2,3]"),
+                ..valid_event()
             }],
         };
         let events = validate_events(&ctx, batch);
@@ -605,18 +599,18 @@ mod tests {
 
     fn event_with_ignore_attempt_timestamp(ignore: bool) -> Event {
         Event {
-            metadata: Metadata {
-                name: "$pageview".to_string(),
-                uuid: Uuid::new_v4().to_string(),
-                distinct_id: "user-1".to_string(),
-                timestamp: "2026-03-19T11:00:00Z".to_string(),
+            name: "$pageview".to_string(),
+            uuid: Uuid::new_v4().to_string(),
+            distinct_id: "user-1".to_string(),
+            timestamp: "2026-03-19T11:00:00Z".to_string(),
+            session_id: None,
+            window_id: None,
+            options: Some(Options {
                 cookieless_mode: None,
                 ignore_attempt_timestamp: Some(ignore),
                 product_tour_id: None,
                 process_person_profile: None,
-                session_id: None,
-                window_id: None,
-            },
+            }),
             properties: raw_obj("{}"),
         }
     }
@@ -696,18 +690,13 @@ mod tests {
     fn wrapped_event(ordinal: usize, event_name: &str, distinct_id: &str) -> WrappedEvent {
         WrappedEvent {
             event: Event {
-                metadata: Metadata {
-                    name: event_name.to_string(),
-                    uuid: Uuid::new_v4().to_string(),
-                    distinct_id: distinct_id.to_string(),
-                    timestamp: "2026-03-19T14:29:58.123Z".to_string(),
-                    cookieless_mode: None,
-                    ignore_attempt_timestamp: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                    session_id: None,
-                    window_id: None,
-                },
+                name: event_name.to_string(),
+                uuid: Uuid::new_v4().to_string(),
+                distinct_id: distinct_id.to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: None,
+                window_id: None,
+                options: None,
                 properties: raw_obj("{}"),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
@@ -722,18 +711,13 @@ mod tests {
     fn malformed_wrapped_event(ordinal: usize) -> WrappedEvent {
         WrappedEvent {
             event: Event {
-                metadata: Metadata {
-                    name: String::new(),
-                    uuid: Uuid::new_v4().to_string(),
-                    distinct_id: "user-1".to_string(),
-                    timestamp: "bad".to_string(),
-                    cookieless_mode: None,
-                    ignore_attempt_timestamp: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                    session_id: None,
-                    window_id: None,
-                },
+                name: String::new(),
+                uuid: Uuid::new_v4().to_string(),
+                distinct_id: "user-1".to_string(),
+                timestamp: "bad".to_string(),
+                session_id: None,
+                window_id: None,
+                options: None,
                 properties: raw_obj("{}"),
             },
             adjusted_timestamp: None,
@@ -1174,18 +1158,13 @@ mod tests {
     fn wrapped_event_at(ordinal: usize, timestamp: DateTime<Utc>) -> WrappedEvent {
         WrappedEvent {
             event: Event {
-                metadata: Metadata {
-                    name: "$pageview".to_string(),
-                    uuid: Uuid::new_v4().to_string(),
-                    distinct_id: "user-1".to_string(),
-                    timestamp: timestamp.to_rfc3339(),
-                    cookieless_mode: None,
-                    ignore_attempt_timestamp: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                    session_id: None,
-                    window_id: None,
-                },
+                name: "$pageview".to_string(),
+                uuid: Uuid::new_v4().to_string(),
+                distinct_id: "user-1".to_string(),
+                timestamp: timestamp.to_rfc3339(),
+                session_id: None,
+                window_id: None,
+                options: None,
                 properties: raw_obj("{}"),
             },
             adjusted_timestamp: Some(timestamp),

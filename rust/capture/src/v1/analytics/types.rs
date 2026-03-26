@@ -31,11 +31,7 @@ pub struct Batch {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Metadata {
-    pub name: String,
-    pub uuid: String,
-    pub distinct_id: String,
-    pub timestamp: String,
+pub struct Options {
     #[serde(rename = "$cookieless_mode", skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,15 +43,20 @@ pub struct Metadata {
         skip_serializing_if = "Option::is_none"
     )]
     pub process_person_profile: Option<bool>,
-    #[serde(rename = "$session_id", skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    #[serde(rename = "$window_id", skip_serializing_if = "Option::is_none")]
-    pub window_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Event {
-    pub metadata: Metadata,
+    pub name: String,
+    pub uuid: String,
+    pub distinct_id: String,
+    pub timestamp: String,
+    #[serde(rename = "$session_id", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(rename = "$window_id", skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<String>,
+    #[serde(default)]
+    pub options: Option<Options>,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
 }
@@ -82,7 +83,7 @@ pub struct WrappedEvent {
 ///
 /// Checks needed at construction time (from legacy parity):
 /// - `Context.capture_internal`: if true, redact `ip` to "127.0.0.1"
-/// - `Metadata.cookieless_mode`: controls Kafka partition key selection
+/// - `Options.cookieless_mode`: controls Kafka partition key selection
 ///   (true -> partition by token:ip, false -> token:distinct_id).
 ///   Non-boolean values are rejected at deserialization by serde.
 ///
@@ -117,12 +118,10 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "$pageview",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "user-42",
-                    "timestamp": "2026-03-19T14:29:58.123Z"
-                }
+                "name": "$pageview",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "user-42",
+                "timestamp": "2026-03-19T14:29:58.123Z"
             }]
         }"#;
 
@@ -132,12 +131,12 @@ mod tests {
         assert_eq!(batch.capture_internal, None);
         assert_eq!(batch.batch.len(), 1);
 
-        let meta = &batch.batch[0].metadata;
-        assert_eq!(meta.name, "$pageview");
-        assert_eq!(meta.uuid, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
-        assert_eq!(meta.distinct_id, "user-42");
-        assert_eq!(meta.timestamp, "2026-03-19T14:29:58.123Z");
-        assert_eq!(batch.batch[0].properties.get(), "{}");
+        let event = &batch.batch[0];
+        assert_eq!(event.name, "$pageview");
+        assert_eq!(event.uuid, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
+        assert_eq!(event.distinct_id, "user-42");
+        assert_eq!(event.timestamp, "2026-03-19T14:29:58.123Z");
+        assert_eq!(event.properties.get(), "{}");
     }
 
     #[test]
@@ -145,12 +144,10 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "$identify",
-                    "uuid": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
-                    "distinct_id": "user-99",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                },
+                "name": "$identify",
+                "uuid": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+                "distinct_id": "user-99",
+                "timestamp": "2026-03-19T14:30:00.000Z",
                 "properties": {
                     "$current_url": "https://example.com",
                     "$set": {"email": "test@example.com"},
@@ -175,12 +172,10 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "e",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "d",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                },
+                "name": "e",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "d",
+                "timestamp": "2026-03-19T14:30:00.000Z",
                 "properties": [1, 2, 3]
             }]
         }"#;
@@ -192,12 +187,10 @@ mod tests {
     fn parse_batch_missing_created_at() {
         let json = r#"{
             "batch": [{
-                "metadata": {
-                    "name": "e",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "d",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                }
+                "name": "e",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "d",
+                "timestamp": "2026-03-19T14:30:00.000Z"
             }]
         }"#;
         assert!(serde_json::from_str::<Batch>(json).is_err());
@@ -214,11 +207,9 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "d",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                }
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "d",
+                "timestamp": "2026-03-19T14:30:00.000Z"
             }]
         }"#;
         assert!(serde_json::from_str::<Batch>(json).is_err());
@@ -229,11 +220,9 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "e",
-                    "distinct_id": "d",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                }
+                "name": "e",
+                "distinct_id": "d",
+                "timestamp": "2026-03-19T14:30:00.000Z"
             }]
         }"#;
         assert!(serde_json::from_str::<Batch>(json).is_err());
@@ -244,11 +233,9 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "e",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                }
+                "name": "e",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "timestamp": "2026-03-19T14:30:00.000Z"
             }]
         }"#;
         assert!(serde_json::from_str::<Batch>(json).is_err());
@@ -259,18 +246,16 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "e",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "d"
-                }
+                "name": "e",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "d"
             }]
         }"#;
         assert!(serde_json::from_str::<Batch>(json).is_err());
     }
 
     #[test]
-    fn parse_event_missing_metadata() {
+    fn parse_event_missing_required_fields() {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
@@ -293,18 +278,16 @@ mod tests {
             "created_at": "2026-03-19T14:30:00.000Z",
             "unknown_top_field": true,
             "batch": [{
-                "metadata": {
-                    "name": "e",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "d",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                },
+                "name": "e",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "d",
+                "timestamp": "2026-03-19T14:30:00.000Z",
                 "unknown_event_field": "ignored"
             }]
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        assert_eq!(batch.batch[0].metadata.name, "e");
+        assert_eq!(batch.batch[0].name, "e");
     }
 
     #[test]
@@ -337,67 +320,61 @@ mod tests {
     fn parse_batch_missing_created_at_with_events() {
         let json = r#"{
             "batch": [{
-                "metadata": {
-                    "name": "e",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "d",
-                    "timestamp": "2026-03-19T14:30:00.000Z"
-                }
+                "name": "e",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "d",
+                "timestamp": "2026-03-19T14:30:00.000Z"
             }]
         }"#;
         assert!(serde_json::from_str::<Batch>(json).is_err());
     }
 
     #[test]
-    fn parse_event_optional_metadata_fields() {
+    fn parse_event_optional_fields() {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "$pageview",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "user-1",
-                    "timestamp": "2026-03-19T14:29:58.123Z",
+                "name": "$pageview",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "user-1",
+                "timestamp": "2026-03-19T14:29:58.123Z",
+                "$session_id": "sess-abc",
+                "$window_id": "win-xyz",
+                "options": {
                     "$cookieless_mode": true,
                     "ignore_attempt_timestamp": true,
                     "$product_tour_id": "tour-123",
-                    "$process_person_profile": false,
-                    "$session_id": "sess-abc",
-                    "$window_id": "win-xyz"
+                    "$process_person_profile": false
                 }
             }]
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
-        let meta = &batch.batch[0].metadata;
-        assert_eq!(meta.cookieless_mode, Some(true));
-        assert_eq!(meta.ignore_attempt_timestamp, Some(true));
-        assert_eq!(meta.product_tour_id.as_deref(), Some("tour-123"));
-        assert_eq!(meta.process_person_profile, Some(false));
-        assert_eq!(meta.session_id.as_deref(), Some("sess-abc"));
-        assert_eq!(meta.window_id.as_deref(), Some("win-xyz"));
+        let event = &batch.batch[0];
+        assert_eq!(event.session_id.as_deref(), Some("sess-abc"));
+        assert_eq!(event.window_id.as_deref(), Some("win-xyz"));
+        let opts = event.options.as_ref().unwrap();
+        assert_eq!(opts.cookieless_mode, Some(true));
+        assert_eq!(opts.ignore_attempt_timestamp, Some(true));
+        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-123"));
+        assert_eq!(opts.process_person_profile, Some(false));
     }
 
     #[test]
-    fn parse_event_optional_metadata_defaults_to_none() {
+    fn parse_event_optional_fields_default_to_none() {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "metadata": {
-                    "name": "$pageview",
-                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                    "distinct_id": "user-42",
-                    "timestamp": "2026-03-19T14:29:58.123Z"
-                }
+                "name": "$pageview",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "user-42",
+                "timestamp": "2026-03-19T14:29:58.123Z"
             }]
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
-        let meta = &batch.batch[0].metadata;
-        assert_eq!(meta.cookieless_mode, None);
-        assert_eq!(meta.ignore_attempt_timestamp, None);
-        assert_eq!(meta.product_tour_id, None);
-        assert_eq!(meta.process_person_profile, None);
-        assert_eq!(meta.session_id, None);
-        assert_eq!(meta.window_id, None);
+        let event = &batch.batch[0];
+        assert_eq!(event.session_id, None);
+        assert_eq!(event.window_id, None);
+        assert!(event.options.is_none());
     }
 
     #[test]
