@@ -947,7 +947,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
-            schema_names = [s.name for s in schemas]
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
