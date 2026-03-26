@@ -82,6 +82,7 @@ class AdvancedActivityLogFilterManager:
         self, queryset: QuerySet[ActivityLog], field_path: str, value: Any
     ) -> QuerySet[ActivityLog]:
         base_array_path = field_path.split("[]")[0]
+        # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
         return queryset.filter(**{f"detail__{base_array_path}__icontains": value})
 
     def _apply_array_exact_filter(
@@ -266,8 +267,10 @@ class AdvancedActivityLogFilterManager:
             return combined_condition
         elif operation == "in":
             unique_values = self._expand_values_with_type_variants(value)
+            # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
             return Q(**{f"{field_path}__in": unique_values})
         elif operation == "contains":
+            # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
             return Q(**{f"{field_path}__icontains": value})
         else:
             return Q(**{field_path: value})
