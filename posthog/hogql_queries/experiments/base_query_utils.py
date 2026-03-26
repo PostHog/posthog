@@ -382,6 +382,13 @@ def funnel_steps_to_filter(
     """
     # Filter out DW nodes - they require UNION ALL pattern, not boolean filters
     event_and_action_steps = [step for step in funnel_steps if not isinstance(step, ExperimentDataWarehouseNode)]
+
+    # Guard against empty list (all DW nodes case)
+    if not event_and_action_steps:
+        # Return a constant false expression - this prevents empty ast.Or
+        # This case should be caught earlier by validation, but we guard defensively
+        return ast.Constant(value=False)
+
     return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in event_and_action_steps])
 
 

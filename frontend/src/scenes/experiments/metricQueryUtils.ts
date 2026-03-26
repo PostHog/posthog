@@ -220,27 +220,31 @@ export const getQuery =
     }
 
 /**
- * converts a funnel metric to a series of events and actions
+ * converts a funnel metric to a series of events, actions, and data warehouse nodes
  * this is part of the conversion pipeline for funnel metrics.
  *
  * Funnel series are validated with:
  * Metric Series -> Filter -> Query Series
  */
-const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | ActionsNode)[] => {
-    const { events, actions } = getFilter(funnelMetric)
+const getFunnelSeries = (
+    funnelMetric: ExperimentFunnelMetric
+): (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[] => {
+    const { events, actions, data_warehouse } = getFilter(funnelMetric)
 
     return actionsAndEventsToSeries(
         {
             actions,
             events,
-            data_warehouse: [], // Data warehouse not supported in funnels
+            data_warehouse,
         } as any,
         true, // includeProperties
         MathAvailability.None // No math for funnels
-    ).filter((series) => series.kind === NodeKind.EventsNode || series.kind === NodeKind.ActionsNode) as (
-        | EventsNode
-        | ActionsNode
-    )[]
+    ).filter(
+        (series) =>
+            series.kind === NodeKind.EventsNode ||
+            series.kind === NodeKind.ActionsNode ||
+            series.kind === NodeKind.ExperimentDataWarehouseNode
+    ) as (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[]
 }
 
 /**
@@ -286,10 +290,17 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
              * we create a source node for each step on the funnel series.
              */
             const funnelSteps = funnelMetric.series.map((step, index) => {
+                const type =
+                    step.kind === NodeKind.EventsNode
+                        ? 'events'
+                        : step.kind === NodeKind.ActionsNode
+                          ? 'actions'
+                          : 'data_warehouse'
+
                 return {
                     ...createSourceNode(step),
                     order: index,
-                    type: step.kind === NodeKind.EventsNode ? 'events' : 'actions',
+                    type,
                 }
             })
 

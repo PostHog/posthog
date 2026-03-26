@@ -7,6 +7,8 @@ Date: 2026-03-05
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
 
 from posthog.hogql import ast
@@ -335,3 +337,45 @@ class TestFunnelStepBuilder(BaseTest):
         # All should be valid expressions
         for col in columns:
             assert isinstance(col.expr, ast.Expr)
+
+    @parameterized.expand(
+        [
+            (-1, "negative index"),
+            (3, "index equal to num_steps"),
+            (4, "index greater than num_steps"),
+            (100, "very large index"),
+        ]
+    )
+    def test_constant_columns_rejects_out_of_bounds_index(self, invalid_index: int, _description: str):
+        """build_constant_columns should raise ValueError for out-of-bounds indices."""
+        series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode] = [
+            EventsNode(event="pageview"),
+            EventsNode(event="purchase"),
+        ]
+        builder = FunnelStepBuilder(series, self.team)
+
+        # num_steps should be 3 (exposure + 2 steps), so valid range is 0-2
+        assert builder.num_steps == 3
+
+        with self.assertRaises(ValueError) as context:
+            builder.build_constant_columns(active_step_index=invalid_index)
+
+        # Should have helpful error message
+        assert "out of bounds" in str(context.exception)
+        assert str(invalid_index) in str(context.exception)
+
+    def test_constant_columns_accepts_max_valid_index(self):
+        """build_constant_columns should accept num_steps - 1 as valid."""
+        series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode] = [
+            EventsNode(event="pageview"),
+            EventsNode(event="purchase"),
+        ]
+        builder = FunnelStepBuilder(series, self.team)
+
+        # num_steps is 3, so max valid index is 2
+        columns = builder.build_constant_columns(active_step_index=2)
+
+        # Should succeed and mark step_2 as active
+        assert len(columns) == 3
+        assert isinstance(columns[2].expr, ast.Constant)
+        assert columns[2].expr.value == 1

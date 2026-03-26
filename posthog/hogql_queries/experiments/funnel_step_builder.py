@@ -116,12 +116,21 @@ class FunnelStepBuilder:
         Returns:
             List of AST Alias nodes for step columns as constants
 
+        Raises:
+            ValueError: If active_step_index is out of bounds
+
         Example:
             >>> builder = FunnelStepBuilder([...], team)
             >>> # For DW step 2 subquery:
             >>> columns = builder.build_constant_columns(active_step_index=2)
             >>> # Results in: step_0=0, step_1=0, step_2=1
         """
+        if active_step_index < 0 or active_step_index >= self.num_steps:
+            raise ValueError(
+                f"active_step_index {active_step_index} is out of bounds. "
+                f"Must be between 0 and {self.num_steps - 1} (inclusive)."
+            )
+
         columns = []
 
         for step_index in range(self.num_steps):

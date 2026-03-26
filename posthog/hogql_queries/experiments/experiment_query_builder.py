@@ -1439,6 +1439,15 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
+        # Check if any step is a data warehouse node
+        has_dw_nodes = any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
+
+        if has_dw_nodes:
+            raise NotImplementedError(
+                "ExperimentDataWarehouseNode is not yet supported in funnel metrics. "
+                "Mixed-source UNION ALL query pattern needs to be implemented."
+            )
+
         # Use FunnelStepBuilder abstraction for boolean columns
         step_builder = FunnelStepBuilder(self.metric.series, self.team)
         exposure_filter = self._build_exposure_predicate()
