@@ -168,8 +168,34 @@ pub enum BucketingIdentifier {
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
-#[derive(Debug, Clone, Deserialize, Serialize)]
+//
+// Deserialization uses FeatureFlagRaw to handle both `evaluation_tags` and
+// `evaluation_contexts` keys (or both present due to cache race conditions).
+#[derive(Debug, Clone, Serialize)]
+#[serde(into = "FeatureFlagRaw")]
 pub struct FeatureFlag {
+    pub id: FeatureFlagId,
+    pub team_id: i32,
+    pub name: Option<String>,
+    pub key: String,
+    pub filters: FlagFilters,
+    pub deleted: bool,
+    pub active: bool,
+    pub ensure_experience_continuity: Option<bool>,
+    pub version: Option<i32>,
+    pub evaluation_runtime: Option<String>,
+    /// Evaluation context tags for this flag. Accepts JSON with either `evaluation_tags`
+    /// or `evaluation_contexts` keys (or both). When both are present, `evaluation_contexts`
+    /// takes precedence as the canonical key name.
+    pub evaluation_tags: Option<Vec<String>>,
+    pub bucketing_identifier: Option<String>,
+}
+
+/// Raw deserialization struct for FeatureFlag that handles both `evaluation_tags` and
+/// `evaluation_contexts` keys. Some cache entries may have the old key, new key, or both
+/// due to race conditions during the rename migration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct FeatureFlagRaw {
     pub id: FeatureFlagId,
     pub team_id: i32,
     pub name: Option<String>,
@@ -185,10 +211,64 @@ pub struct FeatureFlag {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default, alias = "evaluation_contexts")]
+    /// Legacy key name, kept for backwards compatibility with old cache entries.
+    #[serde(default, skip_serializing)]
     pub evaluation_tags: Option<Vec<String>>,
+    /// New canonical key name for evaluation contexts.
+    #[serde(default)]
+    pub evaluation_contexts: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for FeatureFlag {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = FeatureFlagRaw::deserialize(deserializer)?;
+        Ok(FeatureFlag::from(raw))
+    }
+}
+
+impl From<FeatureFlagRaw> for FeatureFlag {
+    fn from(raw: FeatureFlagRaw) -> Self {
+        FeatureFlag {
+            id: raw.id,
+            team_id: raw.team_id,
+            name: raw.name,
+            key: raw.key,
+            filters: raw.filters,
+            deleted: raw.deleted,
+            active: raw.active,
+            ensure_experience_continuity: raw.ensure_experience_continuity,
+            version: raw.version,
+            evaluation_runtime: raw.evaluation_runtime,
+            // Prefer evaluation_contexts (new canonical name) over evaluation_tags (legacy)
+            evaluation_tags: raw.evaluation_contexts.or(raw.evaluation_tags),
+            bucketing_identifier: raw.bucketing_identifier,
+        }
+    }
+}
+
+impl From<FeatureFlag> for FeatureFlagRaw {
+    fn from(flag: FeatureFlag) -> Self {
+        FeatureFlagRaw {
+            id: flag.id,
+            team_id: flag.team_id,
+            name: flag.name,
+            key: flag.key,
+            filters: flag.filters,
+            deleted: flag.deleted,
+            active: flag.active,
+            ensure_experience_continuity: flag.ensure_experience_continuity,
+            version: flag.version,
+            evaluation_runtime: flag.evaluation_runtime,
+            evaluation_tags: None, // Don't serialize the legacy key
+            evaluation_contexts: flag.evaluation_tags, // Serialize using the new canonical name
+            bucketing_identifier: flag.bucketing_identifier,
+        }
+    }
 }
 
 impl FeatureFlag {
@@ -202,6 +282,8 @@ impl FeatureFlag {
     }
 }
 
+/// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
+/// always named `evaluation_tags` in the SQL query, so no alias is needed.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct FeatureFlagRow {
     pub id: i32,
@@ -215,7 +297,7 @@ pub struct FeatureFlagRow {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default, alias = "evaluation_contexts")]
+    #[serde(default)]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
