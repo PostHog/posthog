@@ -44,8 +44,8 @@ KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_repl
 KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_recording_events{SUFFIX}"
 
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = f"{KAFKA_PREFIX}clickhouse_error_tracking_issue_fingerprint{SUFFIX}"
-KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED = (
-    f"{KAFKA_PREFIX}clickhouse_error_tracking_issue_fingerprint_denormalized{SUFFIX}"
+KAFKA_ERROR_TRACKING_FINGERPRINT_DENORMALIZED = (
+    f"{KAFKA_PREFIX}clickhouse_error_tracking_fingerprint_denormalized{SUFFIX}"
 )
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS = (
     f"{KAFKA_PREFIX}clickhouse_error_tracking_issue_fingerprint_embeddings{SUFFIX}"

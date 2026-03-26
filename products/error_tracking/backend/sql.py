@@ -5,8 +5,8 @@ from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import (
+    KAFKA_ERROR_TRACKING_FINGERPRINT_DENORMALIZED,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
-    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
 )
 
@@ -117,8 +117,8 @@ def TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 
-def TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE}"
+def TRUNCATE_ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE}"
 
 
 INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = """
@@ -126,20 +126,16 @@ INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, t
 """
 
 #
-# error_tracking_issue_fingerprint_denormalized: Contains issue metadata alongside fingerprint
+# error_tracking_fingerprint_denormalized: Contains issue metadata alongside fingerprint
 # mappings, eliminating the need for Postgres JOINs in the list query.
 #
 
-ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE = "error_tracking_issue_fingerprint_denormalized"
-ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_WRITABLE_TABLE = (
-    f"writable_{ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE}"
-)
-ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_KAFKA_TABLE = (
-    f"kafka_{ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE}"
-)
-ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_MV = f"{ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE}_mv"
+ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE = "error_tracking_fingerprint_denormalized"
+ERROR_TRACKING_FINGERPRINT_DENORMALIZED_WRITABLE_TABLE = f"writable_{ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE}"
+ERROR_TRACKING_FINGERPRINT_DENORMALIZED_KAFKA_TABLE = f"kafka_{ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE}"
+ERROR_TRACKING_FINGERPRINT_DENORMALIZED_MV = f"{ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE}_mv"
 
-ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL = """
+ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
@@ -157,43 +153,43 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 ) ENGINE = {engine}
 """
 
-ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE, ver="version"
+ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_ENGINE = lambda: ReplacingMergeTree(
+    ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE, ver="version"
 )
 
 
-def ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL():
+def ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_SQL():
     return (
-        ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL
+        ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL
         + """
     ORDER BY (team_id, fingerprint)
     SETTINGS index_granularity = 512
     """
     ).format(
-        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE,
+        table_name=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_ENGINE(),
+        engine=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_ENGINE(),
         extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
-    , {index_by_kafka_timestamp(ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE)}
+    , {index_by_kafka_timestamp(ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE)}
     """,
     )
 
 
-def KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL():
-    return ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL.format(
-        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_KAFKA_TABLE,
+def KAFKA_ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_SQL():
+    return ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_KAFKA_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=kafka_engine(
-            KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED,
-            group="clickhouse-error-tracking-issue-fingerprint-denormalized",
+            KAFKA_ERROR_TRACKING_FINGERPRINT_DENORMALIZED,
+            group="clickhouse-error-tracking-fingerprint-denormalized",
         ),
         extra_fields="",
     )
 
 
-def ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_MV_SQL(
-    target_table=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_WRITABLE_TABLE,
+def ERROR_TRACKING_FINGERPRINT_DENORMALIZED_MV_SQL(
+    target_table=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_WRITABLE_TABLE,
 ):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
@@ -215,20 +211,20 @@ _offset,
 _partition
 FROM {database}.{kafka_table}
 """.format(
-        mv_name=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_MV,
+        mv_name=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_MV,
         target_table=target_table,
-        kafka_table=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_KAFKA_TABLE,
+        kafka_table=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_KAFKA_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         database=settings.CLICKHOUSE_DATABASE,
     )
 
 
-WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL = (
-    lambda: ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL.format(
-        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_WRITABLE_TABLE,
+WRITABLE_ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_SQL = (
+    lambda: ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_WRITABLE_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(
-            data_table=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE,
+            data_table=ERROR_TRACKING_FINGERPRINT_DENORMALIZED_TABLE,
             cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
         ),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
@@ -236,8 +232,8 @@ WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL = (
 )
 
 
-INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED = """
-INSERT INTO error_tracking_issue_fingerprint_denormalized (fingerprint, issue_id, team_id, issue_name, issue_description, issue_status, assigned_user_id, assigned_role_id, first_seen, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(issue_name)s, %(issue_description)s, %(issue_status)s, %(assigned_user_id)s, %(assigned_role_id)s, %(first_seen)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
+INSERT_ERROR_TRACKING_FINGERPRINT_DENORMALIZED = """
+INSERT INTO error_tracking_fingerprint_denormalized (fingerprint, issue_id, team_id, issue_name, issue_description, issue_status, assigned_user_id, assigned_role_id, first_seen, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(issue_name)s, %(issue_description)s, %(issue_status)s, %(assigned_user_id)s, %(assigned_role_id)s, %(first_seen)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
 
 
