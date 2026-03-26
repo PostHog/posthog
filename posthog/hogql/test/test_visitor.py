@@ -163,3 +163,13 @@ class TestVisitor(BaseTest):
     def test_visit_interval_type(self):
         # Just ensure ``IntervalType`` can be visited without throwing ``NotImplementedError``
         TraversingVisitor().visit(ast.IntervalType())
+
+    def test_order_expr_rejects_invalid_direction(self):
+        with self.assertRaises(ValueError):
+            ast.OrderExpr(expr=ast.Field(chain=["col"]), order="DESC; SELECT 1")
+
+    def test_order_expr_accepts_valid_directions(self):
+        asc = ast.OrderExpr(expr=ast.Field(chain=["col"]), order="ASC")
+        self.assertEqual(asc.order, "ASC")
+        desc = ast.OrderExpr(expr=ast.Field(chain=["col"]), order="DESC")
+        self.assertEqual(desc.order, "DESC")
