@@ -6,14 +6,18 @@ from typing import Optional
 
 import temporalio.workflow as wf
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloOutcome
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.exports.activities import emit_export_outcome, export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
-from posthog.temporal.exports.types import EmitExportOutcomeInput, ExportAssetActivityInputs, ExportError
+from posthog.temporal.exports.types import (
+    EmitExportOutcomeInput,
+    ExportAssetActivityInputs,
+    ExportError,
+    extract_error_details,
+)
 
 
 @dataclasses.dataclass
@@ -56,18 +60,11 @@ class ExportAssetWorkflow(PostHogWorkflow):
             outcome = SloOutcome.FAILURE
             caught_error = e
 
-            # Unwrap Temporal's ActivityError -> ApplicationError chain to get structured details
-            cause = e.cause if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError) else None
-            if isinstance(cause, ApplicationError) and cause.details:
-                error = ExportError(
-                    exception_class=cause.details[0] if len(cause.details) >= 1 else type(e).__name__,
-                    error_trace=cause.details[4] if len(cause.details) >= 5 else "",
-                )
-            else:
-                error = ExportError(
-                    exception_class=type(e).__name__,
-                    error_trace="\n".join(traceback.format_exception(e)[:5]),
-                )
+            err = extract_error_details(e)
+            error = ExportError(
+                exception_class=err.exception_class or type(e).__name__,
+                error_trace=err.error_trace or "\n".join(traceback.format_exception(e)[:5]),
+            )
 
         finally:
             duration_ms = (wf.time() - start_time) * 1000

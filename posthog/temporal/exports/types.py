@@ -1,7 +1,32 @@
+import typing
 import dataclasses
 from typing import Optional
 
+from temporalio.exceptions import ActivityError, ApplicationError
+
 from posthog.slo.types import SloOutcome
+
+
+class ExportErrorDetails(typing.NamedTuple):
+    exception_class: str | None = None
+    error_trace: str | None = None
+
+
+def extract_error_details(exc: BaseException) -> ExportErrorDetails:
+    """Extract failure metadata from a Temporal activity exception chain.
+
+    asyncio.gather(return_exceptions=True) yields BaseException, but Temporal
+    wraps activity failures as ActivityError -> ApplicationError. We narrow
+    through that chain to reach the structured details.
+    """
+    if not isinstance(exc, ActivityError) or not isinstance(exc.cause, ApplicationError):
+        return ExportErrorDetails()
+
+    details = exc.cause.details
+    return ExportErrorDetails(
+        exception_class=details[0] if len(details) >= 1 and isinstance(details[0], str) else None,
+        error_trace=details[1] if len(details) >= 2 and isinstance(details[1], str) else None,
+    )
 
 
 @dataclasses.dataclass
@@ -21,10 +46,6 @@ class ExportAssetResult:
     exported_asset_id: int
     success: bool
     error: Optional[ExportError] = None
-    insight_id: Optional[int] = None
-    duration_ms: Optional[float] = None
-    export_format: str = ""
-    attempts: int = 1
 
 
 @dataclasses.dataclass

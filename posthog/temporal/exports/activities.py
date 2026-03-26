@@ -1,4 +1,3 @@
-import time
 import traceback
 
 import structlog
@@ -40,14 +39,12 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             team_id=asset.team_id,
         )
 
-        start = time.monotonic()
         try:
             await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                 asset,
                 source=EventSource(inputs.source) if inputs.source else None,
             )
         except Exception as e:
-            duration_ms = (time.monotonic() - start) * 1000
             await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
             exception_class = type(e).__name__
             error_trace = "\n".join(traceback.format_exception(e)[:5])
@@ -63,28 +60,21 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             # while preserving the exception class name for retry policy matching.
             # Only known transient errors (CH/network) are worth retrying — unknown
             # errors like Chrome crashes or programming errors should fail fast.
-            # Detail order: [exception_class, duration_ms, export_format, attempt, error_trace]
+            # Detail order: [exception_class, error_trace]
+            # See: posthog.temporal.exports.types.extract_error_details
             raise ApplicationError(
                 str(e),
                 exception_class,
-                duration_ms,
-                asset.export_format,
-                temporalio.activity.info().attempt,
                 error_trace,
                 type=exception_class,
                 non_retryable=exception_class not in SYSTEM_ERROR_NAMES,
             ) from e
 
-        duration_ms = (time.monotonic() - start) * 1000
         await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
 
         return ExportAssetResult(
             exported_asset_id=asset.id,
             success=asset.has_content,
-            insight_id=asset.insight_id,
-            duration_ms=duration_ms,
-            export_format=asset.export_format,
-            attempts=temporalio.activity.info().attempt,
         )
 
 
