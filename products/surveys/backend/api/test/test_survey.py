@@ -502,8 +502,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
 
         assert survey.internal_targeting_flag is not None
@@ -557,8 +559,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
         assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.filters == expected_filters_without_iteration
@@ -600,8 +604,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
 
         assert survey.internal_targeting_flag is not None
@@ -669,8 +675,10 @@ class TestSurvey(APIBaseTest):
                         }
                     ],
                     "rollout_percentage": None,
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
@@ -731,8 +739,10 @@ class TestSurvey(APIBaseTest):
                         }
                     ],
                     "rollout_percentage": None,
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
@@ -996,8 +1006,10 @@ class TestSurvey(APIBaseTest):
                         }
                     ],
                     "rollout_percentage": None,
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
         updated_survey_updates_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
@@ -1007,7 +1019,10 @@ class TestSurvey(APIBaseTest):
         )
         assert updated_survey_updates_targeting_flag.status_code == status.HTTP_200_OK
         assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().filters == {
-            "groups": [{"variant": None, "properties": [], "rollout_percentage": 20}],
+            "groups": [
+                {"variant": None, "properties": [], "rollout_percentage": 20, "aggregation_group_type_index": None}
+            ],
+            "aggregation_group_type_index": None,
         }
 
     def test_updating_survey_to_send_none_targeting_doesnt_delete_targeting_flag(self):
@@ -1898,6 +1913,7 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 },
                 {
                     "variant": "",
@@ -1922,8 +1938,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_date_before",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 },
             ],
+            "aggregation_group_type_index": None,
         }
         assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.filters == expected_filters
@@ -1967,8 +1985,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
         assert survey.internal_targeting_flag.filters == expected_filters
 
@@ -2090,8 +2110,10 @@ class TestSurvey(APIBaseTest):
                                         },
                                     ],
                                     "rollout_percentage": 100,
+                                    "aggregation_group_type_index": None,
                                 }
                             ],
+                            "aggregation_group_type_index": None,
                         },
                         "deleted": False,
                         "active": False,
@@ -3900,7 +3922,10 @@ class TestSurveyResponseSampling(APIBaseTest):
         assert survey.response_sampling_daily_limits is not None
         assert survey.internal_response_sampling_flag is not None
         assert survey.internal_response_sampling_flag.filters == {
-            "groups": [{"properties": [], "rollout_percentage": 100, "variant": ""}],
+            "groups": [
+                {"properties": [], "rollout_percentage": 100, "variant": "", "aggregation_group_type_index": None}
+            ],
+            "aggregation_group_type_index": None,
         }
 
 
@@ -4015,8 +4040,10 @@ class TestSurveysRecurringIterations(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
             ],
+            "aggregation_group_type_index": None,
         }
 
         assert survey.internal_targeting_flag.filters == user_submitted_dismissed_filter

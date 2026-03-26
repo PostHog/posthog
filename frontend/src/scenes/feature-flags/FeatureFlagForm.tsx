@@ -1,15 +1,29 @@
 import './FeatureFlag.scss'
 
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragStartEvent,
+    PointerSensor,
+    UniqueIdentifier,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import {
     IconBalance,
     IconCheckCircle,
     IconCode,
     IconFlag,
+    IconCollapse,
+    IconExpand,
     IconGlobe,
     IconInfo,
     IconList,
@@ -37,6 +51,7 @@ import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconArrowDown, IconArrowUp, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
@@ -49,12 +64,86 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime } from '~/types'
+import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+
+interface SortableVariantHeaderProps {
+    variant: MultivariateFlagVariant
+    index: number
+    variants: MultivariateFlagVariant[]
+    alphabet: string[]
+    moveVariantUp: (index: number) => void
+    moveVariantDown: (index: number) => void
+}
+
+function SortableVariantHeader({
+    variant,
+    index,
+    variants,
+    alphabet,
+    moveVariantUp,
+    moveVariantDown,
+}: SortableVariantHeaderProps): JSX.Element {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+        id: variant.key || `variant-${index}`,
+    })
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+    }
+
+    return (
+        <div ref={setNodeRef} style={style} className="flex gap-2 items-center justify-between w-full">
+            <div className="flex gap-2 items-center">
+                <Lettermark name={alphabet[index] ?? String(index + 1)} color={LettermarkColor.Gray} size="small" />
+                <span className="text-sm font-medium">{variant.key || `Variant ${index + 1}`}</span>
+                <span className="text-xs text-muted">({variant.rollout_percentage || 0}%)</span>
+            </div>
+            <div className="flex gap-1 items-center ml-auto">
+                <LemonButton
+                    size="xsmall"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        moveVariantUp(index)
+                    }}
+                    disabled={index === 0}
+                    tooltip="Move up"
+                    icon={<IconArrowUp />}
+                />
+                <LemonButton
+                    size="xsmall"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        moveVariantDown(index)
+                    }}
+                    disabled={index === variants.length - 1}
+                    tooltip="Move down"
+                    icon={<IconArrowDown />}
+                />
+                <LemonButton
+                    size="xsmall"
+                    tooltip="Drag to reorder"
+                    icon={<SortableDragIcon className="text-muted hover:text-default shrink-0" />}
+                    onClick={(e) => e.stopPropagation()}
+                    {...listeners}
+                    {...attributes}
+                    style={{ cursor: 'grab' }}
+                    onMouseDown={(e) => {
+                        e.currentTarget.style.cursor = 'grabbing'
+                    }}
+                    onMouseUp={(e) => {
+                        e.currentTarget.style.cursor = 'grab'
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
@@ -76,6 +165,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setFeatureFlag,
         addVariant,
         removeVariant,
+        moveVariantUp,
+        moveVariantDown,
+        reorderVariants,
         distributeVariantsEqually,
         setFeatureFlagFilters,
         editFeatureFlag,
@@ -197,6 +289,53 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             description: 'Single payload without feature flag logic',
         },
     ] as const
+
+    // Drag and drop functionality
+    const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        })
+    )
+
+    const handleDragStart = (event: DragStartEvent): void => {
+        setActiveId(event.active.id)
+    }
+
+    const handleDragEnd = (event: DragEndEvent): void => {
+        const { active, over } = event
+
+        if (over && active.id !== over.id) {
+            const fromIndex = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === active.id)
+            const toIndex = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === over.id)
+
+            if (fromIndex !== -1 && toIndex !== -1) {
+                reorderVariants(fromIndex, toIndex)
+            }
+        }
+
+        setActiveId(null)
+    }
+
+    const getActiveVariant = (): MultivariateFlagVariant | null => {
+        if (!activeId) {
+            return null
+        }
+        const index = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
+        return index !== -1 ? variants[index] : null
+    }
+
+    // Calculate active variant index for drag overlay
+    const activeVariantIndex = activeId
+        ? variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
+        : -1
+
+    // Calculate expand/collapse button state
+    const allVariantKeys = variants.map((variant, index) => variant.key || `variant-${index}`)
+    const allExpanded = allVariantKeys.every((key) => openVariants.includes(key))
+    const anyExpanded = openVariants.length > 0
 
     if (!featureFlag) {
         return (
@@ -610,122 +749,179 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <div className="flex flex-col gap-2">
                                         <div className="flex items-center justify-between">
                                             <LemonLabel>Variants</LemonLabel>
-                                            <LemonButton
-                                                size="small"
-                                                icon={<IconBalance />}
-                                                onClick={distributeVariantsEqually}
-                                                tooltip="Distribute rollout percentages equally"
-                                            />
+                                            <div className="flex gap-1">
+                                                {!allExpanded && variants.length > 1 && (
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconExpand />}
+                                                        onClick={() => setOpenVariants(allVariantKeys)}
+                                                        tooltip="Expand all variants"
+                                                    >
+                                                        Expand all
+                                                    </LemonButton>
+                                                )}
+                                                {anyExpanded && (
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconCollapse />}
+                                                        onClick={() => setOpenVariants([])}
+                                                        tooltip="Collapse all variants"
+                                                    >
+                                                        Collapse all
+                                                    </LemonButton>
+                                                )}
+                                                <LemonButton
+                                                    size="small"
+                                                    icon={<IconBalance />}
+                                                    onClick={distributeVariantsEqually}
+                                                    tooltip="Distribute rollout percentages equally"
+                                                />
+                                            </div>
                                         </div>
 
-                                        <LemonCollapse
-                                            multiple
-                                            activeKeys={openVariants}
-                                            onChange={setOpenVariants}
-                                            className="[&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
-                                            panels={variants.map((variant, index) => ({
-                                                key: `variant-${index}`,
-                                                className: '!pl-[2.5rem] dark:bg-surface-secondary',
-                                                header: (
-                                                    <div className="flex gap-2 items-center">
-                                                        <Lettermark
-                                                            name={alphabet[index] ?? String(index + 1)}
-                                                            color={LettermarkColor.Gray}
-                                                            size="small"
-                                                        />
-                                                        <span className="text-sm font-medium">
-                                                            {variant.key || `Variant ${index + 1}`}
-                                                        </span>
-                                                        <span className="text-xs text-muted">
-                                                            ({variant.rollout_percentage || 0}%)
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                content: (
-                                                    <div className="flex flex-col gap-2">
-                                                        <LemonLabel>Variant key</LemonLabel>
-                                                        <LemonInput
-                                                            placeholder="Enter a variant key - e.g. control, test, variant_1"
-                                                            value={variant.key}
-                                                            onChange={(value) => updateVariant(index, 'key', value)}
-                                                            status={variantErrors[index]?.key ? 'danger' : undefined}
-                                                            data-attr={`feature-flag-variant-key-${index}`}
-                                                        />
-                                                        {variantErrors[index]?.key && (
-                                                            <span className="text-danger text-xs">
-                                                                {variantErrors[index].key}
-                                                            </span>
-                                                        )}
+                                        <DndContext
+                                            sensors={sensors}
+                                            onDragStart={handleDragStart}
+                                            onDragEnd={handleDragEnd}
+                                        >
+                                            <SortableContext
+                                                items={variants.map(
+                                                    (variant, index) => variant.key || `variant-${index}`
+                                                )}
+                                                strategy={verticalListSortingStrategy}
+                                            >
+                                                <LemonCollapse
+                                                    multiple
+                                                    activeKeys={openVariants}
+                                                    onChange={setOpenVariants}
+                                                    className="mb-3 [&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
+                                                    panels={variants.map((variant, index) => ({
+                                                        key: variant.key || `variant-${index}`,
+                                                        className: '!pl-[2.5rem] dark:bg-surface-secondary',
+                                                        header: (
+                                                            <SortableVariantHeader
+                                                                variant={variant}
+                                                                index={index}
+                                                                variants={variants}
+                                                                alphabet={alphabet}
+                                                                moveVariantUp={moveVariantUp}
+                                                                moveVariantDown={moveVariantDown}
+                                                            />
+                                                        ),
+                                                        content: (
+                                                            <div className="flex flex-col gap-2">
+                                                                <LemonLabel>Variant key</LemonLabel>
+                                                                <LemonInput
+                                                                    placeholder="Enter a variant key - e.g. control, test, variant_1"
+                                                                    value={variant.key}
+                                                                    onChange={(value) =>
+                                                                        updateVariant(index, 'key', value)
+                                                                    }
+                                                                    status={
+                                                                        variantErrors[index]?.key ? 'danger' : undefined
+                                                                    }
+                                                                    data-attr={`feature-flag-variant-key-${index}`}
+                                                                />
+                                                                {variantErrors[index]?.key && (
+                                                                    <span className="text-danger text-xs">
+                                                                        {variantErrors[index].key}
+                                                                    </span>
+                                                                )}
 
-                                                        <LemonLabel>Rollout percentage</LemonLabel>
-                                                        <LemonInput
-                                                            type="number"
-                                                            min={0}
-                                                            max={100}
-                                                            value={variant.rollout_percentage || 0}
-                                                            onChange={(value) =>
-                                                                updateVariant(
-                                                                    index,
-                                                                    'rollout_percentage',
-                                                                    parseInt(value?.toString() || '0')
-                                                                )
-                                                            }
-                                                            suffix={<span>%</span>}
-                                                            data-attr={`feature-flag-variant-rollout-${index}`}
-                                                        />
+                                                                <LemonLabel>Rollout percentage</LemonLabel>
+                                                                <LemonInput
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    value={variant.rollout_percentage || 0}
+                                                                    onChange={(value) =>
+                                                                        updateVariant(
+                                                                            index,
+                                                                            'rollout_percentage',
+                                                                            parseInt(value?.toString() || '0')
+                                                                        )
+                                                                    }
+                                                                    suffix={<span>%</span>}
+                                                                    data-attr={`feature-flag-variant-rollout-${index}`}
+                                                                />
 
-                                                        <LemonLabel>Description</LemonLabel>
-                                                        <LemonTextArea
-                                                            placeholder="Enter an optional description for the variant"
-                                                            value={variant.name || ''}
-                                                            onChange={(value) => updateVariant(index, 'name', value)}
-                                                            data-attr={`feature-flag-variant-description-${index}`}
-                                                        />
+                                                                <LemonLabel>Description</LemonLabel>
+                                                                <LemonTextArea
+                                                                    placeholder="Enter an optional description for the variant"
+                                                                    value={variant.name || ''}
+                                                                    onChange={(value) =>
+                                                                        updateVariant(index, 'name', value)
+                                                                    }
+                                                                    data-attr={`feature-flag-variant-description-${index}`}
+                                                                />
 
-                                                        <LemonLabel info="Optionally return JSON data when this variant matches.">
-                                                            Payload
-                                                        </LemonLabel>
-                                                        <JSONEditorInput
-                                                            onChange={(value) => updateVariantPayload(index, value)}
-                                                            value={featureFlag.filters?.payloads?.[index]}
-                                                            placeholder='{"key": "value"}'
-                                                        />
+                                                                <LemonLabel info="Optionally return JSON data when this variant matches.">
+                                                                    Payload
+                                                                </LemonLabel>
+                                                                <JSONEditorInput
+                                                                    onChange={(value) =>
+                                                                        updateVariantPayload(index, value)
+                                                                    }
+                                                                    value={featureFlag.filters?.payloads?.[index]}
+                                                                    placeholder='{"key": "value"}'
+                                                                />
 
-                                                        {variants.length > 1 && <LemonDivider />}
-                                                        {variants.length > 1 && (
-                                                            <LemonButton
-                                                                type="secondary"
-                                                                status="danger"
+                                                                {variants.length > 1 && <LemonDivider />}
+                                                                {variants.length > 1 && (
+                                                                    <LemonButton
+                                                                        type="secondary"
+                                                                        status="danger"
+                                                                        size="small"
+                                                                        icon={<IconTrash />}
+                                                                        onClick={() => {
+                                                                            const variantKey =
+                                                                                variant.key || `Variant ${index + 1}`
+                                                                            const hasPayload =
+                                                                                !!featureFlag.filters?.payloads?.[index]
+                                                                            LemonDialog.open({
+                                                                                title: `Remove variant "${variantKey}"?`,
+                                                                                description: hasPayload
+                                                                                    ? 'This variant has a payload configured. Both the variant and its payload will be deleted.'
+                                                                                    : 'This action cannot be undone.',
+                                                                                primaryButton: {
+                                                                                    children: 'Remove variant',
+                                                                                    status: 'danger',
+                                                                                    onClick: () => removeVariant(index),
+                                                                                },
+                                                                                secondaryButton: {
+                                                                                    children: 'Cancel',
+                                                                                },
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        Remove variant
+                                                                    </LemonButton>
+                                                                )}
+                                                            </div>
+                                                        ),
+                                                    }))}
+                                                />
+                                            </SortableContext>
+                                            <DragOverlay>
+                                                {activeId ? (
+                                                    <div className="bg-bg-light border rounded p-3 shadow-lg opacity-95">
+                                                        <div className="flex gap-2 items-center">
+                                                            <Lettermark
+                                                                name={alphabet[activeVariantIndex] ?? '?'}
+                                                                color={LettermarkColor.Gray}
                                                                 size="small"
-                                                                icon={<IconTrash />}
-                                                                onClick={() => {
-                                                                    const variantKey =
-                                                                        variant.key || `Variant ${index + 1}`
-                                                                    const hasPayload =
-                                                                        !!featureFlag.filters?.payloads?.[index]
-                                                                    LemonDialog.open({
-                                                                        title: `Remove variant "${variantKey}"?`,
-                                                                        description: hasPayload
-                                                                            ? 'This variant has a payload configured. Both the variant and its payload will be deleted.'
-                                                                            : 'This action cannot be undone.',
-                                                                        primaryButton: {
-                                                                            children: 'Remove variant',
-                                                                            status: 'danger',
-                                                                            onClick: () => removeVariant(index),
-                                                                        },
-                                                                        secondaryButton: {
-                                                                            children: 'Cancel',
-                                                                        },
-                                                                    })
-                                                                }}
-                                                            >
-                                                                Remove variant
-                                                            </LemonButton>
-                                                        )}
+                                                            />
+                                                            <span className="text-sm font-medium">
+                                                                {getActiveVariant()?.key || 'Variant'}
+                                                            </span>
+                                                            <span className="text-xs text-muted">
+                                                                ({getActiveVariant()?.rollout_percentage || 0}%)
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                ),
-                                            }))}
-                                        />
+                                                ) : null}
+                                            </DragOverlay>
+                                        </DndContext>
 
                                         <div>
                                             <LemonButton

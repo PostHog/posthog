@@ -102,6 +102,14 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
 
-## Skills
+## Agent automation
 
-Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.
+Prefer these approaches in order:
+
+1. **AGENTS.md / CLAUDE.md instructions** — try this first
+2. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
+3. **lint-staged / husky** — file-level validation at commit time
+4. **CI checks** — PR-level enforcement
+5. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement
+
+Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
