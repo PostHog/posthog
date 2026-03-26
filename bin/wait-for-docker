@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Wait until Docker Compose services pass their health checks.
 # Read-only: does not start, stop, or recreate any containers.
-# Used by mprocs processes to block until infrastructure is ready.
+# Used by phrocs processes to block until infrastructure is ready.
 #
 # Always checks core services (db, redis7, kafka, clickhouse).
 # Pass extra service names as arguments, e.g.: bin/wait-for-docker temporal

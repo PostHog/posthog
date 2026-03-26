@@ -1,4 +1,3 @@
-import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics'
 import {
     SurveysAngularInstallation,
     SurveysAstroInstallation,
@@ -12,6 +11,7 @@ import {
     SurveysNuxtInstallation,
     SurveysReactInstallation,
     SurveysReactNativeInstallation,
+    SurveysReactRouterInstallation,
     SurveysRemixInstallation,
     SurveysSvelteInstallation,
     SurveysVueInstallation,
@@ -20,10 +20,11 @@ import {
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 const SNIPPETS = {
-    JSEventCapture,
+    ...JS_WEB_SNIPPETS,
     SurveysFinalSteps,
 }
 
@@ -68,6 +69,10 @@ const SurveysNuxtInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysNuxtInstallation,
     snippets: SNIPPETS,
     wizardIntegrationName: 'Nuxt',
+})
+const SurveysReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SurveysReactRouterInstallation,
+    snippets: SNIPPETS,
 })
 const SurveysRemixInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysRemixInstallation,
@@ -114,6 +119,7 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: SurveysNextJSInstructionsWrapper,
     [SDKKey.NUXT_JS]: SurveysNuxtInstructionsWrapper,
     [SDKKey.REACT]: SurveysReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: SurveysReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: SurveysRemixInstructionsWrapper,
     [SDKKey.TANSTACK_START]: SurveysReactInstructionsWrapper,
     [SDKKey.SVELTE]: SurveysSvelteInstructionsWrapper,

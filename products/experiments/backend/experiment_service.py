@@ -723,6 +723,50 @@ class ExperimentService:
         )
 
     # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def reset_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Reset an experiment back to draft state so it can be re-run.
+
+        The feature flag stays unchanged — users continue to see their assigned
+        variants. Only the experiment dates, conclusion, and archived flag are
+        cleared, moving the experiment back to draft state.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment is already in draft state.")
+
+        experiment.start_date = None
+        experiment.end_date = None
+        experiment.archived = False
+        experiment.conclusion = None
+        experiment.conclusion_comment = None
+
+        experiment.save()
+
+        self._report_experiment_reset(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_reset(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment reset",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
     # Update
     # ------------------------------------------------------------------
 
@@ -1194,7 +1238,7 @@ class ExperimentService:
         created_by_id: str | int | None = None,
         order: str | None = None,
         evaluation_runtime: str | None = None,
-        has_evaluation_tags: str | bool | None = None,
+        has_evaluation_contexts: str | bool | None = None,
     ) -> dict[str, Any]:
         """Get feature flags eligible for use in experiments."""
         queryset = self._get_eligible_feature_flags_queryset(
@@ -1204,7 +1248,7 @@ class ExperimentService:
             created_by_id=created_by_id,
             order=order,
             evaluation_runtime=evaluation_runtime,
-            has_evaluation_tags=has_evaluation_tags,
+            has_evaluation_contexts=has_evaluation_contexts,
         )
 
         return {
@@ -1221,7 +1265,7 @@ class ExperimentService:
         created_by_id: str | int | None,
         order: str | None,
         evaluation_runtime: str | None,
-        has_evaluation_tags: str | bool | None,
+        has_evaluation_contexts: str | bool | None,
     ) -> QuerySet[FeatureFlag]:
         queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
 
@@ -1251,17 +1295,17 @@ class ExperimentService:
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
 
-        if has_evaluation_tags is not None:
+        if has_evaluation_contexts is not None:
             filter_value = (
-                has_evaluation_tags
-                if isinstance(has_evaluation_tags, bool)
-                else str(has_evaluation_tags).lower() in ("true", "1", "yes")
+                has_evaluation_contexts
+                if isinstance(has_evaluation_contexts, bool)
+                else str(has_evaluation_contexts).lower() in ("true", "1", "yes")
             )
-            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
+            queryset = queryset.annotate(eval_context_count=Count("flag_evaluation_contexts"))
             if filter_value:
-                queryset = queryset.filter(eval_tag_count__gt=0)
+                queryset = queryset.filter(eval_context_count__gt=0)
             else:
-                queryset = queryset.filter(eval_tag_count=0)
+                queryset = queryset.filter(eval_context_count=0)
 
         queryset = queryset.order_by(order or "-created_at")
 

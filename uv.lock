@@ -2894,14 +2894,14 @@ wheels = [
 
 [[package]]
 name = "hogql-parser"
-version = "1.3.32"
+version = "1.3.34"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f9/bc/4dc786fd500d82640f25721d27167636c86dc1796e78fb88525c009b7e54/hogql_parser-1.3.32.tar.gz", hash = "sha256:2874520348752251bdb38bd65063626caaa5732f6fd917820cb3ac08df1d774c", size = 85924, upload-time = "2026-03-24T08:47:56.584Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/c5/260320b7b5653cd9d341fe6ac4a63cc730cc06cf95c158f5d1f3c243f4a4/hogql_parser-1.3.34.tar.gz", hash = "sha256:245ff247af61871a0918a37589c40b481bc814d4ca837b263baf992fb1bd0c2e", size = 85924, upload-time = "2026-03-25T09:24:03.838Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/1a/5c17453e0df08f2259bfae3cd365536c4b0f4b8d8c81d1898807b5ba5567/hogql_parser-1.3.32-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:2a10050230c64842338bba10e0acf02d22f233b6be57b451e260d966f54ab8aa", size = 646380, upload-time = "2026-03-24T08:47:40.601Z" },
-    { url = "https://files.pythonhosted.org/packages/58/e0/b11fbdb8c3c74a76ec2b9021a8452810380578ce701046e7020857811604/hogql_parser-1.3.32-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:ab0aa02b1be12e9b42d98d0098acdad903bfd99eb0281cd9b4756bf60e93b4ea", size = 651502, upload-time = "2026-03-24T08:47:42.561Z" },
-    { url = "https://files.pythonhosted.org/packages/21/a2/87f49afbd49e0da7988b1e533e41ee8352b7f5091374a7b38790cd70ee22/hogql_parser-1.3.32-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:1c9745ccd1ace3b99a4b0460f595f7a0cc5edc482a51574099ed54061465dea3", size = 4874979, upload-time = "2026-03-24T08:47:44.57Z" },
-    { url = "https://files.pythonhosted.org/packages/98/35/51ba6726b28be74443bdabac7c0ef62038fcc83259be56ec00ad379658eb/hogql_parser-1.3.32-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:2845187d0201e143fa9bd7edc6bd9c228500a22a9252d21ebe0f7a681bf30075", size = 4984092, upload-time = "2026-03-24T08:47:46.876Z" },
+    { url = "https://files.pythonhosted.org/packages/30/35/6d5a0ec3ff77ad4dcc9f98ac85e770c760503b7da38b6c4efe5b2e8556d5/hogql_parser-1.3.34-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:d51d548e983419ef5f03ef102bd1f582ad7596120f9af20be195b0f8c385352f", size = 646329, upload-time = "2026-03-25T09:23:49.223Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/93/5115a94326d525651a6d689f48e03dcae40c7677da41b947b5742f6ac0d6/hogql_parser-1.3.34-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:11834d039be10c589453733b1d38baf26a61a1c5a4d5b2f5183dcbb14d5ba7f1", size = 651591, upload-time = "2026-03-25T09:23:50.738Z" },
+    { url = "https://files.pythonhosted.org/packages/50/7a/de2a468aa8343465ed2c7fb2f32dd97c0ce820cf24dd0732e592782d69cd/hogql_parser-1.3.34-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:e5168f4e65481207f990f5289a0be1c20d1892b3b16807f68c897864f37c4f7f", size = 4875400, upload-time = "2026-03-25T09:23:52.838Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/23/93ba23fac7f48f068f8b7e80834753ab1fb4615fe89954a9ddd7280b39fa/hogql_parser-1.3.34-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:41a1922049b9a57d37f33027c48fccc167e9b8c12c5425af55544fdf4ab75a30", size = 4984882, upload-time = "2026-03-25T09:23:55.257Z" },
 ]
 
 [[package]]
@@ -5006,6 +5006,7 @@ dependencies = [
     { name = "glom" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
+    { name = "google-cloud-bigquery-storage" },
     { name = "google-cloud-iam" },
     { name = "google-genai" },
     { name = "google-re2" },
@@ -5084,11 +5085,8 @@ dependencies = [
     { name = "simple-salesforce" },
     { name = "slack-sdk" },
     { name = "snowflake-connector-python" },
-    { name = "snowflake-sqlalchemy" },
     { name = "social-auth-app-django" },
     { name = "social-auth-core" },
-    { name = "sqlalchemy" },
-    { name = "sqlalchemy-bigquery", extra = ["bqstorage"] },
     { name = "sqlparse" },
     { name = "sshtunnel" },
     { name = "statshog" },
@@ -5158,7 +5156,6 @@ dev = [
     { name = "requests-mock" },
     { name = "responses" },
     { name = "ruff" },
-    { name = "sqlalchemy" },
     { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'linux'" },
     { name = "syrupy" },
     { name = "tach" },
@@ -5264,6 +5261,7 @@ requires-dist = [
     { name = "glom", specifier = "~=24.11.0" },
     { name = "google-ads", specifier = "==29.2.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
+    { name = "google-cloud-bigquery-storage", specifier = "==2.32.0" },
     { name = "google-cloud-iam", specifier = "==2.21" },
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "google-re2", specifier = ">=1.1.20251105" },
@@ -5271,7 +5269,7 @@ requires-dist = [
     { name = "grimp", specifier = "==3.13" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.32" },
+    { name = "hogql-parser", specifier = "==1.3.34" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.3.0" },
@@ -5342,11 +5340,8 @@ requires-dist = [
     { name = "simple-salesforce", specifier = "~=1.12.9" },
     { name = "slack-sdk", specifier = "==3.39.0" },
     { name = "snowflake-connector-python", specifier = "==4.1.1" },
-    { name = "snowflake-sqlalchemy", specifier = "==1.8.2" },
     { name = "social-auth-app-django", specifier = "~=5.4.3" },
     { name = "social-auth-core", specifier = "~=4.8.3" },
-    { name = "sqlalchemy", specifier = "==2.0.38" },
-    { name = "sqlalchemy-bigquery", extras = ["bqstorage"], specifier = "==1.12.1" },
     { name = "sqlparse", specifier = "==0.5.0" },
     { name = "sshtunnel", specifier = "==0.4.0" },
     { name = "statshog", specifier = "==1.0.6" },
@@ -5416,7 +5411,6 @@ dev = [
     { name = "requests-mock", specifier = "~=1.12.1" },
     { name = "responses", specifier = "==0.23.1" },
     { name = "ruff", specifier = "~=0.14.11" },
-    { name = "sqlalchemy", specifier = "==2.0.38" },
     { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'linux'", specifier = "==13.1.201.22" },
     { name = "syrupy", specifier = "~=4.9.1" },
     { name = "tach", specifier = "~=0.20.0" },
@@ -6933,19 +6927,6 @@ wheels = [
 ]
 
 [[package]]
-name = "snowflake-sqlalchemy"
-version = "1.8.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "snowflake-connector-python" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/66/0b/5e90eb28191ad6e0318254394c7e2902c4037fd566aa299dc8b5b16238f8/snowflake_sqlalchemy-1.8.2.tar.gz", hash = "sha256:91ca38719e117f94dd195ba94c22dd22f69c585b136ed129ba4e2dd93252b0c2", size = 122603, upload-time = "2025-12-10T08:33:49.116Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/77/c3af74a84eb00c1004a8e3c8a98627a3eecb2563f4ee01e621326c947bce/snowflake_sqlalchemy-1.8.2-py3-none-any.whl", hash = "sha256:13ad79bf51654cdaaedfbcc60d20bee417c0a128f8710eabbf4aba65b50f6d3d", size = 72726, upload-time = "2025-12-10T08:33:48.106Z" },
-]
-
-[[package]]
 name = "social-auth-app-django"
 version = "5.4.3"
 source = { registry = "https://pypi.org/simple" }
@@ -7012,29 +6993,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/13/8f/8cfe2ba5ba6d8090f4de0e658330c53be6b7bf430a8df1b141c2b180dcdf/SQLAlchemy-2.0.38-cp312-cp312-win32.whl", hash = "sha256:a5645cd45f56895cfe3ca3459aed9ff2d3f9aaa29ff7edf557fa7a23515a3725", size = 2075254, upload-time = "2025-02-06T20:25:21.863Z" },
     { url = "https://files.pythonhosted.org/packages/c2/5c/e3c77fae41862be1da966ca98eec7fbc07cdd0b00f8b3e1ef2a13eaa6cca/SQLAlchemy-2.0.38-cp312-cp312-win_amd64.whl", hash = "sha256:1052723e6cd95312f6a6eff9a279fd41bbae67633415373fdac3c430eca3425d", size = 2100865, upload-time = "2025-02-06T20:25:27.686Z" },
     { url = "https://files.pythonhosted.org/packages/aa/e4/592120713a314621c692211eba034d09becaf6bc8848fabc1dc2a54d8c16/SQLAlchemy-2.0.38-py3-none-any.whl", hash = "sha256:63178c675d4c80def39f1febd625a6333f44c0ba269edd8a468b156394b27753", size = 1896347, upload-time = "2025-02-06T22:08:29.784Z" },
-]
-
-[[package]]
-name = "sqlalchemy-bigquery"
-version = "1.12.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "google-api-core" },
-    { name = "google-auth" },
-    { name = "google-cloud-bigquery" },
-    { name = "packaging" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/3c/04dc925d0729a687f5a74adfe2f057189637600a79f9967dc2b34a47c88a/sqlalchemy_bigquery-1.12.1.tar.gz", hash = "sha256:f73165c40b4767ca2025b2c759b7619ef47b07fcd3bd8eb0246f7498bbba7cef", size = 117014, upload-time = "2025-01-21T20:39:43.298Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/89/1eebfcdb0006072982a20aafd5a4a7e400e0be38da159c10f2f7f0703ffc/sqlalchemy_bigquery-1.12.1-py2.py3-none-any.whl", hash = "sha256:93ae66d94405c457ae111ad4ef170b152e5b3b659ae00af21c1326bbeb253b20", size = 40159, upload-time = "2025-01-21T20:39:41.668Z" },
-]
-
-[package.optional-dependencies]
-bqstorage = [
-    { name = "google-cloud-bigquery-storage" },
-    { name = "grpcio" },
-    { name = "pyarrow" },
 ]
 
 [[package]]

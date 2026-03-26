@@ -1,1 +1,1 @@
-0026_email_config_unique_domain
+0027_slack_config_unique_slack_team_id

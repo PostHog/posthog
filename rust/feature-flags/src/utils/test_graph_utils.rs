@@ -1412,6 +1412,7 @@ fn create_flag_with_deps(
         aggregation_group_type_index: None,
         payloads: None,
         super_groups: None,
+        feature_enrollment: None,
 
         holdout: None,
     };
@@ -1425,6 +1426,7 @@ fn create_flag_with_deps(
                 prop_type: crate::properties::property_models::PropertyType::Flag,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
     }
