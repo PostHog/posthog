@@ -15,7 +15,7 @@ import { isEmailAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
-export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'delivered' | 'completed'
+export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
 export type EmailMetric =
     | 'email_sent'
     | 'email_delivered'
