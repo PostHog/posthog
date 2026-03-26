@@ -61,9 +61,9 @@ export function RecentFeatureFlagInsights(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col [&_.truncate]:whitespace-normal [&_.truncate]:overflow-visible [&_.h-12]:h-auto">
+        <div className="flex flex-col">
             {relatedInsights.slice(0, 5).map((insight: QueryBasedInsightModel, index) => (
-                <InsightRow key={index} insight={insight} dataAttr="recent-feature-flag-insight-item" />
+                <InsightRow key={index} insight={insight} dataAttr="recent-feature-flag-insight-item" allowWrap />
             ))}
         </div>
     )

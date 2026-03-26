@@ -14,11 +14,6 @@ interface FeatureFlagVariantsSectionProps {
 export function FeatureFlagVariantsSection({ featureFlag, variants }: FeatureFlagVariantsSectionProps): JSX.Element {
     const payloads = featureFlag.filters?.payloads ?? {}
 
-    // Only allow expanding variants that have extra detail beyond what the header shows
-    const expandableVariants = variants
-        .map((variant, index) => ({ variant, index }))
-        .filter(({ variant, index }) => variant.name || payloads[index])
-
     return (
         <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-muted">Variants</label>
@@ -27,7 +22,7 @@ export function FeatureFlagVariantsSection({ featureFlag, variants }: FeatureFla
                 defaultActiveKeys={[]}
                 className="[&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
                 panels={variants.map((variant, index) => {
-                    const hasExpandableContent = expandableVariants.some((v) => v.index === index)
+                    const hasExpandableContent = !!(variant.name || payloads[index])
                     return {
                         key: `variant-${index}`,
                         className: '!pl-[2.5rem] dark:bg-surface-secondary',
