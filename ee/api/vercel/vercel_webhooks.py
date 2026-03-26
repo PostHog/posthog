@@ -41,6 +41,7 @@ def _extract_config_id(payload: dict[str, Any]) -> str | None:
     # Billing events use "installationId". Deauthorization events use "configuration.id".
     return payload.get("installationId") or payload.get("configuration", {}).get("id")
 
+
 def _is_billing_event(event_type: str | None) -> bool:
     return bool(event_type and event_type.startswith(BILLING_EVENT_PREFIX))
 
