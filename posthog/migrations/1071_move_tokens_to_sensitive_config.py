@@ -41,7 +41,7 @@ def move_vercel_credentials(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1069_datadeletionrequest")]
+    dependencies = [("posthog", "1070_add_unique_cohort_kind_per_team")]
 
     operations = [
         migrations.RunPython(move_google_cloud_tokens, migrations.RunPython.noop, elidable=True),
