@@ -906,7 +906,11 @@ def break_part(
                 "SELECT log_max_index FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
                 {"db": database, "table": source_table},
             )
-            target_log_index = log_index_rows[0][0] if log_index_rows else 0
+            if not log_index_rows or log_index_rows[0][0] is None:
+                raise dagster.Failure(
+                    description=f"Could not get log_max_index for {source_table} — cannot safely proceed with DROP"
+                )
+            target_log_index = log_index_rows[0][0]
 
             # -- Step 12: Wait for replication before dropping --
             # Wait for all replicas to fetch the new parts before dropping the old one.
@@ -921,6 +925,24 @@ def break_part(
             context.log.info("Replication complete — all replicas have the new parts")
 
             # -- Step 13: DROP the original oversized part --
+            # Safety check: verify new parts exist on the source table before dropping.
+            # If ATTACHes failed silently or parts were merged away, dropping the old
+            # part would lose data.
+            new_attached = client.execute(
+                "SELECT count() FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active "
+                "AND partition_id = %(partition_id)s "
+                "AND name != %(old_part)s",
+                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
+            )
+            new_attached_count = new_attached[0][0] if new_attached else 0
+            if new_attached_count < len(detached_parts):
+                raise dagster.Failure(
+                    description=f"Expected at least {len(detached_parts)} new parts on {source_table} "
+                    f"partition {partition_id}, but only found {new_attached_count} (excluding original). "
+                    f"Skipping DROP to avoid data loss."
+                )
+
             # Re-query the part by its min_block/max_block numbers which are stable
             # across mutations (mutations only change the suffix, not the block range).
             # Original part name format: {partition}_{min_block}_{max_block}_{level}
@@ -940,7 +962,11 @@ def break_part(
             )
 
             if current_parts:
-                # Should be exactly 1 — the original part (possibly with a new mutation suffix)
+                if len(current_parts) > 1:
+                    context.log.warning(
+                        f"Found {len(current_parts)} parts matching prefix {original_prefix}: "
+                        f"{[r[0] for r in current_parts]}. Dropping the first match."
+                    )
                 current_part_name = current_parts[0][0]
                 context.log.info(f"Dropping oversized part {current_part_name} from {source_table}...")
                 client.execute(
