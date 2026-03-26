@@ -216,6 +216,52 @@ class TestRunOperations:
         assert snapshots["new"].result == SnapshotResult.NEW
         assert snapshots["changed"].result == SnapshotResult.CHANGED
 
+    def test_create_run_delta_mode(self, repo):
+        run, uploads = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[
+                {"identifier": "changed", "content_hash": "new_hash"},
+                {"identifier": "added", "content_hash": "brand_new"},
+            ],
+            baseline_hashes={"changed": "old_hash"},
+            unchanged_count=100,
+            removed_identifiers=["deleted_snapshot"],
+        )
+
+        assert run.total_snapshots == 102  # 2 sent + 100 unchanged (removed not counted in total)
+        assert run.changed_count == 1
+        assert run.new_count == 1
+        assert run.removed_count == 1
+        # Only 3 RunSnapshot rows: changed, added, removed (not 100 unchanged)
+        assert run.snapshots.count() == 3
+        removed = run.snapshots.get(identifier="deleted_snapshot")
+        assert removed.result == SnapshotResult.REMOVED
+
+    def test_create_run_delta_clean(self, repo):
+        run, uploads = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+            baseline_hashes={},
+            unchanged_count=3083,
+        )
+
+        assert run.total_snapshots == 3083
+        assert run.changed_count == 0
+        assert run.new_count == 0
+        assert run.removed_count == 0
+        assert run.snapshots.count() == 0
+        assert len(uploads) == 0
+
     def test_get_run(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,

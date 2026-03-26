@@ -35,6 +35,10 @@ class CreateRunInput:
     snapshots: list[SnapshotManifestItem]
     pr_number: int | None = None
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    # Delta mode: CLI pre-compares hashes and sends only changed/new snapshots.
+    # unchanged_count lets the backend set total without creating rows for unchanged.
+    unchanged_count: int = 0
+    removed_identifiers: list[str] = field(default_factory=list)
     # Run-level metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
 

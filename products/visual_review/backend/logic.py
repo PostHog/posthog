@@ -303,6 +303,8 @@ def create_run(
     pr_number: int | None,
     snapshots: list[dict],
     baseline_hashes: dict[str, str],
+    unchanged_count: int = 0,
+    removed_identifiers: list[str] | None = None,
     metadata: dict | None = None,
 ) -> tuple[Run, list[dict]]:
     """
@@ -335,6 +337,9 @@ def create_run(
 
         Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=F("id"))
 
+    removed = removed_identifiers or []
+    total = len(snapshots) + unchanged_count
+
     run = Run.objects.create(
         repo=repo,
         team_id=repo.team_id,
@@ -342,7 +347,7 @@ def create_run(
         commit_sha=commit_sha,
         branch=branch,
         pr_number=pr_number,
-        total_snapshots=len(snapshots),
+        total_snapshots=total,
         metadata=metadata or {},
     )
 
@@ -396,12 +401,27 @@ def create_run(
             metadata=snap.get("metadata") or {},
         )
 
-    # Calculate initial summary counts from snapshot results
-    # These are known at creation time based on hash comparison
+    # Create RunSnapshot rows for removed identifiers
+    for identifier in removed:
+        baseline_hash = verified_baselines.get(identifier)
+        baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
+        RunSnapshot.objects.create(
+            run=run,
+            identifier=identifier,
+            current_hash="",
+            baseline_hash=baseline_hash or "",
+            baseline_artifact=baseline_artifact,
+            result=SnapshotResult.REMOVED,
+            metadata={},
+        )
+
+    # Calculate initial summary counts
+    # changed/new come from the snapshots sent (only delta in delta mode)
+    # unchanged_count is reported by the CLI (not stored as individual rows)
     snapshots_list = list(run.snapshots.all())
     run.changed_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.CHANGED)
     run.new_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.NEW)
-    run.removed_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.REMOVED)
+    run.removed_count = len(removed)
     run.save(update_fields=["changed_count", "new_count", "removed_count"])
 
     # Find missing hashes and generate upload URLs
