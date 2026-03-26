@@ -36,15 +36,6 @@ mod tests {
         mock_group_type_cache(HashMap::new())
     }
 
-    /// Builds a person-only PropertyContext for tests that don't involve groups.
-    fn person_property_context(props: HashMap<String, serde_json::Value>) -> PropertyContext {
-        PropertyContext {
-            person_properties: Some(props),
-            group_properties: HashMap::new(),
-            aggregation: None,
-        }
-    }
-
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
         let context = TestContext::new(None).await;
@@ -1467,14 +1458,15 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &condition,
-                &person_property_context(HashMap::new()),
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1540,14 +1532,15 @@ mod tests {
         matcher
             .flag_evaluation_state
             .add_flag_evaluation_result(1, FlagValue::Boolean(true));
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &condition,
-                &person_property_context(HashMap::new()),
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1645,14 +1638,14 @@ mod tests {
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
         // All filters match: should pass
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&person_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &condition,
-                &person_property_context(person_properties.clone()),
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1676,14 +1669,13 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
+        let ctx2 = PropertyContext {
+            person_properties: Some(&mismatched_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher2
-            .is_condition_match(
-                &flag,
-                &condition,
-                &person_property_context(mismatched_properties),
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &condition, &ctx2, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -1702,14 +1694,13 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(false));
 
+        let ctx3 = PropertyContext {
+            person_properties: Some(&person_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher3
-            .is_condition_match(
-                &flag,
-                &condition,
-                &person_property_context(person_properties),
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &condition, &ctx3, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -2353,14 +2344,15 @@ mod tests {
             None,
         );
 
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &flag.filters.groups[0],
-                &person_property_context(HashMap::new()),
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &flag.filters.groups[0], &ctx, None, &None)
             .unwrap();
 
         assert!(is_match);

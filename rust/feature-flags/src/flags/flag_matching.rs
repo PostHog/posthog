@@ -217,35 +217,39 @@ impl FlagEvaluationState {
     }
 }
 
-/// Bundles the property maps and aggregation mode needed during condition matching.
-/// A condition may reference both person and group properties (mixed targeting), so
-/// this struct carries both sources and routes each filter to the correct one.
-pub(crate) struct PropertyContext {
-    pub person_properties: Option<HashMap<String, Value>>,
-    pub group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
+static EMPTY_PROPERTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
+    std::sync::LazyLock::new(HashMap::new);
+
+/// Bundles references to the property maps and aggregation mode needed during
+/// condition matching. A condition may reference both person and group properties
+/// (mixed targeting), so this struct carries both sources and routes each filter
+/// to the correct one.
+pub(crate) struct PropertyContext<'a> {
+    pub person_properties: Option<&'a HashMap<String, Value>>,
+    pub group_properties: &'a HashMap<GroupTypeIndex, HashMap<String, Value>>,
     pub aggregation: Option<GroupTypeIndex>,
 }
 
-impl PropertyContext {
+impl PropertyContext<'_> {
     /// Resolves the correct property map for a filter based on its type. Person filters
     /// use person properties, group filters use the group properties for the filter's
     /// `group_type_index`. Falls back to aggregation mode for legacy filters without
     /// an explicit type distinction.
     pub fn resolve_for_filter(&self, filter: &PropertyFilter) -> &HashMap<String, Value> {
-        static EMPTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
-            std::sync::LazyLock::new(HashMap::new);
-
         match filter.prop_type {
-            PropertyType::Person => self.person_properties.as_ref().unwrap_or(&*EMPTY_MAP),
+            PropertyType::Person => self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP),
             PropertyType::Group => {
                 let gti = filter.group_type_index.or(self.aggregation);
                 gti.and_then(|idx| self.group_properties.get(&idx))
-                    .unwrap_or(&*EMPTY_MAP)
+                    .unwrap_or(&*EMPTY_PROPERTY_MAP)
             }
             // Flag and Cohort filters are handled before reaching this point
             _ => match self.aggregation {
-                Some(gti) => self.group_properties.get(&gti).unwrap_or(&*EMPTY_MAP),
-                None => self.person_properties.as_ref().unwrap_or(&*EMPTY_MAP),
+                Some(gti) => self
+                    .group_properties
+                    .get(&gti)
+                    .unwrap_or(&*EMPTY_PROPERTY_MAP),
+                None => self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP),
             },
         }
     }
@@ -1402,8 +1406,8 @@ impl FeatureFlagMatcher {
             }
 
             let property_context = PropertyContext {
-                person_properties: cached_person_properties.clone(),
-                group_properties: cached_group_properties.clone(),
+                person_properties: cached_person_properties.as_ref(),
+                group_properties: &cached_group_properties,
                 aggregation,
             };
 
@@ -1518,9 +1522,6 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
-        static EMPTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
-            std::sync::LazyLock::new(HashMap::new);
-
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
         if let Some(flag_property_filters) = &condition.properties {
@@ -1564,8 +1565,7 @@ impl FeatureFlagMatcher {
                 };
                 let cohort_props = property_context
                     .person_properties
-                    .as_ref()
-                    .unwrap_or(&*EMPTY_MAP);
+                    .unwrap_or(&*EMPTY_PROPERTY_MAP);
                 if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts)? {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
@@ -1595,13 +1595,16 @@ impl FeatureFlagMatcher {
     fn condition_property_type_needs(condition: &FlagPropertyGroup) -> (bool, HashSet<i32>) {
         let mut needs_person = false;
         let mut group_types = HashSet::new();
+        let condition_aggregation = condition
+            .aggregation_group_type_index
+            .and_then(|inner| inner);
 
         if let Some(props) = &condition.properties {
             for prop in props {
                 if prop.depends_on_feature_flag() || prop.is_cohort() {
-                    // Cohorts are evaluated separately and always use person properties,
-                    // but the cohort evaluator fetches its own properties. Flag filters
-                    // don't need any properties.
+                    // Cohort filters are evaluated against person properties, so the
+                    // caller must load them before constructing the PropertyContext.
+                    // Flag filters don't need any properties.
                     if prop.is_cohort() {
                         needs_person = true;
                     }
@@ -1610,7 +1613,7 @@ impl FeatureFlagMatcher {
                 match prop.prop_type {
                     PropertyType::Person => needs_person = true,
                     PropertyType::Group => {
-                        if let Some(gti) = prop.group_type_index {
+                        if let Some(gti) = prop.group_type_index.or(condition_aggregation) {
                             group_types.insert(gti);
                         }
                     }
@@ -1721,9 +1724,10 @@ impl FeatureFlagMatcher {
 
             if has_relevant_super_condition_properties {
                 // Super conditions always use person-level aggregation (None)
+                let empty_group_props = HashMap::new();
                 let property_context = PropertyContext {
-                    person_properties: Some(person_properties.clone()),
-                    group_properties: HashMap::new(),
+                    person_properties: Some(person_properties),
+                    group_properties: &empty_group_props,
                     aggregation: None,
                 };
                 let (is_match, _) = self.is_condition_match(
