@@ -29,7 +29,7 @@ export function InlineTagEditor({
                 <Spinner className="text-sm" />
             ) : (
                 <>
-                    <ObjectTags tags={tags} staticOnly />
+                    {hasTags && <ObjectTags tags={tags} staticOnly />}
                     <LemonDropdown
                         visible={isEditing}
                         onClickOutside={() => setIsEditing(false)}
