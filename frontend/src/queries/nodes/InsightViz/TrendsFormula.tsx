@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { TrendsFormulaNode } from '~/queries/schema/schema-general'
@@ -15,6 +16,7 @@ const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z \-*^0-9+/().]+$/
 export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { formulaNodes, hasFormula } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter, removeFormulaNode } = useActions(insightVizDataLogic(insightProps))
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     // Initialize with at least one empty value
     const [values, setValues] = useState<TrendsFormulaNode[]>(formulaNodes)
@@ -22,7 +24,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     useEffect(() => {
         // Don't clear the formulas so that the values are still there after toggling the formula switch
-        if (formulaNodes && formulaNodes.length > 0) {
+        if (editorPanelsEnabled ? formulaNodes && formulaNodes.length > 0 : formulaNodes) {
             setValues(formulaNodes)
             // Merge incoming formulas with existing local fields, maintaining order
             setLocalValues((prev) => {
@@ -39,9 +41,15 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
             })
         } else if (hasFormula) {
             // Always ensure at least one empty value when formula mode is enabled
-            const emptyNode = { formula: '' }
-            setValues([emptyNode])
-            setLocalValues([emptyNode])
+            if (editorPanelsEnabled) {
+                const emptyNode = { formula: '' }
+                setValues([emptyNode])
+                setLocalValues([emptyNode])
+            } else if (values.length === 0) {
+                const emptyNode = { formula: '' }
+                setValues([emptyNode])
+                setLocalValues([emptyNode])
+            }
         }
     }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 

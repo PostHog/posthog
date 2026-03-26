@@ -10,7 +10,7 @@ export function FunnelStepConfiguration({ insightProps }: EditorFilterProps): JS
     const { showGroupsOptions } = useValues(groupsModel)
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="flex flex-col gap-4">
             {showGroupsOptions && (
                 <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
                     <span>Aggregating by</span>

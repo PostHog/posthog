@@ -147,7 +147,7 @@ export function InsightViz({
                                         : 'InsightCard__viz'
                                 }
                             >
-                                {context?.sceneHeader && (
+                                {editorPanelsEnabled && context?.sceneHeader && (
                                     <div className="w-full shrink-0 px-4 pt-2 [&_.-mt-4]:mt-0 z-10 relative">
                                         {context.sceneHeader}
                                     </div>
@@ -168,7 +168,7 @@ export function InsightViz({
                                     )
                                 )}
                                 {!isEmbedded ? (
-                                    context?.sceneHeader ? (
+                                    editorPanelsEnabled && context?.sceneHeader ? (
                                         <div className="flex-1 min-w-0 h-full flex flex-col">
                                             <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden pt-2 px-4 pb-4">
                                                 {display}
