@@ -9,6 +9,7 @@ import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { Search } from 'lib/components/Search/Search'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { uuid } from 'lib/utils'
@@ -22,6 +23,7 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { aiFirstHomepageLogic, HomepageGridItem } from './aiFirstHomepageLogic'
@@ -49,11 +51,11 @@ function IdleInput(): JSX.Element {
         <form onSubmit={handleSubmit} className="flex flex-col items-center w-full px-3">
             <label
                 htmlFor="homepage-input"
-                className="min-h-[42px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
+                className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
             >
                 <div className="flex w-full py-1 px-2">
                     {!query && (
-                        <span className="text-tertiary pointer-events-none absolute left-3.5 top-2.5 flex items-center gap-1">
+                        <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
                             <span className="text-tertiary">{placeholder}</span>
                             <span className="text-tertiary opacity-50 contrast-more:opacity-100">/ for commands</span>
                         </span>
@@ -200,8 +202,9 @@ const GRID_COLUMNS: { label: string; kind: HomepageGridItem['kind']; icon: React
 ]
 
 function IdleGrid(): JSX.Element {
-    const { gridItems, query, pinnedDashboardsLoading, recentItemsLoading, starredItemsLoading } =
+    const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
+    const { deleteShortcut } = useActions(projectTreeDataLogic)
     const gridRef = useRef<HTMLDivElement>(null)
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
@@ -313,7 +316,7 @@ function IdleGrid(): JSX.Element {
     }, [highlight])
 
     const isCollapsed = !!query.trim()
-    const columnLoadingStates = [pinnedDashboardsLoading, recentItemsLoading, starredItemsLoading]
+    const columnLoadingStates = [dashboardsLoading, recentItemsLoading, starredItemsLoading]
 
     return (
         <div
@@ -361,9 +364,25 @@ function IdleGrid(): JSX.Element {
                                               }
                                               onMouseEnter={() => setHighlight([colIndex, rowIndex])}
                                               onMouseLeave={() => setHighlight(null)}
+                                              extraContextMenuItems={
+                                                  (item.kind === 'starred' || item.kind === 'dashboard') &&
+                                                  item.entryId ? (
+                                                      <ContextMenuItem
+                                                          asChild
+                                                          onClick={() => {
+                                                              deleteShortcut(item.entryId!)
+                                                          }}
+                                                      >
+                                                          <ButtonPrimitive menuItem variant="danger" forceVariant>
+                                                              <IconStar className="size-4 text-inherit" /> Remove from
+                                                              starred
+                                                          </ButtonPrimitive>
+                                                      </ContextMenuItem>
+                                                  ) : undefined
+                                              }
                                           >
                                               <GridItemIcon item={item} />
-                                              <span className="truncate text-xs">{item.label}</span>
+                                              <span className="truncate">{item.label}</span>
                                           </Link>
                                       </div>
                                   ))}
