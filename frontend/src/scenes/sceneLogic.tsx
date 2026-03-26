@@ -1150,7 +1150,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
-                            !location.pathname.startsWith('/settings/user')
+                            !location.pathname.startsWith(urls.settings('user'))
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
