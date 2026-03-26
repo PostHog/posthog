@@ -660,13 +660,15 @@ function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): Ins
     return a.filter((e): e is InsightEditorFilter => !!e)
 }
 
-function getFiltersSummary(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined | null): string | null {
+export function getFiltersSummary(
+    properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined | null
+): string | null {
     if (!properties) {
         return null
     }
     const filters: AnyPropertyFilter[] = Array.isArray(properties)
         ? properties
-        : properties.values.flatMap((group) => (group.values as AnyPropertyFilter[]) ?? [])
+        : properties.values.flatMap((group) => group.values.filter((v): v is AnyPropertyFilter => 'key' in v))
     if (filters.length === 0) {
         return null
     }
@@ -674,7 +676,7 @@ function getFiltersSummary(properties: AnyPropertyFilter[] | PropertyGroupFilter
     return names.length > 0 ? names.join(', ') : pluralize(filters.length, 'filter')
 }
 
-function getBreakdownSummary(breakdownFilter: BreakdownFilter | null | undefined): string | null {
+export function getBreakdownSummary(breakdownFilter: BreakdownFilter | null | undefined): string | null {
     if (!breakdownFilter) {
         return null
     }
@@ -695,7 +697,7 @@ function getBreakdownSummary(breakdownFilter: BreakdownFilter | null | undefined
     return null
 }
 
-function getSeriesSummary(
+export function getSeriesSummary(
     series: { custom_name?: string; name?: string; event?: string | null }[] | null | undefined
 ): string | null {
     if (!series || series.length === 0) {
