@@ -106,16 +106,14 @@ export const searchLogic = kea<searchLogicType>([
         starredShortcuts: [
             [] as FileSystemEntry[],
             {
-                loadStarredShortcuts: async () => {
-                    const response = await api.fileSystemShortcuts.list()
-                    const entries = response.results.filter((e) => e.type !== 'folder')
-                    return entries
-                        .sort((a, b) => {
-                            const ta = a.created_at ? Date.parse(a.created_at) : 0
-                            const tb = b.created_at ? Date.parse(b.created_at) : 0
-                            return tb - ta
-                        })
-                        .slice(0, STARRED_LIMIT)
+                loadStarredShortcuts: async (_, breakpoint) => {
+                    const response = await api.fileSystemShortcuts.list({
+                        ordering: '-created_at',
+                        limit: STARRED_LIMIT * 2,
+                    })
+                    breakpoint()
+                    // Server orders by created_at; over-fetch so we still have ~STARRED_LIMIT after dropping folders.
+                    return response.results.filter((e) => e.type !== 'folder').slice(0, STARRED_LIMIT)
                 },
             },
         ],
@@ -1109,7 +1107,7 @@ export const searchLogic = kea<searchLogicType>([
                 actions.loadRecents({ search: '' })
             }
             if (search.trim() === '' || !values.starredHasLoaded) {
-                actions.loadStarredShortcuts()
+                actions.loadStarredShortcuts(undefined)
             }
 
             if (search.trim() !== '') {
@@ -1125,7 +1123,7 @@ export const searchLogic = kea<searchLogicType>([
                 actions.loadRecents({ search: '' })
             }
             if (!values.starredHasLoaded) {
-                actions.loadStarredShortcuts()
+                actions.loadStarredShortcuts(undefined)
             }
             // Load scene log views for app last viewed timestamps
             if (values.sceneLogViews.length === 0) {
