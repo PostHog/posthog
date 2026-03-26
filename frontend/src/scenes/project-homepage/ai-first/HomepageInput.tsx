@@ -24,13 +24,13 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { aiFirstHomepageLogic, HomepageGridItem } from './aiFirstHomepageLogic'
+import { aiFirstHomepageLogic, HomepageGridItem, HomepageGridItemKind } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
-    const { query, placeholder } = useValues(aiFirstHomepageLogic)
+    const { query } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -56,7 +56,7 @@ function IdleInput(): JSX.Element {
                 <div className="flex w-full py-1 px-2">
                     {!query && (
                         <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
-                            <span className="text-tertiary">{placeholder}</span>
+                            <span className="text-tertiary">What can I help you with?</span>
                             <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
                                 / for commands
                             </span>
@@ -236,6 +236,45 @@ const GRID_COLUMNS: GridColumn[] = [
     },
 ]
 
+function getGridItemContextMenu(
+    item: HomepageGridItem,
+    actions: { deleteShortcut: (id: string) => void; addShortcutItem: (entry: FileSystemEntry) => void }
+): React.ReactNode | undefined {
+    if (item.kind === 'starred' && item.entryId) {
+        return (
+            <ContextMenuItem
+                asChild
+                onClick={() => {
+                    posthog.capture('homepage grid item remove from starred', { kind: item.kind, href: item.href })
+                    actions.deleteShortcut(item.entryId!)
+                }}
+                data-attr="homepage-grid-remove-from-starred"
+            >
+                <ButtonPrimitive menuItem variant="danger" forceVariant>
+                    <IconStar className="size-4 text-inherit" /> Remove from starred
+                </ButtonPrimitive>
+            </ContextMenuItem>
+        )
+    }
+    if (item.kind === 'recent' && item.entry) {
+        return (
+            <ContextMenuItem
+                asChild
+                onClick={() => {
+                    posthog.capture('homepage grid item add to starred', { kind: item.kind, href: item.href })
+                    actions.addShortcutItem(item.entry!)
+                }}
+                data-attr="homepage-grid-add-to-starred"
+            >
+                <ButtonPrimitive menuItem>
+                    <IconStar className="size-4" /> Add to starred
+                </ButtonPrimitive>
+            </ContextMenuItem>
+        )
+    }
+    return undefined
+}
+
 const GRID_SKELETON_COUNTS_KEY = 'homepage-grid-skeleton-counts'
 
 function getStoredSkeletonCounts(): Record<string, number> | null {
@@ -391,7 +430,11 @@ function IdleGrid(): JSX.Element {
     }, [highlight])
 
     const isCollapsed = !!query.trim()
-    const columnLoadingStates = [dashboardsLoading, recentItemsLoading, starredItemsLoading]
+    const loadingByKind: Record<HomepageGridItemKind, boolean> = {
+        dashboard: dashboardsLoading,
+        recent: recentItemsLoading,
+        starred: starredItemsLoading,
+    }
 
     return (
         <div
@@ -429,7 +472,7 @@ function IdleGrid(): JSX.Element {
                                 {col.icon}
                                 {col.label}
                             </Label>
-                            {columnLoadingStates[colIndex] &&
+                            {loadingByKind[col.kind] &&
                             col.items.length === 0 &&
                             (skeletonCounts === null || (skeletonCounts[col.kind] ?? 0) > 0) ? (
                                 Array.from({ length: skeletonCounts?.[col.kind] ?? 3 }).map((_, i) => (
@@ -469,42 +512,10 @@ function IdleGrid(): JSX.Element {
                                             }
                                             onMouseEnter={() => setHighlight([colIndex, rowIndex])}
                                             onMouseLeave={() => setHighlight(null)}
-                                            extraContextMenuItems={
-                                                item.kind === 'starred' && item.entryId ? (
-                                                    <ContextMenuItem
-                                                        asChild
-                                                        onClick={() => {
-                                                            posthog.capture('homepage grid item remove from starred', {
-                                                                kind: item.kind,
-                                                                href: item.href,
-                                                            })
-                                                            deleteShortcut(item.entryId!)
-                                                        }}
-                                                        data-attr="homepage-grid-remove-from-starred"
-                                                    >
-                                                        <ButtonPrimitive menuItem variant="danger" forceVariant>
-                                                            <IconStar className="size-4 text-inherit" /> Remove from
-                                                            starred
-                                                        </ButtonPrimitive>
-                                                    </ContextMenuItem>
-                                                ) : item.kind === 'recent' && item.entry ? (
-                                                    <ContextMenuItem
-                                                        asChild
-                                                        onClick={() => {
-                                                            posthog.capture('homepage grid item add to starred', {
-                                                                kind: item.kind,
-                                                                href: item.href,
-                                                            })
-                                                            addShortcutItem(item.entry!)
-                                                        }}
-                                                        data-attr="homepage-grid-add-to-starred"
-                                                    >
-                                                        <ButtonPrimitive menuItem>
-                                                            <IconStar className="size-4" /> Add to starred
-                                                        </ButtonPrimitive>
-                                                    </ContextMenuItem>
-                                                ) : undefined
-                                            }
+                                            extraContextMenuItems={getGridItemContextMenu(item, {
+                                                deleteShortcut,
+                                                addShortcutItem,
+                                            })}
                                         >
                                             <GridItemIcon item={item} />
                                             <span className="truncate">{item.label}</span>

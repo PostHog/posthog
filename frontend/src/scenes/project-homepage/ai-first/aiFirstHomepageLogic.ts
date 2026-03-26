@@ -113,7 +113,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
                     })
-                    return response.results.slice(0, GRID_LIMIT)
+                    return response.results
                 },
             },
         ],
@@ -178,7 +178,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     selectors({
         mode: [(s) => [s.layoutState], (layoutState): HomepageMode => layoutState.mode],
         animationPhase: [(s) => [s.layoutState], (layoutState): AnimationPhase => layoutState.animationPhase],
-        placeholder: [() => [], (): string => 'What can I help you with?'],
         pinnedDashboardItems: [
             (s) => [s.pinnedDashboards],
             (pinnedDashboards): HomepageGridItem[] =>
