@@ -1283,7 +1283,7 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
         installation = VercelIntegration._get_installation_for_organization(team.organization)
-        if not installation or installation.config.get("type") != "connectable":
+        if not installation:
             return
         try:
             resource, created = Integration.objects.get_or_create(
