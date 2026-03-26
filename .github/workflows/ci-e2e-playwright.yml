@@ -378,13 +378,17 @@ jobs:
             - name: Resolve Node.js container image tag
               id: node-image
               run: |
-                  COMMIT_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
-                  # Check GHCR for a commit-specific node image (built by ci-nodejs-container.yml)
-                  if docker manifest inspect "ghcr.io/posthog/posthog-node:${COMMIT_SHA}" > /dev/null 2>&1; then
-                    echo "posthog-node image found for commit ${COMMIT_SHA}"
-                    echo "POSTHOG_NODE_TAG=${COMMIT_SHA}" >> "$GITHUB_ENV"
+                  # ci-nodejs-container.yml tags images as pr-<number> for PRs
+                  if [ -n "${{ github.event.pull_request.number }}" ]; then
+                    TAG="pr-${{ github.event.pull_request.number }}"
                   else
-                    echo "posthog-node image not found for commit, using master"
+                    TAG="${{ github.sha }}"
+                  fi
+                  if docker manifest inspect "ghcr.io/posthog/posthog-node:${TAG}" > /dev/null 2>&1; then
+                    echo "posthog-node image found: ${TAG}"
+                    echo "POSTHOG_NODE_TAG=${TAG}" >> "$GITHUB_ENV"
+                  else
+                    echo "posthog-node image not found for ${TAG}, using master"
                     echo "POSTHOG_NODE_TAG=master" >> "$GITHUB_ENV"
                   fi
 

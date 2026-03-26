@@ -112,16 +112,21 @@ class HobbyTester:
     def _get_node_image_fallback_script(self):
         """Return bash script to resolve the posthog-node image tag.
 
-        Checks DockerHub for a commit-specific tag. If found, exports
-        POSTHOG_NODE_TAG so the hobby-installer writes it to .env and
-        docker-compose uses the branch image. Otherwise falls back to 'latest'.
+        ci-nodejs-container.yml tags images as pr-<number> for PRs.
+        Checks DockerHub for that tag; if found, exports POSTHOG_NODE_TAG
+        so the hobby-installer writes it to .env and docker-compose uses
+        the branch image. Otherwise falls back to 'latest'.
         """
+        if self.pr_number and self.pr_number != "unknown":
+            tag = f"pr-{self.pr_number}"
+        else:
+            tag = "$CURRENT_COMMIT"
         return (
             "if curl -sf "
-            "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT "
+            f"https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{tag} "
             "> /dev/null 2>&1; then "
-            "echo posthog-node image found on DockerHub; "
-            "export POSTHOG_NODE_TAG=$CURRENT_COMMIT; "
+            f"echo posthog-node image found on DockerHub with tag {tag}; "
+            f"export POSTHOG_NODE_TAG={tag}; "
             "else "
             "echo posthog-node image not found, using latest; "
             "export POSTHOG_NODE_TAG=latest; "
@@ -416,18 +421,18 @@ runcmd:
             raise RuntimeError(f"Failed to update .env: {result['stderr']}")
         print(f"✅ Updated POSTHOG_APP_TAG to {new_sha}")
 
-        # Resolve node image tag: use commit-specific tag if available, otherwise 'latest'
-        print("🔍 Checking if node image exists for this commit...")
-        check_node_cmd = (
-            f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{new_sha}" > /dev/null 2>&1'
-        )
+        # Resolve node image tag: ci-nodejs-container.yml tags as pr-<number> for PRs
+        pr_tag = f"pr-{self.pr_number}" if self.pr_number and self.pr_number != "unknown" else None
+        candidate_tag = pr_tag or new_sha
+        print(f"🔍 Checking if node image exists with tag: {candidate_tag}...")
+        check_node_cmd = f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{candidate_tag}" > /dev/null 2>&1'
         result = self.run_ssh_command(check_node_cmd, timeout=30)
         if result["exit_code"] == 0:
-            node_tag = new_sha
-            print(f"✅ Node image found for commit, using tag: {new_sha}")
+            node_tag = candidate_tag
+            print(f"✅ Node image found, using tag: {candidate_tag}")
         else:
             node_tag = "latest"
-            print(f"ℹ️ Node image not found for commit, falling back to tag: latest")
+            print(f"ℹ️ Node image not found for {candidate_tag}, falling back to tag: latest")
 
         # Update or add POSTHOG_NODE_TAG in .env
         update_node_tag_cmd = (
