@@ -1,16 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { LemonBanner, LemonInput, LemonModal, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { experimentsLogic, getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Experiment, ExperimentStatus, FeatureFlagType } from '~/types'
@@ -29,16 +25,9 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
         featureFlagModalFeatureFlagsLoading,
         featureFlagModalFilters,
         featureFlagModalPagination,
-        copyExperimentToProjectLoading,
     } = useValues(experimentsLogic)
-    const { duplicateExperiment, copyExperimentToProject, setFeatureFlagModalFilters, resetFeatureFlagModalFilters } =
+    const { duplicateExperiment, setFeatureFlagModalFilters, resetFeatureFlagModalFilters } =
         useActions(experimentsLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { currentTeam } = useValues(teamLogic)
-
-    const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
-
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
 
     const [experimentName, setExperimentName] = useState('')
     const [flagKey, setFlagKey] = useState('')
@@ -75,13 +64,6 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
         handleClose()
     }
 
-    const handleCopyToProject = (): void => {
-        if (selectedProjectId) {
-            copyExperimentToProject({ id: experiment.id as number, targetProjectId: selectedProjectId })
-            onClose()
-        }
-    }
-
     const handleClose = (): void => {
         resetFeatureFlagModalFilters()
         setExperimentName('')
@@ -89,7 +71,6 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
         setFlagKeyManuallyEdited(false)
         setIsExistingFlag(false)
         setShowReuseFlag(false)
-        setSelectedProjectId(null)
         onClose()
     }
 
@@ -117,43 +98,6 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                 <div className="text-muted max-w-xl">
                     Create a new experiment using the configuration from <strong>{experiment.name}</strong>.
                 </div>
-
-                {hasMultipleProjects && (
-                    <>
-                        <div>
-                            <div className="font-semibold mb-2">Copy to another project</div>
-                            <div className="text-muted text-xs mb-2">
-                                The experiment and its feature flag will be copied as a draft. The feature flag will be
-                                disabled by default.
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <LemonSelect
-                                    placeholder="Select a project"
-                                    dropdownMatchSelectWidth={false}
-                                    value={selectedProjectId}
-                                    onChange={(id) => setSelectedProjectId(id)}
-                                    options={
-                                        currentOrganization?.teams
-                                            ?.map((team) => ({ value: team.id, label: team.name }))
-                                            .sort((a, b) => a.label.localeCompare(b.label))
-                                            .filter((option) => option.value !== currentTeam?.id) || []
-                                    }
-                                    className="min-w-[10rem]"
-                                />
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    disabledReason={!selectedProjectId ? 'Select a project' : undefined}
-                                    loading={copyExperimentToProjectLoading}
-                                    onClick={handleCopyToProject}
-                                >
-                                    Copy
-                                </LemonButton>
-                            </div>
-                        </div>
-                        <LemonDivider />
-                    </>
-                )}
 
                 <div>
                     <label className="font-semibold mb-1 block">Experiment name</label>
