@@ -1,3 +1,4 @@
+use crate::utils::mock::Mock;
 use serde::{Deserialize, Serialize};
 
 // Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in posthog/api/feature_flag.py
@@ -60,4 +61,16 @@ pub struct PropertyFilter {
     pub prop_type: PropertyType,
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
+}
+
+#[allow(clippy::needless_update)]
+impl Mock for PropertyFilter {
+    fn mock() -> Self {
+        PropertyFilter {
+            key: "test_prop".to_string(),
+            value: Some(serde_json::json!("test_value")),
+            operator: Some(OperatorType::Exact),
+            ..Default::default()
+        }
+    }
 }

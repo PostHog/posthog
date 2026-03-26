@@ -1,12 +1,3 @@
-#![allow(clippy::needless_update)]
-
-use crate::cohorts::cohort_models::Cohort;
-use crate::flags::flag_models::{
-    FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, Holdout, MultivariateFlagVariant,
-};
-use crate::properties::property_models::{OperatorType, PropertyFilter};
-use serde_json::json;
-
 /// Like `Default`, but for test contexts. Provides sensible test defaults
 /// (non-zero IDs, descriptive names, 100% rollout, etc.).
 ///
@@ -104,161 +95,16 @@ macro_rules! mock {
     }};
 }
 
-// Mock implementations
-
-impl Mock for FeatureFlag {
-    fn mock() -> Self {
-        FeatureFlag {
-            id: 1,
-            team_id: 1,
-            name: Some("Test Flag".to_string()),
-            key: "test_flag".to_string(),
-            filters: Mock::mock(),
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: Some(1),
-            evaluation_runtime: Some("all".to_string()),
-            ..Default::default()
-        }
-    }
-}
-
-impl Mock for FeatureFlagRow {
-    fn mock() -> Self {
-        FeatureFlagRow {
-            team_id: 1,
-            name: Some("Test Flag".to_string()),
-            key: "test_flag".to_string(),
-            filters: json!({
-                "groups": [{
-                    "properties": [],
-                    "rollout_percentage": 100
-                }]
-            }),
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: Some(1),
-            evaluation_runtime: Some("all".to_string()),
-            ..Default::default()
-        }
-    }
-}
-
-impl Mock for PropertyFilter {
-    fn mock() -> Self {
-        PropertyFilter {
-            key: "test_prop".to_string(),
-            value: Some(json!("test_value")),
-            operator: Some(OperatorType::Exact),
-            ..Default::default()
-        }
-    }
-}
-
-impl Mock for Cohort {
-    fn mock() -> Self {
-        Cohort {
-            id: 1,
-            name: Some("Test Cohort".to_string()),
-            description: Some("Test cohort description".to_string()),
-            team_id: 1,
-            version: Some(1),
-            groups: json!({}),
-            ..Default::default()
-        }
-    }
-}
-
-impl Mock for Holdout {
-    fn mock() -> Self {
-        Holdout {
-            id: 1,
-            exclusion_percentage: 10.0,
-            ..Default::default()
-        }
-    }
-}
-
-impl Mock for MultivariateFlagVariant {
-    fn mock() -> Self {
-        MultivariateFlagVariant {
-            key: "control".to_string(),
-            name: Some("Control".to_string()),
-            rollout_percentage: 100.0,
-            ..Default::default()
-        }
-    }
-}
-
-impl Mock for FlagPropertyGroup {
-    fn mock() -> Self {
-        FlagPropertyGroup {
-            properties: Some(vec![]),
-            rollout_percentage: Some(100.0),
-            ..Default::default()
-        }
-    }
-}
-
-impl Mock for FlagFilters {
-    fn mock() -> Self {
-        FlagFilters {
-            groups: vec![Mock::mock()],
-            ..Default::default()
-        }
-    }
-}
-
-// MockFrom implementations
-
-impl MockFrom<FeatureFlag> for FeatureFlagRow {
-    fn mock_from(flag: FeatureFlag) -> Self {
-        let filters = serde_json::to_value(&flag.filters)
-            .expect("Mock: failed to serialize FeatureFlag.filters to JSON");
-        FeatureFlagRow {
-            id: flag.id,
-            team_id: flag.team_id,
-            name: flag.name,
-            key: flag.key,
-            filters,
-            deleted: flag.deleted,
-            active: flag.active,
-            ensure_experience_continuity: flag.ensure_experience_continuity,
-            version: flag.version,
-            evaluation_runtime: flag.evaluation_runtime,
-            evaluation_tags: flag.evaluation_tags,
-            bucketing_identifier: flag.bucketing_identifier,
-            ..Default::default()
-        }
-    }
-}
-
-/// Single property → `FlagFilters` with one group at 100% rollout.
-impl MockFrom<PropertyFilter> for FlagFilters {
-    fn mock_from(property: PropertyFilter) -> Self {
-        MockFrom::mock_from(vec![property])
-    }
-}
-
-/// Multiple properties → `FlagFilters` with one group at 100% rollout.
-impl MockFrom<Vec<PropertyFilter>> for FlagFilters {
-    fn mock_from(properties: Vec<PropertyFilter>) -> Self {
-        FlagFilters {
-            groups: vec![FlagPropertyGroup {
-                properties: Some(properties),
-                rollout_percentage: Some(100.0),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::cohorts::cohort_models::Cohort;
+    use crate::flags::flag_models::{
+        FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, Holdout,
+        MultivariateFlagVariant,
+    };
     use crate::mock;
-    use crate::properties::property_models::PropertyType;
+    use crate::properties::property_models::{OperatorType, PropertyType};
+    use crate::utils::mock::MockInto;
     use serde_json::json;
 
     #[test]
@@ -312,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_mock_property_filter_defaults() {
-        let pf = mock!(PropertyFilter);
+        let pf = mock!(crate::properties::property_models::PropertyFilter);
 
         assert_eq!(pf.key, "test_prop");
         assert_eq!(pf.value, Some(json!("test_value")));
@@ -324,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_mock_property_filter_with_overrides() {
-        let pf = mock!(PropertyFilter,
+        let pf = mock!(crate::properties::property_models::PropertyFilter,
             key: "email".mock_into(),
             value: Some(json!("test@example.com")),
             prop_type: PropertyType::Group,
@@ -422,7 +268,9 @@ mod tests {
 
     #[test]
     fn test_mock_into_property_filter_to_filters() {
-        let filters: FlagFilters = mock!(PropertyFilter, key: "country".mock_into()).mock_into();
+        let filters: FlagFilters =
+            mock!(crate::properties::property_models::PropertyFilter, key: "country".mock_into())
+                .mock_into();
 
         assert_eq!(filters.groups.len(), 1);
         assert_eq!(filters.groups[0].rollout_percentage, Some(100.0));
@@ -434,8 +282,8 @@ mod tests {
     #[test]
     fn test_mock_into_vec_properties_to_filters() {
         let filters: FlagFilters = vec![
-            mock!(PropertyFilter, key: "a".mock_into()),
-            mock!(PropertyFilter, key: "b".mock_into()),
+            mock!(crate::properties::property_models::PropertyFilter, key: "a".mock_into()),
+            mock!(crate::properties::property_models::PropertyFilter, key: "b".mock_into()),
         ]
         .mock_into();
 
@@ -450,7 +298,7 @@ mod tests {
     fn test_nested_mock_composition() {
         let flag = mock!(FeatureFlag,
             team_id: 42,
-            filters: mock!(PropertyFilter,
+            filters: mock!(crate::properties::property_models::PropertyFilter,
                 key: "country".mock_into(),
                 value: Some(json!("US"))
             ).mock_into()
@@ -476,7 +324,7 @@ mod tests {
             team_id: 99,
             filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
+                    properties: Some(vec![crate::properties::property_models::PropertyFilter {
                         key: "country".to_string(),
                         value: Some(json!("US")),
                         operator: Some(OperatorType::Exact),
@@ -503,7 +351,7 @@ mod tests {
 
         let mock_flag = mock!(FeatureFlag,
             team_id: 99,
-            filters: mock!(PropertyFilter,
+            filters: mock!(crate::properties::property_models::PropertyFilter,
                 key: "country".mock_into(),
                 value: Some(json!("US"))
             ).mock_into()
@@ -597,7 +445,7 @@ mod tests {
         let flag = mock!(FeatureFlag, id: 99,);
         assert_eq!(flag.id, 99);
 
-        let pf = mock!(PropertyFilter, key: "x".mock_into(),);
+        let pf = mock!(crate::properties::property_models::PropertyFilter, key: "x".mock_into(),);
         assert_eq!(pf.key, "x");
     }
 }
