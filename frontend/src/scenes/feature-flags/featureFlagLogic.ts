@@ -1,3 +1,4 @@
+import { CronExpressionParser } from 'cron-parser'
 import cronstrue from 'cronstrue'
 import {
     actions,
@@ -21,7 +22,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -1515,6 +1516,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
+        setCronExpression: ({ cronExpression }) => {
+            if (!cronExpression) {
+                return
+            }
+            try {
+                const baseDate = values.scheduleDateMarker?.toDate() ?? new Date()
+                const interval = CronExpressionParser.parseExpression(cronExpression, {
+                    currentDate: baseDate,
+                })
+                const nextDate = interval.next().toDate()
+                actions.setScheduleDateMarker(dayjs(nextDate))
+            } catch {
+                // Invalid expression — don't update the date picker
+            }
+        },
         setRepeatsValue: ({ value }) => {
             if (value === 'none') {
                 actions.setIsRecurring(false)

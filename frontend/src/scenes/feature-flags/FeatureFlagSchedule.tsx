@@ -435,14 +435,21 @@ function FeatureFlagScheduleV2(): JSX.Element {
                             />
                         </div>
                         <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-muted">Date and time</label>
+                            <label className="text-xs font-medium text-muted">
+                                {repeatsValue === 'cron' ? 'Next run' : 'Date and time'}
+                            </label>
                             <LemonCalendarSelectInput
                                 value={scheduleDateMarker}
                                 onChange={(value) => setScheduleDateMarker(value)}
-                                placeholder="Select date"
+                                placeholder={repeatsValue === 'cron' ? 'Computed from cron' : 'Select date'}
                                 selectionPeriod="upcoming"
                                 granularity="minute"
-                                clearable
+                                clearable={repeatsValue !== 'cron'}
+                                buttonProps={
+                                    repeatsValue === 'cron'
+                                        ? { disabledReason: 'Computed from the cron expression' }
+                                        : undefined
+                                }
                             />
                         </div>
                         {supportsRecurring && (

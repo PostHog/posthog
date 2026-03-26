@@ -164,6 +164,7 @@
         "classnames": "^2.5.1",
         "clsx": "^2.1.1",
         "country-flag-emoji-polyfill": "^0.1.8",
+        "cron-parser": "^5.5.0",
         "cronstrue": "^3.14.0",
         "crypto-browserify": "^3.12.0",
         "cva": "1.0.0-beta.3",
