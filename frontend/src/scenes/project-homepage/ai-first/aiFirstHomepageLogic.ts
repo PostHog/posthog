@@ -33,6 +33,8 @@ export interface HomepageGridItem {
     id: string
     /** The raw FileSystemEntry ID, used for shortcut deletion. */
     entryId?: string
+    /** The original FileSystemEntry, used for adding to starred. */
+    entry?: FileSystemEntry
     label: string
     icon?: React.ReactNode
     href?: string
@@ -198,6 +200,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                     return {
                         id: `${kind}-${entry.id}`,
                         entryId: entry.id,
+                        entry,
                         label: name ? unescapePath(name) : entry.path,
                         href: entry.href || '#',
                         kind,

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconGear, IconLock, IconPin, IconRewind, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconGear, IconInfo, IconLock, IconPin, IconRewind, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
@@ -195,16 +195,42 @@ function GridItemIcon({ item }: { item: HomepageGridItem }): JSX.Element | null 
     return null
 }
 
-const GRID_COLUMNS: { label: string; kind: HomepageGridItem['kind']; icon: React.ReactNode }[] = [
-    { label: 'Pinned dashboards', kind: 'dashboard', icon: <IconPin className="size-3" /> },
-    { label: 'Recents', kind: 'recent', icon: <IconClock className="size-3" /> },
-    { label: 'Starred', kind: 'starred', icon: <IconStar className="size-3" /> },
+interface GridColumn {
+    label: string
+    kind: HomepageGridItem['kind']
+    icon: React.ReactNode
+    emptyLabel: string
+    emptyTooltip: React.ReactNode
+}
+
+const GRID_COLUMNS: GridColumn[] = [
+    {
+        label: 'Pinned dashboards',
+        kind: 'dashboard',
+        icon: <IconPin className="size-3" />,
+        emptyLabel: 'No pinned dashboards',
+        emptyTooltip: 'Pin dashboards by clicking "Pin" in the dashboard context panel',
+    },
+    {
+        label: 'Recents',
+        kind: 'recent',
+        icon: <IconClock className="size-3" />,
+        emptyLabel: 'No recents',
+        emptyTooltip: 'Recents are auto-populated when you visit a resource',
+    },
+    {
+        label: 'Starred',
+        kind: 'starred',
+        icon: <IconStar className="size-3" />,
+        emptyLabel: 'No starred items',
+        emptyTooltip: 'Add items to starred by clicking "add to starred" in the context panel',
+    },
 ]
 
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
-    const { deleteShortcut } = useActions(projectTreeDataLogic)
+    const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const gridRef = useRef<HTMLDivElement>(null)
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
@@ -329,7 +355,7 @@ function IdleGrid(): JSX.Element {
                     ref={gridRef}
                     role="grid"
                     data-attr="homepage-grid"
-                    className="flex gap-2 w-full mt-2 outline-none"
+                    className="flex gap-2 w-full mt-2 outline-none min-h-[174px]"
                     tabIndex={-1}
                     aria-hidden={isCollapsed}
                     onKeyDown={handleGridKeyDown}
@@ -340,52 +366,71 @@ function IdleGrid(): JSX.Element {
                                 {col.icon}
                                 {col.label}
                             </Label>
-                            {columnLoadingStates[colIndex] && col.items.length === 0
-                                ? Array.from({ length: 3 }).map((_, i) => (
-                                      <div key={`skeleton-${i}`} className="px-2 py-0.5">
-                                          <LemonSkeleton className="h-7" />
-                                      </div>
-                                  ))
-                                : col.items.map((item, rowIndex) => (
-                                      <div key={item.id} role="row">
-                                          <Link
-                                              to={item.href}
-                                              role="gridcell"
-                                              buttonProps={{
-                                                  menuItem: true,
-                                                  fullWidth: true,
-                                                  className: 'truncate -outline-offset-2',
-                                              }}
-                                              data-attr={`homepage-grid-${item.kind}`}
-                                              data-highlighted={
-                                                  highlight?.[0] === colIndex && highlight?.[1] === rowIndex
-                                                      ? 'true'
-                                                      : undefined
-                                              }
-                                              onMouseEnter={() => setHighlight([colIndex, rowIndex])}
-                                              onMouseLeave={() => setHighlight(null)}
-                                              extraContextMenuItems={
-                                                  (item.kind === 'starred' || item.kind === 'dashboard') &&
-                                                  item.entryId ? (
-                                                      <ContextMenuItem
-                                                          asChild
-                                                          onClick={() => {
-                                                              deleteShortcut(item.entryId!)
-                                                          }}
-                                                      >
-                                                          <ButtonPrimitive menuItem variant="danger" forceVariant>
-                                                              <IconStar className="size-4 text-inherit" /> Remove from
-                                                              starred
-                                                          </ButtonPrimitive>
-                                                      </ContextMenuItem>
-                                                  ) : undefined
-                                              }
-                                          >
-                                              <GridItemIcon item={item} />
-                                              <span className="truncate">{item.label}</span>
-                                          </Link>
-                                      </div>
-                                  ))}
+                            {columnLoadingStates[colIndex] && col.items.length === 0 ? (
+                                Array.from({ length: 3 }).map((_, i) => (
+                                    <div key={`skeleton-${i}`} className="px-2 py-0.5">
+                                        <LemonSkeleton className="h-7" />
+                                    </div>
+                                ))
+                            ) : col.items.length === 0 ? (
+                                <div className="mx-2 mt-0.5 px-3 py-2 border border-dashed rounded text-xs text-tertiary">
+                                    {col.emptyLabel}{' '}
+                                    <Tooltip title={col.emptyTooltip} delayMs={0}>
+                                        <IconInfo className="size-3 text-tertiary" />
+                                    </Tooltip>
+                                </div>
+                            ) : (
+                                col.items.map((item, rowIndex) => (
+                                    <div key={item.id} role="row">
+                                        <Link
+                                            to={item.href}
+                                            role="gridcell"
+                                            buttonProps={{
+                                                menuItem: true,
+                                                fullWidth: true,
+                                                className: 'truncate -outline-offset-2',
+                                            }}
+                                            data-attr={`homepage-grid-${item.kind}`}
+                                            data-highlighted={
+                                                highlight?.[0] === colIndex && highlight?.[1] === rowIndex
+                                                    ? 'true'
+                                                    : undefined
+                                            }
+                                            onMouseEnter={() => setHighlight([colIndex, rowIndex])}
+                                            onMouseLeave={() => setHighlight(null)}
+                                            extraContextMenuItems={
+                                                item.kind === 'starred' && item.entryId ? (
+                                                    <ContextMenuItem
+                                                        asChild
+                                                        onClick={() => {
+                                                            deleteShortcut(item.entryId!)
+                                                        }}
+                                                    >
+                                                        <ButtonPrimitive menuItem variant="danger" forceVariant>
+                                                            <IconStar className="size-4 text-inherit" /> Remove from
+                                                            starred
+                                                        </ButtonPrimitive>
+                                                    </ContextMenuItem>
+                                                ) : item.kind === 'recent' && item.entry ? (
+                                                    <ContextMenuItem
+                                                        asChild
+                                                        onClick={() => {
+                                                            addShortcutItem(item.entry!)
+                                                        }}
+                                                    >
+                                                        <ButtonPrimitive menuItem>
+                                                            <IconStar className="size-4" /> Add to starred
+                                                        </ButtonPrimitive>
+                                                    </ContextMenuItem>
+                                                ) : undefined
+                                            }
+                                        >
+                                            <GridItemIcon item={item} />
+                                            <span className="truncate">{item.label}</span>
+                                        </Link>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     ))}
                 </div>
