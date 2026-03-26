@@ -342,6 +342,10 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
             "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
             **_env_properties(),
         }
+        # Merge devenv-specific properties (set by dev:generate)
+        devenv = ctx.meta.get("hogli.devenv")
+        if devenv:
+            props.update(devenv)
         telemetry.track("command_completed", props)
     except Exception:
         pass
