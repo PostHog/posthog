@@ -56,6 +56,7 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import (
+    postgres_schema_metadata,
     reconcile_direct_postgres_schemas,
     upsert_direct_postgres_table,
 )
@@ -711,7 +712,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
-            sync_type_config = schema.get("sync_type_config", {})
             should_sync = schema.get("should_sync", False)
 
             if should_sync and requires_incremental_fields and incremental_field is None:
@@ -732,6 +732,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source_schema = next(
                 (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
             )
+            schema_metadata = (
+                postgres_schema_metadata(
+                    source_schema.columns if source_schema else [],
+                    source_schema.foreign_keys if source_schema else [],
+                )
+                if source_type_model == ExternalDataSourceType.POSTGRES
+                else {}
+            )
 
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
@@ -740,7 +748,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 should_sync=should_sync,
                 sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
                 sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
-                sync_type_config=sync_type_config,
+                sync_type_config=(
+                    {
+                        "incremental_field": incremental_field,
+                        "incremental_field_type": incremental_field_type,
+                        "schema_metadata": schema_metadata,
+                    }
+                    if requires_incremental_fields and new_source_model.supports_scheduled_sync
+                    else {"schema_metadata": schema_metadata}
+                ),
                 description=source_schema.description if source_schema else None,
                 label=schema_label_by_name.get(schema_name),
             )
