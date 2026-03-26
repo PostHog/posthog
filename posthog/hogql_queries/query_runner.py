@@ -1237,6 +1237,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     tag_queries(scene=tags.scene)
 
             tag_queries(execution_mode=execution_mode.value)
+            tag_queries(cache_key=cache_key)
 
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request

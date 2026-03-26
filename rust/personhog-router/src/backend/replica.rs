@@ -37,6 +37,8 @@ impl ReplicaBackend {
         retry_config: RetryConfig,
         keepalive_interval: Option<Duration>,
         keepalive_timeout: Option<Duration>,
+        max_send_message_size: usize,
+        max_recv_message_size: usize,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut endpoint = Channel::from_shared(url.to_string())?.timeout(timeout);
         if let Some(interval) = keepalive_interval {
@@ -50,7 +52,9 @@ impl ReplicaBackend {
         let channel = endpoint.connect_lazy();
 
         Ok(Self {
-            client: PersonHogReplicaClient::new(channel),
+            client: PersonHogReplicaClient::new(channel)
+                .max_encoding_message_size(max_send_message_size)
+                .max_decoding_message_size(max_recv_message_size),
             retry_config,
         })
     }

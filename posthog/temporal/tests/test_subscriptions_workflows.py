@@ -15,6 +15,9 @@ from temporalio.client import Client
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.hogql.errors import QueryError
+
+from posthog.errors import CHQueryErrorS3Error
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -404,6 +407,77 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     mock_analytics.capture.assert_not_called()
 
 
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_excludes_deleted_insights(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="With deleted", created_by=user)
+    for i in range(5):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=team, short_id=f"del{i:02d}", name=f"Insight {i}", deleted=(i >= 2)
+        )
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id),
+    )
+
+    assert len(result.exported_asset_ids) == 2
+    assert result.total_insight_count == 2
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_raises_on_missing_resource(team, user):
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
+
+    env = ActivityEnvironment()
+    with pytest.raises(Exception, match="There are no insights to be sent"):
+        await env.run(
+            create_export_assets,
+            CreateExportAssetsInputs(subscription_id=subscription.id),
+        )
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_respects_max_asset_count(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Big dashboard", created_by=user)
+    for i in range(10):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"max{i:02d}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id, max_asset_count=3),
+    )
+
+    assert len(result.exported_asset_ids) == 3
+    assert result.total_insight_count == 10
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_empty_dashboard(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Empty", created_by=user)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id),
+    )
+
+    assert result.exported_asset_ids == []
+    assert result.total_insight_count == 0
+
+
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -760,3 +834,132 @@ async def test_partial_export_failure_delivers_successful_assets(
     assert props["outcome"] == SloOutcome.FAILURE
     assert props["assets_with_content"] == 2
     assert props["total_assets"] == 3
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_transient_export_error_retries_and_succeeds(
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_slo_analytics: MagicMock,
+    mock_exporter: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="retry1", name="Retry Test")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    call_count = 0
+
+    def flaky_export(asset_obj, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            raise CHQueryErrorS3Error("S3 error occurred", code=499)
+        asset_obj.content_location = "s3://bucket/retry_ok.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = flaky_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=[
+                create_export_assets,
+                export_asset_activity,
+                deliver_subscription,
+                emit_delivery_started,
+                emit_delivery_outcome,
+                advance_next_delivery_date,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # Transient error retried and eventually succeeded
+    assert call_count == 3
+    assert mock_send_email.call_count == 2  # 2 recipients from factory default
+
+    completed_calls = [
+        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+    ]
+    assert len(completed_calls) == 1
+    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_user_query_error_does_not_retry(
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_slo_analytics: MagicMock,
+    mock_exporter: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="noret1", name="No Retry Test")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    call_count = 0
+
+    def user_error_export(asset_obj, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise QueryError("Invalid HogQL query")
+
+    mock_exporter.export_asset_direct = user_error_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=[
+                create_export_assets,
+                export_asset_activity,
+                deliver_subscription,
+                emit_delivery_started,
+                emit_delivery_outcome,
+                advance_next_delivery_date,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # User error is non-retryable — called exactly once
+    assert call_count == 1
+
+    # Delivery still happens (with failed asset showing placeholder)
+    assert mock_send_email.call_count == 2
+
+    completed_calls = [
+        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+    ]
+    assert len(completed_calls) == 1
+    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS

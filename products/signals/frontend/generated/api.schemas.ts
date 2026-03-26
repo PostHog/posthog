@@ -13,6 +13,7 @@
  * `github` - GitHub
  * `linear` - Linear
  * `zendesk` - Zendesk
+ * `error_tracking` - Error tracking
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -22,6 +23,7 @@ export const SourceProductEnumApi = {
     Github: 'github',
     Linear: 'linear',
     Zendesk: 'zendesk',
+    ErrorTracking: 'error_tracking',
 } as const
 
 /**
@@ -29,6 +31,9 @@ export const SourceProductEnumApi = {
  * `evaluation` - Evaluation
  * `issue` - Issue
  * `ticket` - Ticket
+ * `issue_created` - Issue created
+ * `issue_reopened` - Issue reopened
+ * `issue_spiking` - Issue spiking
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -38,6 +43,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     Evaluation: 'evaluation',
     Issue: 'issue',
     Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
 } as const
 
 export interface SignalSourceConfigApi {

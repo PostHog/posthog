@@ -6,7 +6,7 @@
         "summary": "Get all actions",
         "title": "Get all actions",
         "required_scopes": ["action:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -36,7 +36,7 @@
         "summary": "Get action",
         "title": "Get action",
         "required_scopes": ["action:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -81,7 +81,7 @@
         "summary": "List activity logs",
         "title": "List activity logs",
         "required_scopes": ["activity_log:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -96,7 +96,7 @@
         "summary": "List alerts",
         "title": "List alerts",
         "required_scopes": ["alert:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -111,7 +111,7 @@
         "summary": "Get alert",
         "title": "Get alert",
         "required_scopes": ["alert:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -186,7 +186,7 @@
         "summary": "List annotations",
         "title": "List annotations",
         "required_scopes": ["annotation:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -216,7 +216,7 @@
         "summary": "Retrieve annotation",
         "title": "Retrieve annotation",
         "required_scopes": ["annotation:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -261,7 +261,7 @@
         "summary": "List function templates",
         "title": "List function templates",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -276,7 +276,7 @@
         "summary": "Get function template",
         "title": "Get function template",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -291,7 +291,7 @@
         "summary": "List functions",
         "title": "List functions",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -321,7 +321,7 @@
         "summary": "Get function",
         "title": "Get function",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -396,7 +396,7 @@
         "summary": "List all cohorts",
         "title": "List all cohorts",
         "required_scopes": ["cohort:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -411,7 +411,7 @@
         "summary": "Create cohort",
         "title": "Create cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -426,7 +426,7 @@
         "summary": "Get cohort",
         "title": "Get cohort",
         "required_scopes": ["cohort:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -441,7 +441,7 @@
         "summary": "Update cohort",
         "title": "Update cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -456,7 +456,7 @@
         "summary": "Add persons to static cohort",
         "title": "Add persons to static cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -471,7 +471,7 @@
         "summary": "Remove person from static cohort",
         "title": "Remove person from static cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -569,14 +569,14 @@
             "readOnlyHint": false
         }
     },
-    "warehouse-saved-queries-list": {
+    "view-list": {
         "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available views before querying them in HogQL.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "List saved queries",
         "title": "List saved queries",
         "required_scopes": ["warehouse_view:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -584,7 +584,7 @@
             "readOnlyHint": true
         }
     },
-    "warehouse-saved-queries-create": {
+    "view-create": {
         "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced by name in other HogQL queries.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
@@ -599,14 +599,14 @@
             "readOnlyHint": false
         }
     },
-    "warehouse-saved-queries-retrieve": {
+    "view-get": {
         "description": "Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL query, column schema, materialization status, sync frequency, and run history metadata.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Get saved query",
         "title": "Get saved query",
         "required_scopes": ["warehouse_view:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -614,7 +614,7 @@
             "readOnlyHint": true
         }
     },
-    "warehouse-saved-queries-partial-update": {
+    "view-update": {
         "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
@@ -629,7 +629,7 @@
             "readOnlyHint": false
         }
     },
-    "warehouse-saved-queries-destroy": {
+    "view-delete": {
         "description": "Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed. Cannot delete views that have downstream dependencies or views from managed viewsets.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
@@ -644,8 +644,8 @@
             "readOnlyHint": false
         }
     },
-    "warehouse-saved-queries-materialize-create": {
-        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a 24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use 'warehouse-saved-queries-revert-materialization-create' to undo. Rate limited.",
+    "view-materialize": {
+        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a 24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use 'view-unmaterialize' to undo. Rate limited.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Materialize saved query",
@@ -659,7 +659,7 @@
             "readOnlyHint": false
         }
     },
-    "warehouse-saved-queries-revert-materialization-create": {
+    "view-unmaterialize": {
         "description": "Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule, reverting the view back to a virtual query that runs on each access. The view definition itself is preserved. Rate limited.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
@@ -674,8 +674,8 @@
             "readOnlyHint": false
         }
     },
-    "warehouse-saved-queries-run-create": {
-        "description": "Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table with the latest data. The view must already be materialized. Use 'warehouse-saved-queries-run-history-retrieve' to check run status.",
+    "view-run": {
+        "description": "Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Run saved query",
@@ -689,14 +689,14 @@
             "readOnlyHint": false
         }
     },
-    "warehouse-saved-queries-run-history-retrieve": {
+    "view-run-history": {
         "description": "Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and timestamp. Use this to monitor whether materialization is running successfully.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Get run history",
         "title": "Get run history",
         "required_scopes": ["warehouse_view:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -711,7 +711,7 @@
         "summary": "List early access features",
         "title": "List early access features",
         "required_scopes": ["early_access_feature:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -741,7 +741,7 @@
         "summary": "Get early access feature",
         "title": "Get early access feature",
         "required_scopes": ["early_access_feature:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -786,7 +786,7 @@
         "summary": "List error tracking issues",
         "title": "List error tracking issues",
         "required_scopes": ["error_tracking:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -801,7 +801,7 @@
         "summary": "Get error tracking issue",
         "title": "Get error tracking issue",
         "required_scopes": ["error_tracking:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -831,7 +831,7 @@
         "summary": "Get all feature flags",
         "title": "Get all feature flags",
         "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -846,7 +846,7 @@
         "summary": "Get feature flag definition",
         "title": "Get feature flag definition",
         "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -996,7 +996,7 @@
         "summary": "List notebooks",
         "title": "List notebooks",
         "required_scopes": ["notebook:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1026,7 +1026,7 @@
         "summary": "Get notebook",
         "title": "Get notebook",
         "required_scopes": ["notebook:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1071,7 +1071,7 @@
         "summary": "List persons",
         "title": "List persons",
         "required_scopes": ["person:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1086,7 +1086,7 @@
         "summary": "Get person",
         "title": "Get person",
         "required_scopes": ["person:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1326,7 +1326,7 @@
         "summary": "Get all surveys in the project with optional filtering.",
         "title": "Get all surveys in the project with optional filtering.",
         "required_scopes": ["survey:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1341,7 +1341,7 @@
         "summary": "Get a specific survey by ID.",
         "title": "Get a specific survey by ID.",
         "required_scopes": ["survey:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1431,7 +1431,7 @@
         "summary": "List workflows",
         "title": "List workflows",
         "required_scopes": ["hog_flow:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1446,7 +1446,7 @@
         "summary": "Get workflow",
         "title": "Get workflow",
         "required_scopes": ["hog_flow:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

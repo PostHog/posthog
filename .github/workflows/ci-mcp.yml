@@ -318,24 +318,6 @@ jobs:
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
-            - name: Create logs tables in ClickHouse
-              run: |
-                  python -c "
-                  import django, os
-                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
-                  django.setup()
-                  from posthog.clickhouse.client import sync_execute
-                  with open('products/logs/backend/test/test_logs_schema.sql') as f:
-                      schema_sql = f.read()
-                  schema_sql = schema_sql.replace('use database posthog_test;', '')
-                  for sql in schema_sql.split(';'):
-                      sql = sql.strip()
-                      if not sql:
-                          continue
-                      sync_execute(sql)
-                  print('Logs tables created successfully')
-                  "
-
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
 

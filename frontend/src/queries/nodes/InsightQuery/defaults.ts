@@ -105,6 +105,8 @@ function getPathsQueryDefault(): PathsQuery {
         kind: NodeKind.PathsQuery,
         pathsFilter: {
             includeEventTypes: [pathType],
+            pathReplacements: true,
+            showFullUrls: true,
         },
     }
 }

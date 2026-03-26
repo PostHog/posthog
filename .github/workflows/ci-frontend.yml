@@ -26,6 +26,7 @@ jobs:
         name: Determine need to run frontend checks
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
+            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -65,6 +66,29 @@ jobs:
                         - '**/*.yaml'
                         - '**/*.yml'
                         - .config/.markdownlint-cli2.jsonc
+                      # Like `frontend` but excludes doc/config-only files that don't affect
+                      # compiled output — used to skip Jest, bundle-size, and TypeScript checks
+                      # when only markdown or YAML files change.
+                      frontend_code:
+                        - 'bin/**'
+                        - 'frontend/**'
+                        - 'ee/frontend/**'
+                        - 'common/esbuilder/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
+                        - 'products/**/*.json'
+                        - 'playwright/**'
+                        - .github/workflows/ci-frontend.yml
+                        - .oxlintrc.json
+                        - .oxfmtrc*
+                        - babel.config.js
+                        - package.json
+                        - pnpm-lock.yaml
+                        - jest.*.ts
+                        - tsconfig.json
+                        - tsconfig.*.json
+                        - webpack.config.js
+                        - stylelint*
 
     frontend-format:
         name: Frontend formatting
@@ -116,7 +140,7 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
@@ -191,7 +215,7 @@ jobs:
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 15
         steps:
@@ -263,7 +287,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: changes
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend_code == 'true'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
         strategy:
@@ -312,7 +336,7 @@ jobs:
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
-            needs.changes.outputs.frontend == 'true' && (
+            needs.changes.outputs.frontend_code == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:

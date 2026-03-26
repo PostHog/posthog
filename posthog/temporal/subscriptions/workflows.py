@@ -6,7 +6,7 @@ import traceback
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloOutcome
@@ -132,9 +132,9 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         )
 
         # Fan-out child workflows — one per subscription, fully isolated.
-        # Idempotent ID (no run_id suffix) prevents duplicate deliveries when
-        # schedule runs overlap: if the previous run's child is still executing,
-        # Temporal rejects the duplicate start and we log it below.
+        # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
+        # schedule runs overlap: Temporal guarantees no two open workflows can
+        # share the same ID, so a still-running child rejects the duplicate start.
         tasks = []
         for sub_id in subscription_ids:
             task = temporalio.workflow.execute_child_workflow(
@@ -153,11 +153,19 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             failed_ids = []
             for sub_id, result in zip(subscription_ids, results):
                 if isinstance(result, BaseException):
-                    failed_ids.append(sub_id)
-                    temporalio.workflow.logger.warning(
-                        "process_subscription.child_workflow_error",
-                        extra={"subscription_id": sub_id, "error": str(result)},
-                    )
+                    if isinstance(result, WorkflowAlreadyStartedError):
+                        # A previous schedule run's child is still processing this
+                        # subscription — not a failure, just skip it.
+                        temporalio.workflow.logger.info(
+                            "process_subscription.already_running",
+                            extra={"subscription_id": sub_id},
+                        )
+                    else:
+                        failed_ids.append(sub_id)
+                        temporalio.workflow.logger.warning(
+                            "process_subscription.child_workflow_error",
+                            extra={"subscription_id": sub_id, "error": str(result)},
+                        )
 
             if failed_ids:
                 raise ApplicationError(
