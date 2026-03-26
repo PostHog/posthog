@@ -19,6 +19,156 @@ from products.experiments.backend.facade.contracts import (
 )
 
 
+class TestContractImmutability:
+    """Test that all contracts are immutable (frozen dataclasses)."""
+
+    @pytest.mark.parametrize(
+        ("instance", "field_name", "new_value"),
+        [
+            pytest.param(
+                FeatureFlagVariant(key="test", rollout_percentage=50),
+                "key",
+                "modified",
+                id="FeatureFlagVariant",
+            ),
+            pytest.param(
+                CreateFeatureFlagInput(
+                    key="test",
+                    variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                ),
+                "key",
+                "modified",
+                id="CreateFeatureFlagInput",
+            ),
+            pytest.param(
+                CreateExperimentInput(name="Test", feature_flag_key="test-flag"),
+                "name",
+                "modified",
+                id="CreateExperimentInput",
+            ),
+        ],
+    )
+    def test_input_contracts_are_immutable(self, instance, field_name, new_value):
+        """Test that input contract instances cannot be modified after creation."""
+        with pytest.raises(AttributeError):
+            setattr(instance, field_name, new_value)
+
+    @freeze_time("2026-03-21T12:00:00Z")
+    @pytest.mark.parametrize(
+        ("instance", "field_name", "new_value"),
+        [
+            pytest.param(
+                FeatureFlag(
+                    id=123,
+                    key="test",
+                    active=False,
+                    created_at=datetime.now(UTC),
+                ),
+                "active",
+                True,
+                id="FeatureFlag",
+            ),
+            pytest.param(
+                Experiment(
+                    id=456,
+                    name="Test",
+                    feature_flag_id=123,
+                    feature_flag_key="test",
+                    is_draft=True,
+                    created_at=datetime.now(UTC),
+                ),
+                "name",
+                "modified",
+                id="Experiment",
+            ),
+        ],
+    )
+    def test_output_contracts_are_immutable(self, instance, field_name, new_value):
+        """Test that output contract instances cannot be modified after creation."""
+        with pytest.raises(AttributeError):
+            setattr(instance, field_name, new_value)
+
+
+class TestContractHashability:
+    """Test that contracts are hashable (required for Turbo caching)."""
+
+    @pytest.mark.parametrize(
+        "instance",
+        [
+            pytest.param(
+                FeatureFlagVariant(key="test", rollout_percentage=50),
+                id="FeatureFlagVariant",
+            ),
+            pytest.param(
+                CreateFeatureFlagInput(
+                    key="test",
+                    variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                ),
+                id="CreateFeatureFlagInput",
+            ),
+            pytest.param(
+                CreateExperimentInput(
+                    name="Test",
+                    feature_flag_key="test-flag",
+                    feature_flag_filters=CreateFeatureFlagInput(
+                        key="test-flag",
+                        variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                    ),
+                ),
+                id="CreateExperimentInput_with_feature_flag_filters",
+            ),
+        ],
+    )
+    def test_input_contracts_are_hashable(self, instance):
+        """Test that input contracts can be hashed (raises TypeError if not hashable)."""
+        hash(instance)
+
+    @freeze_time("2026-03-21T12:00:00Z")
+    @pytest.mark.parametrize(
+        "instance",
+        [
+            pytest.param(
+                FeatureFlag(
+                    id=123,
+                    key="test",
+                    active=False,
+                    created_at=datetime.now(UTC),
+                ),
+                id="FeatureFlag",
+            ),
+            pytest.param(
+                Experiment(
+                    id=456,
+                    name="Test",
+                    feature_flag_id=123,
+                    feature_flag_key="test",
+                    is_draft=True,
+                    created_at=datetime.now(UTC),
+                ),
+                id="Experiment",
+            ),
+        ],
+    )
+    def test_output_contracts_are_hashable(self, instance):
+        """Test that output contracts can be hashed (raises TypeError if not hashable)."""
+        hash(instance)
+
+    def test_experiment_input_with_parameters_is_not_hashable(self):
+        """Test that CreateExperimentInput with parameters dict is not hashable.
+
+        The parameters field exists only for backwards compatibility during migration.
+        New code should use feature_flag_filters which is hashable.
+        """
+        input_dto = CreateExperimentInput(
+            name="Test",
+            feature_flag_key="test-flag",
+            parameters={"feature_flag_variants": [{"key": "control", "rollout_percentage": 50}]},
+        )
+
+        with pytest.raises(TypeError, match="unhashable type"):
+            hash(input_dto)
+
+
 class TestFeatureFlagVariant:
     def test_create_variant(self):
         """Test creating a feature flag variant."""
@@ -32,28 +182,16 @@ class TestFeatureFlagVariant:
         assert variant.name == "Control"
         assert variant.rollout_percentage == 50
 
-    def test_variant_is_immutable(self):
-        """Test that variants are immutable."""
-        variant = FeatureFlagVariant(key="test", rollout_percentage=50)
-
-        with pytest.raises(AttributeError):
-            variant.key = "modified"  # type: ignore
-
-    def test_variant_is_hashable(self):
-        """Test that variants are hashable (for Turbo caching)."""
-        variant = FeatureFlagVariant(key="test", rollout_percentage=50)
-        assert hash(variant) is not None
-
 
 class TestCreateFeatureFlagInput:
     def test_create_flag_input_minimal(self):
         """Test creating flag input with minimal fields."""
         input_dto = CreateFeatureFlagInput(
             key="my-flag",
-            variants=[
+            variants=(
                 FeatureFlagVariant(key="control", rollout_percentage=50),
                 FeatureFlagVariant(key="test", rollout_percentage=50),
-            ],
+            ),
         )
 
         assert input_dto.key == "my-flag"
@@ -65,10 +203,10 @@ class TestCreateFeatureFlagInput:
         input_dto = CreateFeatureFlagInput(
             key="my-flag",
             name="My Flag",
-            variants=[
+            variants=(
                 FeatureFlagVariant(key="control", rollout_percentage=50),
                 FeatureFlagVariant(key="test", rollout_percentage=50),
-            ],
+            ),
             rollout_percentage=100,
             aggregation_group_type_index=0,
             ensure_experience_continuity=True,
@@ -78,16 +216,6 @@ class TestCreateFeatureFlagInput:
         assert input_dto.rollout_percentage == 100
         assert input_dto.aggregation_group_type_index == 0
         assert input_dto.ensure_experience_continuity is True
-
-    def test_flag_input_is_immutable(self):
-        """Test that flag input is immutable."""
-        input_dto = CreateFeatureFlagInput(
-            key="test",
-            variants=[FeatureFlagVariant(key="control", rollout_percentage=100)],
-        )
-
-        with pytest.raises(AttributeError):
-            input_dto.key = "modified"  # type: ignore
 
 
 class TestCreateExperimentInput:
@@ -109,10 +237,10 @@ class TestCreateExperimentInput:
         flag_input = CreateFeatureFlagInput(
             key="my-flag",
             name="My Flag",
-            variants=[
+            variants=(
                 FeatureFlagVariant(key="control", rollout_percentage=50),
                 FeatureFlagVariant(key="test", rollout_percentage=50),
-            ],
+            ),
         )
 
         input_dto = CreateExperimentInput(
@@ -141,16 +269,6 @@ class TestCreateExperimentInput:
         assert input_dto.parameters is not None
         assert "feature_flag_variants" in input_dto.parameters
 
-    def test_experiment_input_is_immutable(self):
-        """Test that experiment input is immutable."""
-        input_dto = CreateExperimentInput(
-            name="Test",
-            feature_flag_key="test-flag",
-        )
-
-        with pytest.raises(AttributeError):
-            input_dto.name = "modified"  # type: ignore
-
 
 @freeze_time("2026-03-21T12:00:00Z")
 class TestFeatureFlag:
@@ -168,28 +286,6 @@ class TestFeatureFlag:
         assert flag.key == "my-flag"
         assert flag.name == "My Flag"
         assert flag.active is True
-
-    def test_feature_flag_is_immutable(self):
-        """Test that feature flag output is immutable."""
-        flag = FeatureFlag(
-            id=123,
-            key="test",
-            active=False,
-            created_at=datetime.now(UTC),
-        )
-
-        with pytest.raises(AttributeError):
-            flag.active = True  # type: ignore
-
-    def test_feature_flag_is_hashable(self):
-        """Test that feature flag is hashable."""
-        flag = FeatureFlag(
-            id=123,
-            key="test",
-            active=False,
-            created_at=datetime.now(UTC),
-        )
-        assert hash(flag) is not None
 
 
 @freeze_time("2026-03-21T12:00:00Z")
@@ -230,29 +326,3 @@ class TestExperiment:
         assert exp.is_draft is False
         assert exp.start_date == now
         assert exp.updated_at == now
-
-    def test_experiment_is_immutable(self):
-        """Test that experiment output is immutable."""
-        exp = Experiment(
-            id=456,
-            name="Test",
-            feature_flag_id=123,
-            feature_flag_key="test",
-            is_draft=True,
-            created_at=datetime.now(UTC),
-        )
-
-        with pytest.raises(AttributeError):
-            exp.name = "modified"  # type: ignore
-
-    def test_experiment_is_hashable(self):
-        """Test that experiment is hashable."""
-        exp = Experiment(
-            id=456,
-            name="Test",
-            feature_flag_id=123,
-            feature_flag_key="test",
-            is_draft=True,
-            created_at=datetime.now(UTC),
-        )
-        assert hash(exp) is not None
