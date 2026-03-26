@@ -30,17 +30,6 @@
         gap: 0.5rem;
         overflow: hidden;
     }
-
-    @container editor-panel (max-width: 400px) {
-        .ActionFilterRow__start,
-        .ActionFilterRow__end {
-            height: auto;
-        }
-
-        .ActionFilterRow-content {
-            gap: 0.5rem;
-        }
-    }
 }
 
 .ActionFilterRowDragHandle {
