@@ -23,7 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.client.escape import substitute_params_for_display
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.models import Team
 
@@ -54,7 +54,7 @@ def get_experiment_query_debug(experiment_query_ast: ast.SelectQuery, team: Team
         modifiers=create_default_modifiers_for_team(team),
     )
     clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
-    clickhouse_sql = substitute_params(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    clickhouse_sql = substitute_params_for_display(clickhouse_sql_with_params, clickhouse_context_with_values.values)
     return (executor.hogql, clickhouse_sql)
 
 
