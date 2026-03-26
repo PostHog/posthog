@@ -311,3 +311,48 @@ class GetDistinctIdsForPersonsResponse(_message.Message):
     def __init__(
         self, person_distinct_ids: _Optional[_Iterable[_Union[PersonDistinctIds, _Mapping]]] = ...
     ) -> None: ...
+
+class UpdatePersonPropertiesRequest(_message.Message):
+    __slots__ = (
+        "team_id",
+        "person_id",
+        "event_name",
+        "set_properties",
+        "set_once_properties",
+        "unset_properties",
+        "partition",
+    )
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    EVENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    SET_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    SET_ONCE_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    UNSET_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    PARTITION_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    event_name: str
+    set_properties: bytes
+    set_once_properties: bytes
+    unset_properties: _containers.RepeatedScalarFieldContainer[str]
+    partition: int
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        event_name: _Optional[str] = ...,
+        set_properties: _Optional[bytes] = ...,
+        set_once_properties: _Optional[bytes] = ...,
+        unset_properties: _Optional[_Iterable[str]] = ...,
+        partition: _Optional[int] = ...,
+    ) -> None: ...
+
+class UpdatePersonPropertiesResponse(_message.Message):
+    __slots__ = ("person", "updated")
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    UPDATED_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+    updated: bool
+
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., updated: bool = ...) -> None: ...
