@@ -1032,7 +1032,10 @@ pub fn flag_list_with_metadata_and_filter(
                 for prop in props {
                     if prop.prop_type == PropertyType::Flag {
                         if let Ok(dep_id) = prop.key.parse::<i32>() {
-                            if flag_ids.contains(&dep_id) {
+                            if dep_id == flag.id {
+                                // Self-referencing dependency is a cycle
+                                flags_with_missing_deps_set.insert(flag.id);
+                            } else if flag_ids.contains(&dep_id) {
                                 flag_deps.insert(dep_id);
                             } else {
                                 flags_with_missing_deps_set.insert(flag.id);
@@ -1121,7 +1124,8 @@ pub fn flag_list_with_metadata_and_filter(
         transitive_deps.insert(id, visited);
     }
 
-    let flags_with_missing_deps: Vec<i32> = flags_with_missing_deps_set.into_iter().collect();
+    let mut flags_with_missing_deps: Vec<i32> = flags_with_missing_deps_set.into_iter().collect();
+    flags_with_missing_deps.sort();
 
     let evaluation_metadata = EvaluationMetadata {
         dependency_stages: stages,
