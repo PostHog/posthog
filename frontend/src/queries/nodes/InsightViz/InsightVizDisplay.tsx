@@ -14,6 +14,7 @@ import {
     InsightEmptyState,
     InsightErrorState,
     InsightLoadingState,
+    InsightRefreshDataHint,
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
@@ -45,6 +46,28 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
+/** Same merged payload as `insightDataLogic.insightData` (`result` = `results ?? result`). */
+export type InsightDataForRefreshHint = Record<string, any> | null | undefined
+
+/** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
+export function shouldShowDashboardInsightRefreshHint({
+    isInDashboardContext,
+    doNotLoad,
+    activeView,
+    insightData,
+}: {
+    isInDashboardContext: boolean
+    doNotLoad?: boolean
+    activeView: InsightType
+    insightData: InsightDataForRefreshHint
+}): boolean {
+    if (!isInDashboardContext || doNotLoad || activeView === InsightType.WEB_ANALYTICS) {
+        return false
+    }
+    const rawResult = insightData?.result
+    return rawResult === null || rawResult === undefined
+}
+
 export function InsightVizDisplay({
     disableHeader,
     disableTable,
@@ -68,7 +91,8 @@ export function InsightVizDisplay({
     inSharedMode?: boolean
     editMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
+        useValues(insightLogic)
     const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
@@ -91,6 +115,7 @@ export function InsightVizDisplay({
         querySource,
         display,
         series,
+        insightData,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
@@ -150,6 +175,25 @@ export function InsightVizDisplay({
         }
         if (timedOutQueryId) {
             return <InsightTimeoutState queryId={timedOutQueryId} />
+        }
+
+        // On a dashboard, users sometimes see an empty chart even though the insight is valid—often because
+        // they navigated away while numbers were still loading, or nothing was cached yet. Prompt them to
+        // refresh rather than staring at a blank tile. this is possible if the redis cache is a miss, and they dont have anything
+        // cached on their browser yet either.
+        if (
+            shouldShowDashboardInsightRefreshHint({
+                isInDashboardContext,
+                doNotLoad: insightProps.doNotLoad,
+                activeView,
+                insightData,
+            })
+        ) {
+            return (
+                <InsightRefreshDataHint
+                    onRetry={() => loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+                />
+            )
         }
 
         return null
@@ -306,7 +350,7 @@ export function InsightVizDisplay({
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return null
+        return <InsightLoadingState insightProps={insightProps} />
     }
 
     return (
