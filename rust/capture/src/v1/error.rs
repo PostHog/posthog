@@ -61,6 +61,8 @@ pub enum Error {
     DuplicateEventUuid(String),
     #[error("event submitted with invalid timestamp")]
     InvalidEventTimestamp,
+    #[error("event properties is not a JSON object")]
+    MalformedEventProperties,
 
     // 401 - authentication_error
     #[error("request is missing an API token")]
@@ -120,6 +122,7 @@ impl Error {
             Self::MissingEventUuid => "missing_event_uuid",
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
+            Self::MalformedEventProperties => "malformed_event_properties",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
             Self::MissingApiToken => "missing_api_token",
@@ -174,6 +177,7 @@ impl Error {
             | Self::MissingEventUuid
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
+            | Self::MalformedEventProperties
             | Self::RequestTimeout
             | Self::MissingApiToken
             | Self::InvalidApiToken(_)
@@ -220,7 +224,8 @@ impl Error {
             | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
             | Self::DuplicateEventUuid(_)
-            | Self::InvalidEventTimestamp => StatusCode::BAD_REQUEST,
+            | Self::InvalidEventTimestamp
+            | Self::MalformedEventProperties => StatusCode::BAD_REQUEST,
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 

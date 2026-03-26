@@ -1,10 +1,12 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::value::RawValue;
 
 use crate::v1::sinks::Destination;
+
+fn empty_raw_object() -> Box<RawValue> {
+    RawValue::from_string("{}".to_owned()).unwrap()
+}
 
 /// Per-event outcome in the batch response.
 /// Maps to HTTP semantics: Ok (2xx), Drop (4xx), Limited (429), Retry (5xx).
@@ -59,8 +61,8 @@ pub struct Metadata {
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub metadata: Metadata,
-    #[serde(default)]
-    pub properties: HashMap<String, Value>,
+    #[serde(default = "empty_raw_object")]
+    pub properties: Box<RawValue>,
 }
 
 #[derive(Debug)]
@@ -83,11 +85,11 @@ pub struct WrappedEvent {
 /// `v1::Sink` for publishing. The sink should not perform any enrichment
 /// or property inspection -- all transformations happen at construction time.
 ///
-/// Property-level checks needed at construction time (from legacy parity):
-/// - `properties.capture_internal`: if present, redact `ip` to "127.0.0.1"
-/// - `properties.$cookieless_mode`: extract bool for Kafka partition key
-///   selection (true -> partition by token:ip, false -> token:distinct_id).
-///   Non-boolean values should be treated as a malformed event (status 400).
+/// Checks needed at construction time (from legacy parity):
+/// - `Context.capture_internal`: if true, redact `ip` to "127.0.0.1"
+/// - `Metadata.cookieless_mode`: controls Kafka partition key selection
+///   (true -> partition by token:ip, false -> token:distinct_id).
+///   Non-boolean values are rejected at deserialization by serde.
 ///
 /// Will implement the upcoming `v1::Sink` trait to abstract serialization
 /// and partition key derivation.
@@ -140,7 +142,7 @@ mod tests {
         assert_eq!(meta.uuid, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
         assert_eq!(meta.distinct_id, "user-42");
         assert_eq!(meta.timestamp, "2026-03-19T14:29:58.123Z");
-        assert!(batch.batch[0].properties.is_empty());
+        assert_eq!(batch.batch[0].properties.get(), "{}");
     }
 
     #[test]
@@ -165,12 +167,30 @@ mod tests {
         }"#;
 
         let batch: Batch = serde_json::from_str(json).unwrap();
-        let props = &batch.batch[0].properties;
-        assert_eq!(props["$current_url"], "https://example.com");
-        assert_eq!(props["custom_prop"], 42);
-        assert!(props.contains_key("$set"));
-        assert!(props.contains_key("$set_once"));
-        assert!(props.contains_key("$groups"));
+        let raw = batch.batch[0].properties.get();
+        assert!(raw.contains("$current_url"));
+        assert!(raw.contains("custom_prop"));
+        assert!(raw.contains("$set"));
+        assert!(raw.contains("$set_once"));
+        assert!(raw.contains("$groups"));
+    }
+
+    #[test]
+    fn parse_event_properties_array_accepted_by_serde() {
+        let json = r#"{
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "batch": [{
+                "metadata": {
+                    "name": "e",
+                    "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                    "distinct_id": "d",
+                    "timestamp": "2026-03-19T14:30:00.000Z"
+                },
+                "properties": [1, 2, 3]
+            }]
+        }"#;
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        assert!(batch.batch[0].properties.get().starts_with('['));
     }
 
     #[test]

@@ -67,8 +67,15 @@ fn validate_events(context: &Context, batch: Batch) -> Vec<WrappedEvent> {
         .batch
         .into_iter()
         .enumerate()
-        .map(
-            |(ordinal, event)| match validate_event(&mut uuids, &event.metadata) {
+        .map(|(ordinal, event)| {
+            let validation = validate_event(&mut uuids, &event.metadata).and_then(|raw_ts| {
+                if event.properties.get().as_bytes().first() != Some(&b'{') {
+                    return Err(Error::MalformedEventProperties);
+                }
+                Ok(raw_ts)
+            });
+
+            match validation {
                 Ok(raw_ts) => {
                     metrics::counter!(CAPTURE_PARSED_EVENTS, "result" => "valid").increment(1);
                     let adjusted = normalize_timestamp(context, &event, raw_ts);
@@ -95,8 +102,8 @@ fn validate_events(context: &Context, batch: Batch) -> Vec<WrappedEvent> {
                         skip_person_processing: false,
                     }
                 }
-            },
-        )
+            }
+        })
         .collect();
 
     if !malformed.is_empty() {
@@ -165,13 +172,7 @@ fn normalize_timestamp(
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    let ignore_sent_at = event
-        .properties
-        .get("$ignore_sent_at")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    if ignore_sent_at {
+    if event.metadata.ignore_attempt_timestamp.unwrap_or(false) {
         return raw_event_ts;
     }
 
@@ -290,10 +291,10 @@ async fn apply_token_distinct_id_limits(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::time::Duration as StdDuration;
 
     use chrono::{DateTime, Duration, Utc};
+    use serde_json::value::RawValue;
     use uuid::Uuid;
 
     use super::*;
@@ -304,6 +305,10 @@ mod tests {
     use crate::v1::analytics::types::{Batch, BatchMetadata, Event, Metadata};
     use crate::v1::sinks::Destination;
     use crate::v1::Error;
+
+    fn raw_obj(s: &str) -> Box<RawValue> {
+        RawValue::from_string(s.to_owned()).unwrap()
+    }
 
     fn valid_metadata() -> Metadata {
         Metadata {
@@ -323,7 +328,7 @@ mod tests {
     fn valid_event() -> Event {
         Event {
             metadata: valid_metadata(),
-            properties: HashMap::new(),
+            properties: raw_obj("{}"),
         }
     }
 
@@ -495,6 +500,44 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn event_malformed_properties() {
+        let ctx = Context {
+            api_token: "phc_test".to_string(),
+            authorization: None,
+            user_agent: "test/1.0".to_string(),
+            content_type: "application/json".to_string(),
+            content_encoding: None,
+            sdk_info: "test/1.0".to_string(),
+            attempt: 1,
+            request_id: Uuid::new_v4(),
+            client_timestamp: Utc::now(),
+            client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            query: crate::v1::analytics::query::Query::default(),
+            method: axum::http::Method::POST,
+            path: "/i/v1/general/analytics/events".to_string(),
+            server_received_at: Utc::now(),
+            created_at: None,
+            capture_internal: false,
+            historical_migration: false,
+        };
+        let batch = Batch {
+            metadata: BatchMetadata {
+                created_at: "2026-03-19T14:30:00.000Z".to_string(),
+                historical_migration: false,
+                capture_internal: false,
+            },
+            batch: vec![Event {
+                metadata: valid_metadata(),
+                properties: raw_obj("[1,2,3]"),
+            }],
+        };
+        let events = validate_events(&ctx, batch);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("malformed_event_properties"));
+    }
+
     // --- normalize_timestamp ---
 
     fn dt(s: &str) -> DateTime<Utc> {
@@ -523,12 +566,7 @@ mod tests {
         }
     }
 
-    fn event_with_ignore_sent_at(ignore: bool) -> Event {
-        let mut props = HashMap::new();
-        props.insert(
-            "$ignore_sent_at".to_string(),
-            serde_json::Value::Bool(ignore),
-        );
+    fn event_with_ignore_attempt_timestamp(ignore: bool) -> Event {
         Event {
             metadata: Metadata {
                 name: "$pageview".to_string(),
@@ -536,13 +574,13 @@ mod tests {
                 distinct_id: "user-1".to_string(),
                 timestamp: "2026-03-19T11:00:00Z".to_string(),
                 cookieless_mode: None,
-                ignore_attempt_timestamp: None,
+                ignore_attempt_timestamp: Some(ignore),
                 product_tour_id: None,
                 process_person_profile: None,
                 session_id: None,
                 window_id: None,
             },
-            properties: props,
+            properties: raw_obj("{}"),
         }
     }
 
@@ -597,20 +635,20 @@ mod tests {
     }
 
     #[test]
-    fn normalize_ignore_sent_at_skips_adjustment() {
+    fn normalize_ignore_attempt_timestamp_skips_adjustment() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_ignore_sent_at(true);
+        let event = event_with_ignore_attempt_timestamp(true);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, event_ts);
     }
 
     #[test]
-    fn normalize_ignore_sent_at_false_still_adjusts() {
+    fn normalize_ignore_attempt_timestamp_false_still_adjusts() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_ignore_sent_at(false);
+        let event = event_with_ignore_attempt_timestamp(false);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
@@ -633,7 +671,7 @@ mod tests {
                     session_id: None,
                     window_id: None,
                 },
-                properties: HashMap::new(),
+                properties: raw_obj("{}"),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
             ordinal,
@@ -659,7 +697,7 @@ mod tests {
                     session_id: None,
                     window_id: None,
                 },
-                properties: HashMap::new(),
+                properties: raw_obj("{}"),
             },
             adjusted_timestamp: None,
             ordinal,
@@ -1089,7 +1127,7 @@ mod tests {
                     session_id: None,
                     window_id: None,
                 },
-                properties: HashMap::new(),
+                properties: raw_obj("{}"),
             },
             adjusted_timestamp: Some(timestamp),
             ordinal,
