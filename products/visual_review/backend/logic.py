@@ -994,7 +994,7 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
             commit_to_github=False,
         )
         # Override to AUTO_APPROVED (approve_run sets HUMAN_APPROVED)
-        Run.objects.filter(id=run_id).update(review_decision=ReviewDecision.AUTO_APPROVED)
+        Run.objects.filter(id=run_id, team_id=repo.team_id).update(review_decision=ReviewDecision.AUTO_APPROVED)
         run = get_run_with_snapshots(run_id)
 
     snapshots = list(run.snapshots.all().order_by("identifier"))
