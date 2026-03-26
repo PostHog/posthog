@@ -12,6 +12,13 @@ import { FetchResponse } from '../../utils/request'
 import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { LegacyWebhookService } from './legacy-webhook-service'
 
+type MockPersonHogClient = jest.Mocked<
+    Pick<
+        PersonHogClient,
+        'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+    >
+>
+
 jest.setTimeout(10000)
 
 describe('LegacyWebhookService', () => {
@@ -386,10 +393,10 @@ describe('LegacyWebhookService', () => {
         it('should enrich events with group properties when groupRepository is wrapped with DualReadGroupRepository', async () => {
             // Wrap the real postgres groupRepository with DualReadGroupRepository at 100% gRPC rollout
             // with a mock gRPC client that returns the same data as the existing mock
-            const mockGrpcClient = {
+            const mockGrpcClient: MockPersonHogClient = {
                 fetchGroup: jest.fn().mockResolvedValue({
                     group_properties: { name: 'Test Project' },
-                }),
+                } as any),
                 fetchGroupsByKeys: jest.fn(),
                 fetchGroupTypesByTeamIds: jest.fn(),
                 fetchGroupTypesByProjectIds: jest.fn(),

@@ -23,6 +23,13 @@ import { GroupTypeIndex, TeamId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { GroupsManagerService } from './managers/groups-manager.service'
 
+type MockPersonHogClient = jest.Mocked<
+    Pick<
+        PersonHogClient,
+        'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+    >
+>
+
 describe('BatchExportHogFunctionService', () => {
     let hub: Hub
     let team: Team
@@ -430,7 +437,7 @@ describe('BatchExportHogFunctionService', () => {
             await setupGroups()
 
             // Build a mock gRPC client that returns the same data postgres holds
-            const mockGrpc = {
+            const mockGrpc: MockPersonHogClient = {
                 fetchGroup: jest.fn(),
                 fetchGroupsByKeys: jest.fn().mockResolvedValue([
                     {

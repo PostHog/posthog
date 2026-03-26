@@ -92,20 +92,19 @@ function createMockPostgres(
     return mock
 }
 
-function createMockGrpcClient(
-    groupTypes: typeof MOCK_GROUP_TYPES,
-    groups: typeof MOCK_GROUPS
-): jest.Mocked<
+type MockPersonHogClient = jest.Mocked<
     Pick<
         PersonHogClient,
         'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
     >
-> {
-    const mock = {
+>
+
+function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeof MOCK_GROUPS): MockPersonHogClient {
+    const mock: MockPersonHogClient = {
         fetchGroup: jest.fn(),
-        fetchGroupsByKeys: jest.fn() as jest.Mock,
-        fetchGroupTypesByTeamIds: jest.fn() as jest.Mock,
-        fetchGroupTypesByProjectIds: jest.fn() as jest.Mock,
+        fetchGroupsByKeys: jest.fn(),
+        fetchGroupTypesByTeamIds: jest.fn(),
+        fetchGroupTypesByProjectIds: jest.fn(),
     }
 
     mock.fetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]) => {
