@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from posthog.schema import (
     DatabaseSchemaManagedViewTableKind,
     IntervalType,
+    ProductKey,
     RevenueAnalyticsBreakdown,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMetricsQuery,
@@ -20,6 +21,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.property import property_to_expr
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
@@ -72,6 +74,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
+
+    def calculate(self) -> AR:
+        tag_queries(product=ProductKey.REVENUE_ANALYTICS, feature=Feature.QUERY)
+        return super().calculate()
 
     def validate_query_runner_access(self, user: User) -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)

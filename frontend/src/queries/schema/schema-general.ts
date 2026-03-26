@@ -482,6 +482,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     query: string
     /** Optional direct external data source id for running against a specific source */
     connectionId?: string
+    /** Run the selected connection query directly without translating it through HogQL first */
+    sendRawQuery?: boolean
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>

@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.api.cli_auth import CLI_SCOPES, DEVICE_CODE_EXPIRY_SECONDS, get_device_cache_key, get_user_code_cache_key
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import hash_key_value
 
 
 class TestCLIAuthDeviceCodeEndpoint(APIBaseTest):
