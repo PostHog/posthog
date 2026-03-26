@@ -66,7 +66,7 @@ function overrideScreenshotFormat(page: Page, format: 'jpeg' | 'png', quality?: 
     ;(page as any).createCDPSession = async (): Promise<CDPSession> => {
         const session = await originalCreateCDPSession()
         const originalSend = session.send.bind(session)
-        ;(session as any).send = async (method: string, ...args: any[]): Promise<any> => {
+        ;(session as any).send = (method: string, ...args: any[]): Promise<any> => {
             if (method === 'HeadlessExperimental.beginFrame') {
                 const params = args[0] ?? {}
                 params.screenshot = { format }

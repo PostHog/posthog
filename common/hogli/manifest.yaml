@@ -70,8 +70,12 @@ metadata:
                 scheduled tasks, and email sending.
         nodejs:
             name: Node.js
-            about: Event ingestion pipeline that processes incoming events, runs CDP workflows,
-                and writes to Kafka (then ClickHouse).
+            about: CDP workflows, session recordings, logs ingestion, and evaluation scheduler.
+                Ingestion runs as a separate process (see ingestion unit).
+        ingestion:
+            name: Ingestion
+            about: Event ingestion pipeline that processes incoming events and writes to
+                Kafka (then ClickHouse). Runs as IngestionGeneralServer.
         django:
             name: Django
             about: Python web framework powering PostHog's backend API, admin interface,
@@ -171,6 +175,7 @@ start:
             - frontend
             - celery
             - nodejs
+            - ingestion
             - postgresql
             - redis
             - kafka
@@ -205,10 +210,11 @@ start:
         hidden: true
     start:worker:
         bin_script: start-worker
-        description: Launch all background workers (Celery worker, beat scheduler, nodejs)
+        description: Launch all background workers (Celery worker, beat scheduler, nodejs, ingestion)
         services:
             - celery
             - nodejs
+            - ingestion
             - kafka
             - temporal
             - redis

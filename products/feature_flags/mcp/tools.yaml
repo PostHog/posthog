@@ -28,7 +28,7 @@ tools:
                 description:
                     Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
                     tools.
-        mcp_version: 1
+
     feature-flag-get-definition:
         operation: feature_flags_retrieve_2
         enabled: true
@@ -42,7 +42,7 @@ tools:
         title: Get feature flag definition
         description: |
             Get a feature flag by ID.
-        mcp_version: 1
+
     create-feature-flag:
         operation: feature_flags_create
         enabled: true

@@ -391,7 +391,7 @@ describe('trendsDataLogic', () => {
             expect(resultCustomizations?.[key0]?.hidden).toBe(true)
         })
 
-        it('legendSeriesIsolationMenuEligible is false when filters override blocks editing', async () => {
+        it('legendSeriesIsolationMenuEligible stays true when dashboard filters override is active', async () => {
             const propsWithOverrides: InsightLogicProps = {
                 dashboardItemId: undefined,
                 filtersOverride: { date_from: '-7d' } as InsightLogicProps['filtersOverride'],
@@ -424,7 +424,7 @@ describe('trendsDataLogic', () => {
                 insightVizDataLogic.findMounted(propsWithOverrides)?.actions.updateQuerySource(query)
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
             }).toMatchValues({
-                legendSeriesIsolationMenuEligible: false,
+                legendSeriesIsolationMenuEligible: true,
             })
         })
     })

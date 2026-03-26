@@ -4,12 +4,14 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Dashboard, Insight, Project, Team
+from posthog.models import Action, Dashboard, Insight, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.organization import OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+
+from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -93,6 +95,39 @@ class TestResourceTransferPreview(APIBaseTest):
 
         tile_resource = next(r for r in resources if r["resource_kind"] == "DashboardTile")
         assert tile_resource["friendly_kind"] == "Dashboard tile"
+
+    def test_preview_survey_includes_insight_and_dependencies(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Survey insight")
+        action = Action.objects.create(
+            team=self.team,
+            name="survey trigger",
+            steps_json=[{"event": "$pageview"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My survey",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Hi"}],
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Survey",
+                "resource_id": str(survey.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        resources = response.json()["resources"]
+        kinds = {r["resource_kind"] for r in resources}
+        assert "Survey" in kinds
+        assert "Insight" in kinds
+        assert "Action" in kinds
 
     def test_preview_includes_suggested_substitution_from_previous_transfer(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
