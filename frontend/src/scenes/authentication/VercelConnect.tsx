@@ -182,6 +182,8 @@ export function VercelConnect(): JSX.Element {
 
     const availableOrgs = sessionInfo?.organizations.filter((o) => !o.already_linked) || []
     const linkedOrgs = sessionInfo?.organizations.filter((o) => o.already_linked) || []
+    const selectedOrgData = sessionInfo?.organizations.find((o) => o.id === selectedOrg)
+    const availableTeams = selectedOrgData?.teams.filter((t) => !t.already_linked) || []
 
     return (
         <BridgePage view="vercel-connect">
@@ -213,28 +215,20 @@ export function VercelConnect(): JSX.Element {
                         />
                     </div>
 
-                    {selectedOrg &&
-                        (() => {
-                            const org = sessionInfo?.organizations.find((o) => o.id === selectedOrg)
-                            const availableTeams = org?.teams.filter((t) => !t.already_linked) || []
-                            if (availableTeams.length === 0) {
-                                return null
-                            }
-                            return (
-                                <div className="mb-6">
-                                    <LemonSelect
-                                        fullWidth
-                                        placeholder="Select a project"
-                                        value={selectedTeam}
-                                        onChange={(value) => setSelectedTeam(value)}
-                                        options={availableTeams.map((t) => ({
-                                            value: t.id,
-                                            label: t.name,
-                                        }))}
-                                    />
-                                </div>
-                            )
-                        })()}
+                    {selectedOrg && availableTeams.length > 0 && (
+                        <div className="mb-6">
+                            <LemonSelect
+                                fullWidth
+                                placeholder="Select a project"
+                                value={selectedTeam}
+                                onChange={(value) => setSelectedTeam(value)}
+                                options={availableTeams.map((t) => ({
+                                    value: t.id,
+                                    label: t.name,
+                                }))}
+                            />
+                        </div>
+                    )}
 
                     <LemonButton
                         fullWidth
