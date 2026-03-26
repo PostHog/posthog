@@ -881,7 +881,7 @@ def break_part(
 
             # -- Step 10: Move detached parts to source table's detached dir --
             # List the detached parts for this partition
-            ls_output = _ssh_exec(ssh, f"sudo ls -1 {staging_tgt_detached}")
+            ls_output = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}")
             detached_parts = [p for p in ls_output.strip().split("\n") if p and p.startswith(f"{partition_id}_")]
 
             context.log.info(f"Moving {len(detached_parts)} parts to {source_detached}...")
