@@ -431,7 +431,8 @@ class TestCommitStatusChecks:
         logic.mark_run_completed(run.id)
 
         statuses = mock_github_api.status_checks
-        assert statuses[-1]["state"] == "failure"
+        # During migration VR is observational — always green
+        assert statuses[-1]["state"] == "success"
         assert "1 changed" in statuses[-1]["description"]
         assert "1 new" in statuses[-1]["description"]
 

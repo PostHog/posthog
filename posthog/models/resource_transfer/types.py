@@ -4,7 +4,19 @@ from typing import Any, Literal
 
 from django.db import models
 
-ResourceKind = Literal["Action", "Cohort", "Dashboard", "DashboardTile", "Insight", "Text", "Team", "Project", "User"]
+ResourceKind = Literal[
+    "Action",
+    "Cohort",
+    "Dashboard",
+    "DashboardTile",
+    "Insight",
+    "Survey",
+    "Survey_actions",
+    "Text",
+    "Team",
+    "Project",
+    "User",
+]
 ResourceTransferKey = tuple[ResourceKind, Any]  # tuple of (kind, primary key)
 ResourcePayload = dict[str, Any]
 ResourceMap = dict[ResourceTransferKey, "ResourceTransferVertex"]

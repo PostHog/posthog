@@ -18,7 +18,7 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        mcp_version: 1
+
         title: List early access features
         description: >
             List early access features in the current project. Returns name, stage,
@@ -55,7 +55,7 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-        mcp_version: 1
+
         title: Get early access feature
         description: >
             Get a single early access feature by ID. Returns full details including

@@ -5,6 +5,7 @@ from posthog.models.resource_transfer.visitors.dashboard import DashboardVisitor
 from posthog.models.resource_transfer.visitors.dashboard_tile import DashboardTileVisitor
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.resource_transfer.visitors.project import ProjectVisitor
+from posthog.models.resource_transfer.visitors.survey import SurveyActionsThroughVisitor, SurveyVisitor
 from posthog.models.resource_transfer.visitors.team import TeamVisitor
 from posthog.models.resource_transfer.visitors.text import TextVisitor
 from posthog.models.resource_transfer.visitors.user import UserVisitor
@@ -16,6 +17,8 @@ __all__ = [
     "DashboardVisitor",
     "DashboardTileVisitor",
     "InsightVisitor",
+    "SurveyVisitor",
+    "SurveyActionsThroughVisitor",
     "ProjectVisitor",
     "TeamVisitor",
     "TextVisitor",

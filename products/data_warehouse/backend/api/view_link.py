@@ -15,6 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
@@ -231,6 +232,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             user = cast(User, self.request.user)
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
             query_response = execute_hogql_query(
                 query=validation_query,
                 team=self.team,

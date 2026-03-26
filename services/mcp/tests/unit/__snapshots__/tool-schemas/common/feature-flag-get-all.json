@@ -18,8 +18,8 @@
             "description": "JSON-encoded list of feature flag keys to exclude from the results.",
             "type": "string"
         },
-        "has_evaluation_tags": {
-            "description": "Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.",
+        "has_evaluation_contexts": {
+            "description": "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
             "enum": ["false", "true"],
             "type": "string"
         },

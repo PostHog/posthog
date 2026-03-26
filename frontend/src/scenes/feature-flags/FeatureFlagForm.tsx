@@ -7,6 +7,7 @@ import { useRef } from 'react'
 
 import {
     IconBalance,
+    IconCheckCircle,
     IconCode,
     IconFlag,
     IconGlobe,
@@ -143,6 +144,59 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             },
         })
     }
+
+    const currentFlagType = featureFlag?.is_remote_configuration
+        ? 'remote_config'
+        : multivariateEnabled
+          ? 'multivariate'
+          : 'boolean'
+
+    const onSelectFlagType = (value: string): void => {
+        if (value === 'remote_config') {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: true,
+            })
+            setMultivariateEnabled(false)
+        } else if (value === 'multivariate') {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: false,
+                filters: {
+                    ...featureFlag?.filters,
+                    payloads: {},
+                },
+            })
+            setMultivariateEnabled(true)
+        } else {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: false,
+            })
+            setMultivariateEnabled(false)
+        }
+    }
+
+    const FLAG_TYPE_OPTIONS = [
+        {
+            value: 'boolean',
+            icon: <IconFlag className="text-lg" />,
+            label: 'Boolean',
+            description: 'Release toggle with optional static payload',
+        },
+        {
+            value: 'multivariate',
+            icon: <IconList className="text-lg" />,
+            label: 'Multivariate',
+            description: 'Multiple variants with rollout percentages (A/B/n test)',
+        },
+        {
+            value: 'remote_config',
+            icon: <IconCode className="text-lg" />,
+            label: 'Remote config',
+            description: 'Single payload without feature flag logic',
+        },
+    ] as const
 
     if (!featureFlag) {
         return (
@@ -478,89 +532,54 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                         {/* Right column */}
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
-                            {/* Flag type card */}
+                            {/* Flag type cards */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel info="Changing type may remove existing variants or payloads.">
                                         Flag type
                                     </LemonLabel>
-                                    <LemonSelect
-                                        fullWidth
-                                        value={
-                                            featureFlag.is_remote_configuration
-                                                ? 'remote_config'
-                                                : multivariateEnabled
-                                                  ? 'multivariate'
-                                                  : 'boolean'
-                                        }
-                                        onChange={(value) => {
-                                            if (value === 'remote_config') {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: true,
-                                                })
-                                                // setMultivariateEnabled(false) cleans up variant payloads via setMultivariateOptions(null)
-                                                setMultivariateEnabled(false)
-                                            } else if (value === 'multivariate') {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: false,
-                                                    filters: {
-                                                        ...featureFlag.filters,
-                                                        // Clear boolean payload when switching to multivariate
-                                                        payloads: {},
-                                                    },
-                                                })
-                                                setMultivariateEnabled(true)
-                                            } else {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: false,
-                                                })
-                                                // setMultivariateEnabled(false) cleans up variant payloads via setMultivariateOptions(null)
-                                                setMultivariateEnabled(false)
-                                            }
-                                        }}
-                                        options={[
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Boolean</span>
-                                                        <span className="text-xs text-muted">
-                                                            Release toggle (boolean) with optional static payload
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: 'boolean',
-                                                icon: <IconFlag />,
-                                            },
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Multivariate</span>
-                                                        <span className="text-xs text-muted">
-                                                            Multiple variants with rollout percentages (A/B/n test)
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: 'multivariate',
-                                                icon: <IconList />,
-                                            },
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Remote config</span>
-                                                        <span className="text-xs text-muted">
-                                                            Single payload without feature flag logic
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: 'remote_config',
-                                                icon: <IconCode />,
-                                            },
-                                        ]}
+                                    <div
+                                        className="grid grid-cols-1 md:grid-cols-3 gap-3"
+                                        role="radiogroup"
+                                        aria-label="Flag type"
                                         data-attr="feature-flag-type"
-                                    />
+                                    >
+                                        {FLAG_TYPE_OPTIONS.map((option) => {
+                                            const isSelected = currentFlagType === option.value
+                                            return (
+                                                <div
+                                                    key={option.value}
+                                                    role="radio"
+                                                    aria-checked={isSelected}
+                                                    tabIndex={0}
+                                                    className={`rounded p-3 cursor-pointer transition-colors ${
+                                                        isSelected
+                                                            ? 'bg-accent-highlight-light border-2 border-accent'
+                                                            : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                                    }`}
+                                                    onClick={() => onSelectFlagType(option.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault()
+                                                            onSelectFlagType(option.value)
+                                                        }
+                                                    }}
+                                                    data-attr={`feature-flag-type-${option.value}`}
+                                                >
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2">
+                                                            {option.icon}
+                                                            <span className="font-medium flex-1">{option.label}</span>
+                                                            {isSelected && (
+                                                                <IconCheckCircle className="text-accent text-base" />
+                                                            )}
+                                                        </div>
+                                                        <span className="text-xs text-muted">{option.description}</span>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
                                     <div className="text-secondary text-xs mt-1">
                                         {featureFlag.is_remote_configuration ? (
                                             <>
@@ -603,8 +622,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             multiple
                                             activeKeys={openVariants}
                                             onChange={setOpenVariants}
+                                            className="[&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
                                             panels={variants.map((variant, index) => ({
                                                 key: `variant-${index}`,
+                                                className: '!pl-[2.5rem] dark:bg-surface-secondary',
                                                 header: (
                                                     <div className="flex gap-2 items-center">
                                                         <Lettermark

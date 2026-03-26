@@ -25,7 +25,7 @@ tools:
             conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
             funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not
             supported on this endpoint.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/action-list.html
     action-create:
         operation: actions_create
@@ -67,7 +67,7 @@ tools:
         description: >
             Get a specific action by ID. Returns the action configuration including all steps and their trigger
             conditions.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/action.html
     actions-update:
         operation: actions_update

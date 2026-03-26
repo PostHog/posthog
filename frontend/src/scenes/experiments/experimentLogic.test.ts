@@ -996,6 +996,82 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('endExperiment', () => {
+        it('calls end endpoint and dispatches setExperiment with response', async () => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+                conclusion: 'won',
+                conclusion_comment: 'Test variant won clearly',
+            } as Experiment
+            const endedResponse = {
+                ...runningExperiment,
+                end_date: '2026-03-24T10:00:00Z',
+                status: 'stopped',
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(endedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            // Pre-condition: experiment is running
+            expect(keyed.values.experiment.end_date).toBeFalsy()
+            expect(keyed.values.experiment.status).toBe('running')
+
+            await expectLogic(keyed, () => {
+                keyed.actions.endExperiment()
+            })
+                .toDispatchActions(['endExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/end`), {
+                conclusion: 'won',
+                conclusion_comment: 'Test variant won clearly',
+            })
+
+            // Post-condition: experiment is ended
+            expect(keyed.values.experiment.end_date).toBe('2026-03-24T10:00:00Z')
+            expect(keyed.values.experiment.status).toBe('stopped')
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment has already ended.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.endExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment has already ended.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.endExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to end experiment')
+            createSpy.mockRestore()
+        })
+    })
+
     describe('experimentWarning', () => {
         const multivariantFilters = {
             groups: [{ properties: [], rollout_percentage: 100 }],

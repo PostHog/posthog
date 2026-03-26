@@ -148,7 +148,7 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 }
 
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
-// or if you're running flox + mprocs you can also run the `sync-feature-flags` process
+// or if you're running flox + phrocs you can also run the `sync-feature-flags` process
 //
 // If this is a multivariate flag, please add the `multivariate=true` tag at the end of your comment
 // if you want the script to properly create a multivariate flag. You can also specify the different
@@ -377,6 +377,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_SOCIAL_PROOF_INFO: 'onboarding-social-proof-info', // owner: @fercgomes #team-growth, payload overrides social proof strings per product
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     OPTIMIZED_RELATED_GROUPS_QUERY: 'optimized-related-groups-query', // owner: @arthurdedeus #team-customer-analytics
+    POST_ONBOARDING_MODAL_EXPERIMENT: 'post-onboarding-modal-experiment', // owner: @fercgomes #team-growth multivariate=control,test
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
