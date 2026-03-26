@@ -229,8 +229,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
 
-        if product_key := APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source):
-            tag_queries(product=product_key, feature=Feature.QUERY)
+        product_key = APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source, ProductKey.PIPELINE_DESTINATIONS)
+        tag_queries(product=product_key, feature=Feature.QUERY)
 
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)
@@ -272,8 +272,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
 
-        if product_key := APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source):
-            tag_queries(product=product_key, feature=Feature.QUERY)
+        product_key = APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source, ProductKey.PIPELINE_DESTINATIONS)
+        tag_queries(product=product_key, feature=Feature.QUERY)
 
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)
