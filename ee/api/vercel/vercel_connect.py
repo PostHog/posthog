@@ -12,8 +12,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
@@ -130,6 +132,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
 class VercelConnectLinkSerializer(serializers.Serializer):
     session = serializers.CharField(required=True)
     organization_id = serializers.UUIDField(required=True)
+    team_id = serializers.IntegerField(required=True)
 
 
 class VercelConnectLinkViewSet(viewsets.GenericViewSet):
@@ -146,6 +149,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         user = cast(User, request.user)
         session_key = serializer.validated_data["session"]
         organization_id = serializer.validated_data["organization_id"]
+        team_id = serializer.validated_data["team_id"]
 
         try:
             cached_data = _load_connect_session(session_key)
@@ -182,6 +186,14 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 "Please unlink the existing one first or choose a different organization."
             )
 
+        try:
+            team = Team.objects.get(pk=team_id, organization=organization)
+        except Team.DoesNotExist:
+            raise exceptions.ValidationError("The selected project does not belong to this organization.")
+
+        if Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists():
+            raise exceptions.ValidationError("This project already has a Vercel integration.")
+
         OrganizationIntegration.objects.create(
             organization=organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
@@ -202,10 +214,23 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             created_by=user,
         )
 
+        Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"type": "connectable"},
+            created_by=user,
+        )
+
+        from ee.vercel.integration import VercelIntegration
+
+        VercelIntegration.bulk_sync_feature_flags_to_vercel(team)
+
         logger.info(
             "Vercel connectable account linked",
             installation_id=installation_id,
             organization_id=str(organization_id),
+            team_id=team_id,
             user_id=user.pk,
             integration="vercel",
         )
@@ -245,11 +270,30 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             ).values_list("organization_id", flat=True)
         )
 
+        teams_by_org: dict = {}
+        for team in Team.objects.filter(organization_id__in=org_ids).order_by("name"):
+            teams_by_org.setdefault(team.organization_id, []).append(team)
+
+        teams_with_vercel = set(
+            Integration.objects.filter(
+                team__organization_id__in=org_ids,
+                kind=Integration.IntegrationKind.VERCEL,
+            ).values_list("team_id", flat=True)
+        )
+
         organizations = [
             {
                 "id": str(m.organization.id),
                 "name": m.organization.name,
                 "already_linked": m.organization_id in orgs_with_vercel,
+                "teams": [
+                    {
+                        "id": t.pk,
+                        "name": t.name,
+                        "already_linked": t.pk in teams_with_vercel,
+                    }
+                    for t in teams_by_org.get(m.organization_id, [])
+                ],
             }
             for m in memberships
         ]

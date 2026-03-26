@@ -730,6 +730,20 @@ class VercelIntegration:
         )
 
     @staticmethod
+    def bulk_sync_feature_flags_to_vercel(team: Team) -> None:
+        flags = FeatureFlag.objects.filter(team=team, deleted=False)
+        for flag in flags:
+            try:
+                VercelIntegration.sync_feature_flag_to_vercel(flag, created=True)
+            except Exception:
+                logger.exception(
+                    "Failed to bulk sync feature flag to Vercel",
+                    flag_id=flag.pk,
+                    team_id=team.pk,
+                    integration="vercel",
+                )
+
+    @staticmethod
     def _delete_item_from_vercel(team: Team, item_type: VercelItemType, item_id: str) -> None:
         setup_result = VercelIntegration._setup_vercel_client_for_team(team)
         if not setup_result:
