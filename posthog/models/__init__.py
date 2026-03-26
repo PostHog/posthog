@@ -22,6 +22,7 @@ from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
+from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
 from ..ducklake.models import DuckgresServer, DuckLakeCatalog
 from .element import Element
@@ -115,6 +116,10 @@ __all__ = [
     "CohortCalculationHistory",
     "ColumnConfiguration",
     "CoreEvent",
+    "Dashboard",
+    "DataDeletionRequest",
+    "DashboardTile",
+    "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
     "DuckgresServer",
