@@ -260,7 +260,7 @@ function configHeader(config: EmailConfigStatus): JSX.Element {
 
 export function EmailSection(): JSX.Element {
     const { emailConfigs } = useValues(supportSettingsLogic)
-    const [expandedKeys, setExpandedKeys] = useState<number[]>([])
+    const [expandedKeys, setExpandedKeys] = useState<string[]>([])
 
     return (
         <SceneSection
