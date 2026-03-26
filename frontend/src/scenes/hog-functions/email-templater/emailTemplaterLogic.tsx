@@ -20,25 +20,15 @@ import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
 /**
- * Unlayer exports HTML with an XHTML 1.0 Transitional DOCTYPE and bare `&` in
- * `<link>` href attributes (e.g. Google Fonts URLs). Bare `&` is invalid in
- * XHTML and can cause email clients to ignore the `<link>` tag, preventing web
- * fonts from loading. This function:
- *   1. Replaces the XHTML DOCTYPE with HTML5 (`<!DOCTYPE html>`)
- *   2. Encodes bare `&` as `&amp;` in `<link>` href attributes
+ * Unlayer exports bare `&` in `<link>` href attributes (e.g. Google Fonts URLs).
+ * This is invalid in XHTML (which Unlayer uses) and can cause email clients to ignore the `<link>` tag,
+ * preventing web fonts from loading. This function encodes bare `&` as `&amp;`.
  */
 function fixUnlayerHtmlForEmailClients(html: string): string {
-    // Replace XHTML DOCTYPE with HTML5
-    html = html.replace(/<!DOCTYPE[^>]*>/i, '<!DOCTYPE html>')
-
-    // Fix bare "&"" in <link> href attributes — encode as &amp;
-    // Matches <link ...href="..." ...> and fixes any & not already followed by amp;
-    html = html.replace(/(<link\b[^>]*\bhref\s*=\s*")([^"]*?)(")/gi, (_match, before, url, after) => {
+    return html.replace(/(<link\b[^>]*\bhref\s*=\s*")([^"]*?)(")/gi, (_match, before, url, after) => {
         const fixedUrl = url.replace(/&(?!amp;)/g, '&amp;')
         return before + fixedUrl + after
     })
-
-    return html
 }
 
 /**
