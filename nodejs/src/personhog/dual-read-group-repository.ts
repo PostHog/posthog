@@ -7,16 +7,42 @@ import { logger } from '../utils/logger'
 import { GroupRepositoryTransaction } from '../worker/ingestion/groups/repositories/group-repository-transaction.interface'
 import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonHogClient } from './client'
+import { personhogErrorsTotal, personhogLatencySeconds, personhogRequestsTotal } from './metrics'
 
 export class DualReadGroupRepository implements GroupRepository {
     constructor(
         private postgres: GroupRepository,
         private grpcClient: PersonHogClient,
-        private grpcPercentage: number
+        private grpcPercentage: number,
+        private clientLabel: string
     ) {}
 
     private shouldUseGrpc(): boolean {
         return Math.random() * 100 < this.grpcPercentage
+    }
+
+    private async timedPostgres<T>(method: string, fn: () => Promise<T>): Promise<T> {
+        const end = personhogLatencySeconds.startTimer({ method, source: 'postgres', client: this.clientLabel })
+        try {
+            return await fn()
+        } finally {
+            end()
+            personhogRequestsTotal.inc({ method, source: 'postgres', client: this.clientLabel })
+        }
+    }
+
+    private async timedGrpc<T>(method: string, fn: () => Promise<T>): Promise<T> {
+        const end = personhogLatencySeconds.startTimer({ method, source: 'grpc', client: this.clientLabel })
+        try {
+            const result = await fn()
+            personhogRequestsTotal.inc({ method, source: 'grpc', client: this.clientLabel })
+            return result
+        } catch (error) {
+            personhogErrorsTotal.inc({ method, client: this.clientLabel })
+            throw error
+        } finally {
+            end()
+        }
     }
 
     async fetchGroup(
@@ -26,18 +52,24 @@ export class DualReadGroupRepository implements GroupRepository {
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<Group | undefined> {
         if (options?.forUpdate || !options?.useReadReplica || !this.shouldUseGrpc()) {
-            return this.postgres.fetchGroup(teamId, groupTypeIndex, groupKey, options)
+            return this.timedPostgres('fetchGroup', () =>
+                this.postgres.fetchGroup(teamId, groupTypeIndex, groupKey, options)
+            )
         }
 
         try {
-            return await this.grpcClient.fetchGroup(teamId, groupTypeIndex, groupKey)
+            return await this.timedGrpc('fetchGroup', () =>
+                this.grpcClient.fetchGroup(teamId, groupTypeIndex, groupKey)
+            )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroup failed, falling back to Postgres', {
                 teamId,
                 groupTypeIndex,
                 error: String(error),
             })
-            return this.postgres.fetchGroup(teamId, groupTypeIndex, groupKey, options)
+            return this.timedPostgres('fetchGroup', () =>
+                this.postgres.fetchGroup(teamId, groupTypeIndex, groupKey, options)
+            )
         }
     }
 
@@ -54,17 +86,23 @@ export class DualReadGroupRepository implements GroupRepository {
         }[]
     > {
         if (!this.shouldUseGrpc()) {
-            return this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+            return this.timedPostgres('fetchGroupsByKeys', () =>
+                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+            )
         }
 
         try {
-            return await this.grpcClient.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+            return await this.timedGrpc('fetchGroupsByKeys', () =>
+                this.grpcClient.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+            )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupsByKeys failed, falling back to Postgres', {
                 count: teamIds.length,
                 error: String(error),
             })
-            return this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+            return this.timedPostgres('fetchGroupsByKeys', () =>
+                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+            )
         }
     }
 
@@ -72,17 +110,19 @@ export class DualReadGroupRepository implements GroupRepository {
         teamIds: TeamId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (!this.shouldUseGrpc()) {
-            return this.postgres.fetchGroupTypesByTeamIds(teamIds)
+            return this.timedPostgres('fetchGroupTypesByTeamIds', () => this.postgres.fetchGroupTypesByTeamIds(teamIds))
         }
 
         try {
-            return await this.grpcClient.fetchGroupTypesByTeamIds(teamIds)
+            return await this.timedGrpc('fetchGroupTypesByTeamIds', () =>
+                this.grpcClient.fetchGroupTypesByTeamIds(teamIds)
+            )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupTypesByTeamIds failed, falling back to Postgres', {
                 count: teamIds.length,
                 error: String(error),
             })
-            return this.postgres.fetchGroupTypesByTeamIds(teamIds)
+            return this.timedPostgres('fetchGroupTypesByTeamIds', () => this.postgres.fetchGroupTypesByTeamIds(teamIds))
         }
     }
 
@@ -90,17 +130,23 @@ export class DualReadGroupRepository implements GroupRepository {
         projectIds: ProjectId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (!this.shouldUseGrpc()) {
-            return this.postgres.fetchGroupTypesByProjectIds(projectIds)
+            return this.timedPostgres('fetchGroupTypesByProjectIds', () =>
+                this.postgres.fetchGroupTypesByProjectIds(projectIds)
+            )
         }
 
         try {
-            return await this.grpcClient.fetchGroupTypesByProjectIds(projectIds)
+            return await this.timedGrpc('fetchGroupTypesByProjectIds', () =>
+                this.grpcClient.fetchGroupTypesByProjectIds(projectIds)
+            )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupTypesByProjectIds failed, falling back to Postgres', {
                 count: projectIds.length,
                 error: String(error),
             })
-            return this.postgres.fetchGroupTypesByProjectIds(projectIds)
+            return this.timedPostgres('fetchGroupTypesByProjectIds', () =>
+                this.postgres.fetchGroupTypesByProjectIds(projectIds)
+            )
         }
     }
 

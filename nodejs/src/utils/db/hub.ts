@@ -109,7 +109,8 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         groupRepository = new DualReadGroupRepository(
             postgresGroupRepository,
             grpcClient,
-            serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE
+            serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE,
+            serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
         )
         logger.info(
             '🔌',

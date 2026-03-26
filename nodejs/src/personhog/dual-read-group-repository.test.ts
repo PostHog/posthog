@@ -69,7 +69,7 @@ describe('DualReadGroupRepository', () => {
     })
 
     function createRepo(grpcPercentage: number): DualReadGroupRepository {
-        return new DualReadGroupRepository(mockPostgres, mockGrpc as unknown as PersonHogClient, grpcPercentage)
+        return new DualReadGroupRepository(mockPostgres, mockGrpc as unknown as PersonHogClient, grpcPercentage, 'test')
     }
 
     describe.each([
