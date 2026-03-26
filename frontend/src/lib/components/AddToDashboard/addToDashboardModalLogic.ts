@@ -90,9 +90,9 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         orderedDashboards: [
             (s) => [s.currentDashboards, s.availableDashboards, userLogic.selectors.user],
             (currentDashboards, availableDashboards, user): DashboardBasicType[] => {
-                const myUuid = user?.uuid
+                const myUuid = user?.uuid ?? null
                 const currentSorted = [...currentDashboards].sort(nameCompareFunction)
-                const isMine = (d: DashboardBasicType): boolean => Boolean(myUuid && d.created_by?.uuid === myUuid)
+                const isMine = (d: DashboardBasicType): boolean => myUuid !== null && d.created_by?.uuid === myUuid
                 const mineAvailable = availableDashboards.filter(isMine).sort(nameCompareFunction)
                 const othersPinnedAvailable = availableDashboards
                     .filter((d) => d.pinned && !isMine(d))
