@@ -1,4 +1,4 @@
-export type LogEntryType = 'console' | 'agent' | 'tool' | 'user' | 'raw' | 'system'
+export type LogEntryType = 'console' | 'agent' | 'tool' | 'user' | 'raw' | 'system' | 'thinking'
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 export type ToolStatus = 'pending' | 'running' | 'completed' | 'error'
 
@@ -145,10 +145,22 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                 return null
 
             case 'agent_message_chunk':
+            case 'agent_message':
                 if (update.content?.type === 'text' && update.content.text) {
                     return {
                         id,
                         type: 'agent',
+                        timestamp,
+                        message: update.content.text,
+                    }
+                }
+                return null
+
+            case 'agent_thought_chunk':
+                if (update.content?.type === 'text' && update.content.text) {
+                    return {
+                        id,
+                        type: 'thinking',
                         timestamp,
                         message: update.content.text,
                     }
@@ -339,7 +351,10 @@ export function parseLogs(logs: string): LogEntry[] {
         const entry = parseLogLine(lines[i], i, toolMap)
         if (entry !== null) {
             const lastEntry = entries[entries.length - 1]
-            if (entry.type === 'agent' && lastEntry?.type === 'agent') {
+            if (
+                (entry.type === 'agent' && lastEntry?.type === 'agent') ||
+                (entry.type === 'thinking' && lastEntry?.type === 'thinking')
+            ) {
                 lastEntry.message = (lastEntry.message || '') + (entry.message || '')
             } else {
                 entries.push(entry)
