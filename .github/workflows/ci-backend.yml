@@ -96,7 +96,13 @@ jobs:
                         - 'common/**/*'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
-                        - 'bin/*.py'
+                        - bin/build-schema-latest-versions.py
+                        - bin/build-taxonomy-json.py
+                        - bin/check_uv_python_compatibility.py
+                        - bin/find_python_dependencies.py
+                        - bin/granian_metrics.py
+                        - bin/ty.py
+                        - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt
@@ -128,7 +134,13 @@ jobs:
                         - 'ee/**/*'
                         - 'common/**/*'
                         - 'posthog/**/*'
-                        - 'bin/*.py'
+                        - bin/build-schema-latest-versions.py
+                        - bin/build-taxonomy-json.py
+                        - bin/check_uv_python_compatibility.py
+                        - bin/find_python_dependencies.py
+                        - bin/granian_metrics.py
+                        - bin/ty.py
+                        - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt

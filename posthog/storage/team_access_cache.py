@@ -15,9 +15,10 @@ from django.db.models import Q
 import redis as redis_lib
 import structlog
 
-from posthog.models.personal_api_key import SHA256_HASH_PREFIX, PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 
 logger = structlog.get_logger(__name__)
 

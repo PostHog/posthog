@@ -4,6 +4,8 @@ from django.db.models import Q, QuerySet
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+_ALLOWED_DETAIL_FILTER_OPERATIONS = {"exact", "contains", "in"}
+
 
 class AdvancedActivityLogFilterManager:
     def apply_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
@@ -57,6 +59,11 @@ class AdvancedActivityLogFilterManager:
             value = filter_config.get("value")
 
             if value is None:
+                continue
+
+            # Block Django ORM relationship traversal (e.g. "user__password") and
+            # restrict operations to a safe allowlist to prevent injection via arbitrary lookups.
+            if "__" in field_path or operation not in _ALLOWED_DETAIL_FILTER_OPERATIONS:
                 continue
 
             if "[]" in field_path:
