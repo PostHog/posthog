@@ -297,7 +297,10 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
         // No transaction calls expected since optimistic update failed
-        expect(emitIngestionWarning).toHaveBeenCalledTimes(1)
+        expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, 'group_upsert_message_size_too_large', {
+            groupTypeIndex: 1,
+            groupKey: 'test',
+        })
     })
 
     it('should retry on race condition error and clear cache', async () => {
