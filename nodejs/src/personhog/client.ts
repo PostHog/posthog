@@ -50,6 +50,12 @@ function eventualReadOptions() {
 export interface PersonHogClientConfig {
     addr: string
     useTls?: boolean
+    timeoutMs?: number
+    readMaxBytes?: number
+    writeMaxBytes?: number
+    pingIntervalMs?: number
+    pingTimeoutMs?: number
+    pingIdleConnection?: boolean
 }
 
 export class PersonHogClient {
@@ -59,6 +65,12 @@ export class PersonHogClient {
         const scheme = config.useTls ? 'https' : 'http'
         const transport = createGrpcTransport({
             baseUrl: `${scheme}://${config.addr}`,
+            defaultTimeoutMs: config.timeoutMs ?? 5_000,
+            readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
+            writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
+            pingIntervalMs: config.pingIntervalMs ?? 30_000,
+            pingTimeoutMs: config.pingTimeoutMs ?? 5_000,
+            pingIdleConnection: config.pingIdleConnection ?? true,
         })
         this.client = createClient(PersonHogService, transport)
     }
