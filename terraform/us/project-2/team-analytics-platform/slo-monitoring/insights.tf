@@ -5,6 +5,11 @@ locals {
   # events with matching properties.operation value (see posthog/slo/types.py).
   # ===========================================================================
   slo_operations = {
+    export = {
+      name    = "Exports"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     subscription_delivery = {
       name    = "Subscription deliveries"
       slo     = 99.95 # error budget = 0.05%
