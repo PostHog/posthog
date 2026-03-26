@@ -20,6 +20,7 @@ import {
     LemonLabel,
     LemonSelect,
     LemonSelectOption,
+    LemonSelectSection,
     LemonTag,
     Spinner,
     Tooltip,
@@ -79,7 +80,9 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const displayType = getTriggerDisplayType(type, node.data.config)
     const validationResult = actionValidationErrorsById[node.id]
 
-    const triggerOptions: LemonSelectOption<Extract<HogFlowAction, { type: 'trigger' }>['config']['type']>[] = [
+    type TriggerConfigType = Extract<HogFlowAction, { type: 'trigger' }>['config']['type']
+
+    const ungroupedOptions: LemonSelectOption<TriggerConfigType>[] = [
         {
             label: 'Event',
             value: 'event',
@@ -144,7 +147,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     ]
 
     if (featureFlags[FEATURE_FLAGS.WORKFLOWS_BATCH_TRIGGERS]) {
-        triggerOptions.splice(4, 0, {
+        ungroupedOptions.push({
             label: (
                 <div className="flex items-baseline">
                     <span>Batch</span>{' '}
@@ -171,11 +174,13 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
         })
     }
 
+    // Group registered trigger types by their group label
+    const groupedOptions: Record<string, LemonSelectOption<TriggerConfigType>[]> = {}
     for (const t of getRegisteredTriggerTypes()) {
         if (!t.featureFlag || featureFlags[t.featureFlag]) {
-            triggerOptions.push({
+            const option: LemonSelectOption<TriggerConfigType> = {
                 label: t.label,
-                value: t.value as Extract<HogFlowAction, { type: 'trigger' }>['config']['type'],
+                value: t.value as TriggerConfigType,
                 icon: t.icon,
                 labelInMenu: (
                     <div className="flex flex-col my-1">
@@ -183,9 +188,22 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                         <p className="text-xs text-muted">{t.description}</p>
                     </div>
                 ),
-            })
+            }
+            if (t.group) {
+                if (!groupedOptions[t.group]) {
+                    groupedOptions[t.group] = []
+                }
+                groupedOptions[t.group].push(option)
+            } else {
+                ungroupedOptions.push(option)
+            }
         }
     }
+
+    const triggerOptions: LemonSelectSection<TriggerConfigType>[] = [
+        { options: ungroupedOptions },
+        ...Object.entries(groupedOptions).map(([title, options]) => ({ title, options })),
+    ]
 
     return (
         <div className="flex flex-col items-start w-full gap-2" data-attr="workflow-trigger">
