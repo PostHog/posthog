@@ -37,8 +37,8 @@ _SAFE_IDENTIFIER = st.from_regex(r"[a-z_][a-z0-9_]{0,15}", fullmatch=True).filte
     lambda s: s not in ("true", "false", "null", "team_id", "not", "and", "or", "in", "is", "like", "ilike", "between")
 )
 
-# String constants: NUL excluded (lossy parse), surrogates excluded (not
-# valid UTF-8).
+# String constants: NUL excluded (lossy parse via \0 → ""), surrogates
+# excluded (not valid UTF-8, rejected by the C++ parser backend).
 _SAFE_STRING = st.text(
     alphabet=st.characters(
         blacklist_characters="\0",
@@ -198,14 +198,11 @@ def _expr_strategy() -> st.SearchStrategy[ast.Expr]:
             property=children,
         )
 
-        # IS [NOT] DISTINCT FROM — use leaf expressions as operands to avoid
-        # a known precedence issue where AS aliases inside infix keyword
-        # operators (IS DISTINCT FROM, BETWEEN) aren't parenthesized by the
-        # printer, causing misparse on roundtrip.
+        # IS [NOT] DISTINCT FROM
         is_distinct_from = st.builds(
             ast.IsDistinctFrom,
-            left=base,
-            right=base,
+            left=children,
+            right=children,
             negated=st.booleans(),
         )
 
