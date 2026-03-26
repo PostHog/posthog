@@ -148,7 +148,7 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 }
 
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
-// or if you're running flox + mprocs you can also run the `sync-feature-flags` process
+// or if you're running flox + phrocs you can also run the `sync-feature-flags` process
 //
 // If this is a multivariate flag, please add the `multivariate=true` tag at the end of your comment
 // if you want the script to properly create a multivariate flag. You can also specify the different
@@ -238,9 +238,6 @@ export const FEATURE_FLAGS = {
     ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
-    BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
-    BATCH_EXPORTS_AZURE_BLOB: 'azure-blob-batch-exports', // owner: #team-batch-exports
-    BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
     BATCH_EXPORTS_BIGQUERY_INTEGRATION: 'batch-exports-bigquery-integration', // owner: @tomasfarias #team-batch-exports
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BING_ADS_SOURCE: 'bing-ads-source', // owner: @jabahamondes #team-web-analytics

@@ -1,32 +1,46 @@
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { toAbsoluteClickhouseTimestamp } from './logsViewerLogic'
 
 describe('logsViewerLogic', () => {
     describe('toAbsoluteClickhouseTimestamp', () => {
+        afterEach(() => jest.restoreAllMocks())
+
+        it('falls back to UTC when teamLogic is not mounted', () => {
+            const input = dayjs.tz('2024-01-15 10:30:45.123', 'UTC')
+            expect(toAbsoluteClickhouseTimestamp(input)).toBe('2024-01-15 10:30:45.123')
+        })
+
         it.each([
             {
-                description: 'converts UTC timestamp correctly',
-                input: dayjs.tz('2024-01-15 10:30:45.123', 'UTC'),
-                expected: '2024-01-15 10:30:45.123',
-            },
-            {
-                description: 'converts US/Pacific timestamp to UTC',
+                description: 'normalizes US/Pacific to UTC (fallback: teamLogic not mounted)',
                 input: dayjs.tz('2024-01-15 02:30:45.123', 'US/Pacific'),
                 expected: '2024-01-15 10:30:45.123',
             },
             {
-                description: 'converts Europe/Berlin timestamp to UTC',
+                description: 'normalizes Europe/Berlin to UTC (fallback: teamLogic not mounted)',
                 input: dayjs.tz('2024-01-15 11:30:45.123', 'Europe/Berlin'),
                 expected: '2024-01-15 10:30:45.123',
             },
             {
-                description: 'converts Asia/Tokyo timestamp to UTC',
+                description: 'normalizes Asia/Tokyo to UTC (fallback: teamLogic not mounted)',
                 input: dayjs.tz('2024-01-15 19:30:45.123', 'Asia/Tokyo'),
                 expected: '2024-01-15 10:30:45.123',
             },
         ])('$description', ({ input, expected }) => {
             expect(toAbsoluteClickhouseTimestamp(input)).toBe(expected)
+        })
+
+        it('formats in team timezone when teamLogic is mounted', () => {
+            // The same moment in time: 10:30 UTC = 05:30 America/Bogota (UTC-5)
+            const input = dayjs.tz('2024-01-15 10:30:45.123', 'UTC')
+
+            jest.spyOn(teamLogic, 'findMounted').mockReturnValue({
+                values: { currentTeam: { timezone: 'America/Bogota' } },
+            } as any)
+
+            expect(toAbsoluteClickhouseTimestamp(input)).toBe('2024-01-15 05:30:45.123')
         })
 
         it('formats timestamp without ISO format', () => {

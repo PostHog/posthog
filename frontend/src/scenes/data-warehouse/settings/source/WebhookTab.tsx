@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { WebhookInfo } from '~/types'
 
@@ -25,8 +26,10 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         mappedTables,
         source,
         sourceConfig,
+        canDeleteWebhook,
+        webhookDeleting,
     } = useValues(webhookTabLogic({ id }))
-    const { createWebhook, loadWebhookInfo } = useActions(webhookTabLogic({ id }))
+    const { createWebhook, loadWebhookInfo, deleteWebhook } = useActions(webhookTabLogic({ id }))
 
     if (webhookInfoLoading && !webhookInfo) {
         return (
@@ -80,6 +83,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
             )}
             <WebhookDetailsSection webhookInfo={webhookInfo} />
             {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
+            <WebhookDeleteSection canDelete={canDeleteWebhook} deleting={webhookDeleting} onDelete={deleteWebhook} />
         </div>
     )
 }
@@ -198,6 +202,64 @@ function MappedTablesSection({
                 ]}
                 size="small"
             />
+        </LemonCard>
+    )
+}
+
+function WebhookDeleteSection({
+    canDelete,
+    deleting,
+    onDelete,
+}: {
+    canDelete: boolean
+    deleting: boolean
+    onDelete: () => void
+}): JSX.Element {
+    const handleDelete = (): void => {
+        LemonDialog.open({
+            title: 'Delete webhook',
+            description:
+                'This will delete the webhook from PostHog and attempt to remove it from the source. This action cannot be undone.',
+            primaryButton: {
+                children: 'Delete webhook',
+                status: 'danger',
+                onClick: onDelete,
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    const deleteButton = (
+        <LemonButton
+            type="secondary"
+            status="danger"
+            onClick={handleDelete}
+            loading={deleting}
+            disabledReason={
+                !canDelete ? 'Disable incremental syncing on all tables before deleting the webhook' : undefined
+            }
+        >
+            Delete webhook
+        </LemonButton>
+    )
+
+    return (
+        <LemonCard hoverEffect={false} className="space-y-3">
+            <h3 className="text-lg font-semibold">Danger zone</h3>
+            <div className="flex items-center justify-between">
+                <div>
+                    <p className="mb-0">Remove the webhook from PostHog and the source.</p>
+                    {!canDelete && (
+                        <p className="text-muted text-xs mt-1 mb-0">
+                            Tables using incremental sync depend on this webhook. Switch them to full refresh or disable
+                            syncing first.
+                        </p>
+                    )}
+                </div>
+                {deleteButton}
+            </div>
         </LemonCard>
     )
 }

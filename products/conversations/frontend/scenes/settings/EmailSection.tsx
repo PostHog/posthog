@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCopy, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonDivider, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -88,6 +90,10 @@ function EmailChannelSection(): JSX.Element {
     } = useValues(supportSettingsLogic)
     const { setEmailFromEmail, setEmailFromName, connectEmail, disconnectEmail, verifyEmailDomain, sendTestEmail } =
         useActions(supportSettingsLogic)
+    const adminRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     const sendingRecords = emailDnsRecords?.sending_dns_records as DnsRecord[] | undefined
 
@@ -123,9 +129,10 @@ function EmailChannelSection(): JSX.Element {
                                 onClick={connectEmail}
                                 loading={emailConnecting}
                                 disabledReason={
-                                    !emailFromEmail || !emailFromName
+                                    adminRestrictionReason ??
+                                    (!emailFromEmail || !emailFromName
                                         ? 'Enter email address and display name'
-                                        : undefined
+                                        : undefined)
                                 }
                             >
                                 Connect email
@@ -245,6 +252,7 @@ function EmailChannelSection(): JSX.Element {
                             type="secondary"
                             status="danger"
                             size="small"
+                            disabledReason={adminRestrictionReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Disconnect email?',

@@ -1461,6 +1461,31 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fingerprint: str
+
+
+class SourceType(StrEnum):
+    ISSUE_CREATED = "issue_created"
+    ISSUE_REOPENED = "issue_reopened"
+    ISSUE_SPIKING = "issue_spiking"
+
+
+class ErrorTrackingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ErrorTrackingSignalExtra
+    source_id: str
+    source_product: Literal["error_tracking"] = "error_tracking"
+    source_type: SourceType
+    weight: float
+
+
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3922,6 +3947,25 @@ class SharingConfigurationSettings(BaseModel):
     showInspector: bool | None = None
     theme: Theme | None = None
     whitelabel: bool | None = None
+
+
+class SignalSourceProduct(StrEnum):
+    SESSION_REPLAY = "session_replay"
+    LLM_ANALYTICS = "llm_analytics"
+    GITHUB = "github"
+    LINEAR = "linear"
+    ZENDESK = "zendesk"
+    ERROR_TRACKING = "error_tracking"
+
+
+class SignalSourceType(StrEnum):
+    SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
+    EVALUATION = "evaluation"
+    ISSUE = "issue"
+    TICKET = "ticket"
+    ISSUE_CREATED = "issue_created"
+    ISSUE_REOPENED = "issue_reopened"
+    ISSUE_SPIKING = "issue_spiking"
 
 
 class SimilarIssue(BaseModel):
@@ -7160,6 +7204,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ErrorTrackingSignalInput
     ]
 ):
     root: (
@@ -7168,6 +7213,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ErrorTrackingSignalInput
     ) = Field(..., discriminator="source_product")
 
 
