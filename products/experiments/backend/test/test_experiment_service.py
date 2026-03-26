@@ -1478,8 +1478,10 @@ class TestExperimentService(APIBaseTest):
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_end_experiment_completed_event_includes_significant_when_results_exist(self, mock_report_user_action):
         experiment = self._create_running_experiment(name="End Significant", feature_flag_key="end-significant-flag")
+        assert experiment.metrics is not None
         metric_uuid = experiment.metrics[0]["uuid"]
 
+        assert experiment.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid=metric_uuid,
