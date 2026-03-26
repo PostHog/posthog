@@ -39,7 +39,6 @@ import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
-import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 /**
@@ -336,7 +335,7 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PersonRepository
+        personRepository: PostgresPersonRepository
         groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
@@ -345,12 +344,11 @@ export class PluginServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
+        const personRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
 
-        let personRepository: PersonRepository = postgresPersonRepository
         let groupRepository: GroupRepository = postgresGroupRepository
 
         if (
@@ -362,11 +360,6 @@ export class PluginServer implements NodeServer {
                 addr: this.config.PERSONHOG_ADDR,
                 useTls: this.config.PERSONHOG_TLS,
             })
-            personRepository = new DualReadPersonRepository(
-                postgresPersonRepository,
-                grpcClient,
-                this.config.PERSONHOG_ROLLOUT_PERCENTAGE
-            )
             groupRepository = new DualReadGroupRepository(
                 postgresGroupRepository,
                 grpcClient,
