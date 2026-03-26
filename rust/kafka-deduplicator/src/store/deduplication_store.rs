@@ -7,7 +7,9 @@ use rocksdb::{ColumnFamilyDescriptor, SliceTransform};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::store::{column_family_options, RocksDbConfig, RocksDbStore, TIMESTAMP_PREFIX_LEN};
+use crate::rocksdb::store::{
+    column_family_options, RocksDbConfig, RocksDbStore, TIMESTAMP_PREFIX_LEN,
+};
 
 use super::keys::TimestampKey;
 use crate::pipelines::ingestion_events::TimestampMetadata;
