@@ -14,6 +14,7 @@ import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
@@ -195,6 +196,7 @@ interface MetricLoadingConfig {
     isPrimary: boolean
     isRetry: boolean
     metricIndexOffset: number
+    orderedUuids?: string[] | null
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -267,6 +269,53 @@ function classifyError(
     return 'unknown'
 }
 
+/**
+ * Returns metric indices in display order. Metrics whose UUID appears in
+ * orderedUuids come first (in that order), followed by any remaining metrics
+ * in their original array position. Each entry is the original index into the
+ * metrics array so callers can write results to the correct positional slot.
+ */
+export function getDisplayOrderedIndices(
+    metrics: { uuid?: string }[],
+    orderedUuids: string[] | null | undefined
+): number[] {
+    if (!orderedUuids || orderedUuids.length === 0) {
+        return metrics.map((_, i) => i)
+    }
+
+    const uuidToIndex = new Map<string, number>()
+    for (let i = 0; i < metrics.length; i++) {
+        const uuid = metrics[i].uuid
+        if (uuid) {
+            uuidToIndex.set(uuid, i)
+        }
+    }
+
+    const ordered: number[] = []
+    const seen = new Set<number>()
+
+    for (const uuid of orderedUuids) {
+        const idx = uuidToIndex.get(uuid)
+        if (idx !== undefined && !seen.has(idx)) {
+            ordered.push(idx)
+            seen.add(idx)
+        }
+    }
+
+    for (let i = 0; i < metrics.length; i++) {
+        if (!seen.has(i)) {
+            ordered.push(i)
+        }
+    }
+
+    return ordered
+}
+
+// Max concurrent metric queries to avoid overwhelming the celery queue's
+// per-team concurrency limit (10). Using runWithLimit instead of Promise.all
+// prevents mass rejections and retry churn when experiments have many metrics.
+const METRIC_QUERY_CONCURRENCY_LIMIT = 10
+
 const loadMetrics = async ({
     metrics,
     experimentId,
@@ -276,6 +325,7 @@ const loadMetrics = async ({
     isPrimary,
     isRetry,
     metricIndexOffset,
+    orderedUuids,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
@@ -294,11 +344,16 @@ const loadMetrics = async ({
     let erroredCount = 0
     let cachedCount = 0
 
-    await Promise.all(
-        metrics.map(async (metric, index) => {
+    // Build tasks in display order so higher-priority metrics get dispatched first,
+    // but each task writes to its original index so the UI stays consistent.
+    const displayOrder = getDisplayOrderedIndices(metrics, orderedUuids)
+
+    const tasks = displayOrder.map((originalIndex) => {
+        const metric = metrics[originalIndex]
+        return async (): Promise<void> => {
             let response: any = null
             const startTime = performance.now()
-            const metricIndex = metricIndexOffset + index
+            const metricIndex = metricIndexOffset + originalIndex
             const metricKind = metric.kind || 'unknown'
 
             try {
@@ -332,17 +387,17 @@ const loadMetrics = async ({
                     const typedResponse = convertToTypedExperimentResponse(response as CachedExperimentQueryResponse)
                     if (typedResponse) {
                         if (isLegacyExperimentResponse(typedResponse)) {
-                            legacyResults[index] = {
+                            legacyResults[originalIndex] = {
                                 ...typedResponse,
                                 fakeInsightId: Math.random().toString(36).substring(2, 15),
                             } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
                         } else if (isNewExperimentResponse(typedResponse)) {
-                            results[index] = typedResponse
+                            results[originalIndex] = typedResponse
                         }
                     }
                 } else {
                     // For trends/funnels queries, keep original response
-                    legacyResults[index] = {
+                    legacyResults[originalIndex] = {
                         ...response,
                         fakeInsightId: Math.random().toString(36).substring(2, 15),
                     } as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse) & {
@@ -386,7 +441,7 @@ const loadMetrics = async ({
                 const queryId = response?.query_status?.id || error.queryId || null
                 const errorType = classifyError(errorDetail, errorMessage, errorCode, statusCode)
 
-                currentErrors[index] = {
+                currentErrors[originalIndex] = {
                     detail: errorDetail,
                     statusCode,
                     hasDiagnostics,
@@ -426,12 +481,14 @@ const loadMetrics = async ({
                     status_code: statusCode,
                 })
 
-                legacyResults[index] = null
+                legacyResults[originalIndex] = null
                 onSetLegacyResults([...legacyResults])
                 onSetResults([...results])
             }
-        })
-    )
+        }
+    })
+
+    await runWithLimit(tasks, METRIC_QUERY_CONCURRENCY_LIMIT)
 
     return { successfulCount, erroredCount, cachedCount }
 }
@@ -1931,6 +1988,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: false,
                 metricIndexOffset: 0,
+                orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
@@ -1969,6 +2027,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: false,
                 metricIndexOffset: 0,
+                orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
