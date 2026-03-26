@@ -352,7 +352,7 @@ class SignalReportViewSet(
             ORDER BY timestamp ASC
         """
 
-        tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+        tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
         result = execute_hogql_query(
             query_type="SignalsDebugFetchForReport",
             query=query,
