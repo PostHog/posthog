@@ -73,10 +73,16 @@ class TestTypeformTransport:
         paginator.update_state(response, data=[{"token": "tok_1"}])
 
         request = Mock()
-        request.params = {"page_size": 1000}
+        request.params = {
+            "page_size": 1000,
+            "since": "2026-03-01T00:00:00Z",
+            "until": "2026-03-25T00:00:00Z",
+        }
         paginator.update_request(request)
 
         assert request.params["before"] == "tok_1"
+        assert "since" not in request.params
+        assert "until" not in request.params
 
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
@@ -276,6 +282,25 @@ class TestTypeformTransport:
         assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
         assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], TypeformFormsPaginator)
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], TypeformResponsesPaginator)
+
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.build_dependent_resource")
+    def test_typeform_source_responses_passes_incremental_when_enabled(self, mock_build_dependent_resource) -> None:
+        mock_build_dependent_resource.return_value = iter([])
+
+        typeform_source(
+            auth_token="token",
+            api_base_url="https://api.typeform.com",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+            incremental_field="submitted_at",
+        )
+
+        kwargs = mock_build_dependent_resource.call_args.kwargs
+        assert kwargs["should_use_incremental_field"] is True
+        assert callable(kwargs["incremental_config_factory"])
 
     def test_typeform_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(
