@@ -23,15 +23,15 @@ import {
     IngestionConsumerConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
-    PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
-import { buildGroupRepository } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { PersonHogClient } from '../personhog/client'
+import { DualReadGroupRepository } from '../personhog/dual-read-group-repository'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -42,6 +42,7 @@ import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
@@ -65,7 +66,6 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
-    PersonHogConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -73,6 +73,23 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
+        // Shared between ingestion and CDP
+        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+        // Consumer
+        | 'CONSUMER_BATCH_SIZE'
+        | 'CONSUMER_MAX_HEARTBEAT_INTERVAL_MS'
+        | 'CONSUMER_LOOP_STALL_THRESHOLD_MS'
+        | 'CONSUMER_LOG_STATS_LEVEL'
+        | 'CONSUMER_LOOP_BASED_HEALTH_CHECK'
+        | 'CONSUMER_MAX_BACKGROUND_TASKS'
+        | 'CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE'
+        | 'CONSUMER_AUTO_CREATE_TOPICS'
+        // PersonHog gRPC
+        | 'PERSONHOG_ENABLED'
+        | 'PERSONHOG_ADDR'
+        | 'PERSONHOG_ROLLOUT_PERCENTAGE'
+        | 'PERSONHOG_TLS'
+        // Misc
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
         | 'TASKS_PER_WORKER'
@@ -148,11 +165,27 @@ export class IngestionGeneralServer implements NodeServer {
         })
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
 
-        const groupRepository = buildGroupRepository(
-            this.config,
-            postgresGroupRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
-        )
+        let groupRepository: GroupRepository = postgresGroupRepository
+        if (
+            this.config.PERSONHOG_ENABLED &&
+            this.config.PERSONHOG_ADDR &&
+            this.config.PERSONHOG_ROLLOUT_PERCENTAGE > 0
+        ) {
+            const grpcClient = new PersonHogClient({
+                addr: this.config.PERSONHOG_ADDR,
+                useTls: this.config.PERSONHOG_TLS,
+            })
+            groupRepository = new DualReadGroupRepository(
+                postgresGroupRepository,
+                grpcClient,
+                this.config.PERSONHOG_ROLLOUT_PERCENTAGE,
+                this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            )
+            logger.info(
+                '🔌',
+                `PersonHog gRPC enabled at ${this.config.PERSONHOG_ADDR} (${this.config.PERSONHOG_ROLLOUT_PERCENTAGE}%)`
+            )
+        }
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
