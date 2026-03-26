@@ -14,7 +14,6 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        chromatic: { disableSnapshot: true },
     },
     argTypes: {
         productKey: {
