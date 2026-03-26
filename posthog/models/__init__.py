@@ -23,6 +23,7 @@ from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
 from .dashboard import Dashboard
+from .data_deletion_request import DataDeletionRequest
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
 from ..ducklake.models import DuckgresServer, DuckLakeCatalog
@@ -120,6 +121,7 @@ __all__ = [
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",
+    "DataDeletionRequest",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",

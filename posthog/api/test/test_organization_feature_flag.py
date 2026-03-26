@@ -166,8 +166,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
                     }
                 ],
+                "aggregation_group_type_index": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
@@ -187,7 +189,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": [],
             "has_enriched_analytics": False,
             "tags": [],
-            "evaluation_tags": [],
             "evaluation_contexts": [],
             "user_access_level": "manager",
             "is_remote_configuration": False,
@@ -259,8 +260,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
                     }
                 ],
+                "aggregation_group_type_index": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
@@ -271,7 +274,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
-            "evaluation_tags": [],
             "evaluation_contexts": [],
             "id": ANY,
             "created_at": ANY,
@@ -397,8 +399,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
                     }
                 ],
+                "aggregation_group_type_index": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
@@ -409,7 +413,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
-            "evaluation_tags": [],
             "evaluation_contexts": [],
             "id": ANY,
             "created_at": ANY,

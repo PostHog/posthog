@@ -69,7 +69,7 @@ export const variablesLogic = kea<variablesLogicType>([
     })),
     propsChanged(({ props, actions, values }) => {
         if (props.sourceQuery) {
-            const variables = Object.values(props.sourceQuery?.source.variables ?? {})
+            const variables = Object.values(props.sourceQuery?.source?.variables ?? {})
 
             if (variables.length) {
                 variables.forEach((variable) => {
@@ -172,7 +172,7 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     selectors({
         queryVariableCodeNames: [
-            (s) => [s.editorQuery, (_, props) => props.sourceQuery?.source.query],
+            (s) => [s.editorQuery, (_, props) => props.sourceQuery?.source?.query],
             (editorQuery, sourceQuery): string[] => {
                 const matches = getVariablesFromQuery(editorQuery ?? sourceQuery ?? '')
                 return Array.from(new Set(matches.filter((match): match is string => Boolean(match))))
