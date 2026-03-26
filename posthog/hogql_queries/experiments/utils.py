@@ -55,6 +55,7 @@ def get_experiment_query_debug(experiment_query_ast: ast.SelectQuery, team: Team
     )
     clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
     clickhouse_sql = substitute_params_for_display(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    assert executor.hogql is not None
     return (executor.hogql, clickhouse_sql)
 
 

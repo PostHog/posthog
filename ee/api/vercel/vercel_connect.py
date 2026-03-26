@@ -188,15 +188,17 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             integration_id=installation_id,
             config={
                 "type": "connectable",
-                "credentials": {
-                    "access_token": cached_data["access_token"],
-                    "token_type": cached_data["token_type"],
-                },
                 "vercel_team_id": cached_data.get("team_id"),
                 "vercel_user_id": cached_data["user_id"],
                 "configuration_id": cached_data.get("configuration_id"),
                 "user_mappings": {
                     cached_data["user_id"]: user.pk,
+                },
+            },
+            sensitive_config={
+                "credentials": {
+                    "access_token": cached_data["access_token"],
+                    "token_type": cached_data["token_type"],
                 },
             },
             created_by=user,

@@ -243,7 +243,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         )
         assert integration.config["type"] == "connectable"
-        assert integration.config["credentials"]["access_token"] == "vercel_token_123"
+        assert integration.sensitive_config["credentials"]["access_token"] == "vercel_token_123"
         assert integration.integration_id == "icfg_connect_test"
 
     def test_non_member_returns_403(self):
