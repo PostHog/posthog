@@ -128,19 +128,24 @@ export function PropertyValue({
     const optionsLoadedAt = useRef<number | null>(null)
 
     const setValue = (newValue: PropertyValueProps['value']): void => {
-        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
         const selectedValues =
             newValue === null || newValue === undefined ? [] : Array.isArray(newValue) ? newValue : [newValue]
-        const fromSuggestion = selectedValues.length > 0 && selectedValues.every((v) => availableValues.has(String(v)))
 
-        posthog.capture('property_value_selected', {
-            property_key: propertyKey,
-            property_type: type,
-            from_suggestion: fromSuggestion,
-            options_count: displayOptions.length,
-            time_to_select_ms: optionsLoadedAt.current ? Math.floor(performance.now() - optionsLoadedAt.current) : null,
-            had_search_input: currentSearchInput.current !== '',
-        })
+        if (selectedValues.length > 0) {
+            const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+            const fromSuggestion = selectedValues.every((v) => availableValues.has(toString(v)))
+
+            posthog.capture('property_value_selected', {
+                property_key: propertyKey,
+                property_type: type,
+                from_suggestion: fromSuggestion,
+                options_count: displayOptions.length,
+                time_to_select_ms: optionsLoadedAt.current
+                    ? Math.floor(performance.now() - optionsLoadedAt.current)
+                    : null,
+                had_search_input: currentSearchInput.current !== '',
+            })
+        }
 
         onSet(newValue)
     }
@@ -171,11 +176,17 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, isAssigneeProperty, load, propertyOptions?.status])
 
+    // track when options finish loading so time_to_select_ms reflects the most recent load
+    useEffect(() => {
+        if (propertyOptions?.status === 'loaded' && propertyOptions?.values) {
+            optionsLoadedAt.current = performance.now()
+        }
+    }, [propertyOptions?.status, propertyOptions?.values])
+
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)
     useEffect(() => {
         if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
-            optionsLoadedAt.current = performance.now()
             const newKeys = propertyOptions.values.map((v) => toString(v.name))
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
