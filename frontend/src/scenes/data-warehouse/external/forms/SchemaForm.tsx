@@ -127,11 +127,7 @@ export default function SchemaForm(): JSX.Element {
                                         )
                                     }
 
-                                    if (
-                                        schema.sync_type === 'incremental' &&
-                                        schema.sync_type !== null &&
-                                        schema.supports_webhooks
-                                    ) {
+                                    if (schema.sync_type === 'webhook') {
                                         return <LemonTag type="success">Webhook</LemonTag>
                                     }
 
