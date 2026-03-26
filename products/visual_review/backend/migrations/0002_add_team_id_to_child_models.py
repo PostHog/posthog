@@ -46,6 +46,7 @@ class Migration(migrations.Migration):
                     ("pending", "pending"),
                     ("human_approved", "human_approved"),
                     ("auto_approved", "auto_approved"),
+                    ("agent_approved", "agent_approved"),
                     ("rejected", "rejected"),
                 ],
                 default="pending",

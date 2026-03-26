@@ -43,6 +43,7 @@ class ReviewDecision(StrEnum):
     PENDING = "pending"
     HUMAN_APPROVED = "human_approved"
     AUTO_APPROVED = "auto_approved"
+    AGENT_APPROVED = "agent_approved"
     REJECTED = "rejected"  # Passive annotation — no system effect in MVP
 
 
