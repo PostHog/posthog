@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArchive, IconCode, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCode, IconCopy, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -15,6 +15,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -65,9 +66,12 @@ export function SurveyViewRedesign(): JSX.Element {
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { push } = useActions(router)
     const { location, searchParams, hashParams } = useValues(router)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
+    const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
     const [tabKey, setTabKey] = useState('summary')
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
@@ -218,6 +222,17 @@ export function SurveyViewRedesign(): JSX.Element {
                             }
                         }}
                     />
+                    {canCopyToProject && surveyIdForTransfer && (
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => push(urls.resourceTransfer('Survey', surveyIdForTransfer))}
+                            data-attr="survey-copy-to-project"
+                            tooltip="Copy this survey to another project"
+                        >
+                            <IconCopy />
+                            Copy to another project
+                        </ButtonPrimitive>
+                    )}
                     {!isDraft && (
                         <ButtonPrimitive menuItem onClick={() => setSqlHelperOpen(true)}>
                             <IconCode />

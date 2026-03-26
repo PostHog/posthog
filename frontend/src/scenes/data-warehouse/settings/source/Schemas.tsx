@@ -232,10 +232,10 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                             const nameContent =
                                 isDirectQuerySource && schema.table ? (
                                     <Link to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}>
-                                        {schema.name}
+                                        {schema.label ?? schema.name}
                                     </Link>
                                 ) : (
-                                    <span>{schema.name}</span>
+                                    <span>{schema.label ?? schema.name}</span>
                                 )
                             return (
                                 <div className="flex items-center gap-1">
@@ -631,7 +631,10 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         <LemonModal
             title={
                 <>
-                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                    Sync method for{' '}
+                    <span className="font-mono">
+                        {currentSyncMethodModalSchema.label ?? currentSyncMethodModalSchema.name}
+                    </span>
                 </>
             }
             isOpen={syncMethodModalIsOpen}

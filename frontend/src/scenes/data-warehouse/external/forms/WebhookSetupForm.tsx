@@ -58,8 +58,7 @@ export function WebhookSetupForm({
                 <h3 className="text-lg font-semibold">Set up webhook for {sourceName}</h3>
                 <p>
                     Instead of polling for changes on a schedule, we'll set up a webhook on your {sourceName} account so
-                    that new data is pushed to PostHog in real-time. This means faster syncs and less load on your
-                    source.
+                    that new data is pushed to PostHog. This means faster syncs and less load on your source.
                 </p>
                 {webhookTablesList}
                 <LemonBanner type="info">

@@ -199,6 +199,30 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         expected_ids = {log1.id, log2.id}
         self.assertEqual(result_ids, expected_ids)
 
+    def test_rejects_dunder_field_paths(self):
+        log = self._create_activity_log({"name": "test"})
+        queryset = ActivityLog.objects.filter(id=log.id)
+
+        filtered = self.filter_manager._apply_detail_filters(
+            queryset, {"user__email": {"operation": "exact", "value": "admin@example.com"}}
+        )
+        self.assertEqual(filtered.count(), 1)
+
+        filtered = self.filter_manager._apply_detail_filters(
+            queryset, {"user__password": {"operation": "contains", "value": "pbkdf2"}}
+        )
+        self.assertEqual(filtered.count(), 1)
+
+    def test_rejects_invalid_operations(self):
+        log = self._create_activity_log({"name": "test"})
+        queryset = ActivityLog.objects.filter(id=log.id)
+
+        filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "regex", "value": ".*"}})
+        self.assertEqual(filtered.count(), 1)
+
+        filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "gt", "value": "a"}})
+        self.assertEqual(filtered.count(), 1)
+
 
 class TestTypeConversionIntegration(BaseTest):
     def setUp(self):

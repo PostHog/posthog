@@ -28,7 +28,7 @@ from clickhouse_driver.context import Context
 from clickhouse_driver.util.escape import escape_param
 
 
-def substitute_params(query, params):
+def substitute_params(query: str, params: dict[str, Any]) -> str:
     """
     This is a copy of clickhouse-driver's `substitute_params` function without
     the dependency that you need to connect to the server before you can escape
@@ -51,7 +51,7 @@ def substitute_params(query, params):
     return query % escaped
 
 
-def escape_params(params):
+def escape_params(params: dict[str, Any]) -> dict[str, str]:
     """
     This is a copy of clickhouse-driver's `escape_params` function without the
     dependency that you need to connect to the server before you can escape
