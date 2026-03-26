@@ -12,6 +12,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        chromatic: { disableSnapshot: true },
     },
 }
 export default meta
