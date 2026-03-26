@@ -34,8 +34,8 @@ pub struct CaptureV1Event {
 #[derive(Debug)]
 pub struct WrappedEvent {
     pub event: CaptureV1Event,
-    // skew-adjusted timestamp, None if event is malformed
-    pub timestamp: Option<DateTime<Utc>>,
+    // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
+    pub adjusted_timestamp: Option<DateTime<Utc>>,
     // 0-indexed ordinal into the submitted batch
     pub ordinal: usize,
     // 200 for valid/redirected, 400 for invalid or dropped

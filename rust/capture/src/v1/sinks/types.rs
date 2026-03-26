@@ -5,6 +5,7 @@
 pub enum Destination {
     #[default]
     AnalyticsMain,
+    AnalyticsHistorical,
     Overflow,
     Dlq,
     Custom(String),

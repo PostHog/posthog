@@ -39,6 +39,8 @@ pub async fn process_batch(
         .await;
     }
 
+    apply_historical_rerouting(&state.historical_cfg, context, &mut events);
+
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
         apply_token_distinct_id_limits(limiter, &context.api_token, &mut events).await;
     }
@@ -62,8 +64,6 @@ fn validate_batch(batch: &CaptureV1Batch) -> Result<(), Error> {
 }
 
 fn validate_events(context: &Context, batch: CaptureV1Batch) -> Vec<WrappedEvent> {
-    let skew = context.clock_skew();
-    let now = context.server_received_at;
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
 
     let events: Vec<WrappedEvent> = batch
@@ -73,9 +73,10 @@ fn validate_events(context: &Context, batch: CaptureV1Batch) -> Vec<WrappedEvent
         .map(|(ordinal, event)| match validate_event(&event) {
             Ok(raw_ts) => {
                 metrics::counter!(CAPTURE_PARSED_EVENTS, "result" => "valid").increment(1);
+                let adjusted = normalize_timestamp(context, &event, raw_ts);
                 WrappedEvent {
                     event,
-                    timestamp: Some(normalize_timestamp(skew, raw_ts, now)),
+                    adjusted_timestamp: Some(adjusted),
                     ordinal,
                     status_code: 200,
                     destination: Destination::default(),
@@ -86,7 +87,7 @@ fn validate_events(context: &Context, batch: CaptureV1Batch) -> Vec<WrappedEvent
                 *malformed.entry(err.tag()).or_insert(0) += 1;
                 WrappedEvent {
                     event,
-                    timestamp: None,
+                    adjusted_timestamp: None,
                     ordinal,
                     status_code: 400,
                     destination: Destination::default(),
@@ -152,15 +153,60 @@ fn validate_event(event: &CaptureV1Event) -> Result<DateTime<Utc>, Error> {
 }
 
 fn normalize_timestamp(
-    skew: chrono::Duration,
+    context: &Context,
+    event: &CaptureV1Event,
     raw_event_ts: DateTime<Utc>,
-    now: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    let adjusted = raw_event_ts - skew;
+    let ignore_sent_at = event
+        .properties
+        .get("$ignore_sent_at")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if ignore_sent_at {
+        return raw_event_ts;
+    }
+
+    let adjusted = raw_event_ts - context.clock_skew();
+    let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
         return now;
     }
     adjusted
+}
+
+const CAPTURE_V1_EVENTS_REROUTED_HISTORICAL: &str = "capture_v1_events_rerouted_historical";
+
+fn apply_historical_rerouting(
+    cfg: &router::HistoricalConfig,
+    context: &Context,
+    events: &mut [WrappedEvent],
+) {
+    for event in events.iter_mut() {
+        if event.status_code != 200 || event.destination != Destination::AnalyticsMain {
+            continue;
+        }
+
+        // Batch-level flag: all events in a historical migration batch are historical
+        if context.historical_migration {
+            event.destination = Destination::AnalyticsHistorical;
+            metrics::counter!(CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, "reason" => "batch_flag")
+                .increment(1);
+            continue;
+        }
+
+        // Timestamp-based: reroute old events when the feature is enabled
+        if let Some(ts) = event.adjusted_timestamp {
+            if cfg.should_reroute(crate::v0_request::DataType::AnalyticsMain, ts) {
+                event.destination = Destination::AnalyticsHistorical;
+                metrics::counter!(
+                    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL,
+                    "reason" => "timestamp"
+                )
+                .increment(1);
+            }
+        }
+    }
 }
 
 const CAPTURE_V1_EVENTS_DROPPED: &str = "capture_v1_events_dropped";
@@ -416,46 +462,111 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
+    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> Context {
+        Context {
+            api_token: "phc_test".to_string(),
+            authorization: None,
+            user_agent: "test/1.0".to_string(),
+            content_type: "application/json".to_string(),
+            content_encoding: None,
+            sdk_info: "test/1.0".to_string(),
+            attempt: 1,
+            request_id: Uuid::new_v4(),
+            client_timestamp: server_received_at + skew,
+            client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            query: crate::v1::analytics::query::Query::default(),
+            method: axum::http::Method::POST,
+            path: "/i/v1/general/analytics/events".to_string(),
+            server_received_at,
+            created_at: None,
+            capture_internal: false,
+            historical_migration: false,
+        }
+    }
+
+    fn event_with_ignore_sent_at(ignore: bool) -> CaptureV1Event {
+        let mut props = HashMap::new();
+        props.insert(
+            "$ignore_sent_at".to_string(),
+            serde_json::Value::Bool(ignore),
+        );
+        CaptureV1Event {
+            event: "$pageview".to_string(),
+            uuid: Uuid::new_v4().to_string(),
+            distinct_id: "user-1".to_string(),
+            timestamp: "2026-03-19T11:00:00Z".to_string(),
+            properties: props,
+        }
+    }
+
     #[test]
     fn normalize_no_skew() {
         let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::zero());
+        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(Duration::zero(), event_ts, now);
+        let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, event_ts);
     }
 
     #[test]
     fn normalize_positive_skew_client_ahead() {
         let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::seconds(10));
+        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let skew = Duration::seconds(10);
-        let result = normalize_timestamp(skew, event_ts, now);
+        let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
     }
 
     #[test]
     fn normalize_negative_skew_client_behind() {
         let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::seconds(-10));
+        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let skew = Duration::seconds(-10);
-        let result = normalize_timestamp(skew, event_ts, now);
+        let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, dt("2026-03-19T11:00:10Z"));
     }
 
     #[test]
     fn normalize_clamps_far_future() {
         let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::zero());
+        let event = valid_event();
         let event_ts = dt("2026-03-21T12:00:00Z");
-        let result = normalize_timestamp(Duration::zero(), event_ts, now);
+        let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, now);
     }
 
     #[test]
     fn normalize_allows_near_future() {
         let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::zero());
+        let event = valid_event();
         let event_ts = dt("2026-03-20T10:00:00Z");
-        let result = normalize_timestamp(Duration::zero(), event_ts, now);
+        let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, event_ts);
+    }
+
+    #[test]
+    fn normalize_ignore_sent_at_skips_adjustment() {
+        let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::seconds(10));
+        let event = event_with_ignore_sent_at(true);
+        let event_ts = dt("2026-03-19T11:00:00Z");
+        let result = normalize_timestamp(&ctx, &event, event_ts);
+        assert_eq!(result, event_ts);
+    }
+
+    #[test]
+    fn normalize_ignore_sent_at_false_still_adjusts() {
+        let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::seconds(10));
+        let event = event_with_ignore_sent_at(false);
+        let event_ts = dt("2026-03-19T11:00:00Z");
+        let result = normalize_timestamp(&ctx, &event, event_ts);
+        assert_eq!(result, dt("2026-03-19T10:59:50Z"));
     }
 
     // --- apply_restrictions ---
@@ -469,7 +580,7 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 properties: HashMap::new(),
             },
-            timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
             ordinal,
             status_code: 200,
             destination: Destination::default(),
@@ -486,7 +597,7 @@ mod tests {
                 timestamp: "bad".to_string(),
                 properties: HashMap::new(),
             },
-            timestamp: None,
+            adjusted_timestamp: None,
             ordinal,
             status_code: 400,
             destination: Destination::default(),
@@ -862,5 +973,156 @@ mod tests {
         // Event 1 rate-limited
         assert_eq!(events[1].status_code, 429);
         assert_eq!(events[1].destination, Destination::Drop);
+    }
+
+    // --- apply_historical_rerouting ---
+
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use axum::http::Method;
+
+    use crate::v1::analytics::query::Query;
+
+    fn test_context(historical_migration: bool) -> Context {
+        Context {
+            api_token: "phc_test_token".to_string(),
+            authorization: None,
+            user_agent: "test-agent/1.0".to_string(),
+            content_type: "application/json".to_string(),
+            content_encoding: None,
+            sdk_info: "posthog-rust/1.0.0".to_string(),
+            attempt: 1,
+            request_id: Uuid::new_v4(),
+            client_timestamp: Utc::now(),
+            client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            query: Query::default(),
+            method: Method::POST,
+            path: "/i/v1/general/analytics/events".to_string(),
+            server_received_at: Utc::now(),
+            created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
+            capture_internal: false,
+            historical_migration,
+        }
+    }
+
+    fn wrapped_event_at(ordinal: usize, timestamp: DateTime<Utc>) -> WrappedEvent {
+        WrappedEvent {
+            event: CaptureV1Event {
+                event: "$pageview".to_string(),
+                uuid: Uuid::new_v4().to_string(),
+                distinct_id: "user-1".to_string(),
+                timestamp: timestamp.to_rfc3339(),
+                properties: HashMap::new(),
+            },
+            adjusted_timestamp: Some(timestamp),
+            ordinal,
+            status_code: 200,
+            destination: Destination::default(),
+            skip_person_processing: false,
+        }
+    }
+
+    #[test]
+    fn historical_batch_flag_reroutes_all_events() {
+        let cfg = router::HistoricalConfig::new(false, 1);
+        let ctx = test_context(true);
+        let mut events = vec![
+            wrapped_event(0, "$pageview", "user-1"),
+            wrapped_event(1, "$identify", "user-2"),
+        ];
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsHistorical);
+        assert_eq!(events[1].destination, Destination::AnalyticsHistorical);
+    }
+
+    #[test]
+    fn historical_timestamp_reroutes_old_event() {
+        let cfg = router::HistoricalConfig::new(true, 30);
+        let ctx = test_context(false);
+        let old_ts = Utc::now() - Duration::days(60);
+        let mut events = vec![wrapped_event_at(0, old_ts)];
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsHistorical);
+    }
+
+    #[test]
+    fn historical_timestamp_keeps_recent_event() {
+        let cfg = router::HistoricalConfig::new(true, 30);
+        let ctx = test_context(false);
+        let recent_ts = Utc::now() - Duration::hours(1);
+        let mut events = vec![wrapped_event_at(0, recent_ts)];
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+
+    #[test]
+    fn historical_rerouting_disabled_no_change() {
+        let cfg = router::HistoricalConfig::new(false, 30);
+        let ctx = test_context(false);
+        let old_ts = Utc::now() - Duration::days(60);
+        let mut events = vec![wrapped_event_at(0, old_ts)];
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+
+    #[test]
+    fn historical_skips_non_analytics_main() {
+        let cfg = router::HistoricalConfig::new(true, 30);
+        let ctx = test_context(true);
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        events[0].destination = Destination::Overflow;
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Overflow);
+    }
+
+    #[test]
+    fn historical_skips_dropped_events() {
+        let cfg = router::HistoricalConfig::new(true, 30);
+        let ctx = test_context(true);
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        events[0].status_code = 400;
+        events[0].destination = Destination::Drop;
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Drop);
+    }
+
+    #[test]
+    fn historical_skips_malformed_events() {
+        let cfg = router::HistoricalConfig::new(true, 30);
+        let ctx = test_context(true);
+        let mut events = vec![malformed_wrapped_event(0)];
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+
+    #[test]
+    fn historical_mixed_batch_flag_and_already_redirected() {
+        let cfg = router::HistoricalConfig::new(false, 1);
+        let ctx = test_context(true);
+        let mut events = vec![
+            wrapped_event(0, "$pageview", "user-1"),
+            wrapped_event(1, "$identify", "user-2"),
+        ];
+        events[1].destination = Destination::Dlq;
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsHistorical);
+        // DLQ event untouched
+        assert_eq!(events[1].destination, Destination::Dlq);
     }
 }
