@@ -149,7 +149,6 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
     cursor: str = "00000000-0000-0000-0000-000000000000"  # UUID cursor for pagination
-    end_person_id: str | None = None  # Optional end boundary for this worker
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -160,7 +159,6 @@ class BackfillPrecalculatedPersonPropertiesInputs:
             "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
             "cursor": self.cursor,
-            "end_person_id": self.end_person_id,
         }
 
 
@@ -201,12 +199,9 @@ async def backfill_precalculated_person_properties_activity(
     logger.info(
         f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
         f"processing {len(filters)} total filters from cursor {inputs.cursor}"
-        + (f" to end boundary {inputs.end_person_id}" if inputs.end_person_id else "")
     )
 
-    async with Heartbeater(
-        details=(f"Processing persons from {inputs.cursor} to {inputs.end_person_id or 'end'}",)
-    ) as heartbeater:
+    async with Heartbeater(details=(f"Processing persons from {inputs.cursor}",)) as heartbeater:
         start_time = time.time()
         kafka_producer = KafkaProducer()
 
@@ -256,13 +251,6 @@ async def backfill_precalculated_person_properties_activity(
             FROM person
             WHERE team_id = %(team_id)s
               AND id > %(cursor)s
-        """
-
-        # Add end boundary condition if specified
-        if inputs.end_person_id:
-            persons_query += " AND id <= %(end_person_id)s"
-
-        persons_query += """
             GROUP BY id
             HAVING argMax(is_deleted, version) = 0
             ORDER BY id
@@ -275,9 +263,6 @@ async def backfill_precalculated_person_properties_activity(
             "cursor": inputs.cursor,
             "batch_size": inputs.batch_size,
         }
-
-        if inputs.end_person_id:
-            query_params["end_person_id"] = inputs.end_person_id
 
         last_person_id = inputs.cursor
         batch_count = 0
