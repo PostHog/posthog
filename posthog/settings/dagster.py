@@ -40,11 +40,7 @@ PART_BREAKER_RECEIVE_TIMEOUT: int = int(
     os.getenv("PART_BREAKER_RECEIVE_TIMEOUT", str(48 * 60 * 60))
 )  # 48h — must exceed INSERT SELECT duration
 PART_BREAKER_SCHEDULE: str = os.getenv("PART_BREAKER_SCHEDULE", "0 2 * * 6")  # Saturdays at 2am UTC
-PART_BREAKER_SSH_KEY: str | None = os.getenv(
-    "CLICKHOUSE_SSH_PRIVATE_KEY"
-)
+PART_BREAKER_SSH_KEY: str | None = os.getenv("CLICKHOUSE_SSH_PRIVATE_KEY")
 PART_BREAKER_SSH_KEY_PATH: str | None = os.getenv("PART_BREAKER_SSH_KEY_PATH")  # Path to SSH key file (alternative)
 PART_BREAKER_SSH_USER: str = os.getenv("PART_BREAKER_SSH_USER", "ubuntu")
-PART_BREAKER_WORKLOAD: str = os.getenv(
-    "PART_BREAKER_WORKLOAD", "OFFLINE"
-)
+PART_BREAKER_WORKLOAD: str = os.getenv("PART_BREAKER_WORKLOAD", "OFFLINE")
