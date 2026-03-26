@@ -639,7 +639,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 showing && panelWidth
                     ? { width: panelWidth, minWidth: 320, maxWidth: 600 }
                     : showing
-                      ? { width: '30%', minWidth: '26rem', maxWidth: '34rem' }
+                      ? { width: 'max(min(30%, 600px), 420px)', minWidth: 320, maxWidth: 600 }
                       : undefined
             }
         >
