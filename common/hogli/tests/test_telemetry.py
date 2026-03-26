@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from unittest.mock import patch
 
-import click
 from click.testing import CliRunner
 from hogli import telemetry
 from hogli.core.cli import cli
@@ -24,7 +23,6 @@ _TELEMETRY_ENV_VARS = (
 
 @pytest.fixture(autouse=True)
 def telemetry_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Isolate every test from real config and env vars."""
     config_path = tmp_path / "config.json"
     monkeypatch.setattr(telemetry, "get_config_path", lambda: config_path)
     for var in _TELEMETRY_ENV_VARS:
@@ -61,31 +59,55 @@ class TestAnonymousId:
 
 
 class TestTrack:
-    def test_fires_post_when_enabled(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path):
+    def test_queues_event_when_enabled(self, telemetry_config: Path):
+        telemetry_config.write_text(
+            json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True})
+        )
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
+            telemetry.track("command_completed", {"command": "test"})
+            telemetry.flush(timeout=1.0)
+            mock_send.assert_called_once()
+            batch = mock_send.call_args[0][0]
+            assert len(batch) == 1
+            assert batch[0]["event"] == "command_completed"
+            assert batch[0]["distinct_id"] == "test-id"
+            assert batch[0]["properties"]["command"] == "test"
+
+    def test_uses_env_overrides(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path):
         telemetry_config.write_text(
             json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True})
         )
         monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
         monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
-        with patch.object(telemetry, "_post_event") as mock_post:
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+            mock_urlopen.return_value.status = 200
             telemetry.track("command_completed", {"command": "test"})
-            telemetry.flush(timeout=1.0)
-            mock_post.assert_called_once()
-            host, payload = mock_post.call_args[0]
-            assert host == "http://localhost"
-            assert payload["api_key"] == "test-key"
+            telemetry.flush(timeout=2.0)
+            req = mock_urlopen.call_args[0][0]
+            assert req.full_url == "http://localhost/batch/"
+            body = json.loads(req.data)
+            assert body["api_key"] == "test-key"
 
     def test_noops_when_disabled(self, telemetry_config: Path):
         telemetry_config.write_text(json.dumps({"enabled": False}))
-        with patch.object(telemetry, "_post_event") as mock_post:
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
             telemetry.track("command_completed")
-            mock_post.assert_not_called()
+            telemetry.flush(timeout=1.0)
+            mock_send.assert_not_called()
 
     def test_noops_when_notice_not_shown(self, telemetry_config: Path):
         telemetry_config.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
-        with patch.object(telemetry, "_post_event") as mock_post:
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
             telemetry.track("command_completed")
-            mock_post.assert_not_called()
+            telemetry.flush(timeout=1.0)
+            mock_send.assert_not_called()
+
+    def test_flush_noop_when_queue_empty(self):
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
+            telemetry.flush(timeout=1.0)
+            mock_send.assert_not_called()
 
 
 class TestFirstRunNotice:
@@ -97,11 +119,13 @@ class TestFirstRunNotice:
         assert config["first_run_notice_shown"] is True
         assert "anonymous_id" in config
 
-    def test_shown_once(self, telemetry_config: Path):
+    def test_shown_once(self, telemetry_config: Path, capsys):
         telemetry.show_first_run_notice_if_needed()
-        with patch.object(click, "echo") as mock_echo:
-            telemetry.show_first_run_notice_if_needed()
-            mock_echo.assert_not_called()
+        # Second call should produce no output
+        telemetry.show_first_run_notice_if_needed()
+        captured = capsys.readouterr()
+        # The notice goes to stderr; second call should not have written anything
+        assert captured.out == ""
 
 
 class TestTelemetryCommands:
@@ -139,19 +163,24 @@ class TestInvokeTelemetry:
         )
         monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
         monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
-        with patch.object(telemetry, "_post_event") as mock_post:
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
             runner = CliRunner()
             result = runner.invoke(cli, ["quickstart"])
-            telemetry.flush(timeout=1.0)
             assert result.exit_code == 0
 
-            assert mock_post.call_count == 2
-            payloads = [call[0][1] for call in mock_post.call_args_list]
+            # Single batch call containing both events
+            mock_send.assert_called_once()
+            batch = mock_send.call_args[0][0]
+            events = {e["event"] for e in batch}
+            assert "command_started" in events
+            assert "command_completed" in events
 
-            started = next(p for p in payloads if p["event"] == "command_started")
+            started = next(e for e in batch if e["event"] == "command_started")
             assert started["properties"]["command"] == "quickstart"
+            assert "is_ci" in started["properties"]
 
-            completed = next(p for p in payloads if p["event"] == "command_completed")
+            completed = next(e for e in batch if e["event"] == "command_completed")
             assert completed["properties"]["command"] == "quickstart"
             assert completed["properties"]["exit_code"] == 0
             assert "duration_s" in completed["properties"]
+            assert "is_ci" in completed["properties"]
