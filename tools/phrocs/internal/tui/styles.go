@@ -74,12 +74,18 @@ var (
 			BorderForeground(colorDarkGrey)
 
 	borderFocusedStyle = borderStyle.
-				BorderStyle(lipgloss.ThickBorder())
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(lipgloss.Color("#555860"))
 
 	// Sidebar
 	procInactiveStyle = lipgloss.NewStyle().
 				PaddingLeft(1).
 				Foreground(colorGrey)
+
+	scrollArrowStyle = lipgloss.NewStyle().
+				PaddingLeft(1).
+				Foreground(colorGrey).
+				Align(lipgloss.Center)
 
 	// Footer
 	footerStyle = lipgloss.NewStyle().

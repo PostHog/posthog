@@ -353,6 +353,11 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	// before failing. For the pipe path we only need Setpgid so Stop() can
 	// kill the full process tree via Kill(-pid, SIGTERM).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// pty.Start also sets Stdin/Stdout/Stderr to the (now-closed) tty slave.
+	// Reset them so the child gets /dev/null for stdin and our pipe for output.
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 
 	pr, pw, err := os.Pipe()
 	if err != nil {

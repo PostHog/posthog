@@ -180,6 +180,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -189,6 +190,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -257,6 +259,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -266,6 +269,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -340,6 +344,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -349,6 +354,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -371,6 +377,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(0),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -380,6 +387,7 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -462,6 +470,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(1),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -471,6 +480,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -553,6 +563,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let independent_flag = create_test_flag_with_property(
@@ -566,6 +577,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let parent_flag = create_test_flag_that_depends_on_flag(
@@ -687,6 +699,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
@@ -700,6 +713,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
@@ -734,6 +748,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -868,6 +883,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let independent_flag = create_test_flag_with_property(
@@ -881,6 +897,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let intermediate_flag = create_test_flag_with_properties(
@@ -895,6 +912,7 @@ mod tests {
                     prop_type: PropertyType::Person,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 },
                 PropertyFilter {
                     key: leaf_flag.id.to_string(),
@@ -903,6 +921,7 @@ mod tests {
                     prop_type: PropertyType::Flag,
                     group_type_index: None,
                     negation: None,
+                    compiled_regex: None,
                 },
             ],
         );
@@ -992,6 +1011,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let independent_flag = create_test_flag_with_property(
@@ -1005,6 +1025,7 @@ mod tests {
                 prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             },
         );
         let parent_flag = create_test_flag_that_depends_on_flag(
@@ -1173,6 +1194,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
@@ -1186,6 +1208,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
@@ -1209,6 +1232,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1405,6 +1429,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1460,6 +1485,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1477,6 +1503,7 @@ mod tests {
                 prop_type: PropertyType::Flag,
                 group_type_index: None,
                 negation: None,
+                compiled_regex: None,
             }]),
             rollout_percentage: Some(100.0),
             ..Default::default()
@@ -1499,6 +1526,150 @@ mod tests {
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// Verifies that interleaved filter types within a single condition (e.g., a Person
+    /// property filter followed by a Flag filter) are evaluated correctly in Vec order.
+    #[tokio::test]
+    async fn test_is_condition_match_interleaved_filter_types() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        // Dependent flag id used in the flag-value filter
+        let dependent_flag_id = 42;
+
+        let flag = create_test_flag(
+            Some(1),
+            None,
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Interleaved: Person filter, then Flag filter, then another Person filter.
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![
+                PropertyFilter {
+                    key: "email".to_string(),
+                    value: Some(json!("test@example.com")),
+                    operator: Some(OperatorType::Exact),
+                    prop_type: PropertyType::Person,
+                    group_type_index: None,
+                    negation: None,
+                    compiled_regex: None,
+                },
+                PropertyFilter {
+                    key: dependent_flag_id.to_string(),
+                    value: Some(json!(true)),
+                    operator: Some(OperatorType::FlagEvaluatesTo),
+                    prop_type: PropertyType::Flag,
+                    group_type_index: None,
+                    negation: None,
+                    compiled_regex: None,
+                },
+                PropertyFilter {
+                    key: "age".to_string(),
+                    value: Some(json!(25)),
+                    operator: Some(OperatorType::Gte),
+                    prop_type: PropertyType::Person,
+                    group_type_index: None,
+                    negation: None,
+                    compiled_regex: None,
+                },
+            ]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut person_properties = HashMap::new();
+        person_properties.insert("email".to_string(), json!("test@example.com"));
+        person_properties.insert("age".to_string(), json!(30));
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .flag_evaluation_state
+            .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
+
+        // All filters match: should pass
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &person_properties, None, &None)
+            .unwrap();
+        assert!(is_match);
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+
+        // Now make the person property filter (first in Vec) fail.
+        // The loop should short-circuit on the first filter without evaluating the flag filter.
+        let mut mismatched_properties = HashMap::new();
+        mismatched_properties.insert("email".to_string(), json!("other@example.com"));
+        mismatched_properties.insert("age".to_string(), json!(30));
+
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher2
+            .flag_evaluation_state
+            .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
+
+        let (is_match, reason) = matcher2
+            .is_condition_match(&flag, &condition, &mismatched_properties, None, &None)
+            .unwrap();
+        assert!(!is_match);
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+
+        // Make the flag-value filter (middle of Vec) fail while person filters match.
+        let mut matcher3 = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        matcher3
+            .flag_evaluation_state
+            .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(false));
+
+        let (is_match, reason) = matcher3
+            .is_condition_match(&flag, &condition, &person_properties, None, &None)
+            .unwrap();
+        assert!(!is_match);
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
     }
 
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
@@ -1536,6 +1707,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -1573,6 +1745,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1582,6 +1755,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1664,6 +1838,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1726,6 +1901,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         },
                         PropertyFilter {
                             key: "email".to_string(),
@@ -1734,6 +1910,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         },
                     ]),
                     rollout_percentage: Some(100.0),
@@ -1744,6 +1921,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1806,6 +1984,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1855,6 +2034,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1980,6 +2160,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1989,6 +2170,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2046,6 +2228,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2055,6 +2238,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2103,6 +2287,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2154,6 +2339,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2167,6 +2353,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2177,6 +2364,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2402,6 +2590,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2411,6 +2600,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2480,6 +2670,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -2493,6 +2684,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2516,11 +2708,14 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2644,6 +2839,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -2657,6 +2853,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2680,11 +2877,14 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2760,6 +2960,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -2773,6 +2974,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2796,11 +2998,14 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2945,6 +3150,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2954,6 +3160,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3043,6 +3250,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3052,6 +3260,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3141,6 +3350,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3150,6 +3360,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3260,6 +3471,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3269,6 +3481,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3358,6 +3571,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3367,6 +3581,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3456,6 +3671,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3465,6 +3681,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3546,6 +3763,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3555,6 +3773,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3631,6 +3850,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3640,6 +3860,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3731,6 +3952,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3740,6 +3962,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3809,6 +4032,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3818,6 +4042,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3917,6 +4142,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3926,6 +4152,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4008,6 +4235,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4017,6 +4245,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4040,6 +4269,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4049,6 +4279,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4148,6 +4379,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("control".to_string()), // Override to always show "control" variant
@@ -4175,6 +4407,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4221,6 +4454,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("nonexistent_variant".to_string()), // Override with invalid variant
@@ -4243,6 +4477,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4330,6 +4565,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4343,6 +4579,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4363,6 +4600,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4376,6 +4614,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4396,6 +4635,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4409,6 +4649,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4564,6 +4805,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4578,6 +4820,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4685,6 +4928,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4698,6 +4942,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4759,6 +5004,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4786,6 +5032,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4862,6 +5109,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4889,6 +5137,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4965,6 +5214,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -5104,6 +5354,7 @@ mod tests {
                         prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -5113,6 +5364,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -5169,6 +5421,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -5178,6 +5431,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -5248,6 +5502,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -5384,6 +5639,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5402,6 +5658,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5415,6 +5672,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5432,11 +5690,14 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -5885,6 +6146,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "focus".to_string(),
@@ -5893,6 +6155,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "os".to_string(),
@@ -5901,6 +6164,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             },
                         ]),
                         rollout_percentage: Some(100.0),
@@ -5916,6 +6180,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5926,6 +6191,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -6145,6 +6411,7 @@ mod tests {
                                 prop_type: PropertyType::Group,
                                 group_type_index: Some(1), // organization type
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "region".to_string(),
@@ -6153,6 +6420,7 @@ mod tests {
                                 prop_type: PropertyType::Group,
                                 group_type_index: Some(1),
                                 negation: None,
+                                compiled_regex: None,
                             },
                             PropertyFilter {
                                 key: "feature_access".to_string(),
@@ -6161,6 +6429,7 @@ mod tests {
                                 prop_type: PropertyType::Group,
                                 group_type_index: Some(1),
                                 negation: None,
+                                compiled_regex: None,
                             },
                         ]),
                         rollout_percentage: Some(100.0),
@@ -6176,6 +6445,7 @@ mod tests {
                             prop_type: PropertyType::Group,
                             group_type_index: Some(1),
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -6186,6 +6456,7 @@ mod tests {
                 aggregation_group_type_index: Some(1), // This is a group-based flag
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -6451,6 +6722,7 @@ mod tests {
                             prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
+                            compiled_regex: None,
                         }]),
                         rollout_percentage: Some(100.0),
                         ..Default::default()
@@ -6479,6 +6751,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -6720,6 +6993,7 @@ mod tests {
             flags: vec![filtered_continuity_flag, active_normal_flag],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -6914,6 +7188,7 @@ mod tests {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7011,6 +7286,7 @@ mod tests {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7206,6 +7482,7 @@ mod tests {
             flags: vec![flag_a, flag_b, flag_c],
             filtered_out_flag_ids: filtered_out.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
@@ -7291,6 +7568,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7385,6 +7663,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7492,6 +7771,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7604,6 +7884,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7703,6 +7984,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7786,6 +8068,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7811,6 +8094,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7836,6 +8120,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7957,6 +8242,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7982,6 +8268,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8097,6 +8384,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8121,6 +8409,7 @@ mod tests {
                         prop_type: PropertyType::Flag,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0), // 100% rollout - doesn't need lookup on its own
                     variant: None,
@@ -8130,6 +8419,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8230,11 +8520,14 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8331,11 +8624,14 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8438,11 +8734,14 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8511,6 +8810,229 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case(json!("true"), true, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!("false"), false, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!(true), true, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!(false), false, FeatureFlagMatchReason::SuperConditionValue)]
+    #[tokio::test]
+    async fn test_feature_enrollment_match_by_property_value(
+        #[case] property_value: serde_json::Value,
+        #[case] expected_match: bool,
+        #[case] expected_reason: FeatureFlagMatchReason,
+    ) {
+        // New feature_enrollment format: flag has `feature_enrollment: true` instead of super_groups.
+        // The enrollment property key is derived as `$feature_enrollment/{flag_key}`.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Feature Enrollment Flag".to_string()),
+            Some("my-feature".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: Some(true),
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$feature_enrollment/my-feature": property_value})),
+            )
+            .await
+            .unwrap();
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+
+        assert_eq!(result.matches, expected_match);
+        assert_eq!(result.reason, expected_reason);
+    }
+
+    #[tokio::test]
+    async fn test_feature_enrollment_no_property_falls_through() {
+        // Person without the enrollment property falls through to regular conditions.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Feature Enrollment Flag".to_string()),
+            Some("my-feature".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: Some(true),
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        context
+            .insert_person(team.id, "not_enrolled_user".to_string(), None)
+            .await
+            .unwrap();
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "not_enrolled_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+
+        // Falls through to regular conditions (0% rollout → no match)
+        assert!(!result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::OutOfRolloutBound);
+    }
+
+    #[tokio::test]
+    async fn test_feature_enrollment_takes_precedence_over_super_groups() {
+        // When both feature_enrollment and super_groups are present,
+        // feature_enrollment should be used (new format wins).
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Dual Format Flag".to_string()),
+            Some("dual-format-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                // Legacy super_groups with a DIFFERENT key (to prove feature_enrollment is used)
+                super_groups: Some(vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "wrong_key".to_string(),
+                        value: Some(json!(["true"])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }]),
+                feature_enrollment: Some(true),
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Person has the feature_enrollment property (derived from flag key)
+        // but NOT the wrong_key property from super_groups
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$feature_enrollment/dual-format-flag": "true"})),
+            )
+            .await
+            .unwrap();
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+
+        // Should match via feature_enrollment (not super_groups which uses wrong_key)
+        assert!(result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
+    }
+
     #[tokio::test]
     async fn test_paired_group_identifiers_avoid_cartesian_product() {
         use crate::utils::test_utils::create_group_in_pg;
@@ -8538,6 +9060,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(0),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -8547,6 +9070,7 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8570,6 +9094,7 @@ mod tests {
                         prop_type: PropertyType::Group,
                         group_type_index: Some(1),
                         negation: None,
+                        compiled_regex: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -8579,6 +9104,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8871,5 +9397,97 @@ mod tests {
             .get("flag_b")
             .expect("flag_b should be present");
         assert!(flag_b_result.enabled, "flag_b (no deps) should be enabled");
+    }
+
+    #[tokio::test]
+    async fn test_parallel_path_no_person_with_groups() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "industry".to_string(),
+                        value: Some(json!("tech")),
+                        operator: None,
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(1),
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1),
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "org_123",
+                json!({"industry": "tech"}),
+            )
+            .await
+            .unwrap();
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+
+        // Use a distinct_id with no matching person in DB — exercises the parallel
+        // path where person is None but group properties are fetched from DB.
+        let mut matcher = FeatureFlagMatcher::new(
+            "anonymous_user_no_person".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                FeatureFlagList {
+                    flags: vec![flag.clone()],
+                    ..Default::default()
+                },
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        let flag_detail = result.flags.get("test_flag").unwrap();
+        assert!(
+            flag_detail.enabled,
+            "Group flag should match from DB properties even without a person"
+        );
     }
 }

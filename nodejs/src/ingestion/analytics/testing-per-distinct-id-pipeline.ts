@@ -1,14 +1,15 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { AI_EVENT_TYPES } from '../ai'
-import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { IngestionWarningsOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import {
     ClientIngestionWarningSubpipelineInput,
     createClientIngestionWarningSubpipeline,
 } from './client-ingestion-warning-subpipeline'
+import { EventOutput, HeatmapsOutput } from './outputs'
 import { TestingAiEventSubpipelineInput, createTestingAiEventSubpipeline } from './testing-ai-event-subpipeline'
 import { TestingEventSubpipelineInput, createTestingEventSubpipeline } from './testing-event-subpipeline'
 import { TestingHeatmapSubpipelineInput, createTestingHeatmapSubpipeline } from './testing-heatmap-subpipeline'
@@ -19,11 +20,7 @@ export type TestingPerDistinctIdPipelineInput = TestingEventSubpipelineInput &
     TestingAiEventSubpipelineInput
 
 export interface TestingPerDistinctIdPipelineConfig {
-    options: {
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
-    outputs: IngestionOutputs<EventOutput>
-    kafkaProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput>
     groupId: string
 }
 
@@ -48,7 +45,7 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingPerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, outputs, kafkaProducer, groupId } = config
+    const { outputs, groupId } = config
 
     return builder.retry(
         (e) =>
@@ -57,8 +54,7 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
                     .branch('client_ingestion_warning', (b) => createClientIngestionWarningSubpipeline(b))
                     .branch('heatmap', (b) =>
                         createTestingHeatmapSubpipeline(b, {
-                            options,
-                            kafkaProducer,
+                            outputs,
                         })
                     )
                     .branch('ai', (b) =>
@@ -69,9 +65,7 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
                     )
                     .branch('event', (b) =>
                         createTestingEventSubpipeline(b, {
-                            options,
                             outputs,
-                            kafkaProducer,
                             groupId,
                         })
                     )

@@ -19,7 +19,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 
 def _make_oauth_app(organization, user):
@@ -184,6 +188,61 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
 
 
 @override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
+class TestToolbarOAuthBypassesPersonalApiKeyRestriction(APIBaseTest):
+    """
+    When an organization disables personal API keys for members,
+    toolbar OAuth tokens should still work for non-admin users.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save()
+
+        self.oauth_app = _make_oauth_app(self.organization, self.user)
+        toolbar_scopes = " ".join(settings.TOOLBAR_OAUTH_SCOPES)
+        self.toolbar_token = _make_token(self.user, self.oauth_app, "pha_bypass_test", scope=toolbar_scopes)
+
+    @parameterized.expand(TestToolbarEndpointOAuthAuth.TOOLBAR_ENDPOINTS)
+    def test_member_with_oauth_token_not_blocked_by_personal_api_key_restriction(
+        self, _label, url_template, method, _scope
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.client.logout()
+        url = url_template.format(team_id=self.team.id)
+        response = getattr(self.client, method)(
+            url,
+            HTTP_AUTHORIZATION=f"Bearer {self.toolbar_token.token}",
+        )
+        assert response.status_code not in (401, 403), (
+            f"OAuth token should bypass personal API key restriction, got {response.status_code}: {response.content[:300]}"
+        )
+
+    def test_member_with_personal_api_key_still_blocked(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        assert response.status_code == 403, f"Personal API key should still be blocked, got {response.status_code}"
+
+
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestUploadedMediaOAuthAuth(APIBaseTest):
     """uploaded_media is tested separately — its only toolbar action is POST (upload)."""
 
@@ -306,3 +365,68 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
 
     def test_no_wildcard_scope(self):
         assert "*" not in settings.TOOLBAR_OAUTH_SCOPES, "Toolbar should use specific scopes, not wildcard"
+
+
+class TestOAuthCorsPreflightMiddleware(APIBaseTest):
+    """The toolbar runs in the customer's page and uses window.fetch.
+    Customer code may monkey-patch fetch to inject custom headers
+    (e.g. x-app-version). The CORS preflight must echo back whatever
+    headers the browser requests so the actual request isn't blocked."""
+
+    OAUTH_CORS_PATHS = [
+        ("oauth_token_slash", "/oauth/token/"),
+        ("oauth_token_no_slash", "/oauth/token"),
+        ("toolbar_oauth_check_no_slash", "/toolbar_oauth/check"),
+        ("toolbar_oauth_check_slash", "/toolbar_oauth/check/"),
+    ]
+
+    @parameterized.expand(OAUTH_CORS_PATHS)
+    def test_preflight_echoes_back_custom_headers(self, _label, path):
+        response = self.client.options(
+            path,
+            HTTP_ORIGIN="https://www.example.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type,x-app-version,x-custom-header",
+        )
+        assert response.status_code == 200
+        assert response["Access-Control-Allow-Origin"] == "https://www.example.com"
+        assert "x-app-version" in response["Access-Control-Allow-Headers"]
+        assert "x-custom-header" in response["Access-Control-Allow-Headers"]
+        assert response["Access-Control-Max-Age"] == "86400"
+        # Uses Bearer tokens, not cookies — no credentials header
+        assert not response.has_header("Access-Control-Allow-Credentials")
+
+    @parameterized.expand(OAUTH_CORS_PATHS)
+    def test_non_preflight_get_passes_through(self, _label, path):
+        response = self.client.get(path)
+        assert not response.has_header("Access-Control-Allow-Headers")
+
+    @parameterized.expand(OAUTH_CORS_PATHS)
+    def test_non_preflight_post_passes_through(self, _label, path):
+        response = self.client.post(
+            path,
+            HTTP_ORIGIN="https://www.example.com",
+        )
+        # POST should not be intercepted — it flows through to django-cors-headers
+        assert not response.has_header("Access-Control-Max-Age")
+
+    @parameterized.expand(OAUTH_CORS_PATHS)
+    def test_preflight_without_origin_passes_through(self, _label, path):
+        response = self.client.options(
+            path,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
+        )
+        # OPTIONS without Origin is not a CORS preflight — should not be intercepted
+        assert not response.has_header("Access-Control-Max-Age")
+
+    def test_preflight_to_unrelated_path_not_intercepted(self):
+        response = self.client.options(
+            f"/api/projects/{self.team.id}/actions/",
+            HTTP_ORIGIN="https://www.example.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type,x-app-version",
+        )
+        # Should be handled by django-cors-headers, not our middleware
+        allow_headers = response.get("Access-Control-Allow-Headers", "")
+        assert "x-app-version" not in allow_headers

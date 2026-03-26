@@ -1,6 +1,9 @@
 import uuid
 import datetime as dt
 from types import SimpleNamespace
+from typing import Any, cast
+
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -76,6 +79,158 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
             (1, "person-4", "2025-01-03 11:00:00", "upgrade", "personal_free", "business_standard"),
             (2, "person-4", "2025-01-05 13:00:00", "downgrade", "business_pro", "business_standard"),
         ]
+
+    def test_collect_demo_extended_person_rows(self):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        matrix.is_complete = True
+
+        matrix.clusters = [
+            SimpleNamespace(
+                people=[
+                    SimpleNamespace(
+                        in_product_id="biz-user",
+                        properties_at_now={"email": "owner@acme.test"},
+                        account=SimpleNamespace(
+                            team_members={"biz-user", "coworker-user"},
+                            files={"a", "b", "c", "d", "e"},
+                            current_used_mb=512.0,
+                            allocation_used_fraction=0.64,
+                            current_monthly_bill_usd=40.0,
+                            plan="business/standard",
+                        ),
+                        cluster=SimpleNamespace(company=SimpleNamespace(name="Acme", industry="technology")),
+                        name="Owner Name",
+                        onboarding_variant="blue",
+                        file_engagement_variant="red",
+                        watches_marius_tech_tips=True,
+                        is_invitable=False,
+                    ),
+                    SimpleNamespace(
+                        in_product_id="solo-user",
+                        properties_at_now={"email": "solo@example.test"},
+                        account=SimpleNamespace(
+                            team_members={"solo-user"},
+                            files=set(),
+                            current_used_mb=0.0,
+                            allocation_used_fraction=0.0,
+                            current_monthly_bill_usd=0.0,
+                            plan="personal/free",
+                        ),
+                        cluster=SimpleNamespace(company=None),
+                        name="Solo User",
+                        onboarding_variant="control",
+                        file_engagement_variant="blue",
+                        watches_marius_tech_tips=False,
+                        is_invitable=True,
+                    ),
+                    SimpleNamespace(
+                        in_product_id="visitor-user",
+                        properties_at_now={},
+                        account=None,
+                        cluster=SimpleNamespace(company=None),
+                        name="Visitor User",
+                        onboarding_variant="red",
+                        file_engagement_variant="control",
+                        watches_marius_tech_tips=False,
+                        is_invitable=True,
+                    ),
+                ]
+            )  # type: ignore[list-item]
+        ]
+
+        assert matrix._collect_demo_extended_person_rows() == [
+            (
+                1,
+                "owner@acme.test",
+                "biz-user",
+                "Acme",
+                "technology",
+                "business",
+                "business/standard",
+                2,
+                5,
+                512.0,
+                0.64,
+                40.0,
+                "power_user",
+                "blue",
+                "red",
+                True,
+                False,
+            ),
+            (
+                2,
+                "solo@example.test",
+                "solo-user",
+                "Solo User",
+                "consumer",
+                "personal",
+                "personal/free",
+                1,
+                0,
+                0.0,
+                0.0,
+                0.0,
+                "signed_up",
+                "control",
+                "blue",
+                False,
+                True,
+            ),
+        ]
+
+    @patch("posthog.demo.products.hedgebox.matrix.object_storage.write")
+    @patch("posthog.demo.products.hedgebox.matrix.DataWarehouseTable.objects.create")
+    @patch("posthog.demo.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
+    def test_upsert_demo_data_warehouse_table_sets_csv_double_quotes_on_create(
+        self, mock_filter, mock_create, _mock_write
+    ):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        team = cast(Any, SimpleNamespace(pk=1))
+        user = cast(Any, SimpleNamespace())
+        credential = object()
+
+        mock_filter.return_value.first.return_value = None
+
+        matrix._upsert_demo_data_warehouse_table_contents(
+            team=team,
+            user=user,
+            credential=credential,
+            table_name="extended_properties",
+            columns={"email": "String", "company_name": "String"},
+            rows=[("owner@acme.test", "Acme, Inc.")],
+        )
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs["options"] == {"csv_allow_double_quotes": True}
+
+    @patch("posthog.demo.products.hedgebox.matrix.object_storage.write")
+    @patch("posthog.demo.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
+    def test_upsert_demo_data_warehouse_table_sets_csv_double_quotes_on_update(self, mock_filter, _mock_write):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        team = cast(Any, SimpleNamespace(pk=1))
+        user = cast(Any, SimpleNamespace())
+        credential = object()
+        existing_table = SimpleNamespace(
+            external_data_source=None,
+            options={},
+            created_by_id=None,
+            save=MagicMock(),
+        )
+
+        mock_filter.return_value.first.return_value = existing_table
+
+        matrix._upsert_demo_data_warehouse_table_contents(
+            team=team,
+            user=user,
+            credential=credential,
+            table_name="extended_properties",
+            columns={"email": "String", "company_name": "String"},
+            rows=[("owner@acme.test", "Acme, Inc.")],
+        )
+
+        assert existing_table.options == {"csv_allow_double_quotes": True}
+        existing_table.save.assert_called_once()
 
     @staticmethod
     def _make_event(event: str, distinct_id: str, timestamp: dt.datetime, properties: dict) -> SimEvent:

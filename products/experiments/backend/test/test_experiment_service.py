@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -1379,6 +1379,292 @@ class TestExperimentService(APIBaseTest):
         assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
+    # End
+    # ------------------------------------------------------------------
+
+    def test_end_experiment_success(self):
+        experiment = self._create_running_experiment(name="End Test", feature_flag_key="end-flag")
+
+        assert experiment.is_running
+        assert experiment.end_date is None
+
+        ended = self._service().end_experiment(experiment)
+
+        ended.refresh_from_db()
+        assert ended.is_stopped
+        assert ended.end_date is not None
+
+    @parameterized.expand(
+        [
+            ("active_flag", True),
+            ("paused_flag", False),
+        ]
+    )
+    def test_end_experiment_leaves_feature_flag_unchanged(self, _name: str, flag_active: bool):
+        experiment = self._create_running_experiment(name=f"End Flag {_name}", feature_flag_key=f"end-flag-{_name}")
+        if not flag_active:
+            self._service().pause_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is flag_active
+
+        ended = self._service().end_experiment(experiment)
+
+        ended.feature_flag.refresh_from_db()
+        assert ended.feature_flag.active is flag_active
+        assert ended.feature_flag.filters == experiment.feature_flag.filters
+
+    def test_end_experiment_with_conclusion(self):
+        experiment = self._create_running_experiment(name="End Conclusion", feature_flag_key="end-conclusion-flag")
+
+        ended = self._service().end_experiment(
+            experiment,
+            conclusion="won",
+            conclusion_comment="Test variant clearly won",
+        )
+
+        ended.refresh_from_db()
+        assert ended.is_stopped
+        assert ended.conclusion == "won"
+        assert ended.conclusion_comment == "Test variant clearly won"
+
+    def test_end_experiment_draft_raises(self):
+        experiment = self._create_launchable_experiment(name="End Draft", feature_flag_key="end-draft-flag")
+
+        assert experiment.is_draft
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().end_experiment(experiment)
+
+        assert "not been launched" in str(ctx.exception)
+
+    def test_end_experiment_already_ended_raises(self):
+        experiment = self._create_ended_experiment(name="End Already", feature_flag_key="end-already-flag")
+
+        assert experiment.is_stopped
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().end_experiment(experiment)
+
+        assert "already ended" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_reports_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Analytics", feature_flag_key="end-analytics-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        assert mock_report_user_action.call_count == 2
+        event_names = [call.args[1] for call in mock_report_user_action.call_args_list]
+        assert "experiment completed" in event_names
+        assert "experiment stopped" in event_names
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_includes_duration(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Duration", feature_flag_key="end-duration-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert "duration" in metadata
+        assert isinstance(metadata["duration"], int)
+        assert metadata["duration"] >= 0
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_includes_significant_when_results_exist(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Significant", feature_flag_key="end-significant-flag")
+        assert experiment.metrics is not None
+        metric_uuid = experiment.metrics[0]["uuid"]
+
+        assert experiment.start_date is not None
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid=metric_uuid,
+            query_from=experiment.start_date,
+            query_to=timezone.now(),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"significant": True, "variants": []},
+            completed_at=timezone.now(),
+        )
+
+        mock_request = MagicMock()
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert metadata["significant"] is True
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_omits_significant_when_no_results(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End No Results", feature_flag_key="end-no-results-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert "significant" not in metadata
+
+    # ------------------------------------------------------------------
+    # Pause / Resume
+    # ------------------------------------------------------------------
+
+    def _create_running_experiment(
+        self,
+        name: str = "Running",
+        feature_flag_key: str = "running-flag",
+        **kwargs: Any,
+    ) -> Experiment:
+        experiment = self._create_launchable_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+        self._service().launch_experiment(experiment)
+        return experiment
+
+    def test_pause_experiment_success(self):
+        experiment = self._create_running_experiment(name="Pause Test", feature_flag_key="pause-flag")
+
+        assert experiment.feature_flag.active is True
+
+        paused = self._service().pause_experiment(experiment)
+
+        paused.feature_flag.refresh_from_db()
+        assert paused.feature_flag.active is False
+        assert paused.start_date is not None
+        assert paused.end_date is None
+
+    def test_resume_experiment_success(self):
+        experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
+        service = self._service()
+        service.pause_experiment(experiment)
+
+        assert experiment.feature_flag.active is False
+
+        resumed = service.resume_experiment(experiment)
+
+        resumed.feature_flag.refresh_from_db()
+        assert resumed.feature_flag.active is True
+        assert resumed.start_date is not None
+        assert resumed.end_date is None
+
+    def test_pause_experiment_already_paused_raises(self):
+        experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
+        service = self._service()
+        service.pause_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.pause_experiment(experiment)
+
+        assert "already paused" in str(ctx.exception)
+
+    def test_resume_experiment_not_paused_raises(self):
+        experiment = self._create_running_experiment(name="Not Paused", feature_flag_key="not-paused-flag")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().resume_experiment(experiment)
+
+        assert "not paused" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("draft",),
+            ("ended",),
+        ]
+    )
+    def test_pause_experiment_wrong_state_raises(self, state: str):
+        service = self._service()
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="Pause Draft", feature_flag_key=f"pause-{state}-flag")
+        else:
+            experiment = self._create_ended_experiment(name="Pause Ended", feature_flag_key=f"pause-{state}-flag")
+
+        with self.assertRaises(ValidationError):
+            service.pause_experiment(experiment)
+
+    @parameterized.expand(
+        [
+            ("draft",),
+            ("ended",),
+        ]
+    )
+    def test_resume_experiment_wrong_state_raises(self, state: str):
+        service = self._service()
+        if state == "draft":
+            experiment = self._create_launchable_experiment(
+                name="Resume Draft", feature_flag_key=f"resume-{state}-flag"
+            )
+        else:
+            experiment = self._create_ended_experiment(name="Resume Ended", feature_flag_key=f"resume-{state}-flag")
+
+        with self.assertRaises(ValidationError):
+            service.resume_experiment(experiment)
+
+    # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("running",),
+            ("ended",),
+        ]
+    )
+    def test_reset_experiment_success(self, state: str):
+        if state == "running":
+            experiment = self._create_running_experiment(name="Reset Running", feature_flag_key=f"reset-{state}-flag")
+            assert experiment.is_running
+        else:
+            experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
+            assert experiment.is_stopped
+
+        reset = self._service().reset_experiment(experiment)
+
+        reset.refresh_from_db()
+        assert reset.is_draft
+        assert reset.start_date is None
+        assert reset.end_date is None
+        assert reset.archived is False
+        assert reset.conclusion is None
+        assert reset.conclusion_comment is None
+
+    def test_reset_experiment_leaves_feature_flag_unchanged(self):
+        experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
+
+        assert experiment.feature_flag.active is True
+
+        reset = self._service().reset_experiment(experiment)
+
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.active is True
+
+    def test_reset_draft_experiment_raises(self):
+        experiment = self._create_launchable_experiment(name="Reset Draft", feature_flag_key="reset-draft-flag")
+
+        assert experiment.is_draft
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().reset_experiment(experiment)
+
+        assert "already in draft state" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_reset_experiment_reports_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="Reset Analytics", feature_flag_key="reset-analytics-flag")
+        mock_request = MagicMock()
+
+        self._service().reset_experiment(experiment, request=mock_request)
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == "experiment reset"
+
+    # ------------------------------------------------------------------
     # Exposure cohort
     # ------------------------------------------------------------------
 
@@ -1601,7 +1887,7 @@ class TestExperimentService(APIBaseTest):
         assert result["count"] == 2
         assert [flag.key for flag in result["results"]] == ["search-beta"]
 
-    def test_get_eligible_feature_flags_filters_by_evaluation_tags(self) -> None:
+    def test_get_eligible_feature_flags_filters_by_evaluation_contexts(self) -> None:
         flag_with_tags = self._create_flag(key="flag-with-tags")
         self._create_flag(key="flag-without-tags")
         evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
@@ -1609,8 +1895,8 @@ class TestExperimentService(APIBaseTest):
 
         service = self._service()
 
-        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_tags="true", order="key")
-        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_tags="false", order="key")
+        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_contexts="true", order="key")
+        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_contexts="false", order="key")
 
         assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
         assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]

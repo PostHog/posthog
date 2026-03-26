@@ -13,7 +13,7 @@ import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/q
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic } from './experimentLogic'
+import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -381,72 +381,6 @@ describe('experimentLogic', () => {
             )
         })
     })
-    describe('pause and resume experiment', () => {
-        beforeEach(() => {
-            jest.spyOn(api, 'update')
-            jest.spyOn(api, 'get')
-            api.update.mockClear()
-            api.get.mockClear()
-
-            const experimentWithFlag = {
-                ...experiment,
-                feature_flag: { id: 123, key: 'test-flag', active: true },
-            } as Experiment
-            logic.actions.setExperiment(experimentWithFlag)
-        })
-
-        it('should pause experiment by disabling feature flag', async () => {
-            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
-
-            await expectLogic(logic, () => {
-                logic.actions.pauseExperiment()
-            })
-                .toDispatchActions(['pauseExperiment'])
-                .toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(
-                expect.stringContaining('/feature_flags/123'),
-                expect.objectContaining({ active: false })
-            )
-        })
-
-        it('should resume experiment by enabling feature flag', async () => {
-            const experimentWithInactiveFlag = {
-                ...experiment,
-                feature_flag: { id: 123, key: 'test-flag', active: false },
-            } as Experiment
-            logic.actions.setExperiment(experimentWithInactiveFlag)
-
-            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: true })
-
-            await expectLogic(logic, () => {
-                logic.actions.resumeExperiment()
-            })
-                .toDispatchActions(['resumeExperiment'])
-                .toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(
-                expect.stringContaining('/feature_flags/123'),
-                expect.objectContaining({ active: true })
-            )
-        })
-
-        it('should reload experiment after pause/resume', async () => {
-            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
-
-            // The experiment will be reloaded via loadExperiment action
-            // which uses the GET endpoint already set up in useMocks
-            await expectLogic(logic, () => {
-                logic.actions.pauseExperiment()
-            })
-                .toDispatchActions(['pauseExperiment', 'loadExperiment'])
-                .toFinishAllListeners()
-
-            // Verify that loadExperiment was called which will fetch the experiment again
-            expect(logic.values.experiment).not.toBeNull()
-        })
-    })
-
     describe('breakdown management', () => {
         it('should add breakdown to inline metric', () => {
             const breakdown: Breakdown = { property: '$browser', type: 'event' }
@@ -843,6 +777,301 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('pauseExperiment', () => {
+        it('calls pause endpoint and updates both experiment and feature flag state', async () => {
+            const pausedResponse = {
+                ...experiment,
+                feature_flag: { ...experiment.feature_flag, active: false },
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(pausedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            // Pre-condition: flag is active
+            expect(keyed.values.experiment.feature_flag?.active).toBe(true)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/pause`))
+
+            // Post-condition: both experiment and nested feature flag are updated
+            expect(keyed.values.experiment.feature_flag?.active).toBe(false)
+            expect(keyed.values.experiment.id).toBe(experiment.id)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment is already paused.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment is already paused.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to pause experiment')
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('resumeExperiment', () => {
+        it('calls resume endpoint and updates both experiment and feature flag state', async () => {
+            const pausedExperiment = {
+                ...experiment,
+                feature_flag: { ...experiment.feature_flag, active: false },
+            } as Experiment
+            const resumedResponse = {
+                ...experiment,
+                feature_flag: { ...experiment.feature_flag, active: true },
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(resumedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(pausedExperiment)
+
+            // Pre-condition: flag is inactive (paused)
+            expect(keyed.values.experiment.feature_flag?.active).toBe(false)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.resumeExperiment()
+            })
+                .toDispatchActions(['resumeExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/resume`))
+
+            // Post-condition: both experiment and nested feature flag are updated
+            expect(keyed.values.experiment.feature_flag?.active).toBe(true)
+            expect(keyed.values.experiment.id).toBe(experiment.id)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment is not paused.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment is not paused.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to resume experiment')
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('resetRunningExperiment', () => {
+        it('calls reset endpoint and updates experiment to draft state', async () => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+            } as Experiment
+            const resetResponse = {
+                ...experiment,
+                start_date: null,
+                end_date: null,
+                archived: false,
+                conclusion: null,
+                conclusion_comment: null,
+                status: 'draft',
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(resetResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            // Pre-condition: experiment is running with cached metric results
+            expect(keyed.values.experiment.start_date).toBe('2026-03-17T10:00:00Z')
+            const stubResult = { result: 'stub' } as any
+            keyed.actions.setPrimaryMetricsResults([stubResult])
+            keyed.actions.setSecondaryMetricsResults([stubResult])
+            keyed.actions.setPrimaryMetricsResultsErrors([{ error: 'stub' }])
+            keyed.actions.setSecondaryMetricsResultsErrors([{ error: 'stub' }])
+            expect(keyed.values.primaryMetricsResults).toHaveLength(1)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.resetRunningExperiment()
+            })
+                .toDispatchActions(['resetRunningExperiment', 'setExperiment', 'clearMetricsResults'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/reset`))
+
+            // Post-condition: experiment is back to draft state
+            expect(keyed.values.experiment.start_date).toBeNull()
+            expect(keyed.values.experiment.end_date).toBeNull()
+            expect(keyed.values.experiment.status).toBe('draft')
+
+            // Post-condition: metric results are cleared
+            expect(keyed.values.primaryMetricsResults).toEqual([])
+            expect(keyed.values.secondaryMetricsResults).toEqual([])
+            expect(keyed.values.primaryMetricsResultsErrors).toEqual([])
+            expect(keyed.values.secondaryMetricsResultsErrors).toEqual([])
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment is already in draft state.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.resetRunningExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment is already in draft state.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.resetRunningExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to reset experiment')
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('endExperiment', () => {
+        it('calls end endpoint and dispatches setExperiment with response', async () => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+                conclusion: 'won',
+                conclusion_comment: 'Test variant won clearly',
+            } as Experiment
+            const endedResponse = {
+                ...runningExperiment,
+                end_date: '2026-03-24T10:00:00Z',
+                status: 'stopped',
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(endedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            // Pre-condition: experiment is running
+            expect(keyed.values.experiment.end_date).toBeFalsy()
+            expect(keyed.values.experiment.status).toBe('running')
+
+            await expectLogic(keyed, () => {
+                keyed.actions.endExperiment()
+            })
+                .toDispatchActions(['endExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/end`), {
+                conclusion: 'won',
+                conclusion_comment: 'Test variant won clearly',
+            })
+
+            // Post-condition: experiment is ended
+            expect(keyed.values.experiment.end_date).toBe('2026-03-24T10:00:00Z')
+            expect(keyed.values.experiment.status).toBe('stopped')
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment has already ended.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.endExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment has already ended.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.endExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to end experiment')
+            createSpy.mockRestore()
+        })
+    })
+
     describe('experimentWarning', () => {
         const multivariantFilters = {
             groups: [{ properties: [], rollout_percentage: 100 }],
@@ -1017,6 +1246,30 @@ describe('experimentLogic', () => {
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
+        })
+    })
+
+    describe('getDisplayOrderedIndices', () => {
+        it.each([
+            ['null orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], null, [0, 1, 2]],
+            ['undefined orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], undefined, [0, 1]],
+            ['empty orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], [], [0, 1]],
+            ['reorders by orderedUuids', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], ['c', 'a', 'b'], [2, 0, 1]],
+            [
+                'appends missing metrics at end',
+                [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }],
+                ['c', 'a'],
+                [2, 0, 1, 3],
+            ],
+            ['ignores uuids not in metrics', [{ uuid: 'a' }, { uuid: 'b' }], ['x', 'b', 'y', 'a'], [1, 0]],
+            ['handles metrics without uuids', [{ uuid: 'a' }, {}, { uuid: 'c' }], ['c', 'a'], [2, 0, 1]],
+        ])('%s', (_desc, metrics, orderedUuids, expected) => {
+            expect(getDisplayOrderedIndices(metrics, orderedUuids)).toEqual(expected)
+        })
+
+        it('returns all indices exactly once', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
+            expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
         })
     })
 })

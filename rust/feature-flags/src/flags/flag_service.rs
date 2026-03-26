@@ -177,6 +177,7 @@ impl FlagService {
                 let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper {
                     flags,
                     evaluation_metadata: None,
+                    cohorts: None,
                 };
                 let value = serde_json::to_value(&wrapper).map_err(|e| {
                     tracing::error!(
@@ -191,12 +192,14 @@ impl FlagService {
             .await?;
 
         // Parse the result (from cache or fallback)
-        let (flags, evaluation_metadata) = FeatureFlagList::parse_hypercache_value(data, team_id)?;
+        let (flags, evaluation_metadata, cohorts) =
+            FeatureFlagList::parse_hypercache_value(data, team_id)?;
 
         Ok(FlagResult {
             flag_list: FeatureFlagList {
                 flags,
                 evaluation_metadata,
+                cohorts,
                 ..Default::default()
             },
             cache_source: source,
@@ -341,6 +344,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             }]),
                             rollout_percentage: Some(50.0),
                             variant: None,
@@ -350,6 +354,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -372,6 +377,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -397,6 +403,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             }]),
                             rollout_percentage: Some(100.0),
                             variant: None,
@@ -406,6 +413,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -523,6 +531,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             }]),
                             rollout_percentage: Some(50.0 + i as f64),
                             variant: None,
@@ -532,6 +541,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -549,6 +559,7 @@ mod tests {
         let wrapper = HypercacheFlagsWrapper {
             flags: large_flags.flags.clone(),
             evaluation_metadata: None,
+            cohorts: None,
         };
         let json_string = serde_json::to_string(&wrapper).expect("Failed to serialize to JSON");
 

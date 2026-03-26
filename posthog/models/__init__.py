@@ -23,6 +23,7 @@ from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
 from .dashboard import Dashboard
+from .data_deletion_request import DataDeletionRequest
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
 from ..ducklake.models import DuckgresServer, DuckLakeCatalog
@@ -57,9 +58,6 @@ from .instance_setting import InstanceSetting
 from .integration import Integration
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
-from .message_template import MessageTemplate
-from .message_category import MessageCategory
-from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
@@ -123,6 +121,7 @@ __all__ = [
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",
+    "DataDeletionRequest",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
@@ -164,9 +163,6 @@ __all__ = [
     "InviteExpiredException",
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",
-    "MessageCategory",
-    "MessageRecipientPreference",
-    "MessageTemplate",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
