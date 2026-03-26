@@ -65,6 +65,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "label",
             "table",
             "should_sync",
             "last_synced_at",
@@ -82,6 +83,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "name",
+            "label",
             "table",
             "last_synced_at",
             "latest_error",
@@ -308,7 +310,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
-        fields = ["id", "name", "should_sync", "last_synced_at"]
+        fields = ["id", "name", "label", "should_sync", "last_synced_at"]
 
 
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

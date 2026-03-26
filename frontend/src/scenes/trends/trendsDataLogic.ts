@@ -5,7 +5,6 @@ import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -73,8 +72,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
     connect((props: InsightLogicProps) => ({
         values: [
-            insightLogic(props),
-            ['editingDisabledReason'],
             insightVizDataLogic(props),
             [
                 'querySource',
@@ -504,8 +501,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         legendSeriesIsolationMenuEligible: [
-            (s) => [s.editingDisabledReason, s.indexedResults],
-            (editingDisabledReason, indexedResults): boolean => !editingDisabledReason && indexedResults.length > 1,
+            (s) => [s.indexedResults],
+            (indexedResults: IndexedTrendResult[]): boolean => indexedResults.length > 1,
         ],
 
         getIsOnlyVisibleSeriesInLegend: [

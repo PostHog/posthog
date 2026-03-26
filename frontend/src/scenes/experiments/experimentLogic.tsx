@@ -539,8 +539,6 @@ export const experimentLogic = kea<experimentLogicType>([
             [
                 'reportExperimentCreated',
                 'reportExperimentViewed',
-                'reportExperimentCompleted',
-                'reportExperimentStopped',
 
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantShipped',
@@ -1437,23 +1435,19 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
         },
         endExperiment: async () => {
-            const endDate = dayjs()
-            actions.updateExperiment({
-                end_date: endDate.toISOString(),
-                conclusion: values.experiment.conclusion,
-                conclusion_comment: values.experiment.conclusion_comment,
-            })
-            const duration = endDate.diff(values.experiment?.start_date, 'second')
-            values.experiment &&
-                actions.reportExperimentCompleted(
-                    values.experiment,
-                    endDate,
-                    duration,
-                    values.experiment.metrics?.[0]?.uuid
-                        ? values.isPrimaryMetricSignificant(values.experiment.metrics[0].uuid)
-                        : false
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
+                    {
+                        conclusion: values.experiment.conclusion,
+                        conclusion_comment: values.experiment.conclusion_comment,
+                    }
                 )
-            values.experiment && eventUsageLogic.actions.reportExperimentStopped(values.experiment)
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to end experiment')
+            }
         },
         endExperimentWithoutShipping: async () => {
             actions.endExperiment()
