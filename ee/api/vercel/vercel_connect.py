@@ -71,9 +71,13 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
     if not access_token:
         return False
 
+    installation_id = integration.integration_id
+    if not installation_id:
+        return False
+
     client = VercelAPIClient(bearer_token=access_token)
     try:
-        return not client.check_installation_active(integration.integration_id)
+        return not client.check_installation_active(installation_id)
     except APIError:
         return False
 
