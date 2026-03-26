@@ -142,6 +142,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 ticket = Ticket.objects.create_with_number(
                     team=team,
                     channel_source=Channel.EMAIL,
+                    email_config=config,
                     widget_session_id="",
                     distinct_id=sender_email,
                     status=Status.NEW,
