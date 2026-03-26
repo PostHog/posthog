@@ -533,7 +533,9 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
             parts.append(f"{new_count} new")
         if removed_count:
             parts.append(f"{removed_count} removed")
-        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
+        # During migration VR is observational — always green so drift doesn't block PRs.
+        # Flip to "failure" when VR becomes the gate.
+        _post_commit_status(run, repo, "success", f"Visual changes detected: {', '.join(parts)}")
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
 
