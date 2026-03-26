@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import date, datetime
 from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
@@ -129,6 +130,39 @@ def postgres_error_to_message(error: Exception) -> str:
     if not message:
         return "Postgres query failed."
     return message.splitlines()[0]
+
+
+def parse_lenient_direct_postgres_date(value: str) -> date:
+    trimmed = value.strip()
+
+    try:
+        return date.fromisoformat(trimmed)
+    except ValueError:
+        pass
+
+    normalized = trimmed[:-1] + "+00:00" if trimmed.endswith("Z") else trimmed
+    try:
+        return datetime.fromisoformat(normalized).date()
+    except ValueError:
+        pass
+
+    if len(trimmed) >= 10:
+        return date.fromisoformat(trimmed[:10])
+
+    raise ValueError(f"Unable to parse date value: {value!r}")
+
+
+class LenientDirectPostgresDateLoader(psycopg.types.datetime.DateLoader):
+    """Handle non-standard DATE text values returned by DuckDB's Postgres wire."""
+
+    def load(self, data) -> date:
+        try:
+            return super().load(data)
+        except psycopg.DataError as exc:
+            try:
+                return parse_lenient_direct_postgres_date(bytes(data).decode("utf8", "replace"))
+            except ValueError:
+                raise exc from None
 
 
 @dataclasses.dataclass
@@ -483,6 +517,7 @@ class HogQLQueryExecutor:
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:
+                        connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
                             results = cursor.fetchall()

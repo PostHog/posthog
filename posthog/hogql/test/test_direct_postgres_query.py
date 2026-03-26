@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -11,7 +11,13 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
+from posthog.hogql.query import (
+    HogQLQueryExecutor,
+    LenientDirectPostgresDateLoader,
+    parse_lenient_direct_postgres_date,
+    postgres_error_to_message,
+    postgres_oid_to_clickhouse_type,
+)
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
@@ -33,6 +39,18 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     def test_postgres_oid_to_clickhouse_type(self, _name: str, oid: int | None, expected: str):
         self.assertEqual(postgres_oid_to_clickhouse_type(oid), expected)
+
+    @parameterized.expand(
+        [
+            ("date_only", "2026-03-26", date(2026, 3, 26)),
+            ("timestamp_with_space", "2026-03-26 00:00:00", date(2026, 3, 26)),
+            ("timestamp_with_t", "2026-03-26T13:14:15", date(2026, 3, 26)),
+            ("timestamp_with_timezone", "2026-03-26T13:14:15Z", date(2026, 3, 26)),
+            ("timestamp_with_fractional_seconds", "2026-03-26 00:00:00.123456", date(2026, 3, 26)),
+        ]
+    )
+    def test_parse_lenient_direct_postgres_date(self, _name: str, value: str, expected: date):
+        self.assertEqual(parse_lenient_direct_postgres_date(value), expected)
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
         source = ExternalDataSource.objects.create(
@@ -557,6 +575,47 @@ class TestDirectPostgresQuery(APIBaseTest):
         assert executor.direct_postgres_sql is not None
         self.assertIn("1 AS value", executor.direct_postgres_sql)
         self.assertIn("LIMIT 100", executor.direct_postgres_sql)
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_registers_lenient_date_loader_for_duckdb_style_dates(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(date(2026, 3, 26),)]
+        column = MagicMock(type_code=1082)
+        column.name = "current_date"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT CURRENT_DATE AS current_date",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(date(2026, 3, 26),)])
+        mocked_connection.adapters.register_loader.assert_any_call("date", LenientDirectPostgresDateLoader)
 
     @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.query.psycopg.connect")

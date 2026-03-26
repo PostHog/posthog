@@ -74,7 +74,7 @@ export function QueryWindow({
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
-            <Tooltip title="Send this query directly to the selected external connection without translating it through HogQL first. Use this for raw SQL that HogQL does not support.">
+            <Tooltip title="Send the query directly to the selected external connection without translating it through HogQL first. This is an escape hatch for SQL syntax HogQL does not yet support. We will log your query and may use it to improve HogQL.">
                 <span
                     className="inline-flex cursor-help"
                     onClick={(event) => {
