@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
+BASE57 = "".join(c for c in BASE62 if c not in "01OIl")  # Base62 minus visually ambiguous characters
 EncryptionModeType = Literal["sha256", "pbkdf2"]
 SHA256_HASH_PREFIX = "sha256$"
 
@@ -265,8 +266,10 @@ def generate_random_token(nbytes: int = 32) -> str:
 
     Random 32 bytes - default value here - is believed to be sufficiently secure for practically all purposes:
     https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
+
+    Uses base57 encoding (base62 minus 0, 1, O, I, l) to avoid visually ambiguous characters.
     """
-    return int_to_base(secrets.randbits(nbytes * 8), 62)
+    return int_to_base(secrets.randbits(nbytes * 8), 57, alphabet=BASE57)
 
 
 def generate_random_token_project() -> str:
@@ -322,12 +325,15 @@ def hash_key_value(
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
-def int_to_base(number: int, base: int) -> str:
-    if base > 62:
-        raise ValueError("Cannot convert integer to base above 62")
-    alphabet = BASE62[:base]
+def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> str:
+    if alphabet is None:
+        if base > 62:
+            raise ValueError("Cannot convert integer to base above 62")
+        alphabet = BASE62[:base]
+    elif len(alphabet) != base:
+        raise ValueError(f"Alphabet length {len(alphabet)} does not match base {base}")
     if number < 0:
-        return "-" + int_to_base(-number, base)
+        return "-" + int_to_base(-number, base, alphabet=alphabet)
     value = ""
     while number != 0:
         number, index = divmod(number, len(alphabet))
