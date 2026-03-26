@@ -191,8 +191,6 @@ def _get_rows_to_sync(
     try:
         query = f"SELECT /*+ MAX_EXECUTION_TIME(60000) */ COUNT(*) FROM ({inner_query}) as t"
 
-        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
-
         cursor.execute(query, inner_query_args)
         row = cursor.fetchone()
 
