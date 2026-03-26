@@ -133,6 +133,10 @@ def postgres_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
+def quote_postgres_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
 def parse_lenient_direct_postgres_date(value: str) -> date:
     trimmed = value.strip()
 
@@ -518,6 +522,7 @@ class HogQLQueryExecutor:
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:
+                        connection.execute(f"SET search_path TO {quote_postgres_identifier(source_config.schema)}")
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
@@ -637,12 +642,22 @@ class HogQLQueryExecutor:
             self.connection_id,
             error_factory=ExposedHogQLError,
         )
-        self.connection_id = str(source.id) if source else None
+        if source is None:
+            raise ExposedHogQLError("Sending a raw query requires a valid connection.")
+        self.connection_id = str(source.id)
         self.direct_postgres_source_id = self.connection_id
         self.direct_postgres_sql = str(self.query)
         self._execute_direct_postgres_query()
 
     def _capture_send_raw_query_translation_error(self) -> None:
+        """Try a post-success HogQL translation for raw queries.
+
+        On success, this stores the translated HogQL in ``self.hogql`` for the response.
+        On failure, it records the exception for telemetry and leaves ``self.hogql`` unset.
+
+        This runs synchronously after the raw query succeeds, so it adds the cost of
+        ``_prepare_execution()`` to raw-query responses.
+        """
         if not isinstance(self.query, str) or self.connection_id is None:
             return
 

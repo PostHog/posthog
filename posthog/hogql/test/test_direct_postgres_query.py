@@ -17,6 +17,7 @@ from posthog.hogql.query import (
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
+    quote_postgres_identifier,
 )
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
@@ -662,6 +663,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
         self.assertIsNotNone(response.hogql)
+        mocked_connection.execute.assert_called_once_with(
+            f"SET search_path TO {quote_postgres_identifier(source.job_inputs['schema'])}"
+        )
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
         mock_capture_exception.assert_not_called()
 
