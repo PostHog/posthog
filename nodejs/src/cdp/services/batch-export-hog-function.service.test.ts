@@ -18,7 +18,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 
 import { PersonHogClient } from '../../personhog/client'
-import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
+import { PersonHogGroupRepository } from '../../personhog/personhog-group-repository'
 import { GroupTypeIndex, TeamId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { GroupsManagerService } from './managers/groups-manager.service'
@@ -403,7 +403,7 @@ describe('BatchExportHogFunctionService', () => {
         })
     })
 
-    describe('groups enrichment via DualReadGroupRepository', () => {
+    describe('groups enrichment via PersonHogGroupRepository', () => {
         let originalGroupsManager: GroupsManagerService
 
         const setupGroups = async () => {
@@ -457,14 +457,14 @@ describe('BatchExportHogFunctionService', () => {
                 fetchGroupTypesByProjectIds: jest.fn(),
             }
 
-            const dualReadRepo = new DualReadGroupRepository(
+            const personhogRepo = new PersonHogGroupRepository(
                 hub.groupRepository,
                 mockGrpc as unknown as PersonHogClient,
                 100,
                 'test'
             )
-            const dualReadGroupsManager = new GroupsManagerService(hub.teamManager, dualReadRepo)
-            api['batchExportHogFunctionService']['groupsManager'] = dualReadGroupsManager
+            const personhogGroupsManager = new GroupsManagerService(hub.teamManager, personhogRepo)
+            api['batchExportHogFunctionService']['groupsManager'] = personhogGroupsManager
 
             clickhouseEvent.properties = JSON.stringify({
                 $lib_version: '1.0.0',

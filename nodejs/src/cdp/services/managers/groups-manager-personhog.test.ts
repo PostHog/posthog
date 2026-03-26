@@ -2,7 +2,7 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
 import { PersonHogClient } from '../../../personhog/client'
-import { DualReadGroupRepository } from '../../../personhog/dual-read-group-repository'
+import { PersonHogGroupRepository } from '../../../personhog/personhog-group-repository'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'
@@ -142,7 +142,7 @@ function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeo
     return mock
 }
 
-describe('GroupsManagerService + DualReadGroupRepository integration', () => {
+describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
     jest.setTimeout(1000)
 
     const mockHasAvailableFeature = jest.fn(() => Promise.resolve(true))
@@ -164,13 +164,13 @@ describe('GroupsManagerService + DualReadGroupRepository integration', () => {
             mockPostgres = createMockPostgres(MOCK_GROUP_TYPES, MOCK_GROUPS)
             mockGrpc = createMockGrpcClient(MOCK_GROUP_TYPES, MOCK_GROUPS)
 
-            const dualRead = new DualReadGroupRepository(
+            const personhogRepo = new PersonHogGroupRepository(
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 rolloutPercentage,
                 'test'
             )
-            groupsManager = new GroupsManagerService(mockTeamManager, dualRead)
+            groupsManager = new GroupsManagerService(mockTeamManager, personhogRepo)
         })
 
         it('enriches simple groups', async () => {
@@ -298,7 +298,7 @@ describe('GroupsManagerService + DualReadGroupRepository integration', () => {
                 fetchGroupTypesByProjectIds: jest.fn(),
             }
 
-            const dualRead = new DualReadGroupRepository(
+            const personhogRepo = new PersonHogGroupRepository(
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
@@ -306,7 +306,7 @@ describe('GroupsManagerService + DualReadGroupRepository integration', () => {
             )
             const manager = new GroupsManagerService(
                 { hasAvailableFeature: jest.fn().mockResolvedValue(true) } as unknown as TeamManager,
-                dualRead
+                personhogRepo
             )
 
             const globals = createHogExecutionGlobals({
@@ -338,13 +338,13 @@ describe('GroupsManagerService + DualReadGroupRepository integration', () => {
             mockPostgres = createMockPostgres(MOCK_GROUP_TYPES, MOCK_GROUPS)
             mockGrpc = createMockGrpcClient(MOCK_GROUP_TYPES, MOCK_GROUPS)
 
-            const dualRead = new DualReadGroupRepository(
+            const personhogRepo = new PersonHogGroupRepository(
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
                 'test'
             )
-            groupsManager = new GroupsManagerService(mockTeamManager, dualRead)
+            groupsManager = new GroupsManagerService(mockTeamManager, personhogRepo)
         })
 
         it('falls back to postgres when gRPC fetchGroupTypesByTeamIds fails', async () => {
@@ -405,7 +405,7 @@ describe('GroupsManagerService + DualReadGroupRepository integration', () => {
 
         it('produces identical output on fallback as on direct postgres path', async () => {
             // First: get the postgres-only result
-            const postgresRepo = new DualReadGroupRepository(
+            const postgresRepo = new PersonHogGroupRepository(
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 0,

@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { Group, GroupTypeIndex, ProjectId, TeamId } from '../types'
 import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonHogClient } from './client'
-import { DualReadGroupRepository } from './dual-read-group-repository'
+import { PersonHogGroupRepository } from './personhog-group-repository'
 
 jest.mock('../utils/logger')
 
@@ -59,7 +59,7 @@ function createMockGrpcClient(): jest.Mocked<
     }
 }
 
-describe('DualReadGroupRepository', () => {
+describe('PersonHogGroupRepository', () => {
     let mockPostgres: jest.Mocked<GroupRepository>
     let mockGrpc: ReturnType<typeof createMockGrpcClient>
 
@@ -68,8 +68,13 @@ describe('DualReadGroupRepository', () => {
         mockGrpc = createMockGrpcClient()
     })
 
-    function createRepo(grpcPercentage: number): DualReadGroupRepository {
-        return new DualReadGroupRepository(mockPostgres, mockGrpc as unknown as PersonHogClient, grpcPercentage, 'test')
+    function createRepo(grpcPercentage: number): PersonHogGroupRepository {
+        return new PersonHogGroupRepository(
+            mockPostgres,
+            mockGrpc as unknown as PersonHogClient,
+            grpcPercentage,
+            'test'
+        )
     }
 
     describe.each([
@@ -216,7 +221,7 @@ describe('DualReadGroupRepository', () => {
                     mockGrpc.fetchGroup.mockRejectedValue(new Error('connection refused'))
                     mockPostgres.fetchGroup.mockResolvedValue(TEST_GROUP)
                     return {
-                        call: (repo: DualReadGroupRepository) =>
+                        call: (repo: PersonHogGroupRepository) =>
                             repo.fetchGroup(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, { useReadReplica: true }),
                         expected: TEST_GROUP,
                     }
@@ -236,7 +241,7 @@ describe('DualReadGroupRepository', () => {
                     mockGrpc.fetchGroupsByKeys.mockRejectedValue(new Error('timeout'))
                     mockPostgres.fetchGroupsByKeys.mockResolvedValue(expected)
                     return {
-                        call: (repo: DualReadGroupRepository) =>
+                        call: (repo: PersonHogGroupRepository) =>
                             repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY]),
                         expected,
                     }
@@ -248,7 +253,7 @@ describe('DualReadGroupRepository', () => {
                     mockGrpc.fetchGroupTypesByTeamIds.mockRejectedValue(new Error('unavailable'))
                     mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
                     return {
-                        call: (repo: DualReadGroupRepository) => repo.fetchGroupTypesByTeamIds([TEAM_ID]),
+                        call: (repo: PersonHogGroupRepository) => repo.fetchGroupTypesByTeamIds([TEAM_ID]),
                         expected: GROUP_TYPE_MAPPINGS,
                     }
                 },
@@ -259,7 +264,7 @@ describe('DualReadGroupRepository', () => {
                     mockGrpc.fetchGroupTypesByProjectIds.mockRejectedValue(new Error('unavailable'))
                     mockPostgres.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
                     return {
-                        call: (repo: DualReadGroupRepository) => repo.fetchGroupTypesByProjectIds([PROJECT_ID]),
+                        call: (repo: PersonHogGroupRepository) => repo.fetchGroupTypesByProjectIds([PROJECT_ID]),
                         expected: GROUP_TYPE_MAPPINGS,
                     }
                 },

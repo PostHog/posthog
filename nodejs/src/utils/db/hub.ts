@@ -13,7 +13,7 @@ import {
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PersonHogClient } from '../../personhog/client'
-import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
+import { PersonHogGroupRepository } from '../../personhog/personhog-group-repository'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
@@ -112,7 +112,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
             pingTimeoutMs: serverConfig.PERSONHOG_PING_TIMEOUT_MS,
             pingIdleConnection: serverConfig.PERSONHOG_PING_IDLE_CONNECTION,
         })
-        groupRepository = new DualReadGroupRepository(
+        groupRepository = new PersonHogGroupRepository(
             postgresGroupRepository,
             grpcClient,
             serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE,
