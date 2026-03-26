@@ -4,6 +4,7 @@ from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
 from opentelemetry import trace
+from psycopg.types.datetime import DateLoader
 
 from posthog.schema import (
     HogLanguage,
@@ -152,7 +153,7 @@ def parse_lenient_direct_postgres_date(value: str) -> date:
     raise ValueError(f"Unable to parse date value: {value!r}")
 
 
-class LenientDirectPostgresDateLoader(psycopg.types.datetime.DateLoader):
+class LenientDirectPostgresDateLoader(DateLoader):
     """Handle non-standard DATE text values returned by DuckDB's Postgres wire."""
 
     def load(self, data) -> date:
