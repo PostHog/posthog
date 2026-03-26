@@ -227,6 +227,17 @@ const GRID_COLUMNS: GridColumn[] = [
     },
 ]
 
+const GRID_SKELETON_COUNTS_KEY = 'homepage-grid-skeleton-counts'
+
+function getStoredSkeletonCounts(): Record<string, number> | null {
+    try {
+        const stored = localStorage.getItem(GRID_SKELETON_COUNTS_KEY)
+        return stored ? JSON.parse(stored) : null
+    } catch {
+        return null
+    }
+}
+
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
@@ -235,12 +246,28 @@ function IdleGrid(): JSX.Element {
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
 
+    const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
+
     const columns = useMemo(() => {
         return GRID_COLUMNS.map((col) => ({
             ...col,
             items: gridItems.filter((item) => item.kind === col.kind),
         }))
     }, [gridItems])
+
+    // Persist item counts when loading finishes so skeletons match on next visit
+    useEffect(() => {
+        const isLoading = dashboardsLoading || recentItemsLoading || starredItemsLoading
+        if (isLoading) {
+            return
+        }
+        const counts: Record<string, number> = {}
+        for (const col of columns) {
+            counts[col.kind] = col.items.length
+        }
+        localStorage.setItem(GRID_SKELETON_COUNTS_KEY, JSON.stringify(counts))
+        setSkeletonCounts(counts)
+    }, [dashboardsLoading, recentItemsLoading, starredItemsLoading, columns])
 
     const handleItemClick = useCallback((item: HomepageGridItem) => {
         if (item.href) {
@@ -361,19 +388,21 @@ function IdleGrid(): JSX.Element {
                     onKeyDown={handleGridKeyDown}
                 >
                     {columns.map((col, colIndex) => (
-                        <div key={col.kind} role="rowgroup" className="flex-1 min-w-0">
+                        <div key={col.kind} role="rowgroup" className="flex-1 min-w-0 flex flex-col gap-px">
                             <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
                                 {col.icon}
                                 {col.label}
                             </Label>
-                            {columnLoadingStates[colIndex] && col.items.length === 0 ? (
-                                Array.from({ length: 3 }).map((_, i) => (
-                                    <div key={`skeleton-${i}`} className="px-2 py-0.5">
-                                        <LemonSkeleton className="h-7" />
+                            {columnLoadingStates[colIndex] &&
+                            col.items.length === 0 &&
+                            (skeletonCounts === null || (skeletonCounts[col.kind] ?? 0) > 0) ? (
+                                Array.from({ length: skeletonCounts?.[col.kind] ?? 3 }).map((_, i) => (
+                                    <div key={`skeleton-${i}`}>
+                                        <LemonSkeleton className="h-[30px]" />
                                     </div>
                                 ))
                             ) : col.items.length === 0 ? (
-                                <div className="mx-2 mt-0.5 px-3 py-2 border border-dashed rounded text-xs text-tertiary">
+                                <div className="px-3 py-2 border border-dashed rounded text-xs text-tertiary">
                                     {col.emptyLabel}{' '}
                                     <Tooltip title={col.emptyTooltip} delayMs={0}>
                                         <IconInfo className="size-3 text-tertiary" />
