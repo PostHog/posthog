@@ -8789,12 +8789,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("mixed-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "mixed-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -8815,10 +8813,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
@@ -8868,12 +8863,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("person-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "person-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -8894,10 +8887,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let person_overrides = HashMap::from([("email".to_string(), json!("test@example.com"))]);
@@ -8937,12 +8927,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("mixed-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "mixed-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![
                     // Condition 0: group-aggregated (organization)
                     FlagPropertyGroup {
@@ -8981,10 +8969,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
@@ -9034,12 +9019,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("mixed-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "mixed-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![
                     // Condition 0: group-aggregated
                     FlagPropertyGroup {
@@ -9078,10 +9061,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
@@ -9137,12 +9117,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("legacy-group-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "legacy-group-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -9163,10 +9141,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
@@ -9218,12 +9193,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("override-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "override-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -9245,10 +9218,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
@@ -9297,12 +9267,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("variant-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "variant-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![
                     // Condition 0: group-aggregated — won't match (group not provided)
                     FlagPropertyGroup {
@@ -9346,10 +9314,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
@@ -9399,12 +9364,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("no-match-flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "no-match-flag".mock_into(),
+            filters: FlagFilters {
                 groups: vec![
                     // Condition 0: group-aggregated — no group provided
                     FlagPropertyGroup {
@@ -9443,10 +9406,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
@@ -9490,12 +9450,10 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("rollout-mixed".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "rollout-mixed".mock_into(),
+            filters: FlagFilters {
                 groups: vec![
                     // Condition 0: group-aggregated, 100% rollout, no properties
                     FlagPropertyGroup {
@@ -9518,10 +9476,7 @@ mod tests {
                 super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
-            }),
-            None,
-            None,
-            None,
+            }
         );
 
         let group_type_cache =
