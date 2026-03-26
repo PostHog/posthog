@@ -8913,7 +8913,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert_eq!(result.matches, expected_match);
         assert_eq!(result.reason, expected_reason);
@@ -8975,7 +8975,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // Falls through to regular conditions (0% rollout → no match)
         assert!(!result.matches);
@@ -9059,7 +9059,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // Should match via feature_enrollment (not super_groups which uses wrong_key)
         assert!(result.matches);
@@ -9565,6 +9565,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -9643,6 +9644,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -9729,6 +9731,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -9825,6 +9828,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -9909,6 +9913,7 @@ mod tests {
                 aggregation_group_type_index: Some(1), // Flag-level aggregation
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -9990,6 +9995,7 @@ mod tests {
                 aggregation_group_type_index: None, // Flag-level says person
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -10090,6 +10096,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -10186,6 +10193,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -10260,6 +10268,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,

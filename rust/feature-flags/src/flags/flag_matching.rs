@@ -1163,7 +1163,7 @@ impl FeatureFlagMatcher {
         // New format takes precedence when both are present.
         if flag.filters.feature_enrollment == Some(true) {
             let enrollment_key = FlagFilters::enrollment_key(&flag.key);
-            let person_properties = self.get_person_properties(property_overrides)?;
+            let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
                 let is_match = v == "true" || v == &Value::Bool(true);
