@@ -30,6 +30,35 @@ function normalizeLevel(level?: string): LogLevel {
     return 'info'
 }
 
+/**
+ * ACP serializes arrays/strings in rawOutput as index-keyed objects:
+ *   "hello" → {"0":"h","1":"e","2":"l","3":"l","4":"o"}
+ *   [{type:"text"}] → {"0":{type:"text"}}
+ * Detect and reconstruct the original value.
+ */
+function normalizeRawOutput(value: unknown): unknown {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return value
+    }
+    const obj = value as Record<string, unknown>
+    if (!('0' in obj)) {
+        return value
+    }
+    // Reconstruct array from sequential numeric keys
+    const arr: unknown[] = []
+    for (let i = 0; String(i) in obj; i++) {
+        arr.push(obj[String(i)])
+    }
+    if (arr.length === 0) {
+        return value
+    }
+    // If every element is a single character, it was a string
+    if (arr.every((v) => typeof v === 'string' && v.length === 1)) {
+        return arr.join('')
+    }
+    return arr
+}
+
 function normalizeToolStatus(status?: string | null): ToolStatus {
     switch (status) {
         case 'pending':
@@ -138,7 +167,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     if (update._meta?.claudeCode?.toolResponse !== undefined) {
                         existing.toolResult = update._meta.claudeCode.toolResponse
                     } else if (update.rawOutput !== undefined) {
-                        existing.toolResult = update.rawOutput
+                        existing.toolResult = normalizeRawOutput(update.rawOutput)
                     }
                     return null
                 }
@@ -167,7 +196,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                         if (update._meta?.claudeCode?.toolResponse !== undefined) {
                             existing.toolResult = update._meta.claudeCode.toolResponse
                         } else if (update.rawOutput !== undefined) {
-                            existing.toolResult = update.rawOutput
+                            existing.toolResult = normalizeRawOutput(update.rawOutput)
                         }
                         return null
                     }
