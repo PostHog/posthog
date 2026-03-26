@@ -1120,37 +1120,15 @@ mod tests {
     }
 
     // =========================================================================
-    // Tests for evaluation_tags / evaluation_contexts migration handling
+    // Tests for evaluation_contexts JSON key (renamed from evaluation_tags)
     // =========================================================================
 
     #[test]
-    fn test_deserialize_flag_with_legacy_evaluation_tags() {
-        // Old cache entries may have `evaluation_tags` key
+    fn test_deserialize_flag_with_evaluation_contexts() {
+        // Cache entries use `evaluation_contexts` key (renamed from `evaluation_tags` in PR #52186)
         let data = json!({
             "id": 1,
-            "key": "legacy_flag",
-            "team_id": 123,
-            "active": true,
-            "deleted": false,
-            "filters": { "groups": [] },
-            "evaluation_tags": ["docs-page", "marketing-site"]
-        });
-
-        let flag: FeatureFlag =
-            serde_json::from_value(data).expect("Should deserialize with evaluation_tags");
-        assert_eq!(flag.key, "legacy_flag");
-        let tags = flag.evaluation_tags.expect("Should have evaluation_tags");
-        assert_eq!(tags.len(), 2);
-        assert!(tags.contains(&"docs-page".to_string()));
-        assert!(tags.contains(&"marketing-site".to_string()));
-    }
-
-    #[test]
-    fn test_deserialize_flag_with_new_evaluation_contexts() {
-        // New cache entries have `evaluation_contexts` key
-        let data = json!({
-            "id": 2,
-            "key": "new_flag",
+            "key": "test_flag",
             "team_id": 123,
             "active": true,
             "deleted": false,
@@ -1160,7 +1138,8 @@ mod tests {
 
         let flag: FeatureFlag =
             serde_json::from_value(data).expect("Should deserialize with evaluation_contexts");
-        assert_eq!(flag.key, "new_flag");
+        assert_eq!(flag.key, "test_flag");
+        // Rust field is still named `evaluation_tags` for internal compatibility
         let tags = flag.evaluation_tags.expect("Should have evaluation_tags");
         assert_eq!(tags.len(), 2);
         assert!(tags.contains(&"app".to_string()));
@@ -1168,41 +1147,9 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_flag_with_both_keys_prefers_evaluation_contexts() {
-        // Race condition: some cache entries may have BOTH keys.
-        // We should prefer evaluation_contexts (the canonical name) over evaluation_tags.
+    fn test_deserialize_flag_without_evaluation_contexts() {
         let data = json!({
-            "id": 3,
-            "key": "race_condition_flag",
-            "team_id": 123,
-            "active": true,
-            "deleted": false,
-            "filters": { "groups": [] },
-            "evaluation_tags": ["old-value-1", "old-value-2"],
-            "evaluation_contexts": ["new-value-1", "new-value-2", "new-value-3"]
-        });
-
-        let flag: FeatureFlag = serde_json::from_value(data)
-            .expect("Should deserialize when both evaluation_tags and evaluation_contexts present");
-        assert_eq!(flag.key, "race_condition_flag");
-        let tags = flag
-            .evaluation_tags
-            .expect("Should have evaluation_tags from evaluation_contexts");
-        // Should have the evaluation_contexts values, NOT evaluation_tags
-        assert_eq!(tags.len(), 3);
-        assert!(tags.contains(&"new-value-1".to_string()));
-        assert!(tags.contains(&"new-value-2".to_string()));
-        assert!(tags.contains(&"new-value-3".to_string()));
-        // Should NOT have the old values
-        assert!(!tags.contains(&"old-value-1".to_string()));
-        assert!(!tags.contains(&"old-value-2".to_string()));
-    }
-
-    #[test]
-    fn test_deserialize_flag_with_neither_key() {
-        // Flags without evaluation contexts should deserialize with None
-        let data = json!({
-            "id": 4,
+            "id": 2,
             "key": "no_contexts_flag",
             "team_id": 123,
             "active": true,
@@ -1211,19 +1158,15 @@ mod tests {
         });
 
         let flag: FeatureFlag =
-            serde_json::from_value(data).expect("Should deserialize without evaluation context");
+            serde_json::from_value(data).expect("Should deserialize without evaluation_contexts");
         assert_eq!(flag.key, "no_contexts_flag");
-        assert!(
-            flag.evaluation_tags.is_none(),
-            "Should have None when neither key present"
-        );
+        assert!(flag.evaluation_tags.is_none());
     }
 
     #[test]
-    fn test_serialize_flag_uses_evaluation_contexts() {
-        // When we serialize a FeatureFlag, it should use the `evaluation_contexts` key
+    fn test_serialize_flag_uses_evaluation_contexts_key() {
         let flag = FeatureFlag {
-            id: 5,
+            id: 3,
             team_id: 123,
             name: Some("Serialization Test".to_string()),
             key: "serialize_test".to_string(),
@@ -1238,7 +1181,7 @@ mod tests {
         };
 
         let json_str = serde_json::to_string(&flag).expect("Should serialize");
-        // Should serialize to evaluation_contexts, not evaluation_tags
+        // Rust field `evaluation_tags` serializes to JSON key `evaluation_contexts`
         assert!(
             json_str.contains("evaluation_contexts"),
             "Should use evaluation_contexts key when serializing"
@@ -1247,31 +1190,5 @@ mod tests {
             !json_str.contains("evaluation_tags"),
             "Should NOT use evaluation_tags key when serializing"
         );
-    }
-
-    #[test]
-    fn test_parse_hypercache_with_both_evaluation_keys() {
-        // Full integration test: parse a hypercache response with both keys
-        let data = json!({
-            "flags": [
-                {
-                    "id": 1,
-                    "key": "both_keys_flag",
-                    "team_id": 123,
-                    "active": true,
-                    "deleted": false,
-                    "filters": { "groups": [] },
-                    "evaluation_tags": ["stale"],
-                    "evaluation_contexts": ["fresh-context"]
-                }
-            ]
-        });
-
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok(), "Should parse successfully");
-        let (flags, _, _) = result.unwrap();
-        assert_eq!(flags.len(), 1);
-        let tags = flags[0].evaluation_tags.as_ref().expect("Should have tags");
-        assert_eq!(tags, &vec!["fresh-context".to_string()]);
     }
 }
