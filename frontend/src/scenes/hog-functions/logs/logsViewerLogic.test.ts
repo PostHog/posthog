@@ -105,16 +105,14 @@ describe('logsViewerLogic', () => {
             expect(timestamps).toEqual(['10:00:00', '10:02:00', '10:05:00'])
         })
 
-        it('escalates log level to the highest severity in the group', () => {
-            const entries = [
-                makeEntry('a', '2024-01-15 10:00:00', 'INFO'),
-                makeEntry('a', '2024-01-15 10:01:00', 'ERROR'),
-                makeEntry('a', '2024-01-15 10:02:00', 'WARN'),
-            ]
-
+        it.each([
+            { levels: ['INFO', 'ERROR', 'WARN'] as LogEntryLevel[], expected: 'ERROR' },
+            { levels: ['DEBUG', 'WARN', 'LOG'] as LogEntryLevel[], expected: 'WARN' },
+            { levels: ['INFO', 'INFO', 'INFO'] as LogEntryLevel[], expected: 'INFO' },
+        ])('escalates log level to $expected', ({ levels, expected }) => {
+            const entries = levels.map((level, i) => makeEntry('a', `2024-01-15 10:0${i}:00`, level))
             const groups = groupLogs(entries)
-
-            expect(groups[0].logLevel).toBe('ERROR')
+            expect(groups[0].logLevel).toBe(expected)
         })
 
         it('deduplicates entries with the same instanceId, level, and timestamp', () => {

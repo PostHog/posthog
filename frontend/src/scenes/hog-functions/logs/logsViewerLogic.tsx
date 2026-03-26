@@ -158,7 +158,7 @@ const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: str
             WHERE 1=1
             ${hogql.raw(buildBoundaryFilters(request))}
             ${hogql.raw(buildSearchFilters(request))}
-            ${hogql.raw(String(excludeFilter))}
+            ${hogql.raw(excludeFilter as string)}
             GROUP BY instance_id
             ORDER BY max(timestamp) ${hogql.raw(request.order)}
             LIMIT ${LOG_GROUP_LIMIT}
