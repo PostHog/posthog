@@ -7,6 +7,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from stripe import ListObject, StripeClient
+from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
@@ -49,11 +50,11 @@ LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
 
 
-def _stripe_base_addresses() -> dict:
+def _stripe_base_addresses() -> BaseAddresses:
     # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
     # when running the stripe-mock dev service. No-op in production where the var is unset.
     base = os.environ.get("STRIPE_API_BASE")
-    return {"api": base} if base else {}
+    return BaseAddresses(api=base) if base else BaseAddresses()
 
 
 @dataclasses.dataclass

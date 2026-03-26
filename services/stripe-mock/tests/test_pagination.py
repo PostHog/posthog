@@ -79,7 +79,7 @@ class TestPaginateSearch:
 
     def test_full_iteration_via_tokens(self):
         items = self._items(25)
-        all_ids = []
+        all_ids: list[str] = []
         token = None
         for _ in range(100):
             result = paginate_search(items, "/v1/x/search", limit=10, page_token=token)
