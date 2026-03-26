@@ -85,6 +85,7 @@ const SymbolSetTable = (): JSX.Element => {
     const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, bulkDeleteSymbolSets } =
         useActions(symbolSetLogic)
 
+    const someSelected = selectedSymbolSetIds.length > 0 && selectedSymbolSetIds.length < symbolSets.length
     const allSelected = symbolSets.length > 0 && selectedSymbolSetIds.length === symbolSets.length
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
@@ -92,9 +93,9 @@ const SymbolSetTable = (): JSX.Element => {
             width: 32,
             title: (
                 <LemonCheckbox
-                    checked={allSelected}
+                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
                     onChange={() =>
-                        allSelected
+                        allSelected || someSelected
                             ? setSelectedSymbolSetIds([])
                             : setSelectedSymbolSetIds(symbolSets.map((s: ErrorTrackingSymbolSet) => s.id))
                     }
@@ -249,7 +250,7 @@ const SymbolSetTable = (): JSX.Element => {
                 columns={columns}
                 loading={symbolSetResponseLoading || deleteSymbolSetResponseLoading}
                 dataSource={symbolSets}
-                emptyState={!symbolSetResponseLoading ? emptyState : undefined}
+                emptyState={!symbolSetResponseLoading && !deleteSymbolSetResponseLoading ? emptyState : undefined}
             />
         </div>
     )

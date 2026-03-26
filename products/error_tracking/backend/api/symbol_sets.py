@@ -109,9 +109,10 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ids = request.data.get("ids", [])
         if not ids:
             return Response({"detail": "ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(ids, list):
+            return Response({"detail": "ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
         symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=ids)
-        deleted_count = symbol_sets.count()
-        symbol_sets.delete()
+        deleted_count, _ = symbol_sets.delete()
         return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
 
     def list(self, request, *args, **kwargs) -> Response:
