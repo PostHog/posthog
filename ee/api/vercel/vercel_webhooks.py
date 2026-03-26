@@ -152,18 +152,17 @@ def vercel_webhook(request: Request) -> Response:
                     logger.exception("vercel_webhook_deauthorize_delete_failed", config_id=config_id)
                     capture_exception(e, {"config_id": config_id})
                     return Response({"error": "Processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        elif _is_us_region():
+            logger.info("vercel_webhook_deauthorize_proxying_to_eu", config_id=config_id)
+            eu_status = _proxy_deauthorization_to_eu(request.body, signature)
+            if eu_status is None or eu_status >= 300:
+                logger.warning(
+                    "vercel_webhook_deauthorize_eu_proxy_non_ok",
+                    config_id=config_id,
+                    eu_status=eu_status,
+                )
         else:
-            if _is_us_region():
-                logger.info("vercel_webhook_deauthorize_proxying_to_eu", config_id=config_id)
-                eu_status = _proxy_deauthorization_to_eu(request.body, signature)
-                if eu_status is None or eu_status >= 300:
-                    logger.warning(
-                        "vercel_webhook_deauthorize_eu_proxy_non_ok",
-                        config_id=config_id,
-                        eu_status=eu_status,
-                    )
-            else:
-                logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
+            logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
 
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 

@@ -330,7 +330,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has a Vercel integration" in response.json()["detail"]
-
+        assert OrganizationIntegration.objects.filter(integration_id="icfg_existing").exists()
     @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
     def test_stale_integration_deleted_and_new_one_created(self, _mock_orphaned):
         OrganizationIntegration.objects.create(
@@ -357,26 +357,6 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         )
         assert new_integration.integration_id == "icfg_connect_test"
 
-    @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=False)
-    def test_valid_existing_integration_still_rejects(self, _mock_orphaned):
-        OrganizationIntegration.objects.create(
-            organization=self.organization,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id="icfg_valid",
-            config={"credentials": {"access_token": "tok_valid"}},
-            created_by=self.user,
-        )
-        session_token = _seed_session()
-
-        response = self.client.post(
-            self.url,
-            {"session": session_token, "organization_id": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already has a Vercel integration" in response.json()["detail"]
-        assert OrganizationIntegration.objects.filter(integration_id="icfg_valid").exists()
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
