@@ -18,10 +18,12 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors } from 'lib/utils'
@@ -287,6 +289,20 @@ function ScheduleCard({
                 </div>
                 <div className="text-xs text-muted">
                     <ScheduleTiming scheduledChange={scheduledChange} />
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                    {scheduledChange.created_by && (
+                        <>
+                            <ProfilePicture user={scheduledChange.created_by} size="xs" />
+                            <span>{scheduledChange.created_by.first_name || scheduledChange.created_by.email}</span>
+                        </>
+                    )}
+                    {scheduledChange.created_at && (
+                        <>
+                            <span>·</span>
+                            <TZLabel time={scheduledChange.created_at} />
+                        </>
+                    )}
                 </div>
             </div>
             {!isCompleted && canEdit && (
