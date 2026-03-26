@@ -17,7 +17,10 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
-from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
+from posthog.temporal.data_imports.sources.hubspot.auth import (
+    hubspot_access_token_is_valid,
+    hubspot_refresh_access_token,
+)
 from posthog.temporal.data_imports.sources.hubspot.hubspot import HubspotResumeConfig, hubspot_source
 from posthog.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
@@ -138,8 +141,8 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             else:
                 refresh_token = config_refresh_token
 
-            if not config_hubspot_access_code:
-                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+            if not config_hubspot_access_code or not hubspot_access_token_is_valid(config_hubspot_access_code):
+                hubspot_access_code = hubspot_refresh_access_token(refresh_token, source_id=inputs.source_id)
             else:
                 hubspot_access_code = config_hubspot_access_code
 
@@ -157,4 +160,5 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             selected_properties=selected_properties,
+            source_id=inputs.source_id,
         )
