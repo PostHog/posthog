@@ -7574,6 +7574,9 @@ export namespace Schemas {
       /** @nullable */
       pr_number?: number | null;
       baseline_hashes?: CreateRunInputBaselineHashes;
+      unchanged_count?: number;
+      removed_identifiers?: string[];
+      purpose?: string;
       metadata?: CreateRunInputMetadata;
     }
 
