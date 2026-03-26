@@ -14217,7 +14217,6 @@ export namespace Schemas {
       readonly name: string;
       /** @nullable */
       readonly label: string | null;
-      readonly display_name: string;
       /** @nullable */
       readonly table: ExternalDataSchemaTable;
       should_sync?: boolean;
@@ -22234,7 +22233,6 @@ export namespace Schemas {
       readonly name?: string;
       /** @nullable */
       readonly label?: string | null;
-      readonly display_name?: string;
       /** @nullable */
       readonly table?: PatchedExternalDataSchemaTable;
       should_sync?: boolean;
