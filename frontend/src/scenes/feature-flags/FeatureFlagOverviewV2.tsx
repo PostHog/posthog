@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconMessage, IconServer } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonDialog, LemonDivider, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDialog, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -216,64 +216,41 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             </div>
 
                             {hasEvaluationRuntimes && (
-                                <>
-                                    <LemonDivider className="my-1" />
-
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-sm font-medium">Evaluation runtime</label>
-                                        <div className="flex items-center gap-2">
-                                            {evaluationRuntimeDisplay.icon}
-                                            <span className="font-medium text-sm">
-                                                {evaluationRuntimeDisplay.label}
-                                            </span>
-                                            <LemonTag type="muted" size="small">
-                                                {evaluationRuntimeDisplay.tag}
-                                            </LemonTag>
-                                        </div>
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-medium">Evaluation runtime</label>
+                                    <div className="flex items-center gap-2">
+                                        {evaluationRuntimeDisplay.icon}
+                                        <span className="text-sm">{evaluationRuntimeDisplay.label}</span>
+                                        <LemonTag type="muted" size="small">
+                                            {evaluationRuntimeDisplay.tag}
+                                        </LemonTag>
                                     </div>
-                                </>
+                                </div>
                             )}
 
                             {!featureFlag.is_remote_configuration && (
-                                <>
-                                    <LemonDivider className="my-1" />
-
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-sm font-medium">Persistence</label>
-                                        <span className="text-sm text-muted">
-                                            {featureFlag.ensure_experience_continuity ? (
-                                                <>
-                                                    This flag <b className="text-default">persists</b> across
-                                                    authentication steps
-                                                </>
-                                            ) : (
-                                                <>
-                                                    This flag <b className="text-default">does not persist</b> across
-                                                    authentication steps
-                                                </>
-                                            )}
-                                        </span>
-                                    </div>
-                                </>
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-medium">Persistence</label>
+                                    <span className="text-sm text-muted">
+                                        {featureFlag.ensure_experience_continuity
+                                            ? 'Persists across authentication steps'
+                                            : 'Does not persist across authentication steps'}
+                                    </span>
+                                </div>
                             )}
                         </div>
                     </EditableOverviewSection>
 
                     {!featureFlag.is_remote_configuration && (
                         <div className="rounded border p-4 bg-bg-light flex flex-col gap-3">
-                            <div className="font-semibold">Insights</div>
-                            <RecentFeatureFlagInsights />
-
-                            <div className="flex flex-col gap-3 mt-2 pt-3 border-t border-border-light">
-                                <div className="flex items-start gap-2">
-                                    <span className="text-sm text-muted flex-1">
-                                        Watch recordings of users exposed to this flag
-                                    </span>
+                            <div className="flex items-center justify-between">
+                                <div className="font-semibold">Explore</div>
+                                <div className="flex items-center gap-1">
                                     <ViewRecordingsPlaylistButton
                                         className="shrink-0"
                                         filters={recordingFilterForFlag}
-                                        type="secondary"
-                                        size="small"
+                                        type="tertiary"
+                                        size="xsmall"
                                         data-attr="feature-flag-view-recordings"
                                         onClick={() => {
                                             reportViewRecordingsClicked()
@@ -284,24 +261,20 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                             })
                                         }}
                                     />
-                                </div>
-                                {onGetFeedback && (
-                                    <div className="flex items-start gap-2">
-                                        <span className="text-sm text-muted flex-1">
-                                            Get feedback from users who see this flag
-                                        </span>
+                                    {onGetFeedback && (
                                         <LemonButton
                                             className="shrink-0"
                                             onClick={() => onGetFeedback()}
-                                            type="secondary"
-                                            size="small"
+                                            type="tertiary"
+                                            size="xsmall"
                                             sideIcon={<IconMessage />}
                                         >
                                             Get feedback
                                         </LemonButton>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
+                            <RecentFeatureFlagInsights />
                         </div>
                     )}
                 </div>
