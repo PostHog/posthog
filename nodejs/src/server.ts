@@ -26,7 +26,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { PersonHogClient } from './personhog/client'
-import { DualReadGroupRepository } from './personhog/dual-read-group-repository'
+import { PersonHogGroupRepository } from './personhog/personhog-group-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -366,7 +366,7 @@ export class PluginServer implements NodeServer {
                 pingTimeoutMs: this.config.PERSONHOG_PING_TIMEOUT_MS,
                 pingIdleConnection: this.config.PERSONHOG_PING_IDLE_CONNECTION,
             })
-            groupRepository = new DualReadGroupRepository(
+            groupRepository = new PersonHogGroupRepository(
                 postgresGroupRepository,
                 grpcClient,
                 this.config.PERSONHOG_ROLLOUT_PERCENTAGE,

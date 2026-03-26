@@ -4,7 +4,7 @@ import { Message } from 'node-rdkafka'
 
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { PersonHogClient } from '../../personhog/client'
-import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
+import { PersonHogGroupRepository } from '../../personhog/personhog-group-repository'
 import { Action, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -389,9 +389,9 @@ describe('LegacyWebhookService', () => {
         })
     })
 
-    describe('DualReadGroupRepository compatibility', () => {
-        it('should enrich events with group properties when groupRepository is wrapped with DualReadGroupRepository', async () => {
-            // Wrap the real postgres groupRepository with DualReadGroupRepository at 100% gRPC rollout
+    describe('PersonHogGroupRepository compatibility', () => {
+        it('should enrich events with group properties when groupRepository is wrapped with PersonHogGroupRepository', async () => {
+            // Wrap the real postgres groupRepository with PersonHogGroupRepository at 100% gRPC rollout
             // with a mock gRPC client that returns the same data as the existing mock
             const mockGrpcClient: MockPersonHogClient = {
                 fetchGroup: jest.fn().mockResolvedValue({
@@ -402,29 +402,29 @@ describe('LegacyWebhookService', () => {
                 fetchGroupTypesByProjectIds: jest.fn(),
             }
 
-            const dualReadRepo = new DualReadGroupRepository(
+            const personhogRepo = new PersonHogGroupRepository(
                 hub.groupRepository,
                 mockGrpcClient as unknown as PersonHogClient,
                 100,
                 'test'
             )
 
-            const dualReadService = new LegacyWebhookService(
+            const personhogService = new LegacyWebhookService(
                 hub.postgres,
                 hub.teamManager,
                 hub.groupTypeManager,
-                dualReadRepo,
+                personhogRepo,
                 hub.pubSub
             )
-            await dualReadService.start()
+            await personhogService.start()
 
-            dualReadService['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            personhogService['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
             hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
                 project: 0,
             })
 
-            const processEventSpy = jest.spyOn(dualReadService, 'processEvent')
+            const processEventSpy = jest.spyOn(personhogService, 'processEvent')
 
             const messages: Message[] = [
                 createKafkaMessage(
@@ -435,7 +435,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            const result = await dualReadService.processBatch(messages)
+            const result = await personhogService.processBatch(messages)
             await result.backgroundTask
 
             expect(processEventSpy).toHaveBeenCalledTimes(1)
@@ -451,7 +451,7 @@ describe('LegacyWebhookService', () => {
             // fetchGroup with useReadReplica: true should route to gRPC at 100%
             expect(mockGrpcClient.fetchGroup).toHaveBeenCalled()
 
-            await dualReadService.stop()
+            await personhogService.stop()
         })
     })
 })

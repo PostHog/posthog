@@ -31,7 +31,7 @@ import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consume
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PersonHogClient } from '../personhog/client'
-import { DualReadGroupRepository } from '../personhog/dual-read-group-repository'
+import { PersonHogGroupRepository } from '../personhog/personhog-group-repository'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -187,7 +187,7 @@ export class IngestionGeneralServer implements NodeServer {
                 pingTimeoutMs: this.config.PERSONHOG_PING_TIMEOUT_MS,
                 pingIdleConnection: this.config.PERSONHOG_PING_IDLE_CONNECTION,
             })
-            groupRepository = new DualReadGroupRepository(
+            groupRepository = new PersonHogGroupRepository(
                 postgresGroupRepository,
                 grpcClient,
                 this.config.PERSONHOG_ROLLOUT_PERCENTAGE,

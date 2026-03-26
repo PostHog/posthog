@@ -1,8 +1,8 @@
 import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
-import { PersonHogClient } from '../../../ingestion/personhog/client'
-import { PersonHogGroupRepository } from '../../../ingestion/personhog/personhog-group-repository'
+import { PersonHogClient } from '../../../personhog/client'
+import { PersonHogGroupRepository } from '../../../personhog/personhog-group-repository'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'
@@ -92,26 +92,22 @@ function createMockPostgres(
     return mock
 }
 
-type MockPersonHogClient = {
-    groups: jest.Mocked<
-        Pick<
-            PersonHogClient['groups'],
-            'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
-        >
+type MockPersonHogClient = jest.Mocked<
+    Pick<
+        PersonHogClient,
+        'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
     >
-}
+>
 
 function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeof MOCK_GROUPS): MockPersonHogClient {
     const mock: MockPersonHogClient = {
-        groups: {
-            fetchGroup: jest.fn(),
-            fetchGroupsByKeys: jest.fn(),
-            fetchGroupTypesByTeamIds: jest.fn(),
-            fetchGroupTypesByProjectIds: jest.fn(),
-        },
+        fetchGroup: jest.fn(),
+        fetchGroupsByKeys: jest.fn(),
+        fetchGroupTypesByTeamIds: jest.fn(),
+        fetchGroupTypesByProjectIds: jest.fn(),
     }
 
-    mock.groups.fetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]) => {
+    mock.fetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]) => {
         const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
         for (const teamId of teamIds) {
             result[teamId.toString()] = []
@@ -127,23 +123,21 @@ function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeo
         return Promise.resolve(result)
     })
 
-    mock.groups.fetchGroupsByKeys.mockImplementation(
-        (teamIds: number[], groupIndexes: number[], groupKeys: string[]) => {
-            const results = groups.filter((group) => {
-                for (let i = 0; i < teamIds.length; i++) {
-                    if (
-                        teamIds[i] === group.team_id &&
-                        groupIndexes[i] === group.group_type_index &&
-                        groupKeys[i] === group.group_key
-                    ) {
-                        return true
-                    }
+    mock.fetchGroupsByKeys.mockImplementation((teamIds: number[], groupIndexes: number[], groupKeys: string[]) => {
+        const results = groups.filter((group) => {
+            for (let i = 0; i < teamIds.length; i++) {
+                if (
+                    teamIds[i] === group.team_id &&
+                    groupIndexes[i] === group.group_type_index &&
+                    groupKeys[i] === group.group_key
+                ) {
+                    return true
                 }
-                return false
-            })
-            return Promise.resolve(results)
-        }
-    )
+            }
+            return false
+        })
+        return Promise.resolve(results)
+    })
 
     return mock
 }
@@ -207,15 +201,15 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
             })
 
             if (rolloutPercentage === 100) {
-                expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_1])
-                expect(mockGrpc.groups.fetchGroupsByKeys).toHaveBeenCalled()
+                expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_1])
+                expect(mockGrpc.fetchGroupsByKeys).toHaveBeenCalled()
                 expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
                 expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
             } else {
                 expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_1])
                 expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalled()
-                expect(mockGrpc.groups.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
-                expect(mockGrpc.groups.fetchGroupsByKeys).not.toHaveBeenCalled()
+                expect(mockGrpc.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+                expect(mockGrpc.fetchGroupsByKeys).not.toHaveBeenCalled()
             }
         })
 
@@ -295,15 +289,13 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
 
             const mockPostgres = createMockPostgres([], [])
             const mockGrpc: MockPersonHogClient = {
-                groups: {
-                    fetchGroup: jest.fn(),
-                    fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
-                    fetchGroupTypesByTeamIds: jest.fn().mockImplementation((_teamIds: number[]) => {
-                        // Mimic real gRPC behavior: return empty object (no key for team 3)
-                        return Promise.resolve({})
-                    }),
-                    fetchGroupTypesByProjectIds: jest.fn(),
-                },
+                fetchGroup: jest.fn(),
+                fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
+                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((_teamIds: number[]) => {
+                    // Mimic real gRPC behavior: return empty object (no key for team 3)
+                    return Promise.resolve({})
+                }),
+                fetchGroupTypesByProjectIds: jest.fn(),
             }
 
             const personhogRepo = new PersonHogGroupRepository(
@@ -329,9 +321,9 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
 
             // UnknownType has no mapping → skipped entirely → empty groups
             expect(globals.groups).toEqual({})
-            expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_3])
+            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_3])
             // fetchGroupsByKeys should NOT be called since there are no valid group type mappings
-            expect(mockGrpc.groups.fetchGroupsByKeys).not.toHaveBeenCalled()
+            expect(mockGrpc.fetchGroupsByKeys).not.toHaveBeenCalled()
         })
     })
 
@@ -356,7 +348,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
         })
 
         it('falls back to postgres when gRPC fetchGroupTypesByTeamIds fails', async () => {
-            mockGrpc.groups.fetchGroupTypesByTeamIds.mockRejectedValue(new Error('connection refused'))
+            mockGrpc.fetchGroupTypesByTeamIds.mockRejectedValue(new Error('connection refused'))
 
             const globals = createHogExecutionGlobals({
                 groups: undefined,
@@ -378,13 +370,13 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
             })
 
             // gRPC was called and failed
-            expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalled()
+            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalled()
             // Postgres was called as fallback
             expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalled()
         })
 
         it('falls back to postgres when gRPC fetchGroupsByKeys fails', async () => {
-            mockGrpc.groups.fetchGroupsByKeys.mockRejectedValue(new Error('timeout'))
+            mockGrpc.fetchGroupsByKeys.mockRejectedValue(new Error('timeout'))
 
             const globals = createHogExecutionGlobals({
                 groups: undefined,
@@ -406,7 +398,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
             })
 
             // gRPC fetchGroupsByKeys was called and failed
-            expect(mockGrpc.groups.fetchGroupsByKeys).toHaveBeenCalled()
+            expect(mockGrpc.fetchGroupsByKeys).toHaveBeenCalled()
             // Postgres fetchGroupsByKeys was called as fallback
             expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalled()
         })
@@ -430,8 +422,8 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
             await postgresManager.addGroupsToGlobals(postgresGlobals)
 
             // Second: get the fallback result (gRPC fails for everything)
-            mockGrpc.groups.fetchGroupTypesByTeamIds.mockRejectedValue(new Error('down'))
-            mockGrpc.groups.fetchGroupsByKeys.mockRejectedValue(new Error('down'))
+            mockGrpc.fetchGroupTypesByTeamIds.mockRejectedValue(new Error('down'))
+            mockGrpc.fetchGroupsByKeys.mockRejectedValue(new Error('down'))
 
             const fallbackGlobals = createHogExecutionGlobals({
                 groups: undefined,

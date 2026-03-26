@@ -9,7 +9,7 @@ import { GroupRepository } from '../worker/ingestion/groups/repositories/group-r
 import { PersonHogClient } from './client'
 import { personhogErrorsTotal, personhogLatencySeconds, personhogRequestsTotal } from './metrics'
 
-export class DualReadGroupRepository implements GroupRepository {
+export class PersonHogGroupRepository implements GroupRepository {
     private grpcDecision: boolean | undefined = undefined
 
     constructor(
