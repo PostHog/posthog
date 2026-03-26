@@ -635,7 +635,13 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
 def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.dtype[Any]]):
     if isinstance(column_data, pa.ChunkedArray):
-        return column_data.combine_chunks().tolist()
+        try:
+            return column_data.combine_chunks().tolist()
+        except pa.ArrowInvalid as e:
+            if "consider casting input from `string` to `large_string`" in "".join(e.args):
+                return column_data.cast(pa.large_string()).combine_chunks().tolist()
+
+            raise
 
     return column_data.tolist()
 

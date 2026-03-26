@@ -13,6 +13,7 @@ from django.db.models.functions import Now
 from django.utils import timezone
 
 import pydantic
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
@@ -38,6 +39,8 @@ from products.experiments.backend.models.experiment import (
 )
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -376,6 +379,8 @@ class ExperimentService:
         }
         if params.get("ensure_experience_continuity") is not None:
             feature_flag_data["ensure_experience_continuity"] = params["ensure_experience_continuity"]
+        else:
+            feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
 
@@ -607,7 +612,7 @@ class ExperimentService:
         """Archive an ended experiment: validate it has ended, set archived=True."""
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
-        if not experiment.end_date:
+        if not experiment.is_stopped:
             raise ValidationError("Experiment must be ended before it can be archived.")
 
         experiment.archived = True
@@ -629,6 +634,229 @@ class ExperimentService:
         report_user_action(
             self.user,
             "experiment archived",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Pause / Resume
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def pause_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Pause a running experiment: deactivate its feature flag so it is no longer served by /decide."""
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+
+        feature_flag = experiment.feature_flag
+        if feature_flag is None:
+            raise ValidationError("Experiment does not have a feature flag linked.")
+        if not feature_flag.active:
+            raise ValidationError("Experiment is already paused.")
+
+        feature_flag.active = False
+        feature_flag.save(update_fields=["active"])
+
+        # Re-fetch so the serializer sees the updated flag
+        experiment.feature_flag = feature_flag
+
+        self._report_experiment_paused(experiment, request=request)
+
+        return experiment
+
+    @transaction.atomic
+    def resume_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Resume a paused experiment: reactivate its feature flag so /decide serves variants again."""
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+
+        feature_flag = experiment.feature_flag
+        if feature_flag is None:
+            raise ValidationError("Experiment does not have a feature flag linked.")
+        if feature_flag.active:
+            raise ValidationError("Experiment is not paused.")
+
+        feature_flag.active = True
+        feature_flag.save(update_fields=["active"])
+
+        # Re-fetch so the serializer sees the updated flag
+        experiment.feature_flag = feature_flag
+
+        self._report_experiment_resumed(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_paused(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment paused",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    def _report_experiment_resumed(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment resumed",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # End
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def end_experiment(
+        self,
+        experiment: Experiment,
+        *,
+        conclusion: str | None = None,
+        conclusion_comment: str | None = None,
+        request: Any | None = None,
+    ) -> Experiment:
+        """End a running experiment: set end_date and mark as stopped.
+
+        Freezes the results window — experiment results will only include data
+        up to end_date. Does NOT modify the feature flag; users continue to see
+        their assigned variants.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+
+        experiment.end_date = timezone.now()
+        experiment.conclusion = conclusion
+        experiment.conclusion_comment = conclusion_comment
+        experiment.save()
+
+        self._report_experiment_ended(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_ended(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        completed_metadata = experiment.get_analytics_metadata()
+        completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
+        completed_metadata["parameters"] = experiment.parameters
+        completed_metadata["saved_metrics_count"] = experiment.saved_metrics.count()
+        completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
+        if experiment.start_date and experiment.end_date:
+            completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
+
+        # Look up whether the primary metric reached significance from the
+        # latest cached result in Postgres (ExperimentMetricResult). This is
+        # safe to call here because it's a simple indexed lookup — it reads
+        # previously cached results, never triggers a ClickHouse query or
+        # result computation. Returns None immediately if no results exist yet.
+        try:
+            first_metric = experiment.metrics[0] if experiment.metrics else None
+            if first_metric and first_metric.get("uuid"):
+                metric_result = (
+                    ExperimentMetricResult.objects.filter(
+                        experiment=experiment,
+                        metric_uuid=first_metric["uuid"],
+                        status=ExperimentMetricResult.Status.COMPLETED,
+                    )
+                    .order_by("-completed_at")
+                    .first()
+                )
+                if metric_result and metric_result.result:
+                    completed_metadata["significant"] = metric_result.result.get("significant", False)
+        except Exception:
+            logger.exception(
+                "Failed to look up metric significance",
+                experiment_id=experiment.id,
+            )
+
+        # Outcome event with enriched data (duration, end_date) for analyzing experiment quality and duration patterns.
+        report_user_action(
+            self.user,
+            "experiment completed",
+            completed_metadata,
+            team=experiment.team,
+            request=request,
+        )
+
+        # Lifecycle event with standard experiment metadata, consistent with paused/resumed/reset tracking.
+        report_user_action(
+            self.user,
+            "experiment stopped",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def reset_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Reset an experiment back to draft state so it can be re-run.
+
+        The feature flag stays unchanged — users continue to see their assigned
+        variants. Only the experiment dates, conclusion, and archived flag are
+        cleared, moving the experiment back to draft state.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment is already in draft state.")
+
+        experiment.start_date = None
+        experiment.end_date = None
+        experiment.archived = False
+        experiment.conclusion = None
+        experiment.conclusion_comment = None
+
+        experiment.save()
+
+        self._report_experiment_reset(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_reset(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment reset",
             experiment.get_analytics_metadata(),
             team=experiment.team,
             request=request,
@@ -1074,16 +1302,16 @@ class ExperimentService:
                 queryset = queryset.order_by(f"{'-' if order_value.startswith('-') else ''}computed_duration")
             elif order_value in ["status", "-status"]:
                 queryset = queryset.annotate(
-                    computed_status=Case(
+                    status_sort_key=Case(
                         When(start_date__isnull=True, then=Value(0)),
                         When(end_date__isnull=True, then=Value(1)),
                         default=Value(2),
                     )
                 )
                 if order_value.startswith("-"):
-                    queryset = queryset.order_by(F("computed_status").desc())
+                    queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
-                    queryset = queryset.order_by(F("computed_status").asc())
+                    queryset = queryset.order_by(F("status_sort_key").asc())
             else:
                 queryset = queryset.order_by(order_value)
         else:
@@ -1106,7 +1334,7 @@ class ExperimentService:
         created_by_id: str | int | None = None,
         order: str | None = None,
         evaluation_runtime: str | None = None,
-        has_evaluation_tags: str | bool | None = None,
+        has_evaluation_contexts: str | bool | None = None,
     ) -> dict[str, Any]:
         """Get feature flags eligible for use in experiments."""
         queryset = self._get_eligible_feature_flags_queryset(
@@ -1116,7 +1344,7 @@ class ExperimentService:
             created_by_id=created_by_id,
             order=order,
             evaluation_runtime=evaluation_runtime,
-            has_evaluation_tags=has_evaluation_tags,
+            has_evaluation_contexts=has_evaluation_contexts,
         )
 
         return {
@@ -1133,7 +1361,7 @@ class ExperimentService:
         created_by_id: str | int | None,
         order: str | None,
         evaluation_runtime: str | None,
-        has_evaluation_tags: str | bool | None,
+        has_evaluation_contexts: str | bool | None,
     ) -> QuerySet[FeatureFlag]:
         queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
 
@@ -1163,17 +1391,17 @@ class ExperimentService:
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
 
-        if has_evaluation_tags is not None:
+        if has_evaluation_contexts is not None:
             filter_value = (
-                has_evaluation_tags
-                if isinstance(has_evaluation_tags, bool)
-                else str(has_evaluation_tags).lower() in ("true", "1", "yes")
+                has_evaluation_contexts
+                if isinstance(has_evaluation_contexts, bool)
+                else str(has_evaluation_contexts).lower() in ("true", "1", "yes")
             )
-            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
+            queryset = queryset.annotate(eval_context_count=Count("flag_evaluation_contexts"))
             if filter_value:
-                queryset = queryset.filter(eval_tag_count__gt=0)
+                queryset = queryset.filter(eval_context_count__gt=0)
             else:
-                queryset = queryset.filter(eval_tag_count=0)
+                queryset = queryset.filter(eval_context_count=0)
 
         queryset = queryset.order_by(order or "-created_at")
 
@@ -1308,7 +1536,7 @@ class ExperimentService:
         fingerprint: str,
     ) -> dict:
         """Create an idempotent recalculation request for experiment timeseries data."""
-        if not experiment.start_date:
+        if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(

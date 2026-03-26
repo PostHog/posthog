@@ -25,7 +25,7 @@ export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
 # Limit Rust parallel compilation jobs to reduce CPU contention when multiple
-# services start simultaneously via mprocs (they share a build lock anyway)
+# services start simultaneously via phrocs (they share a build lock anyway)
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
@@ -92,35 +92,34 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 # Geo files
 ./bin/download-mmdb
 
-PROCESS_MANAGER="mprocs"
+PROCESS_MANAGER="phrocs"
 
-# Only use phrocs when --phrocs is explicitly passed
-if [[ " $* " == *" --phrocs "* ]]; then
-    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/phrocs"
-
-    # Build phrocs on first run if binary doesn't exist
-    if [[ ! -x "$PROCESS_MANAGER" ]]; then
-        echo "🔨 Building phrocs from source (first run)..."
-        if ! hogli phrocs:build 2>&1; then
-            echo "⚠️ phrocs build failed; falling back to mprocs"
-            PROCESS_MANAGER="mprocs"
-        else
-            echo "✅ phrocs built successfully"
-        fi
-    fi
-fi
-
-if [[ "$PROCESS_MANAGER" == "mprocs" ]]; then
+# Only use mprocs when --mprocs is explicitly passed
+if [[ " $* " == *" --mprocs "* ]]; then
     # Ensure mprocs is available
     if ! command -v mprocs &>/dev/null; then
         if command -v brew &>/dev/null; then
             echo "🔁 Installing mprocs via Homebrew..."
             brew install mprocs
         else
-            echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+            echo "👉 To use --mprocs, install mprocs: https://github.com/pvolok/mprocs#installation"
             exit 1
         fi
     fi
+    PROCESS_MANAGER="mprocs"
+fi
+
+if [[ "$PROCESS_MANAGER" == "phrocs" ]]; then
+    if ! command -v phrocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing phrocs via Homebrew..."
+            brew tap posthog/tap && brew install phrocs
+        else
+            echo "👉 To run bin/start, install phrocs: brew tap posthog/tap && brew install phrocs"
+            exit 1
+        fi
+    fi
+    PROCESS_MANAGER="phrocs"
 fi
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)

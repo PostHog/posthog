@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
@@ -428,6 +429,48 @@ export const experimentsDuplicateCreate = async (
 }
 
 /**
+ * End a running experiment without shipping a variant.
+
+Sets end_date to now and marks the experiment as stopped. The feature
+flag is NOT modified — users continue to see their assigned variants
+and exposure events ($feature_flag_called) continue to be recorded.
+However, only data up to end_date is included in experiment results.
+
+Use this when:
+
+- You want to freeze the results window without changing which variant
+  users see.
+- A variant was already shipped manually via the feature flag UI and
+  the experiment just needs to be marked complete.
+
+The end_date can be adjusted after ending via PATCH if it needs to be
+backdated (e.g. to match when the flag was actually paused).
+
+Other options:
+- Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+- Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+
+Returns 400 if the experiment is not running.
+ */
+export const getExperimentsEndCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/end/`
+}
+
+export const experimentsEndCreate = async (
+    projectId: string,
+    id: number,
+    endExperimentApi: EndExperimentApi,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsEndCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(endExperimentApi),
+    })
+}
+
+/**
  * Launch a draft experiment.
 
 Validates the experiment is in draft state, activates its linked feature flag,
@@ -450,6 +493,30 @@ export const experimentsLaunchCreate = async (
     })
 }
 
+/**
+ * Pause a running experiment.
+
+Deactivates the linked feature flag so it is no longer returned by the
+/decide endpoint. Users fall back to the application default (typically
+the control experience), and no new exposure events are recorded (i.e.
+$feature_flag_called is not fired).
+Returns 400 if the experiment is not running or is already paused.
+ */
+export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/pause/`
+}
+
+export const experimentsPauseCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsPauseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
@@ -465,6 +532,55 @@ export const experimentsRecalculateTimeseriesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentApi),
+    })
+}
+
+/**
+ * Reset an experiment back to draft state.
+
+Clears start/end dates, conclusion, and archived flag. The feature
+flag is left unchanged — users continue to see their assigned variants.
+
+Previously collected events still exist but won't be included in
+results unless the start date is manually adjusted after re-launch.
+
+Returns 400 if the experiment is already in draft state.
+ */
+export const getExperimentsResetCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/reset/`
+}
+
+export const experimentsResetCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * Resume a paused experiment.
+
+Reactivates the linked feature flag so it is returned by /decide again.
+Users are re-bucketed deterministically into the same variants they had
+before the pause, and exposure tracking resumes.
+Returns 400 if the experiment is not running or is not paused.
+ */
+export const getExperimentsResumeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/resume/`
+}
+
+export const experimentsResumeCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -498,7 +614,7 @@ Query parameters:
 - created_by_id: Filter by creator user ID
 - order: Sort order field
 - evaluation_runtime: Filter by evaluation runtime
-- has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
+- has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
  */
 export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/eligible_feature_flags/`

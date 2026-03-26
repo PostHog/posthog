@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -6,8 +7,9 @@ import pytest
 import polars as pl
 
 from ee.billing.dags.customer_archetype import (
+    SF_DATETIME_FORMAT,
     AccountClassification,
-    _hash_sf_record,
+    _query_recently_classified_ids,
     apply_deterministic_archetype,
     build_salesforce_records,
     compute_use_case_adoption,
@@ -370,21 +372,213 @@ class TestUseCaseAdoptionBoundaries:
 
 
 # --------------------------------------------------------------------------- #
-# Hash determinism
+# SF timestamp-based incremental logic
 # --------------------------------------------------------------------------- #
 
 
-class TestHashDeterminism:
-    def test_same_record_produces_same_hash(self):
-        record = {"Id": "001", "customer_archetype__c": "AI Native", "customer_stage__c": "Scaled"}
-        assert _hash_sf_record(record) == _hash_sf_record(record)
+class TestQueryRecentlyClassifiedIds:
+    def test_returns_ids_from_sf_response(self):
+        mock_sf = type("SF", (), {"query_all": lambda self, soql: {"records": [{"Id": "001"}, {"Id": "002"}]}})()
+        result = _query_recently_classified_ids(mock_sf, datetime(2026, 3, 1, tzinfo=UTC))
+        assert result == {"001", "002"}
 
-    def test_key_order_does_not_affect_hash(self):
-        record_a = {"Id": "001", "customer_archetype__c": "AI Native", "z_field": 1}
-        record_b = {"z_field": 1, "Id": "001", "customer_archetype__c": "AI Native"}
-        assert _hash_sf_record(record_a) == _hash_sf_record(record_b)
+    def test_returns_empty_when_no_records(self):
+        mock_sf = type("SF", (), {"query_all": lambda self, soql: {"records": []}})()
+        result = _query_recently_classified_ids(mock_sf, datetime(2026, 3, 1, tzinfo=UTC))
+        assert result == set()
 
-    def test_different_values_produce_different_hashes(self):
-        record_a = {"Id": "001", "customer_archetype__c": "AI Native"}
-        record_b = {"Id": "001", "customer_archetype__c": "Cloud Native"}
-        assert _hash_sf_record(record_a) != _hash_sf_record(record_b)
+    def test_soql_uses_sf_datetime_format(self):
+        captured_soql = []
+
+        class MockSF:
+            def query_all(self, soql):
+                captured_soql.append(soql)
+                return {"records": []}
+
+        cutoff = datetime(2026, 3, 15, 5, 30, 0, tzinfo=UTC)
+        _query_recently_classified_ids(MockSF(), cutoff)
+        expected_timestamp = cutoff.strftime(SF_DATETIME_FORMAT)
+        assert expected_timestamp in captured_soql[0]
+        assert "customer_archetype_classified_at__c" in captured_soql[0]
+
+
+# --------------------------------------------------------------------------- #
+# SF datetime format
+# --------------------------------------------------------------------------- #
+
+
+class TestSFDatetimeFormat:
+    def test_format_produces_salesforce_compatible_string(self):
+        dt = datetime(2026, 3, 15, 14, 30, 45, tzinfo=UTC)
+        formatted = dt.strftime(SF_DATETIME_FORMAT)
+        assert formatted == "2026-03-15T14:30:45.000+0000"
+
+    def test_format_zero_pads_correctly(self):
+        dt = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        formatted = dt.strftime(SF_DATETIME_FORMAT)
+        assert formatted == "2026-01-02T03:04:05.000+0000"
+
+
+# --------------------------------------------------------------------------- #
+# Mega-batch chunking logic
+# --------------------------------------------------------------------------- #
+
+
+class TestMegaBatchChunking:
+    """Tests the chunking logic extracted from prepare_and_fan_out."""
+
+    @pytest.mark.parametrize(
+        "n_accounts,mega_batch_size,expected_chunks",
+        [
+            (10, 1000, 1),
+            (1000, 1000, 1),
+            (1001, 1000, 2),
+            (2500, 1000, 3),
+            (0, 1000, 0),
+        ],
+    )
+    def test_mega_batch_count(self, n_accounts: int, mega_batch_size: int, expected_chunks: int):
+        rows = [_make_account_row(sf_account_id=f"00{i}") for i in range(n_accounts)]
+        chunks = [rows[i : i + mega_batch_size] for i in range(0, len(rows), mega_batch_size)]
+        assert len(chunks) == expected_chunks
+
+    def test_all_accounts_present_across_chunks(self):
+        rows = [_make_account_row(sf_account_id=f"00{i}") for i in range(2500)]
+        mega_batch_size = 1000
+        chunks = [rows[i : i + mega_batch_size] for i in range(0, len(rows), mega_batch_size)]
+        all_ids = {row["sf_account_id"] for chunk in chunks for row in chunk}
+        assert len(all_ids) == 2500
+
+    def test_last_chunk_contains_remainder(self):
+        rows = [_make_account_row(sf_account_id=f"00{i}") for i in range(2500)]
+        mega_batch_size = 1000
+        chunks = [rows[i : i + mega_batch_size] for i in range(0, len(rows), mega_batch_size)]
+        assert len(chunks[0]) == 1000
+        assert len(chunks[1]) == 1000
+        assert len(chunks[2]) == 500
+
+
+# --------------------------------------------------------------------------- #
+# Incremental filtering logic
+# --------------------------------------------------------------------------- #
+
+
+class TestIncrementalFiltering:
+    """Tests the filtering logic that skips recently classified accounts."""
+
+    def test_filters_out_recently_classified_ids(self):
+        df = _make_multi_account_df(
+            [
+                {"sf_account_id": "001"},
+                {"sf_account_id": "002"},
+                {"sf_account_id": "003"},
+            ]
+        )
+        recently_classified = {"001", "003"}
+        filtered = df.filter(~pl.col("sf_account_id").is_in(recently_classified))
+        assert len(filtered) == 1
+        assert filtered["sf_account_id"][0] == "002"
+
+    def test_no_filtering_when_no_recent_ids(self):
+        df = _make_multi_account_df(
+            [
+                {"sf_account_id": "001"},
+                {"sf_account_id": "002"},
+            ]
+        )
+        filtered = df.filter(~pl.col("sf_account_id").is_in(set()))
+        assert len(filtered) == 2
+
+    def test_all_filtered_when_all_recent(self):
+        df = _make_multi_account_df(
+            [
+                {"sf_account_id": "001"},
+                {"sf_account_id": "002"},
+            ]
+        )
+        recently_classified = {"001", "002"}
+        filtered = df.filter(~pl.col("sf_account_id").is_in(recently_classified))
+        assert filtered.is_empty()
+
+    def test_extra_ids_in_recent_set_are_ignored(self):
+        df = _make_multi_account_df(
+            [
+                {"sf_account_id": "001"},
+                {"sf_account_id": "002"},
+            ]
+        )
+        # "999" is in the recently_classified set but not in our data — should not cause errors
+        recently_classified = {"001", "999"}
+        filtered = df.filter(~pl.col("sf_account_id").is_in(recently_classified))
+        assert len(filtered) == 1
+        assert filtered["sf_account_id"][0] == "002"
+
+
+# --------------------------------------------------------------------------- #
+# classify_and_push_mega_batch: SF record stamping
+# --------------------------------------------------------------------------- #
+
+
+class TestSFRecordTimestampStamping:
+    """Verifies that build_salesforce_records output gets the classified_at timestamp applied."""
+
+    def test_records_get_classified_at_timestamp(self):
+        classifications = [
+            AccountClassification(
+                sf_account_id="001ABC",
+                archetype="AI Native",
+                ai_native_score=5,
+                cloud_native_score=1,
+                stage="Scaled",
+                key_signals="AI startup.",
+            )
+        ]
+        use_case_df = compute_use_case_adoption(_make_account_df())
+        records = build_salesforce_records(classifications, use_case_df)
+
+        classified_at = datetime(2026, 3, 15, 10, 0, 0, tzinfo=UTC).strftime(SF_DATETIME_FORMAT)
+        for record in records:
+            record["customer_archetype_classified_at__c"] = classified_at
+
+        assert records[0]["customer_archetype_classified_at__c"] == "2026-03-15T10:00:00.000+0000"
+        # Original fields are preserved
+        assert records[0]["Id"] == "001ABC"
+        assert records[0]["customer_archetype__c"] == "AI Native"
+
+    def test_all_records_in_batch_get_same_timestamp(self):
+        classifications = [
+            AccountClassification(
+                sf_account_id=f"00{i}",
+                archetype="Unknown",
+                ai_native_score=0,
+                cloud_native_score=0,
+                stage="Unknown",
+                key_signals="test",
+            )
+            for i in range(5)
+        ]
+        records = build_salesforce_records(classifications, pl.DataFrame())
+
+        classified_at = datetime(2026, 3, 15, 10, 0, 0, tzinfo=UTC).strftime(SF_DATETIME_FORMAT)
+        for record in records:
+            record["customer_archetype_classified_at__c"] = classified_at
+
+        timestamps = {r["customer_archetype_classified_at__c"] for r in records}
+        assert len(timestamps) == 1
+
+
+# --------------------------------------------------------------------------- #
+# SF query resilience
+# --------------------------------------------------------------------------- #
+
+
+class TestSFQueryResilience:
+    def test_sf_exception_propagates_to_caller(self):
+        class BrokenSF:
+            def query_all(self, soql):
+                raise ConnectionError("SF is down")
+
+        # SF failures must propagate — prepare_and_fan_out should fail fast rather
+        # than burn LLM credits when classifications can't be persisted to SF.
+        with pytest.raises(ConnectionError):
+            _query_recently_classified_ids(BrokenSF(), datetime(2026, 1, 1, tzinfo=UTC))

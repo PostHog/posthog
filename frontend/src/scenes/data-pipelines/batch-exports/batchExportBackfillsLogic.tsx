@@ -1,3 +1,4 @@
+// Loads and manages batch export backfills — listing, cancellation, and polling for estimates.
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -10,7 +11,7 @@ import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
@@ -21,15 +22,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillsLogic', key]),
     connect((props: BatchExportBackfillsLogicProps) => ({
-        values: [
-            teamLogic(),
-            ['currentTeamId'],
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig'],
-        ],
+        values: [teamLogic(), ['currentTeamId'], batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
         actions: [
             batchExportBackfillModalLogic(props),
             ['submitBackfillFormSuccess', 'openBackfillModal', 'backfillCreated'],

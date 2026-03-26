@@ -24,7 +24,7 @@ tools:
             configuration, timing information, and firing check history. Supports filtering by insight ID via query
             parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase,
             relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
-        mcp_version: 1
+
     alert-get:
         operation: alerts_retrieve
         enabled: true
@@ -43,7 +43,7 @@ tools:
             to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500).
             When date filters are provided without checks_limit, up to 500 checks are returned.
             Check history is retained for 14 days.
-        mcp_version: 1
+
     alert-create:
         operation: alerts_create
         enabled: true

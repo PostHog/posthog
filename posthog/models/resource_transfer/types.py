@@ -16,6 +16,8 @@ ResourceKind = Literal[
     "ExperimentToSavedMetric",
     "FeatureFlag",
     "Insight",
+    "Survey",
+    "Survey_actions",
     "Text",
     "Team",
     "Project",

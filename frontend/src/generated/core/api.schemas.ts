@@ -905,6 +905,8 @@ export interface DashboardTemplateApi {
     scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
 }
 
 export interface PaginatedDashboardTemplateListApi {
@@ -949,6 +951,8 @@ export interface PatchedDashboardTemplateApi {
     scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
 }
 
 /**
@@ -1189,6 +1193,11 @@ export interface PatchedIntegrationApi {
 export interface GitHubBranchesResponseApi {
     /** List of branch names */
     branches: string[]
+    /**
+     * The default branch of the repository
+     * @nullable
+     */
+    default_branch?: string | null
 }
 
 export interface GitHubRepoApi {

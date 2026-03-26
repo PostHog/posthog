@@ -11,6 +11,7 @@ from posthog.models.resource_transfer.visitors.experiment_to_saved_metric import
 from posthog.models.resource_transfer.visitors.feature_flag import FeatureFlagVisitor
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.resource_transfer.visitors.project import ProjectVisitor
+from posthog.models.resource_transfer.visitors.survey import SurveyActionsThroughVisitor, SurveyVisitor
 from posthog.models.resource_transfer.visitors.team import TeamVisitor
 from posthog.models.resource_transfer.visitors.text import TextVisitor
 from posthog.models.resource_transfer.visitors.user import UserVisitor
@@ -28,6 +29,8 @@ __all__ = [
     "ExperimentVisitor",
     "FeatureFlagVisitor",
     "InsightVisitor",
+    "SurveyVisitor",
+    "SurveyActionsThroughVisitor",
     "ProjectVisitor",
     "TeamVisitor",
     "TextVisitor",

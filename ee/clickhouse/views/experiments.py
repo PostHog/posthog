@@ -241,6 +241,21 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return service.update_experiment(instance, validated_data, serializer_context=self.context)
 
 
+class EndExperimentSerializer(serializers.Serializer):
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="The conclusion of the experiment.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional comment about the experiment conclusion.",
+    )
+
+
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
@@ -322,6 +337,109 @@ class EnterpriseExperimentsViewSet(
         archived_experiment = service.archive_experiment(experiment, request=request)
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        request=EndExperimentSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        End a running experiment without shipping a variant.
+
+        Sets end_date to now and marks the experiment as stopped. The feature
+        flag is NOT modified — users continue to see their assigned variants
+        and exposure events ($feature_flag_called) continue to be recorded.
+        However, only data up to end_date is included in experiment results.
+
+        Use this when:
+
+        - You want to freeze the results window without changing which variant
+          users see.
+        - A variant was already shipped manually via the feature flag UI and
+          the experiment just needs to be marked complete.
+
+        The end_date can be adjusted after ending via PATCH if it needs to be
+        backdated (e.g. to match when the flag was actually paused).
+
+        Other options:
+        - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+        - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+
+        Returns 400 if the experiment is not running.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = EndExperimentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        ended_experiment = service.end_experiment(
+            experiment,
+            conclusion=request_serializer.validated_data.get("conclusion"),
+            conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            request=request,
+        )
+        return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Pause a running experiment.
+
+        Deactivates the linked feature flag so it is no longer returned by the
+        /decide endpoint. Users fall back to the application default (typically
+        the control experience), and no new exposure events are recorded (i.e.
+        $feature_flag_called is not fired).
+        Returns 400 if the experiment is not running or is already paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        paused_experiment = service.pause_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(paused_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Resume a paused experiment.
+
+        Reactivates the linked feature flag so it is returned by /decide again.
+        Users are re-bucketed deterministically into the same variants they had
+        before the pause, and exposure tracking resumes.
+        Returns 400 if the experiment is not running or is not paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        resumed_experiment = service.resume_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def reset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reset an experiment back to draft state.
+
+        Clears start/end dates, conclusion, and archived flag. The feature
+        flag is left unchanged — users continue to see their assigned variants.
+
+        Previously collected events still exist but won't be included in
+        results unless the start date is manually adjusted after re-launch.
+
+        Returns 400 if the experiment is already in draft state.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        reset_experiment = service.reset_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(reset_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
@@ -383,7 +501,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
-        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
+        - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -408,7 +526,7 @@ class EnterpriseExperimentsViewSet(
             created_by_id=request.query_params.get("created_by_id"),
             order=request.query_params.get("order"),
             evaluation_runtime=request.query_params.get("evaluation_runtime"),
-            has_evaluation_tags=request.query_params.get("has_evaluation_tags"),
+            has_evaluation_contexts=request.query_params.get("has_evaluation_contexts"),
         )
 
         # Serialize using the standard FeatureFlagSerializer
