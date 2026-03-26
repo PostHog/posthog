@@ -48,6 +48,9 @@ func ResolveConfigPath(explicit string) (string, error) {
 	if err == nil && info.Mode().IsRegular() {
 		return "mprocs.yaml", nil
 	}
+	if err == nil {
+		return "", fmt.Errorf("mprocs.yaml exists but is not a regular file")
+	}
 	if os.IsNotExist(err) {
 		return "", fmt.Errorf("no config: pass --config or place an mprocs.yaml in the current directory")
 	}

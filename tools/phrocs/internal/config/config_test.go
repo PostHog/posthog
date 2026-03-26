@@ -263,5 +263,8 @@ func TestResolveConfigPath(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when mprocs.yaml is a directory, got nil")
 		}
+		if !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("error %q should mention 'not a regular file'", err)
+		}
 	})
 }
