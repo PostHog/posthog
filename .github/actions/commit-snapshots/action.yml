@@ -54,10 +54,13 @@ runs:
                   echo "::group::Applying snapshot patches"
                   echo "Applying patches from $PATCH_PATH..."
                   for patch in $PATCHES; do
-                    echo "Applying $patch"
-                    git apply --index "$patch"
+                    if git apply --check "$patch" 2>/dev/null; then
+                      echo "Applying $patch"
+                      git apply --index "$patch"
+                    else
+                      echo "Skipping $patch (already applied)"
+                    fi
                   done
-                  echo "Applied all patches successfully"
                   echo "::endgroup::"
                 else
                   echo "No patch files found in $PATCH_PATH"

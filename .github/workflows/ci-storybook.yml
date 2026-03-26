@@ -637,8 +637,16 @@ jobs:
                     echo "Snapshot changes detected in patches"
                   fi
 
-            # Visual Review: submit snapshots and auto-approve baseline
-            # Runs before commit-snapshots so the baseline update lands in the same commit
+            # Apply patches BEFORE VR so it hashes the final state
+            - name: Apply snapshot patches
+              if: steps.check-snapshots.outputs.has-changes == 'true'
+              run: |
+                  for patch in $(find /tmp/snapshot-patches -name "*.patch" -type f | sort); do
+                    echo "Applying $patch"
+                    git apply "$patch"
+                  done
+
+            # Visual Review: submit snapshots after patches are applied
             - name: Install VR CLI deps
               run: cd products/visual_review/cli && npm ci
 
@@ -673,6 +681,7 @@ jobs:
                   fi
 
             # UPDATE mode: commit PNGs + baseline together
+            # Patches already applied above — commit-snapshots will re-apply (idempotent)
             - name: Commit snapshot changes
               if: (steps.check-snapshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
