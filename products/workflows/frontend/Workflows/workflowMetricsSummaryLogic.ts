@@ -62,13 +62,6 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
         color: '#00F',
         metricNames: ['email_sent'],
     },
-    delivered: {
-        name: 'Delivered',
-        description:
-            "Total number of emails that were successfully delivered to the recipient's inbox. This is confirmed by the recipient's mail server accepting the email.",
-        color: getColorVar('success'),
-        metricNames: ['email_delivered'],
-    },
     completed: {
         name: 'Completed',
         description:

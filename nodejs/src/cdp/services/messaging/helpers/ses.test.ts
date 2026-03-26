@@ -12,7 +12,18 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456', teamId: 1 })] },
+        tags: {
+            ph_id: [
+                generateEmailTrackingCode({
+                    functionId: 'abc123',
+                    id: 'inv456',
+                    teamId: 1,
+                    state: {
+                        actionId: 'act789',
+                    },
+                }),
+            ],
+        },
     }
 
     it('parses a raw Open event', async () => {
@@ -34,6 +45,7 @@ describe('SesWebhookHandler', () => {
             {
                 functionId: 'abc123',
                 invocationId: 'inv456',
+                actionId: 'act789',
                 metricName: 'email_opened',
             },
         ])
@@ -78,7 +90,7 @@ describe('SesWebhookHandler', () => {
             {
                 functionId: 'abc123',
                 invocationId: 'inv456',
-                actionId: undefined,
+                actionId: 'act789',
                 metricName: 'email_delivered',
             },
         ])
