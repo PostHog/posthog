@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 import functools
 from urllib.parse import urlparse, urlunparse
 
@@ -157,14 +158,14 @@ def stripe_region_proxy(strategy: str):
                     response = _proxy_to_region(request, target)
                     posthoganalytics.capture(
                         "agentic_provisioning region_proxy",
-                        distinct_id="agentic_provisioning_system",
+                        distinct_id=f"agentic_provisioning_{uuid.uuid4().hex[:16]}",
                         properties={"outcome": "proxied", **proxy_props},
                     )
                     return response
                 except requests.exceptions.RequestException:
                     posthoganalytics.capture(
                         "agentic_provisioning region_proxy",
-                        distinct_id="agentic_provisioning_system",
+                        distinct_id=f"agentic_provisioning_{uuid.uuid4().hex[:16]}",
                         properties={"outcome": "proxy_failed", **proxy_props},
                     )
                     if strategy == "body_region":

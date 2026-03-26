@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 import secrets
 from datetime import timedelta
 from typing import Any, cast
@@ -1012,9 +1013,11 @@ def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
 
 
 def _capture_provisioning_event(event_type: str, outcome: str, **extra: object) -> None:
+    team_id = extra.get("team_id")
+    distinct_id = f"agentic_provisioning_team_{team_id}" if team_id else f"agentic_provisioning_{uuid.uuid4().hex[:16]}"
     posthoganalytics.capture(
         f"agentic_provisioning {event_type}",
-        distinct_id="agentic_provisioning_system",
+        distinct_id=distinct_id,
         properties={"outcome": outcome, **extra},
     )
 
