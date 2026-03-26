@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1068_remove_deprecated_evaluation_tag_models"),
+        ("posthog", "1069_datadeletionrequest"),
     ]
 
     operations = [
