@@ -103,7 +103,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         setSymbolSetOrder: () => actions.loadSymbolSets(),
     })),
 
-    selectors(({ actions }) => ({
+    selectors({
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -120,26 +120,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                 },
             ],
         ],
-        symbolSets: [
-            (s) => [s.symbolSetResponse],
-            (response: ErrorTrackingSymbolSetResponse): ErrorTrackingSymbolSet[] => {
-                return response?.results || []
-            },
-        ],
-        pagination: [
-            (s) => [s.page, s.symbolSetResponse],
-            (page: number, symbolSetResponse: ErrorTrackingSymbolSetResponse) => {
-                return {
-                    controlled: true,
-                    pageSize: RESULTS_PER_PAGE,
-                    currentPage: page,
-                    entryCount: symbolSetResponse?.count ?? 0,
-                    onBackward: () => actions.setPage(page - 1),
-                    onForward: () => actions.setPage(page + 1),
-                }
-            },
-        ],
-    })),
+    }),
 
     afterMount(({ actions, cache }) => {
         cache.disposables.add(() => {

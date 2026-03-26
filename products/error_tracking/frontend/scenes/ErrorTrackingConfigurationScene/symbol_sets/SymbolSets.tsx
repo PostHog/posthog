@@ -20,7 +20,7 @@ import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
 
-import { SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
+import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
     {
@@ -107,10 +107,9 @@ export function SymbolSets(): JSX.Element {
 }
 
 const SymbolSetTable = (): JSX.Element => {
-    // @ts-expect-error: automagical typing does not work here for some obscure reason
     const {
-        pagination,
-        symbolSets,
+        page,
+        symbolSetResponse,
         symbolSetResponseLoading,
         symbolSetOrder,
         selectedSymbolSetIds,
@@ -118,8 +117,18 @@ const SymbolSetTable = (): JSX.Element => {
         shiftKeyHeld,
         previouslyCheckedIndex,
     } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, setPreviouslyCheckedIndex } =
+    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, setPreviouslyCheckedIndex, setPage } =
         useActions(symbolSetLogic)
+
+    const symbolSets = symbolSetResponse?.results || []
+    const pagination = {
+        controlled: true,
+        pageSize: RESULTS_PER_PAGE,
+        currentPage: page,
+        entryCount: symbolSetResponse?.count ?? 0,
+        onBackward: () => setPage(page - 1),
+        onForward: () => setPage(page + 1),
+    }
 
     const someSelected = selectedSymbolSetIds.length > 0 && selectedSymbolSetIds.length < symbolSets.length
     const allSelected = symbolSets.length > 0 && selectedSymbolSetIds.length === symbolSets.length
