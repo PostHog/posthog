@@ -26,7 +26,7 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
         <>
             <InsightPageHeader insightLogicProps={insightLogicProps} />
 
-            {hasOverrides && (
+            {hasOverrides && insightId && (
                 <LemonBanner type="warning" className="mb-4">
                     <div className="flex flex-row items-center justify-between gap-2">
                         <span>
