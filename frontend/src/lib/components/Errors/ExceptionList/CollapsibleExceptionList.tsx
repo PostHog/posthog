@@ -73,15 +73,19 @@ export function CollapsibleExceptionList({
                                     frames={frames}
                                     className="border-1 rounded overflow-hidden divide-y divide-solid"
                                     stackFrameRecords={stackFrameRecords}
-                                    renderFrame={(frame, record) => (
-                                        <CollapsibleFrame
-                                            frame={frame}
-                                            record={record}
-                                            recordLoading={stackFrameRecordsLoading}
-                                            expanded={expandedFrameRawIds.has(frame.raw_id)}
-                                            onExpandedChange={(open) => onFrameExpandedChange(frame.raw_id, open)}
-                                        />
-                                    )}
+                                    renderFrame={(frame, record) => {
+                                        const expansionKey = `${exception.id}:${frame.raw_id}`
+
+                                        return (
+                                            <CollapsibleFrame
+                                                frame={frame}
+                                                record={record}
+                                                recordLoading={stackFrameRecordsLoading}
+                                                expanded={expandedFrameRawIds.has(expansionKey)}
+                                                onExpandedChange={(open) => onFrameExpandedChange(expansionKey, open)}
+                                            />
+                                        )
+                                    }}
                                 />
                             )}
                             renderUndefinedTrace={(exception, known) => (
