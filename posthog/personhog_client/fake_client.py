@@ -164,6 +164,16 @@ class FakePersonHogClient:
     def close(self) -> None:
         pass
 
+    def get_calls_by_method(self, method: str, cache: dict[str, list[_Call]] | None = None) -> list[_Call]:
+        if cache is None:
+            cache = {}
+
+        try:
+            return cache[method]
+        except KeyError:
+            cache[method] = [call for call in self.calls if call.method == method]
+            return cache[method]
+
     def get_person(self, request: person_pb2.GetPersonRequest) -> person_pb2.GetPersonResponse:
         self.calls.append(_Call("get_person", request))
         person = self._persons_by_id.get((request.team_id, request.person_id))
