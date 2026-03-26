@@ -1,5 +1,4 @@
-import hashlib
-from typing import Literal, Optional
+from typing import Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
@@ -10,11 +9,9 @@ from django_deprecate_fields import deprecate_field
 from prometheus_client import Counter
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.utils import EncryptionModeType, generate_random_token, hash_key_value
 
-from .utils import generate_random_token
-
-ModeType = Literal["sha256", "pbkdf2"]
-PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
+PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[EncryptionModeType, Optional[int]], ...] = (
     ("sha256", None),  # Moved to simple hashing in 2024-02
     ("pbkdf2", 260000),  # This is the iteration count used by PostHog since the beginning of time.
     ("pbkdf2", 390000),  # This is the iteration count used briefly on some API keys.
@@ -22,30 +19,12 @@ PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
 
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 LEGACY_HASH_PREFIX = f"{PBKDF2PasswordHasher.algorithm}$"
-SHA256_HASH_PREFIX = "sha256$"
 
 PERSONAL_API_KEY_AUTH_COUNTER = Counter(
     "personal_api_key_hash_mode_total",
     "Successful personal API key authentications by hash mode",
     labelnames=["hash_mode"],
 )
-
-
-def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[int] = None) -> str:
-    if mode == "pbkdf2":
-        if not iterations:
-            raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")
-
-        hasher = PBKDF2PasswordHasher()
-        return hasher.encode(value, LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations)
-
-    if iterations:
-        raise ValueError("Iterations must not be provided when using simple hashing mode")
-
-    # Inspiration on why no salt:
-    # https://github.com/jazzband/django-rest-knox/issues/188
-    value = hashlib.sha256(value.encode()).hexdigest()
-    return f"{SHA256_HASH_PREFIX}{value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
 class PersonalAPIKey(ModelActivityMixin, models.Model):
@@ -80,7 +59,7 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
 
 def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
     for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-        secure_value = hash_key_value(token, mode=mode, iterations=iterations)
+        secure_value = hash_key_value(token, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations)
         try:
             obj = (
                 PersonalAPIKey.objects.select_related("user")

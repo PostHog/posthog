@@ -413,13 +413,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             { endpoint, type, newInput, propertyKey, eventNames, properties, forceRefresh },
             breakpoint
         ) => {
-            if (['cohort'].includes(type)) {
+            if (['cohort', 'log'].includes(type)) {
                 return
             }
             if (!propertyKey || values.currentTeamId === null) {
                 return
             }
-
             if (!forceRefresh && localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
                 return
