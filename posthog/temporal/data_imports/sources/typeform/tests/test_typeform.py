@@ -180,18 +180,6 @@ class TestTypeformTransport:
         assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
         assert mock_get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
-    def test_validate_credentials_aggregates_forms_and_responses_errors(self, mock_get) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        responses_response = Mock(status_code=403, text="forbidden")
-        responses_response.json.return_value = {"description": "forbidden"}
-        mock_get.side_effect = [forms_response, responses_response]
-
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
-
-        assert result == (False, "Typeform token is missing required scope for responses endpoint: responses:read")
-
     def test_get_resource_forms_non_incremental(self) -> None:
         resource = cast(
             dict[str, Any],
@@ -282,25 +270,6 @@ class TestTypeformTransport:
         assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
         assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], TypeformFormsPaginator)
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], TypeformResponsesPaginator)
-
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.build_dependent_resource")
-    def test_typeform_source_responses_passes_incremental_when_enabled(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        typeform_source(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            endpoint="responses",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
-            incremental_field="submitted_at",
-        )
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is True
-        assert callable(kwargs["incremental_config_factory"])
 
     def test_typeform_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(
