@@ -8,7 +8,7 @@ import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/utils'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { ActorsQueryResponse } from '~/queries/schema/schema-general'
 
 interface PersonDisplayNameNudgeBannerProps {
