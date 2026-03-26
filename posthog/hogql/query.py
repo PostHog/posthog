@@ -137,6 +137,20 @@ def quote_postgres_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+def direct_postgres_session_setup_sql(
+    schema: str,
+    connection_metadata: dict[str, object] | None = None,
+    host: str | None = None,
+) -> str:
+    quoted_schema = quote_postgres_identifier(schema)
+    engine = connection_metadata.get("engine") if isinstance(connection_metadata, dict) else None
+
+    if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
+        return f"USE {quoted_schema}"
+
+    return f"SET search_path TO {quoted_schema}"
+
+
 def parse_lenient_direct_postgres_date(value: str) -> date:
     trimmed = value.strip()
 
@@ -522,7 +536,13 @@ class HogQLQueryExecutor:
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:
-                        connection.execute(f"SET search_path TO {quote_postgres_identifier(source_config.schema)}")
+                        connection.execute(
+                            direct_postgres_session_setup_sql(
+                                source_config.schema,
+                                source.connection_metadata,
+                                host,
+                            )
+                        )
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)

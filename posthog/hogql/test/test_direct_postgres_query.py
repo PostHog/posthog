@@ -14,6 +14,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import (
     HogQLQueryExecutor,
     LenientDirectPostgresDateLoader,
+    direct_postgres_session_setup_sql,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
@@ -52,6 +53,24 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     def test_parse_lenient_direct_postgres_date(self, _name: str, value: str, expected: date):
         self.assertEqual(parse_lenient_direct_postgres_date(value), expected)
+
+    def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
+        self.assertEqual(
+            direct_postgres_session_setup_sql("ph3"),
+            'SET search_path TO "ph3"',
+        )
+
+    def test_direct_postgres_session_setup_sql_uses_use_for_duckdb(self):
+        self.assertEqual(
+            direct_postgres_session_setup_sql("posthog", {"engine": "duckdb"}),
+            'USE "posthog"',
+        )
+
+    def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self):
+        self.assertEqual(
+            direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com"),
+            'USE "posthog"',
+        )
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
         source = ExternalDataSource.objects.create(
@@ -595,6 +614,7 @@ class TestDirectPostgresQuery(APIBaseTest):
                 "password": "postgres",
                 "schema": "ph3",
             },
+            connection_metadata={"engine": "duckdb"},
         )
 
         mocked_cursor = MagicMock()
@@ -616,6 +636,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         response = executor.execute()
 
         self.assertEqual(response.results, [(date(2026, 3, 26),)])
+        mocked_connection.execute.assert_called_once_with('USE "ph3"')
         mocked_connection.adapters.register_loader.assert_any_call("date", LenientDirectPostgresDateLoader)
 
     @patch("posthog.hogql.query.capture_exception")
