@@ -18,7 +18,7 @@ jobs:
         timeout-minutes: 5
 
         # Skip forks for security
-        if: github.event.pull_request.head.repo.fork == false
+        if: github.event.pull_request.head.repo.full_name == github.repository
 
         steps:
             - name: Resolve outdated bot threads
@@ -37,6 +37,7 @@ jobs:
                       repository(owner: $owner, name: $repo) {
                         pullRequest(number: $pr) {
                           reviewThreads(first: 100) {
+                            pageInfo { hasNextPage }
                             nodes {
                               id
                               isOutdated
@@ -52,6 +53,11 @@ jobs:
                         }
                       }
                     }' -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER")
+
+                  HAS_NEXT=$(echo "$THREADS" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+                  if [ "$HAS_NEXT" = "true" ]; then
+                    echo "WARNING: more than 100 review threads found; some outdated bot threads may not be resolved"
+                  fi
 
                   THREAD_IDS=$(echo "$THREADS" | jq -r --arg bots "$BOTS" '
                     .data.repository.pullRequest.reviewThreads.nodes[]
