@@ -101,7 +101,13 @@ impl Context {
         };
 
         let content_type_raw = header_str(headers, "content-type")?;
-        if content_type_raw != "application/json" {
+        let mime_type = content_type_raw
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if mime_type != "application/json" {
             return Err(Error::UnsupportedContentType(content_type_raw.to_string()));
         }
         let content_type = content_type_raw.to_string();
@@ -302,6 +308,25 @@ mod tests {
         headers.insert("content-type", HeaderValue::from_static("text/plain"));
         let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::UnsupportedContentType(_)));
+    }
+
+    #[test]
+    fn content_type_with_charset() {
+        let mut headers = valid_headers();
+        headers.insert(
+            "content-type",
+            HeaderValue::from_static("application/json; charset=utf-8"),
+        );
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.content_type, "application/json; charset=utf-8");
+    }
+
+    #[test]
+    fn content_type_case_insensitive() {
+        let mut headers = valid_headers();
+        headers.insert("content-type", HeaderValue::from_static("Application/JSON"));
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.content_type, "Application/JSON");
     }
 
     #[test]

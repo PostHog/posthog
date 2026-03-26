@@ -57,6 +57,12 @@ pub async fn handle_request(
         err
     })?;
 
+    if batch.batch.is_empty() {
+        let err = v1::Error::EmptyBatch;
+        log_stat_error!(err, ctx = &context);
+        return Err(err);
+    }
+
     if let Some(ref limiter) = state.global_rate_limiter_token {
         let cache_key = GlobalRateLimitKey::Token(&context.api_token).to_cache_key();
         if let Some(limited) = limiter
@@ -70,12 +76,6 @@ pub async fn handle_request(
             log_stat_error!(err, ctx = &context);
             return Err(err);
         }
-    }
-
-    if batch.batch.is_empty() {
-        let err = v1::Error::EmptyBatch;
-        log_stat_error!(err, ctx = &context);
-        return Err(err);
     }
 
     match super::process::process_batch(&state, &mut context, batch).await {
