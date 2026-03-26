@@ -8,7 +8,7 @@ from posthog.models import Action, Dashboard, Insight, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 
 from products.surveys.backend.models import Survey

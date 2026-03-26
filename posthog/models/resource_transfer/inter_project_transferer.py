@@ -280,7 +280,7 @@ def build_resource_duplication_graph(
 
     for edge in edges:
         try:
-            related_resource = edge.target_model.objects.get(pk=edge.target_primary_key, team_id=resource.team_id)
+            related_resource = edge.target_model.objects.get(pk=edge.target_primary_key)
 
             related_visitor = ResourceTransferVisitor.get_visitor(related_resource)
 
@@ -572,7 +572,7 @@ def _get_mapped_substitutions(
         dest_model = dest_visitor.get_model()
         try:
             if target_team is not None:
-                dest_resource = dest_model.objects.get(pk=dest_pk, team_id=target_team.pk)
+                dest_resource = dest_model.objects.get(pk=dest_pk)
                 _validate_common_org_access(target_team, dest_visitor, dest_resource)
             else:
                 dest_resource = dest_model.objects.get(pk=dest_pk)
@@ -683,6 +683,6 @@ def _validate_common_org_access(
             target_team_id=target_team.pk,
         )
         raise ValueError(
-            f"Substitution resource {other_visitor.kind} {other_resource.pk} belongs to team {other_team.pk}, "
+            f"Substitution resource {other_visitor.kind} {other_resource.pk} belongs to another team that is "
             f"not destination team {target_team.pk}"
         )
