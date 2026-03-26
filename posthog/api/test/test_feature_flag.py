@@ -35,9 +35,9 @@ from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import Person
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -1369,8 +1369,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                                 }
                                             ],
                                             "rollout_percentage": 65,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -1666,10 +1668,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         }
                                     ],
                                     "rollout_percentage": 100,
+                                    "aggregation_group_type_index": None,
                                 }
                             ],
                             "payloads": {},
                             "multivariate": None,
+                            "aggregation_group_type_index": None,
                         },
                     },
                     "version": original_version,
@@ -2113,8 +2117,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                                 }
                                             ],
                                             "rollout_percentage": 65,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -2507,8 +2513,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         {
                                             "properties": [],
                                             "rollout_percentage": 74,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -2626,8 +2634,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         {
                                             "properties": [],
                                             "rollout_percentage": 74,
+                                            "aggregation_group_type_index": None,
                                         }
                                     ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -3951,6 +3961,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 100,
+                            "aggregation_group_type_index": None,
                         },
                         {
                             "variant": "test",
@@ -3963,6 +3974,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 100,
+                            "aggregation_group_type_index": None,
                         },
                     ],
                     "multivariate": {
@@ -3971,6 +3983,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {"key": "test", "name": "", "rollout_percentage": 0},
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4062,6 +4075,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     "value": cohort_valid_for_ff.pk,
                                 }
                             ],
+                            "aggregation_group_type_index": None,
                         }
                     ],
                     "multivariate": {
@@ -4083,6 +4097,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4298,6 +4313,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {
                             "rollout_percentage": 20,
                             "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
+                            "aggregation_group_type_index": None,
                         }
                     ],
                     "multivariate": {
@@ -4319,6 +4335,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4342,8 +4359,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 20,
+                            "aggregation_group_type_index": None,
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,

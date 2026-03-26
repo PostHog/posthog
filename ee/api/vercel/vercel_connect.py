@@ -17,7 +17,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
-from ee.vercel.client import VercelAPIClient
+from ee.vercel.client import APIError, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +58,28 @@ def _validate_next_url(url: str) -> str:
     if not parsed.hostname or parsed.hostname not in ALLOWED_REDIRECT_DOMAINS:
         return ""
     return url
+
+
+def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
+    """Return True if Vercel no longer recognises this installation (401/403/404).
+
+    Returns False when Vercel confirms the installation is active, or when
+    we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
+    the existing integration to avoid accidental deletion.
+    """
+    access_token = integration.config.get("credentials", {}).get("access_token")
+    if not access_token:
+        return False
+
+    installation_id = integration.integration_id
+    if not installation_id:
+        return False
+
+    client = VercelAPIClient(bearer_token=access_token)
+    try:
+        return not client.check_installation_active(installation_id)
+    except APIError:
+        return False
 
 
 class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
@@ -170,17 +192,25 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         organization = membership.organization
         installation_id = cached_data["installation_id"]
 
-        # Check if this org already has a Vercel integration
         existing = OrganizationIntegration.objects.filter(
             organization=organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         ).first()
 
         if existing:
-            raise exceptions.ValidationError(
-                "This organization already has a Vercel integration. "
-                "Please unlink the existing one first or choose a different organization."
-            )
+            if _is_installation_orphaned(existing):
+                logger.info(
+                    "vercel_connect_deleting_orphaned_integration",
+                    old_installation_id=existing.integration_id,
+                    organization_id=str(organization_id),
+                    integration="vercel",
+                )
+                existing.delete()
+            else:
+                raise exceptions.ValidationError(
+                    "This organization already has a Vercel integration. "
+                    "Please unlink the existing one first or choose a different organization."
+                )
 
         OrganizationIntegration.objects.create(
             organization=organization,
@@ -240,18 +270,32 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         ).select_related("organization")
 
         org_ids = [m.organization_id for m in memberships]
-        orgs_with_vercel = set(
-            OrganizationIntegration.objects.filter(
+        vercel_integrations = {
+            i.organization_id: i
+            for i in OrganizationIntegration.objects.filter(
                 organization_id__in=org_ids,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            ).values_list("organization_id", flat=True)
-        )
+            )
+        }
+
+        orphaned_org_ids: set = set()
+        for org_id, integration in vercel_integrations.items():
+            if _is_installation_orphaned(integration):
+                logger.info(
+                    "vercel_session_deleting_orphaned_integration",
+                    installation_id=integration.integration_id,
+                    organization_id=str(org_id),
+                    integration="vercel",
+                )
+                integration.delete()
+                orphaned_org_ids.add(org_id)
 
         organizations = [
             {
                 "id": str(m.organization.id),
                 "name": m.organization.name,
-                "already_linked": m.organization_id in orgs_with_vercel,
+                "already_linked": m.organization_id in vercel_integrations
+                and m.organization_id not in orphaned_org_ids,
             }
             for m in memberships
         ]
