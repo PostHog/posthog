@@ -96,6 +96,10 @@ function IdleInput(): JSX.Element {
                                     submitQuery('ai')
                                 }
                             }
+                            if (e.key === 'Escape' && query.trim()) {
+                                e.preventDefault()
+                                setQuery('')
+                            }
                             // When input is empty, ArrowDown moves focus to the grid
                             if (e.key === 'ArrowDown' && !query.trim()) {
                                 const grid = document.querySelector<HTMLElement>('[data-attr="homepage-grid"]')
@@ -110,30 +114,32 @@ function IdleInput(): JSX.Element {
                         className="w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
                         autoFocus
                     />
-                    <div className="flex items-center gap-1 shrink-0">
-                        <ButtonPrimitive
-                            size="xs"
-                            className="text-tertiary hover:text-primary shrink-0"
-                            onClick={() => {
-                                posthog.capture('homepage query submitted', { mode: 'search' })
-                                submitQuery('search')
-                            }}
-                        >
-                            <span className="text-xxs">Tab to search</span>
-                        </ButtonPrimitive>
-                        <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
+                    <div className="flex items-end shrink-0">
+                        <div className="flex items-center gap-1 ">
                             <ButtonPrimitive
+                                size="xs"
+                                className="text-tertiary hover:text-primary shrink-0"
                                 onClick={() => {
-                                    posthog.capture('homepage query submitted', { mode: 'ai' })
-                                    submitQuery('ai')
+                                    posthog.capture('homepage query submitted', { mode: 'search' })
+                                    submitQuery('search')
                                 }}
-                                iconOnly
-                                className="-mr-0.5 shrink-0"
-                                disabled={!query.trim()}
                             >
-                                <IconArrowRight className="size-4" />
+                                <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
-                        </Tooltip>
+                            <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        posthog.capture('homepage query submitted', { mode: 'ai' })
+                                        submitQuery('ai')
+                                    }}
+                                    iconOnly
+                                    className="-mr-0.5 shrink-0"
+                                    disabled={!query.trim()}
+                                >
+                                    <IconArrowRight className="size-4" />
+                                </ButtonPrimitive>
+                            </Tooltip>
+                        </div>
                     </div>
                 </div>
             </label>
