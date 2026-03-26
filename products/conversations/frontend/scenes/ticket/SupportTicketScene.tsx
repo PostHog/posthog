@@ -15,7 +15,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -76,8 +75,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         suggestReply,
-   , initiateImpersonation } =
-        useActions(logic)
+    } = useActions(logic)
 
     const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -91,7 +89,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
           : suggesting
             ? 'Generating suggestion...'
             : null
-    const { user } = useValues(userLogic)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -198,29 +195,16 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <>
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
-                                    <div className="flex items-center gap-1">
-                                        {user?.is_staff && ticket.anonymous_traits?.email && (
-                                            <LemonButton
-                                                size="small"
-                                                type="secondary"
-                                                status="danger"
-                                                tooltip="The option to login as a customer is only visible to PostHog staff."
-                                                onClick={() => initiateImpersonation()}
-                                            >
-                                                Login as
-                                            </LemonButton>
-                                        )}
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                newInternalTab(urls.personByDistinctId(ticket.distinct_id))
-                                            }}
-                                        >
-                                            View person
-                                        </LemonButton>
-                                    </div>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                        }}
+                                    >
+                                        View person
+                                    </LemonButton>
                                 </div>
                                 <PersonDisplay
                                     person={

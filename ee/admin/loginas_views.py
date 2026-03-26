@@ -1,5 +1,6 @@
 import json
 import uuid
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -168,7 +169,7 @@ def loginas_user_from_ticket(request):
         email = (ticket.anonymous_traits or {}).get("email", "")
         redirect_url = f"https://{other_domain}/admin/posthog/user/"
         if email:
-            redirect_url += f"?q={email}"
+            redirect_url += f"?{urlencode({'q': email})}"
         return JsonResponse(
             {
                 "redirect_region": ticket_region,
@@ -211,6 +212,10 @@ def loginas_user_from_ticket(request):
 @require_http_methods(["GET"])
 def get_impersonation_ticket(request):
     """Get the support ticket associated with the current impersonation session."""
+    staff_user = get_original_user_from_session(request)
+    if not staff_user or not staff_user.is_staff:
+        return JsonResponse({"error": "Not found"}, status=404)
+
     if not is_impersonated_session(request):
         return JsonResponse({"error": "Not found"}, status=404)
 

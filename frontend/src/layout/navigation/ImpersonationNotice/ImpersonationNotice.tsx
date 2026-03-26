@@ -118,20 +118,14 @@ function isPositionOnRight(position: SnapPosition | null): boolean {
     return position?.includes('right') ?? true
 }
 
-function LoginAsContent({
-    ticketContext,
-    adminLoginUrl,
-}: {
-    ticketContext: ImpersonationTicketContext
-    adminLoginUrl: string | null
-}): JSX.Element {
+function LoginAsContent({ ticketContext }: { ticketContext: ImpersonationTicketContext }): JSX.Element {
+    const { initiateImpersonation } = useActions(impersonationNoticeLogic)
+
     const disabledReason = !ticketContext.email
         ? 'This ticket has no associated email'
         : !ticketContext.region
           ? 'Unable to determine region for this ticket, no login available'
-          : !adminLoginUrl
-            ? 'Unable to determine admin URL'
-            : undefined
+          : undefined
 
     return (
         <>
@@ -148,13 +142,8 @@ function LoginAsContent({
                 <LemonButton
                     type="secondary"
                     size="small"
-                    tooltip={
-                        !disabledReason
-                            ? 'This currently redirects to the admin login page, but in future will log you in directly.'
-                            : undefined
-                    }
                     disabledReason={disabledReason}
-                    onClick={() => adminLoginUrl && window.open(adminLoginUrl, '_blank')}
+                    onClick={() => initiateImpersonation()}
                 >
                     Login as {ticketContext.email || 'customer'}
                 </LemonButton>
@@ -167,7 +156,6 @@ function ImpersonationNoticeContent(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { logout, loadUser } = useActions(userLogic)
     const {
-        isReadOnly,
         isUpgradeModalOpen,
         isImpersonationUpgradeInProgress,
         impersonationTicket,
@@ -202,10 +190,7 @@ function ImpersonationNoticeContent(): JSX.Element {
                             key: 'ticket',
                             header: `Working on Ticket #${impersonationTicket.ticket_number}`,
                             content: (
-                                <TicketMessagesContent
-                                    messages={ticketMessages}
-                                    loading={ticketMessagesLoading}
-                                />
+                                <TicketMessagesContent messages={ticketMessages} loading={ticketMessagesLoading} />
                             ),
                         },
                     ]}
@@ -248,7 +233,7 @@ function ImpersonationNoticeContent(): JSX.Element {
 export function ImpersonationNotice(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
-    const { isMinimized, isReadOnly, isImpersonated, isTicketExpanded, ticketContext, adminLoginUrl } =
+    const { isMinimized, isReadOnly, isImpersonated, isTicketExpanded, ticketContext } =
         useValues(impersonationNoticeLogic)
     const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
 
@@ -346,7 +331,7 @@ export function ImpersonationNotice(): JSX.Element | null {
                         </div>
                         <div className="ImpersonationNotice__content">
                             {showLoginAs ? (
-                                <LoginAsContent ticketContext={ticketContext!} adminLoginUrl={adminLoginUrl} />
+                                <LoginAsContent ticketContext={ticketContext!} />
                             ) : (
                                 <ImpersonationNoticeContent />
                             )}

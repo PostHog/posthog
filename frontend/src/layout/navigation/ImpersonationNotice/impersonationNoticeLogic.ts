@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -74,6 +76,7 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         setPageVisible: (visible: boolean) => ({ visible }),
         clearPageHiddenAt: true,
         setTicketContext: (context: ImpersonationTicketContext | null) => ({ context }),
+        initiateImpersonation: true,
         toggleTicketExpanded: true,
     }),
 
@@ -154,6 +157,27 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        initiateImpersonation: async () => {
+            const context = values.ticketContext
+            if (!context) {
+                return
+            }
+
+            try {
+                const response = await api.create('admin/impersonation/from-ticket/', {
+                    ticket_id: context.ticketId,
+                })
+                if (response.redirect_url) {
+                    lemonToast.info(`This ticket is from ${response.redirect_region}. Opening in a new tab...`)
+                    window.open(response.redirect_url, '_blank')
+                    return
+                }
+                window.location.replace('/')
+            } catch (error: any) {
+                const detail = error?.data?.error || 'Failed to impersonate user'
+                lemonToast.error(detail)
+            }
+        },
         upgradeImpersonationSuccess: () => {
             if (values.isUpgradeModalOpen && !values.isReadOnly) {
                 actions.closeUpgradeModal()
