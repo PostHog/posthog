@@ -53,6 +53,8 @@ class Feature(StrEnum):
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     DATA_DELETION = "data_deletion"
+    SCHEMA_INTROSPECTION = "schema_introspection"
+    USAGE_REPORT = "usage_report"
 
 
 class TemporalTags(BaseModel):
