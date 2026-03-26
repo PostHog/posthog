@@ -323,7 +323,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 id=f"export-asset-{instance.id}",
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-                execution_timeout=timedelta(minutes=30),
+                execution_timeout=timedelta(minutes=35),
             )
 
         async_to_sync(_run)()
