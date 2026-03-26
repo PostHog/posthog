@@ -107,14 +107,9 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 Prefer these approaches in order:
 
 1. **AGENTS.md / CLAUDE.md instructions** — try this first
-2. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`. Source of truth is `.agents/skills`, symlinked to `.claude/skills`
+2. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
 3. **lint-staged / husky** — file-level validation at commit time
 4. **CI checks** — PR-level enforcement
 5. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement
 
-### Claude Code hooks
-
-Hooks are reserved for environment bootstrapping (`SessionStart` only).
-Do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks —
-they add latency on every tool call and are fragile.
-Changes to `.claude/hooks/` (external hook scripts) trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
+Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
