@@ -1,6 +1,6 @@
 name: Resolve outdated bot comments
 
-# This workflow uses pull_request_target to get write access for resolving review threads.
+# This workflow uses pull_request_target because it needs to resolve review threads.
 # SECURITY: We never checkout or execute code from the PR branch.
 # We only use the GitHub API to query and resolve review threads.
 
@@ -9,7 +9,7 @@ on:
         types: [synchronize]
 
 permissions:
-    pull-requests: write
+    contents: read
 
 jobs:
     resolve-outdated:
@@ -21,9 +21,16 @@ jobs:
         if: github.event.pull_request.head.repo.full_name == github.repository
 
         steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
             - name: Resolve outdated bot threads
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
               run: |
