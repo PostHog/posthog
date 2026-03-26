@@ -40,7 +40,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     const table = item as DataWarehouseTableForInsight
 
     // :FIXME: ideally, we'd want to connect() these, but i couldn't make it work
-    const { dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
+    const { dataWarehousePopoverFields, selectedItemMeta } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
     const { insightProps } = useValues(insightLogic)
@@ -49,6 +49,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         table,
         group,
         dataWarehousePopoverFields,
+        selectedItemMeta,
         onSelectItem: selectItem,
         insightProps,
     })

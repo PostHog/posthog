@@ -162,10 +162,40 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
 
             if decision.mode == "picker":
                 if decision.reason == "no_repos":
+                    # Layer 1: No GH integration, launch without repo immediately.
                     await _execute_posthog_code_activity(
-                        post_posthog_code_no_repos_activity, inputs, channel, thread_ts
+                        create_posthog_code_task_for_repo_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        user_id,
+                        event,
+                        thread_messages,
+                        None,
                     )
                     return
+
+                if decision.reason == "no_rule_match":
+                    # Layer 2: Has repos but no rule match, let's classify if task needs a repo.
+                    needs_repo = await _execute_posthog_code_activity(
+                        classify_posthog_code_task_needs_repo_activity,
+                        event.get("text", ""),
+                        thread_messages,
+                    )
+                    if not needs_repo:
+                        await _execute_posthog_code_activity(
+                            create_posthog_code_task_for_repo_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            slack_user_id,
+                            user_id,
+                            event,
+                            thread_messages,
+                            None,
+                        )
+                        return
 
                 await _execute_posthog_code_activity(
                     post_posthog_code_repo_picker_activity,
@@ -290,7 +320,7 @@ def handle_posthog_code_rules_command_activity(
             return PostHogCodeRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
         _handle_rules_add(slack, integration, channel, thread_ts, user_id, command.rule_text or "", command.repository)
     elif command.action == "remove":
-        _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_number)
+        _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_numbers)
     elif command.action == "default_set":
         _handle_default_repo_set(slack, integration, channel, thread_ts, user_id, command.repository or "")
     elif command.action == "default_show":
@@ -311,7 +341,7 @@ def _handle_help(slack: Any, channel: str, thread_ts: str) -> None:
             "`@PostHog Code rules list` — Show all routing rules\n"
             '`@PostHog Code rules add "description" org/repo` — Add a routing rule\n'
             '`@PostHog Code rules add "description"` — Add a routing rule (pick repo from list)\n'
-            "`@PostHog Code rules remove <number>` — Remove a routing rule by number\n"
+            "`@PostHog Code rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)\n"
             "`@PostHog Code default repo set org/repo` — Set your default repository for this channel\n"
             "`@PostHog Code default repo show` — Show your default repository for this channel\n"
             "`@PostHog Code default repo clear` — Clear your default repository for this channel\n"
@@ -398,34 +428,41 @@ def _handle_rules_remove(
     integration: Any,
     channel: str,
     thread_ts: str,
-    rule_number: int | None,
+    rule_numbers: list[int] | None,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
-    if rule_number is None or rule_number < 1:
+    if not rule_numbers or any(n < 1 for n in rule_numbers):
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="Please provide a valid rule number. Use `@PostHog Code rules list` to see current rules.",
+            text="Please provide valid rule number(s). Use `@PostHog Code rules list` to see current rules.",
         )
         return
 
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
-    if rule_number > len(rules):
+    invalid = [n for n in rule_numbers if n > len(rules)]
+    if invalid:
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text=f"Rule #{rule_number} does not exist. There are {len(rules)} rule(s). Use `@PostHog Code rules list` to see them.",
+            text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `@PostHog Code rules list` to see them.",
         )
         return
 
-    rule = rules[rule_number - 1]
-    rule_text = rule.rule_text
-    rule.delete()
+    # Collect rules to delete (use sorted unique numbers, delete in reverse to keep indices stable)
+    to_delete = sorted(set(rule_numbers), reverse=True)
+    removed: list[str] = []
+    for n in to_delete:
+        rule = rules[n - 1]
+        removed.append(f"#{n}: {rule.rule_text}")
+        rule.delete()
+
+    removed.reverse()
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
-        text=f"Removed rule #{rule_number}: {rule_text}",
+        text=f"Removed rule{'s' if len(removed) > 1 else ''} {', '.join(removed)}",
     )
 
 
@@ -579,6 +616,16 @@ def select_posthog_code_repository_activity(
 
 
 @activity.defn
+def classify_posthog_code_task_needs_repo_activity(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> bool:
+    from products.slack_app.backend.api import classify_task_needs_repo
+
+    return classify_task_needs_repo(event_text, thread_messages)
+
+
+@activity.defn
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
@@ -644,7 +691,7 @@ def create_posthog_code_task_for_repo_activity(
     user_id: int,
     event: dict[str, Any],
     thread_messages: list[dict[str, str]],
-    repository: str,
+    repository: str | None,
 ) -> None:
     import structlog
 
@@ -696,6 +743,8 @@ def create_posthog_code_task_for_repo_activity(
             origin_product=Task.OriginProduct.SLACK,
             user_id=user_id,
             repository=repository,
+            create_pr=repository is not None,
+            mode="interactive",
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
@@ -752,7 +801,9 @@ def create_posthog_code_task_for_repo_activity(
             run_id=str(task_run.id),
             team_id=task.team.id,
             user_id=user_id,
+            create_pr=repository is not None,
             slack_thread_context=slack_thread_context,
+            posthog_mcp_scopes="full",
         )
 
 
@@ -827,6 +878,11 @@ def forward_posthog_code_followup_activity(
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
     """
+    from products.slack_app.backend.api import _parse_rules_command
+
+    if _parse_rules_command(event_text):
+        return False
+
     import structlog
 
     from posthog.models.integration import Integration, SlackIntegration
@@ -920,32 +976,15 @@ def forward_posthog_code_followup_activity(
             status_code=result.status_code,
         )
         if result.retryable and result.status_code == 504:
-            timeout_reply_text = _extract_recent_assistant_text_from_logs(task_run)
-            if timeout_reply_text:
-                _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
-                mention_prefix = f"<@{slack_user_id}> " if slack_user_id else ""
-                slack.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=f"{mention_prefix}{timeout_reply_text}",
-                )
-                _delete_followup_progress(
-                    integration_id=inputs.integration_id,
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    user_message_ts=user_message_ts,
-                    mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-                )
-                return True
-
-            _set_followup_done_reaction(slack, channel, user_message_ts, "x")
-            slack.client.chat_postMessage(
+            # Agent is still processing. relayAgentResponse fires when it
+            # finishes, delivering the correct response to Slack.
+            _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
+            _delete_followup_progress(
+                integration_id=inputs.integration_id,
                 channel=channel,
                 thread_ts=thread_ts,
-                text=(
-                    "Message delivery to the sandbox timed out. "
-                    "It may still be processing - check agent logs and retry once if needed."
-                ),
+                user_message_ts=user_message_ts,
+                mentioning_slack_user_id=mapping.mentioning_slack_user_id,
             )
             return True
 
@@ -958,17 +997,6 @@ def forward_posthog_code_followup_activity(
         return True
 
     _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
-
-    reply_text = _resolve_followup_reply_text(task_run, getattr(result, "data", None))
-    if not reply_text:
-        reply_text = "I processed your message but couldn't fetch the reply text. Check logs."
-
-    mention_prefix = f"<@{slack_user_id}> " if slack_user_id else ""
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=f"{mention_prefix}{reply_text}",
-    )
 
     _delete_followup_progress(
         integration_id=inputs.integration_id,
@@ -1023,6 +1051,11 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
+    snapshot_ext_id = previous_state.get("snapshot_external_id")
+    if snapshot_ext_id:
+        extra_state["snapshot_external_id"] = snapshot_ext_id
+    extra_state["resume_from_run_id"] = str(previous_run.id)
+
     previous_pr_url = (previous_run.output or {}).get("pr_url")
     initial_prompt_override = user_text
     if previous_pr_url:
@@ -1036,8 +1069,11 @@ def _resume_task_with_new_run(
         extra_state["slack_notified_pr_url"] = previous_pr_url
 
     extra_state["initial_prompt_override"] = initial_prompt_override
+    extra_state["pending_user_message"] = initial_prompt_override
+    if user_message_ts:
+        extra_state["pending_user_message_ts"] = user_message_ts
 
-    new_run = mapping.task.create_run(extra_state=extra_state)
+    new_run = mapping.task.create_run(mode="interactive", extra_state=extra_state)
 
     slack_thread_context = SlackThreadContext(
         integration_id=inputs.integration_id,
@@ -1053,7 +1089,9 @@ def _resume_task_with_new_run(
             run_id=str(new_run.id),
             team_id=mapping.task.team_id,
             user_id=created_by.id,
+            create_pr=mapping.task.repository is not None,
             slack_thread_context=slack_thread_context,
+            posthog_mcp_scopes="full",
         )
     except Exception:
         log.exception(
@@ -1075,12 +1113,6 @@ def _resume_task_with_new_run(
 
     if user_message_ts:
         _safe_react(slack.client, channel, user_message_ts, "eyes")
-
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text="Got it — restarting the agent to work on this.",
-    )
 
     log.info(
         "posthog_code_task_resumed",

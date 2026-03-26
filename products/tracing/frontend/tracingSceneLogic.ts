@@ -7,10 +7,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingSceneLogic']),
 
     connect({
-        values: [
-            tracingDataLogic,
-            ['spans', 'spansLoading', 'sparklineData', 'sparklineRowsLoading', 'traceSpans', 'traceSpansLoading'],
-        ],
+        values: [tracingDataLogic, ['spans', 'spansLoading', 'sparklineData', 'traceSpans', 'traceSpansLoading']],
         actions: [tracingDataLogic, ['loadSpans', 'loadTraceSpans']],
     }),
 

@@ -1,19 +1,22 @@
+import { useValues } from 'kea'
 import React from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
     LemonCalendarSelectInput,
     LemonCheckbox,
-    LemonFileInput,
     LemonInput,
     LemonSelect,
+    LemonFileInput,
     LemonTextArea,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BatchExportConfigurationForm } from './types'
 
@@ -94,6 +97,9 @@ export function BatchExportsEditFields({
     batchExportConfigForm: BatchExportConfigurationForm
     configurationChanged: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const bigQueryIntegrationEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
+
     return (
         <div className="flex flex-col gap-y-4 max-w-200">
             {batchExportConfigForm.destination === 'S3' ? (
@@ -642,9 +648,21 @@ export function BatchExportsEditFields({
                 </>
             ) : batchExportConfigForm.destination === 'BigQuery' ? (
                 <>
-                    <LemonField name="json_config_file" label="Google Cloud JSON key file">
-                        <LemonFileInput accept=".json" multiple={false} />
-                    </LemonField>
+                    {bigQueryIntegrationEnabled ? (
+                        <LemonField name="integration_id" label="Integration">
+                            {({ value, onChange }) => (
+                                <IntegrationChoice
+                                    integration="google-cloud-service-account"
+                                    value={value}
+                                    onChange={onChange}
+                                />
+                            )}
+                        </LemonField>
+                    ) : (
+                        <LemonField name="json_config_file" label="Google Cloud JSON key file">
+                            <LemonFileInput accept=".json" multiple={false} />
+                        </LemonField>
+                    )}
 
                     <LemonField name="table_id" label="Table ID">
                         <LemonInput placeholder="events" />

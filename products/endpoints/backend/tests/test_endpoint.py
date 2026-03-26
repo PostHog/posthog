@@ -1280,6 +1280,8 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
+            version = EndpointVersion.objects.get(endpoint__name="trigger-bucket", endpoint__team=self.team, version=1)
+            assert version.bucket_overrides == {"timestamp": "hour"}
             mock_trigger.assert_called_once()
 
     def test_bucket_overrides_unchanged_does_not_trigger_refresh(self):

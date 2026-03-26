@@ -157,7 +157,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
-        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -170,10 +170,11 @@ class Task(DeletedMetaFields, models.Model):
 
         created_by = User.objects.get(id=user_id)
 
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
-
-        if not github_integration:
-            raise ValueError(f"Team {team.id} does not have a GitHub integration")
+        github_integration = None
+        if repository:
+            github_integration = Integration.objects.filter(team=team, kind="github").first()
+            if not github_integration:
+                raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         task = Task.objects.create(
             team=team,
@@ -294,9 +295,6 @@ class TaskRun(models.Model):
         return self.get_workflow_id(self.task_id, self.id)
 
     def heartbeat_workflow(self) -> None:
-        if self.mode != "background":
-            return
-
         from django.core.cache import cache
 
         cache_key = f"tasks:task_run:heartbeat:{self.id}"

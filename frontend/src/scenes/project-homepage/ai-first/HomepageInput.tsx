@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -283,7 +284,9 @@ function SuggestionMenubar(): JSX.Element {
 }
 
 function HomePageOfframp(): JSX.Element {
-    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
+    const { showConfigurePinnedTabsModal, showConfigurePinnedTabsTooltip } = useActions(navigationLogic)
+    const { mobileLayout } = useValues(navigationLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { revertToPreviousHomepage } = useActions(aiFirstHomepageLogic)
     const { previousHomepage } = useValues(aiFirstHomepageLogic)
 
@@ -295,7 +298,6 @@ function HomePageOfframp(): JSX.Element {
                     posthog.capture('homepage configure home clicked', { source: 'offramp' })
                     showConfigurePinnedTabsModal()
                 }}
-                tooltip="Configure tabs & home"
                 className="text-tertiary hover:text-primary"
             >
                 Configure home <IconGear className="size-4" />
@@ -310,8 +312,12 @@ function HomePageOfframp(): JSX.Element {
                             previous_homepage_title: previousHomepage.title,
                         })
                         revertToPreviousHomepage()
+                        showConfigurePinnedTabsTooltip()
+                        if (mobileLayout) {
+                            showLayoutNavBar(true)
+                        }
                     }}
-                    tooltip={`Revert to ${previousHomepage.title || 'previous homepage'}`}
+                    tooltip={`Revert to ${previousHomepage.title || 'previous homepage'}, this causes a full page refresh`}
                     className="text-tertiary hover:text-primary"
                 >
                     Put my {(previousHomepage.title || 'previous homepage').toLocaleLowerCase()} back{' '}
@@ -325,6 +331,7 @@ function HomePageOfframp(): JSX.Element {
 export function HomepageInput(): JSX.Element {
     const { mode } = useValues(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
+    const { isConfigurePinnedTabsTooltipDismissed } = useValues(navigationLogic)
 
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
@@ -338,7 +345,7 @@ export function HomepageInput(): JSX.Element {
                         PostHog AI can make mistakes. Please double-check responses
                     </p>
 
-                    <HomePageOfframp />
+                    {!isConfigurePinnedTabsTooltipDismissed && <HomePageOfframp />}
                 </div>
             )}
             {mode === 'ai' && <HomepageAiInput />}

@@ -64,6 +64,7 @@ rules:
                               |BatchExport
                               |BatchExportBackfill
                               |BatchImport
+                              |ButtonTile
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
@@ -130,6 +131,7 @@ rules:
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -242,6 +244,7 @@ rules:
                         |BatchExport
                         |BatchExportBackfill
                         |BatchImport
+                        |ButtonTile
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob

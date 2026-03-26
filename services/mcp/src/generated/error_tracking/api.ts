@@ -69,6 +69,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'salesforce',
                         'hubspot',
                         'google-pubsub',
+                        'google-cloud-service-account',
                         'google-cloud-storage',
                         'google-ads',
                         'google-sheets',

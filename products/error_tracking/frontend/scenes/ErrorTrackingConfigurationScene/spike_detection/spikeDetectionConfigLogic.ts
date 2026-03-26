@@ -1,4 +1,4 @@
-import { afterMount, kea, listeners, path, reducers } from 'kea'
+import { afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -6,6 +6,8 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ErrorTrackingSpikeDetectionConfig } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { HogFunctionType } from '~/types'
 
 import type { spikeDetectionConfigLogicType } from './spikeDetectionConfigLogicType'
 
@@ -49,6 +51,22 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
                 },
             },
         ],
+        spikeAlerts: [
+            [] as HogFunctionType[],
+            {
+                loadSpikeAlerts: async () => {
+                    const response = await api.hogFunctions.list({
+                        filter_groups: [{ events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] }],
+                        types: ['internal_destination'],
+                    })
+                    return response.results
+                },
+            },
+        ],
+    }),
+
+    selectors({
+        hasSpikeAlerts: [(s) => [s.spikeAlerts], (spikeAlerts: HogFunctionType[]): boolean => spikeAlerts.length > 0],
     }),
 
     forms(({ actions }) => ({
@@ -98,5 +116,6 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
         if (!values.hasLoadedConfig) {
             actions.loadConfig()
         }
+        actions.loadSpikeAlerts()
     }),
 ])

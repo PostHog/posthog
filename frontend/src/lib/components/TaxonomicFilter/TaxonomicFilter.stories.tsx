@@ -1,16 +1,22 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
-import { AvailableFeature } from '~/types'
+import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -270,6 +276,222 @@ ForceNonColumnar.parameters = {
     docs: {
         description: {
             story: 'Forces horizontal layout even with 6 group types by setting useVerticalLayout to false.',
+        },
+    },
+}
+
+function propertyFilter(filter: AnyPropertyFilter): AnyPropertyFilter {
+    return filter
+}
+
+const RECENT_ITEMS = [
+    {
+        groupType: TaxonomicFilterGroupType.EventProperties,
+        groupName: 'Event properties',
+        value: '$browser',
+        item: { name: '$browser' },
+        propertyFilter: propertyFilter({
+            type: PropertyFilterType.Event,
+            key: '$browser',
+            operator: PropertyOperator.Exact,
+            value: 'Chrome',
+        }),
+    },
+    {
+        groupType: TaxonomicFilterGroupType.Events,
+        groupName: 'Events',
+        value: 'signed up',
+        item: { name: 'signed up', id: 'a' },
+    },
+    {
+        groupType: TaxonomicFilterGroupType.EventProperties,
+        groupName: 'Event properties',
+        value: '$os',
+        item: { name: '$os' },
+        propertyFilter: propertyFilter({
+            type: PropertyFilterType.Event,
+            key: '$os',
+            operator: PropertyOperator.Exact,
+            value: 'Mac OS X',
+        }),
+    },
+    {
+        groupType: TaxonomicFilterGroupType.Events,
+        groupName: 'Events',
+        value: 'viewed insights',
+        item: { name: 'viewed insights', id: 'b' },
+    },
+    {
+        groupType: TaxonomicFilterGroupType.EventProperties,
+        groupName: 'Event properties',
+        value: '$current_url',
+        item: { name: '$current_url' },
+        propertyFilter: propertyFilter({
+            type: PropertyFilterType.Event,
+            key: '$current_url',
+            operator: PropertyOperator.IContains,
+            value: 'https://app.example.com/organizations/very-long-org-name/projects/some-project-id/dashboards/analytics-overview?date_from=2025-01-01&date_to=2025-12-31&interval=month',
+        }),
+    },
+]
+
+function SeedRecents({ count }: { count: number }): null {
+    useMountedLogic(recentTaxonomicFiltersLogic)
+
+    useOnMountEffect(() => {
+        recentTaxonomicFiltersLogic.actions.clearRecentFilters()
+        for (const recent of RECENT_ITEMS.slice(0, count)) {
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                recent.groupType,
+                recent.groupName,
+                recent.value,
+                recent.item,
+                MOCK_TEAM_ID,
+                recent.propertyFilter
+            )
+        }
+    })
+
+    return null
+}
+
+const SUGGESTED_FILTERS_ARGS = {
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.Events,
+    ],
+}
+
+const SUGGESTED_FILTERS_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS],
+    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+}
+
+export const SuggestedFiltersNoRecents: StoryFn<typeof TaxonomicFilter> = (args) => {
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={0} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+SuggestedFiltersNoRecents.args = {
+    ...SUGGESTED_FILTERS_ARGS,
+    taxonomicFilterLogicKey: 'suggested-no-recents',
+}
+SuggestedFiltersNoRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
+
+export const SuggestedFiltersOneRecent: StoryFn<typeof TaxonomicFilter> = (args) => {
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={1} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+SuggestedFiltersOneRecent.args = {
+    ...SUGGESTED_FILTERS_ARGS,
+    taxonomicFilterLogicKey: 'suggested-one-recent',
+}
+SuggestedFiltersOneRecent.parameters = SUGGESTED_FILTERS_PARAMETERS
+
+export const SuggestedFiltersFourRecents: StoryFn<typeof TaxonomicFilter> = (args) => {
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={4} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+SuggestedFiltersFourRecents.args = {
+    ...SUGGESTED_FILTERS_ARGS,
+    taxonomicFilterLogicKey: 'suggested-four-recents',
+}
+SuggestedFiltersFourRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
+
+export const SuggestedFiltersFiveRecentsWithTruncation: StoryFn<typeof TaxonomicFilter> = (args) => {
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={5} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+SuggestedFiltersFiveRecentsWithTruncation.args = {
+    ...SUGGESTED_FILTERS_ARGS,
+    taxonomicFilterLogicKey: 'suggested-five-recents-truncation',
+}
+SuggestedFiltersFiveRecentsWithTruncation.parameters = SUGGESTED_FILTERS_PARAMETERS
+SuggestedFiltersFourRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
+
+/**
+ * This story demonstrates that PageviewUrls, Screens, and EmailAddresses are promoted
+ * to the top of the group list (after SuggestedFilters and RecentFilters) regardless of
+ * where they appear in the original taxonomicGroupTypes array.
+ */
+export const PromotedGroupsAreReordered: StoryFn<typeof TaxonomicFilter> = (args) => {
+    useMountedLogic(actionsModel)
+    const logicKey = args.taxonomicFilterLogicKey as string
+    const { setSearchQuery } = useActions(taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey }))
+
+    // Type a search query so all groups (including those with minSearchQueryLength) load
+    // and their Spinners resolve, making the snapshot stable.
+    useOnMountEffect(() => setSearchQuery('check the order of the groups as presented'))
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={3} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+PromotedGroupsAreReordered.args = {
+    taxonomicFilterLogicKey: 'promoted-groups-reordered',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.PageviewUrls,
+        TaxonomicFilterGroupType.Screens,
+        TaxonomicFilterGroupType.EmailAddresses,
+    ],
+}
+PromotedGroupsAreReordered.parameters = {
+    ...SUGGESTED_FILTERS_PARAMETERS,
+    docs: {
+        description: {
+            story: 'PageviewUrls, Screens, and EmailAddresses are defined at the end of the group list but get promoted to the top positions, right after Suggested filters and Recents.',
+        },
+    },
+}
+
+export const AutocaptureContextPromotesElements: StoryFn<typeof TaxonomicFilter> = (args) => {
+    useMountedLogic(actionsModel)
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={2} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+AutocaptureContextPromotesElements.args = {
+    taxonomicFilterLogicKey: 'autocapture-promotes-elements',
+    eventNames: ['$autocapture'],
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.Elements,
+    ],
+}
+AutocaptureContextPromotesElements.parameters = {
+    ...SUGGESTED_FILTERS_PARAMETERS,
+    docs: {
+        description: {
+            story: 'When $autocapture is the selected event, SuggestedFilters shows "text" and "selector" autocapture properties and the Elements group is promoted after SuggestedFilters/Recents.',
         },
     },
 }

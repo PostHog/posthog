@@ -23,6 +23,7 @@ jobs:
         name: Build and push PostHog
         if: github.repository == 'PostHog/posthog'
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary

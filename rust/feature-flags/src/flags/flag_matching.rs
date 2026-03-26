@@ -5,11 +5,13 @@ use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::PostgresRouter;
-use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
+use crate::flags::flag_group_type_mapping::{
+    GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
+};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    all_flag_condition_properties_match, all_properties_match, calculate_hash,
-    fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
+    calculate_hash, fetch_and_locally_cache_all_relevant_properties,
+    get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
     populate_missing_initial_properties, set_feature_flag_hash_key_overrides,
     should_write_hash_key_override,
 };
@@ -21,14 +23,15 @@ use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_cano
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
-    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_DB_PROPERTIES_FETCH_TIME,
-    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_COHORT_SOURCE_COUNTER,
+    FLAG_DB_PROPERTIES_FETCH_TIME, FLAG_EVALUATE_ALL_CONDITIONS_TIME,
+    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED,
+    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
+    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
+use crate::properties::property_matching::match_property;
 use crate::properties::property_models::PropertyFilter;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
@@ -236,8 +239,10 @@ pub struct FeatureFlagMatcher {
     pub router: PostgresRouter,
     /// Cache manager for cohort definitions and memberships
     pub cohort_cache: Arc<CohortCacheManager>,
-    /// Cache for mapping between group types and their indices
-    group_type_mapping_cache: GroupTypeMappingCache,
+    /// Shared in-process cache for group type mappings
+    group_type_cache: Arc<GroupTypeCacheManager>,
+    /// Lazily populated mapping for the current team (fetched via group_type_cache)
+    group_type_mapping: Option<GroupTypeMapping>,
     /// State maintained during flag evaluation, including cached DB lookups
     pub(crate) flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
@@ -265,6 +270,11 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    /// Cohort definitions preloaded from the flags hypercache.
+    /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
+    /// so the matcher skips the CohortCacheManager PG query entirely.
+    /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
+    preloaded_cohorts: Option<Vec<Cohort>>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -294,7 +304,7 @@ impl FeatureFlagMatcher {
         team_id: TeamId,
         router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
-        group_type_mapping_cache: Option<GroupTypeMappingCache>,
+        group_type_cache: Arc<GroupTypeCacheManager>,
         groups: Option<HashMap<String, Value>>,
     ) -> Self {
         FeatureFlagMatcher {
@@ -303,8 +313,8 @@ impl FeatureFlagMatcher {
             team_id,
             router,
             cohort_cache,
-            group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
+            group_type_cache,
+            group_type_mapping: None,
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
             cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
@@ -313,6 +323,7 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            preloaded_cohorts: None,
         }
     }
 
@@ -384,6 +395,7 @@ impl FeatureFlagMatcher {
         };
 
         self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
+        self.preloaded_cohorts = feature_flags.cohorts;
 
         // Extract global stats before potential consuming filter call
         let error_count = precomputed.error_count;
@@ -625,7 +637,7 @@ impl FeatureFlagMatcher {
     /// and evaluates dynamic cohorts based on the provided properties.
     pub fn evaluate_cohort_filters(
         &self,
-        cohort_property_filters: &[PropertyFilter],
+        cohort_property_filters: &[&PropertyFilter],
         target_properties: &HashMap<String, Value>,
         cohorts: Vec<Cohort>,
     ) -> Result<bool, FlagError> {
@@ -1000,15 +1012,11 @@ impl FeatureFlagMatcher {
         group_type_index: GroupTypeIndex,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) -> Result<Option<HashMap<String, Value>>, FlagError> {
-        // If we can't get the mapping, just return None
-        let index_to_type_map = match self
-            .group_type_mapping_cache
-            .get_group_type_index_to_type_map()
-        {
-            Ok(map) => map,
-            Err(FlagError::NoGroupTypeMappings) => return Ok(None),
-            Err(e) => return Err(e),
+        let mapping = match &self.group_type_mapping {
+            Some(m) => m,
+            None => return Ok(None),
         };
+        let index_to_type_map = mapping.group_indexes_to_types();
 
         if let Some(group_type) = index_to_type_map.get(&group_type_index) {
             if let Some(group_overrides) = group_property_overrides {
@@ -1232,15 +1240,34 @@ impl FeatureFlagMatcher {
         // When properties ARE needed, we compute once and reuse for all conditions.
         let mut cached_properties: Option<HashMap<String, Value>> = None;
 
-        // Evaluate any super conditions first.
-        // Super conditions (early access features) always use person properties, even for
-        // group-based flags. This is because early access enrollment is a person-level concept.
-        // The API validates that group-based flags cannot have early access features attached.
-        if let Some(super_groups) = &flag.filters.super_groups {
+        // Evaluate feature enrollment (early access features) first.
+        // Enrollment is a person-level concept — always uses person properties, even for
+        // group-based flags. The API validates that group-based flags cannot have early access
+        // features attached.
+        //
+        // New format: `feature_enrollment: true` — the enrollment property key is derived
+        // from the flag key as `$feature_enrollment/{flag_key}`.
+        // Legacy format: `super_groups` array with explicit property filters.
+        // New format takes precedence when both are present.
+        if flag.filters.feature_enrollment == Some(true) {
+            let enrollment_key = FlagFilters::enrollment_key(&flag.key);
+            let person_properties = self.get_person_properties(property_overrides)?;
+
+            if let Some(v) = person_properties.get(&enrollment_key) {
+                let is_match = v == "true" || v == &Value::Bool(true);
+                let payload = self.get_matching_payload(None, flag);
+                return Ok(FeatureFlagMatch {
+                    matches: is_match,
+                    variant: None,
+                    reason: FeatureFlagMatchReason::SuperConditionValue,
+                    condition_index: Some(0),
+                    payload,
+                });
+            }
+            // Person doesn't have enrollment property set — fall through to normal conditions
+        } else if let Some(super_groups) = &flag.filters.super_groups {
             if let Some(super_condition) = super_groups.first() {
-                // Only fetch person properties if the super condition has property filters
-                // Super conditions are used for feature enrollment (aka early access features)
-                // There can only be one condition ever in super conditions.
+                // Legacy path: evaluate super_groups property filters directly.
                 if super_condition
                     .properties
                     .as_ref()
@@ -1430,32 +1457,23 @@ impl FeatureFlagMatcher {
                 );
             }
 
-            // Separate flag value filters from other filters
-            let (flag_value_filters, other_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
-                flag_property_filters
-                    .iter()
-                    .cloned()
-                    .partition(|prop| prop.depends_on_feature_flag());
-
-            if !flag_value_filters.is_empty()
-                && !all_flag_condition_properties_match(
-                    &flag_value_filters,
-                    &self.flag_evaluation_state.flag_evaluation_results,
-                )
-            {
-                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
-            }
-
-            // Separate cohort and non-cohort filters
-            let (cohort_filters, non_cohort_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
-                other_filters
-                    .iter()
-                    .cloned()
-                    .partition(|prop| prop.is_cohort());
-
-            // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
-            if !all_properties_match(&non_cohort_filters, merged_properties) {
-                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+            // Single-pass evaluation: flag-value and property filters are evaluated in Vec order
+            // and short-circuit immediately on mismatch. Cohort filters (the most expensive)
+            // are deferred and batch-evaluated after the loop to avoid unnecessary work.
+            let mut cohort_filters: Vec<&PropertyFilter> = Vec::new();
+            for filter in flag_property_filters {
+                if filter.depends_on_feature_flag() {
+                    if !match_flag_value_to_flag_filter(
+                        filter,
+                        &self.flag_evaluation_state.flag_evaluation_results,
+                    ) {
+                        return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                    }
+                } else if filter.is_cohort() {
+                    cohort_filters.push(filter);
+                } else if !match_property(filter, merged_properties, false).unwrap_or(false) {
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
             }
 
             // Evaluate cohort filters, if any.
@@ -1640,12 +1658,11 @@ impl FeatureFlagMatcher {
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
-            let group_key = match self
-                .group_type_mapping_cache
-                .get_group_type_index_to_type_map()?
-                .get(&group_type_index)
-                .and_then(|group_type_name| self.groups.get(group_type_name))
-            {
+            let group_key = match self.group_type_mapping.as_ref().and_then(|m| {
+                m.group_indexes_to_types()
+                    .get(&group_type_index)
+                    .and_then(|group_type_name| self.groups.get(group_type_name))
+            }) {
                 Some(Value::String(s)) => s.clone(),
                 Some(Value::Number(n)) => n.to_string(),
                 Some(_) => {
@@ -1804,8 +1821,27 @@ impl FeatureFlagMatcher {
         &mut self,
         flags: &[&FeatureFlag],
     ) -> Result<(), FlagError> {
-        // Get cohorts first since we need the IDs
-        let cohorts = self.cohort_cache.get_cohorts(self.team_id).await?;
+        // Use preloaded cohorts from the flags cache when available (already scoped
+        // to only referenced cohorts). Fall back to CohortCacheManager which fetches
+        // ALL cohorts for the team.
+        let cohorts = match self.preloaded_cohorts.take() {
+            Some(preloaded) => {
+                inc(
+                    FLAG_COHORT_SOURCE_COUNTER,
+                    &[("source".to_string(), "preloaded".to_string())],
+                    1,
+                );
+                preloaded
+            }
+            None => {
+                inc(
+                    FLAG_COHORT_SOURCE_COUNTER,
+                    &[("source".to_string(), "cache_manager".to_string())],
+                    1,
+                );
+                self.cohort_cache.get_cohorts(self.team_id).await?
+            }
+        };
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
         // Get static cohort IDs
@@ -1822,6 +1858,15 @@ impl FeatureFlagMatcher {
             .filter(|c| c.is_static)
             .map(|c| c.id)
             .collect();
+
+        // Load group type mappings if needed. Errors are intentionally not propagated here:
+        // in the batch path (evaluate_flags_with_overrides), a group type mapping failure
+        // should not poison person-based flags in the same batch. prepare_group_data
+        // gracefully returns an empty map when self.group_type_mapping is None, so
+        // group-based flags will fail individually rather than taking down the whole batch.
+        if self.initialize_group_type_mappings_if_needed(flags).await {
+            tracing::warn!("Failed to init group type mappings");
+        }
 
         // Then prepare group mappings and properties
         // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
@@ -1938,11 +1983,11 @@ impl FeatureFlagMatcher {
             return Ok(HashMap::new());
         }
 
-        let types_to_indexes = match self.group_type_mapping_cache.get_group_types_to_indexes() {
-            Ok(map) => map,
-            Err(FlagError::NoGroupTypeMappings) => return Ok(HashMap::new()),
-            Err(e) => return Err(e),
+        let mapping = match &self.group_type_mapping {
+            Some(m) => m,
+            None => return Ok(HashMap::new()),
         };
+        let types_to_indexes = mapping.group_types_to_indexes();
 
         let group_type_to_key: HashMap<GroupTypeIndex, String> = self
             .groups
@@ -2130,13 +2175,19 @@ impl FeatureFlagMatcher {
         let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;
 
-        if self
-            .group_type_mapping_cache
-            .init(self.router.get_persons_reader().clone())
-            .await
-            .is_err()
-        {
-            errors_while_computing_flags = true;
+        match self.group_type_cache.get_mappings(self.team_id).await {
+            Ok(mapping) if mapping.is_empty() => {
+                tracing::warn!("No group type mappings found for team {}", self.team_id);
+                // Empty mappings are not an error — the team simply has no group types configured.
+                // Group-based flags won't match, but person flags in the same batch should succeed
+                // without surfacing errorsWhileComputingFlags to the client.
+            }
+            Ok(mapping) => {
+                self.group_type_mapping = Some(mapping);
+            }
+            Err(_) => {
+                errors_while_computing_flags = true;
+            }
         }
 
         group_type_mapping_timer

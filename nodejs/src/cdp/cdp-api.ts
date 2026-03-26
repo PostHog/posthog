@@ -650,14 +650,14 @@ export class CdpApi {
 
     private getEmailTrackingPixel =
         () =>
-        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            await this.emailTrackingService.handleEmailTrackingPixel(req, res)
+        (req: ModifiedRequest, res: express.Response): any => {
+            this.emailTrackingService.handleEmailTrackingPixel(req, res)
         }
 
     private getEmailTrackingRedirect =
         () =>
-        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            await this.emailTrackingService.handleEmailTrackingRedirect(req, res)
+        (req: ModifiedRequest, res: express.Response): any => {
+            this.emailTrackingService.handleEmailTrackingRedirect(req, res)
         }
 
     private generatePreferencesToken =

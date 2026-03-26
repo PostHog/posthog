@@ -1,5 +1,6 @@
 import uuid
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -7,6 +8,7 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
+from ee.api.scim.views import MAX_ITEMS_PER_PAGE
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
 
@@ -604,3 +606,165 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert not RoleMembership.objects.filter(role=role, user=user1).exists()
         assert RoleMembership.objects.filter(role=role, user=user2).exists()
+
+    # ── Nested group (non-user member) tests ──
+
+    def test_patch_add_silently_skips_non_user_member_ids(self):
+        """Entra ID sends nested group UUIDs as member values — these should be silently skipped."""
+        user = User.objects.create_user(
+            email="realuser@example.com", password=None, first_name="Real", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        nested_group_id = str(uuid.uuid4())
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {"op": "add", "path": "members", "value": [{"value": nested_group_id}, {"value": str(user.id)}]}
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+        assert RoleMembership.objects.filter(role=role).count() == 1
+
+    def test_put_silently_skips_non_user_member_ids(self):
+        """PUT with a members list containing a nested group UUID should succeed and only add valid users."""
+        user = User.objects.create_user(
+            email="putuser@example.com", password=None, first_name="Put", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        nested_group_id = str(uuid.uuid4())
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:Group"],
+            "displayName": "TestRole",
+            "members": [{"value": nested_group_id}, {"value": str(user.id)}],
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+        assert RoleMembership.objects.filter(role=role).count() == 1
+
+    # ── Pagination tests ──
+
+    def _create_groups(self, count: int) -> list[Role]:
+        return [Role.objects.create(name=f"PagGroup{i}", organization=self.organization) for i in range(count)]
+
+    def test_groups_list_pagination_with_count(self):
+        self._create_groups(5)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"count": "2"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 5
+        assert data["itemsPerPage"] == 2
+        assert data["startIndex"] == 1
+        assert len(data["Resources"]) == 2
+
+    def test_groups_list_pagination_with_start_index(self):
+        self._create_groups(5)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"startIndex": "3", "count": "2"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 5
+        assert data["itemsPerPage"] == 2
+        assert data["startIndex"] == 3
+        assert len(data["Resources"]) == 2
+
+    def test_groups_list_pagination_count_zero(self):
+        self._create_groups(3)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"count": "0"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 3
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+
+    def test_groups_list_pagination_start_index_beyond_total(self):
+        self._create_groups(2)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"startIndex": "999"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 2
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+        assert data["startIndex"] == 999
+
+    def test_groups_list_pagination_count_capped_at_max(self):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"count": "500"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["itemsPerPage"] <= MAX_ITEMS_PER_PAGE
+
+    @parameterized.expand(
+        [
+            ("start_index_zero", {"startIndex": "0"}, status.HTTP_400_BAD_REQUEST),
+            ("start_index_negative", {"startIndex": "-1"}, status.HTTP_400_BAD_REQUEST),
+            ("start_index_non_integer", {"startIndex": "abc"}, status.HTTP_400_BAD_REQUEST),
+            ("count_negative", {"count": "-1"}, status.HTTP_400_BAD_REQUEST),
+            ("count_non_integer", {"count": "abc"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_groups_list_pagination_invalid_values(self, _name: str, params: dict, expected_status: int):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", params)
+        assert response.status_code == expected_status
+
+    def test_groups_list_pagination_with_filter(self):
+        self._create_groups(3)
+
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Groups",
+            {"filter": 'displayName eq "PagGroup0"', "count": "1"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 1
+        assert data["itemsPerPage"] == 1
+        assert data["Resources"][0]["displayName"] == "PagGroup0"
+
+    def test_groups_list_pagination_page_through_all(self):
+        self._create_groups(5)
+        total = 5
+
+        all_ids: list[str] = []
+        start_index = 1
+        page_size = 2
+        while True:
+            response = self.client.get(
+                f"/scim/v2/{self.domain.id}/Groups",
+                {"startIndex": str(start_index), "count": str(page_size)},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            assert data["totalResults"] == total
+            if not data["Resources"]:
+                break
+            all_ids.extend(r["id"] for r in data["Resources"])
+            start_index += len(data["Resources"])
+
+        assert len(all_ids) == total
+        assert len(set(all_ids)) == total

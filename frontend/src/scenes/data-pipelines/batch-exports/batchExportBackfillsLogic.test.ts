@@ -10,7 +10,7 @@ import { BatchExportConfiguration, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportBackfillsLogic } from './batchExportBackfillsLogic'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: {
@@ -101,14 +101,14 @@ describe('batchExportBackfillsLogic', () => {
         })
         initKeaTests()
         await expectLogic(teamLogic).toFinishAllListeners()
-        const configLogic = batchExportConfigurationLogic({ id: MOCK_BATCH_EXPORT_ID, service: null })
+        const configLogic = batchExportDataLogic({ id: MOCK_BATCH_EXPORT_ID })
         configLogic.mount()
         await expectLogic(configLogic).toFinishAllListeners()
+        const modalLogic = batchExportBackfillModalLogic({ id: MOCK_BATCH_EXPORT_ID })
+        modalLogic.mount()
         logic = batchExportBackfillsLogic({ id: MOCK_BATCH_EXPORT_ID })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        const modalLogic = batchExportBackfillModalLogic({ id: MOCK_BATCH_EXPORT_ID })
-        modalLogic.mount()
     }
 
     describe('loadBackfills', () => {
@@ -166,8 +166,7 @@ describe('batchExportBackfillsLogic', () => {
         })
 
         afterEach(async () => {
-            // Ensure any remaining polling resolves immediately with an estimate so it stops cleanly
-            jest.spyOn(api.batchExports, 'getBackfill').mockResolvedValue(makeBackfill({ total_records_count: 1 }))
+            // Exhaust any remaining polling iterations to prevent leaking into the next test
             for (let i = 0; i < 12; i++) {
                 await jest.advanceTimersByTimeAsync(POLL_ADVANCE_MS)
             }
