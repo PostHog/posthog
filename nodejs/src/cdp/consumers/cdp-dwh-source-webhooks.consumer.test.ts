@@ -296,8 +296,12 @@ describe('DWH source webhooks', () => {
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].key).toEqual(`${team.id}:${invoiceSchemaId}`)
             expect(kafkaMessages[0].value).toMatchObject({
-                type: 'invoice.payment_succeeded',
-                data: { object: { id: 'inv_1', object: 'invoice' } },
+                team_id: team.id,
+                schema_id: invoiceSchemaId,
+                payload: {
+                    type: 'invoice.payment_succeeded',
+                    data: { object: { id: 'inv_1', object: 'invoice' } },
+                },
             })
         })
 
@@ -412,7 +416,11 @@ describe('DWH source webhooks', () => {
 
             const kafkaMessages = getDwhKafkaMessages()
             expect(kafkaMessages).toHaveLength(1)
-            expect(kafkaMessages[0].value).toMatchObject(eventBody)
+            expect(kafkaMessages[0].value).toMatchObject({
+                team_id: team.id,
+                schema_id: subscriptionSchemaId,
+                payload: eventBody,
+            })
         })
     })
 })

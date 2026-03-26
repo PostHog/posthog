@@ -747,6 +747,10 @@ class OAuthCoopMiddleware:
         response = self.get_response(request)
         if any(request.path.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        elif request.path == "/login" or request.path == "/login/":
+            next_url = request.GET.get("next", "")
+            if any(next_url.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
+                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
 

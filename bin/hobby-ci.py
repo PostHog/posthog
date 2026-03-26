@@ -21,6 +21,7 @@ import requests
 import digitalocean  # type: ignore
 
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
+FALLBACK_SIZE = "s-8vcpu-32gb"
 
 
 class HobbyTester:
@@ -109,22 +110,26 @@ class HobbyTester:
         )
 
     def _get_node_image_fallback_script(self):
-        """Return bash script to check if posthog-node image exists on DockerHub.
+        """Return bash script to resolve the posthog-node image tag.
 
-        If the node image doesn't exist for this commit (it's only built when
-        node files change), rewrite the compose file to use :latest for the
-        plugins service so that docker compose pull doesn't fail.
+        ci-nodejs-container.yml tags images as pr-<number> for PRs.
+        Checks DockerHub for that tag; if found, exports POSTHOG_NODE_TAG
+        so the hobby-installer writes it to .env and docker-compose uses
+        the branch image. Otherwise falls back to 'latest'.
         """
+        if self.pr_number and self.pr_number != "unknown":
+            tag = f"pr-{self.pr_number}"
+        else:
+            tag = "$CURRENT_COMMIT"
         return (
             "if curl -sf "
-            "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT "
+            f"https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{tag} "
             "> /dev/null 2>&1; then "
-            "echo posthog-node image found on DockerHub; "
+            f"echo posthog-node image found on DockerHub with tag {tag}; "
+            f"export POSTHOG_NODE_TAG={tag}; "
             "else "
-            "echo posthog-node image not found, using latest for plugins service; "
-            "sed -i "
-            "'s|${REGISTRY_URL}-node:${POSTHOG_APP_TAG}|posthog/posthog-node:latest|g' "
-            "posthog/docker-compose.hobby.yml; "
+            "echo posthog-node image not found, using latest; "
+            "export POSTHOG_NODE_TAG=latest; "
             "fi"
         )
 
@@ -248,18 +253,50 @@ runcmd:
         if self.pr_number and self.pr_number != "unknown":
             tags.append(f"pr:{self.pr_number}")
 
-        self.droplet = digitalocean.Droplet(
-            token=self.token,
-            name=self.name,
-            region=self.region,
-            image=self.image,
-            size_slug=self.size,
-            user_data=self.user_data,
-            ssh_keys=keys,
-            tags=tags,
+        # Fallback candidates: try larger sizes first (PostHog needs ≥16 GB RAM),
+        # then fall back across regions. sfo3 has had capacity issues since ~Mar 17 2026.
+        fallback_candidates = list(
+            dict.fromkeys(
+                [
+                    (self.region, self.size),
+                    (self.region, FALLBACK_SIZE),
+                    ("nyc3", self.size),
+                    ("nyc3", FALLBACK_SIZE),
+                    ("ams3", self.size),
+                    ("ams3", FALLBACK_SIZE),
+                ]
+            )
         )
-        self.droplet.create()
-        return self.droplet
+
+        last_error = None
+        for region, size in fallback_candidates:
+            print(f"Attempting droplet creation: region={region}, size={size}")
+            droplet = digitalocean.Droplet(
+                token=self.token,
+                name=self.name,
+                region=region,
+                image=self.image,
+                size_slug=size,
+                user_data=self.user_data,
+                ssh_keys=keys,
+                tags=tags,
+            )
+            try:
+                droplet.create()
+                if region != self.region or size != self.size:
+                    print(f"Droplet created with fallback: region={region}, size={size}")
+                self.region = region
+                self.size = size
+                self.droplet = droplet
+                return self.droplet
+            except digitalocean.DataReadError as e:
+                err_lower = str(e).lower()
+                if "not available in this region" not in err_lower and "size is unavailable" not in err_lower:
+                    raise
+                print(f"Droplet creation failed (region={region}, size={size}): {e}")
+                last_error = e
+
+        raise RuntimeError(f"Droplet creation failed for all region/size combinations. Last error: {last_error}")
 
     def get_droplet_info(self):
         """Fetch droplet information from DigitalOcean API for debugging"""
@@ -384,18 +421,18 @@ runcmd:
             raise RuntimeError(f"Failed to update .env: {result['stderr']}")
         print(f"✅ Updated POSTHOG_APP_TAG to {new_sha}")
 
-        # Resolve node image tag: use commit-specific tag if available, otherwise 'latest'
-        print("🔍 Checking if node image exists for this commit...")
-        check_node_cmd = (
-            f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{new_sha}" > /dev/null 2>&1'
-        )
+        # Resolve node image tag: ci-nodejs-container.yml tags as pr-<number> for PRs
+        pr_tag = f"pr-{self.pr_number}" if self.pr_number and self.pr_number != "unknown" else None
+        candidate_tag = pr_tag or new_sha
+        print(f"🔍 Checking if node image exists with tag: {candidate_tag}...")
+        check_node_cmd = f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{candidate_tag}" > /dev/null 2>&1'
         result = self.run_ssh_command(check_node_cmd, timeout=30)
         if result["exit_code"] == 0:
-            node_tag = new_sha
-            print(f"✅ Node image found for commit, using tag: {new_sha}")
+            node_tag = candidate_tag
+            print(f"✅ Node image found, using tag: {candidate_tag}")
         else:
             node_tag = "latest"
-            print(f"ℹ️ Node image not found for commit, falling back to tag: latest")
+            print(f"ℹ️ Node image not found for {candidate_tag}, falling back to tag: latest")
 
         # Update or add POSTHOG_NODE_TAG in .env
         update_node_tag_cmd = (

@@ -632,6 +632,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         assert activity == expected
