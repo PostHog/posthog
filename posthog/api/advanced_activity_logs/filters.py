@@ -61,6 +61,8 @@ class AdvancedActivityLogFilterManager:
             if value is None:
                 continue
 
+            # Block Django ORM relationship traversal (e.g. "user__password") and
+            # restrict operations to a safe allowlist to prevent injection via arbitrary lookups.
             if "__" in field_path or operation not in _ALLOWED_DETAIL_FILTER_OPERATIONS:
                 continue
 
