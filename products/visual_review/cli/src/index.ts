@@ -9,6 +9,7 @@
 import { program } from 'commander'
 import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { VisualReviewClient, type Run } from './client.js'
@@ -257,7 +258,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         const batch = scanned.slice(i, i + HASH_CONCURRENCY)
         const results = await Promise.all(
             batch.map(async ({ identifier, filePath }) => {
-                const data = readFileSync(filePath)
+                const data = await readFile(filePath)
                 const { hash, width, height } = await hashImageWithDimensions(data)
                 return { identifier, hash, width, height, data }
             })
