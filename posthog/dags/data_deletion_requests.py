@@ -30,18 +30,26 @@ def load_deletion_request(
     config: DataDeletionRequestConfig,
 ) -> DeletionRequestContext:
     """Load and validate the deletion request, transition to IN_PROGRESS."""
-    updated = DataDeletionRequest.objects.filter(
-        pk=config.request_id,
-        status=RequestStatus.APPROVED,
-        request_type=RequestType.EVENT_REMOVAL,
-    ).update(status=RequestStatus.IN_PROGRESS)
+    from django.db import transaction
 
-    if not updated:
-        raise dagster.Failure(
-            f"Request {config.request_id} is not an approved event_removal request.",
+    with transaction.atomic():
+        request = (
+            DataDeletionRequest.objects.select_for_update()
+            .filter(
+                pk=config.request_id,
+                status=RequestStatus.APPROVED,
+                request_type=RequestType.EVENT_REMOVAL,
+            )
+            .first()
         )
 
-    request = DataDeletionRequest.objects.get(pk=config.request_id)
+        if not request:
+            raise dagster.Failure(
+                f"Request {config.request_id} is not an approved event_removal request.",
+            )
+
+        request.status = RequestStatus.IN_PROGRESS
+        request.save(update_fields=["status", "updated_at"])
 
     context.log.info(
         f"Processing deletion request {request.pk}: "
@@ -139,15 +147,22 @@ def mark_deletion_complete(
 @dagster.failure_hook()
 def mark_deletion_failed(context: dagster.HookContext) -> None:
     """Mark the deletion request as failed if any op fails."""
-    config = context.op_config
-    if not config or "request_id" not in config:
+    from django.utils import timezone
+
+    request_id = (
+        context.instance.get_run_by_id(context.run_id)
+        .run_config.get("ops", {})
+        .get("load_deletion_request", {})
+        .get("config", {})
+        .get("request_id")
+    )
+    if not request_id:
         return
 
-    request_id = config["request_id"]
     DataDeletionRequest.objects.filter(
         pk=request_id,
         status=RequestStatus.IN_PROGRESS,
-    ).update(status=RequestStatus.FAILED)
+    ).update(status=RequestStatus.FAILED, updated_at=timezone.now())
 
     context.log.error(f"Deletion request {request_id} marked as failed.")
 
