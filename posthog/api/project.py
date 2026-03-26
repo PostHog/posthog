@@ -24,6 +24,7 @@ from posthog.api.team import (
 )
 from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -668,12 +669,28 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return project.teams.get(id=project.id)
 
     def perform_destroy(self, project: Project):
+        from ee.billing.billing_manager import BillingManager
+
         # Check if bulk deletion operations are disabled via environment variable
         # Projects contain teams, so we need to block project deletion too
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
             )
+
+        # Block deletion of the last project if org has an active subscription
+        if is_cloud():
+            organization = project.organization
+            if organization.projects.count() == 1:
+                license = get_cached_instance_license()
+                if license:
+                    billing_manager = BillingManager(license)
+                    billing = billing_manager.get_billing(organization)
+                    if billing.get("has_active_subscription"):
+                        raise exceptions.ValidationError(
+                            "Cannot delete the last project in an organization with an active subscription. "
+                            "Please cancel your subscription first in the billing page."
+                        )
 
         project_id = project.pk
         organization_id = project.organization_id
