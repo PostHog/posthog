@@ -129,19 +129,15 @@ def fetch_data(
     headers = _get_headers(api_key)
 
     # Make the API request
+    r = requests.get(url, headers=headers, params=params)
     try:
-        r = requests.get(url, headers=headers, params=params)
-        if r.status_code == 401:
-            # refresh token
-            api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
-            headers = _get_headers(api_key)
-            r = requests.get(url, headers=headers, params=params)
+        r.raise_for_status()
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 401:
-            # refresh token
             api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
             headers = _get_headers(api_key)
             r = requests.get(url, headers=headers, params=params)
+            r.raise_for_status()
         else:
             raise
     # Parse the API response and yield the properties of each result
@@ -180,14 +176,15 @@ def fetch_data(
         if _next:
             next_url = _next["link"]
             # Get the next page response
+            r = requests.get(next_url, headers=headers)
             try:
-                r = requests.get(next_url, headers=headers)
+                r.raise_for_status()
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
-                    # refresh token
                     api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
                     headers = _get_headers(api_key)
                     r = requests.get(next_url, headers=headers)
+                    r.raise_for_status()
                 else:
                     raise
             _data = r.json()
