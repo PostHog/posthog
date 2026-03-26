@@ -349,8 +349,6 @@ impl DeduplicationStore {
         &self,
         checkpoint_path: P,
     ) -> Result<LocalCheckpointInfo> {
-        self.store.flush_wal(true)?;
-
         let sequence = self.store.latest_sequence_number();
 
         self.store.create_checkpoint(checkpoint_path)?;
