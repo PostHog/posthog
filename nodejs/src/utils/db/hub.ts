@@ -14,7 +14,6 @@ import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { isTestEnv } from '../env-utils'
@@ -94,7 +93,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     }
     const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
 
-    const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
@@ -117,7 +115,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         groupTypeManager,
         teamManager,
         groupRepository,
-        clickhouseGroupRepository,
         personRepository,
         geoipService,
         encryptedFields,
