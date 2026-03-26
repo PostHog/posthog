@@ -172,12 +172,7 @@ fn normalize_timestamp(
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if event
-        .options
-        .as_ref()
-        .and_then(|o| o.ignore_attempt_timestamp)
-        .unwrap_or(false)
-    {
+    if event.options.ignore_attempt_timestamp.unwrap_or(false) {
         return raw_event_ts;
     }
 
@@ -238,7 +233,7 @@ async fn apply_restrictions(
 
         let event_ctx = EventContext {
             distinct_id: Some(&event.event.distinct_id),
-            session_id: None,
+            session_id: event.event.session_id.as_deref(),
             event_name: Some(&event.event.name),
             event_uuid: Some(&event.event.uuid),
             now_ts,
@@ -356,6 +351,15 @@ mod tests {
         RawValue::from_string(s.to_owned()).unwrap()
     }
 
+    fn default_options() -> Options {
+        Options {
+            cookieless_mode: None,
+            ignore_attempt_timestamp: None,
+            product_tour_id: None,
+            process_person_profile: None,
+        }
+    }
+
     fn valid_event() -> Event {
         Event {
             name: "$pageview".to_string(),
@@ -364,7 +368,7 @@ mod tests {
             timestamp: "2026-03-19T14:29:58.123Z".to_string(),
             session_id: None,
             window_id: None,
-            options: None,
+            options: default_options(),
             properties: raw_obj("{}"),
         }
     }
@@ -605,12 +609,12 @@ mod tests {
             timestamp: "2026-03-19T11:00:00Z".to_string(),
             session_id: None,
             window_id: None,
-            options: Some(Options {
+            options: Options {
                 cookieless_mode: None,
                 ignore_attempt_timestamp: Some(ignore),
                 product_tour_id: None,
                 process_person_profile: None,
-            }),
+            },
             properties: raw_obj("{}"),
         }
     }
@@ -696,7 +700,7 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: None,
+                options: default_options(),
                 properties: raw_obj("{}"),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
@@ -717,7 +721,7 @@ mod tests {
                 timestamp: "bad".to_string(),
                 session_id: None,
                 window_id: None,
-                options: None,
+                options: default_options(),
                 properties: raw_obj("{}"),
             },
             adjusted_timestamp: None,
@@ -1164,7 +1168,7 @@ mod tests {
                 timestamp: timestamp.to_rfc3339(),
                 session_id: None,
                 window_id: None,
-                options: None,
+                options: default_options(),
                 properties: raw_obj("{}"),
             },
             adjusted_timestamp: Some(timestamp),

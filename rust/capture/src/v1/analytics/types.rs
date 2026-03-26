@@ -34,7 +34,10 @@ pub struct Batch {
 pub struct Options {
     #[serde(rename = "$cookieless_mode", skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "$ignore_attempt_timestamp",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ignore_attempt_timestamp: Option<bool>,
     #[serde(rename = "$product_tour_id", skip_serializing_if = "Option::is_none")]
     pub product_tour_id: Option<String>,
@@ -55,8 +58,7 @@ pub struct Event {
     pub session_id: Option<String>,
     #[serde(rename = "$window_id", skip_serializing_if = "Option::is_none")]
     pub window_id: Option<String>,
-    #[serde(default)]
-    pub options: Option<Options>,
+    pub options: Options,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
 }
@@ -121,7 +123,8 @@ mod tests {
                 "name": "$pageview",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "user-42",
-                "timestamp": "2026-03-19T14:29:58.123Z"
+                "timestamp": "2026-03-19T14:29:58.123Z",
+                "options": {}
             }]
         }"#;
 
@@ -148,6 +151,7 @@ mod tests {
                 "uuid": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
                 "distinct_id": "user-99",
                 "timestamp": "2026-03-19T14:30:00.000Z",
+                "options": {},
                 "properties": {
                     "$current_url": "https://example.com",
                     "$set": {"email": "test@example.com"},
@@ -176,6 +180,7 @@ mod tests {
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d",
                 "timestamp": "2026-03-19T14:30:00.000Z",
+                "options": {},
                 "properties": [1, 2, 3]
             }]
         }"#;
@@ -282,6 +287,7 @@ mod tests {
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d",
                 "timestamp": "2026-03-19T14:30:00.000Z",
+                "options": {},
                 "unknown_event_field": "ignored"
             }]
         }"#;
@@ -342,7 +348,7 @@ mod tests {
                 "$window_id": "win-xyz",
                 "options": {
                     "$cookieless_mode": true,
-                    "ignore_attempt_timestamp": true,
+                    "$ignore_attempt_timestamp": true,
                     "$product_tour_id": "tour-123",
                     "$process_person_profile": false
                 }
@@ -352,15 +358,14 @@ mod tests {
         let event = &batch.batch[0];
         assert_eq!(event.session_id.as_deref(), Some("sess-abc"));
         assert_eq!(event.window_id.as_deref(), Some("win-xyz"));
-        let opts = event.options.as_ref().unwrap();
-        assert_eq!(opts.cookieless_mode, Some(true));
-        assert_eq!(opts.ignore_attempt_timestamp, Some(true));
-        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-123"));
-        assert_eq!(opts.process_person_profile, Some(false));
+        assert_eq!(event.options.cookieless_mode, Some(true));
+        assert_eq!(event.options.ignore_attempt_timestamp, Some(true));
+        assert_eq!(event.options.product_tour_id.as_deref(), Some("tour-123"));
+        assert_eq!(event.options.process_person_profile, Some(false));
     }
 
     #[test]
-    fn parse_event_optional_fields_default_to_none() {
+    fn parse_event_missing_options_fails() {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
@@ -370,11 +375,29 @@ mod tests {
                 "timestamp": "2026-03-19T14:29:58.123Z"
             }]
         }"#;
+        assert!(serde_json::from_str::<Batch>(json).is_err());
+    }
+
+    #[test]
+    fn parse_event_empty_options_ok() {
+        let json = r#"{
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "batch": [{
+                "name": "$pageview",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "user-42",
+                "timestamp": "2026-03-19T14:29:58.123Z",
+                "options": {}
+            }]
+        }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
         let event = &batch.batch[0];
         assert_eq!(event.session_id, None);
         assert_eq!(event.window_id, None);
-        assert!(event.options.is_none());
+        assert_eq!(event.options.cookieless_mode, None);
+        assert_eq!(event.options.ignore_attempt_timestamp, None);
+        assert_eq!(event.options.product_tour_id, None);
+        assert_eq!(event.options.process_person_profile, None);
     }
 
     #[test]

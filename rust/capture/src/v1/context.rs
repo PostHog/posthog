@@ -16,7 +16,7 @@ const REQUIRED_HEADERS: &[&str] = &[
     POSTHOG_SDK_INFO,
     POSTHOG_ATTEMPT,
     POSTHOG_REQUEST_ID,
-    POSTHOG_CLIENT_TIMESTAMP,
+    POSTHOG_ATTEMPT_TIMESTAMP,
     "content-type",
     "user-agent",
 ];
@@ -114,15 +114,16 @@ impl Context {
 
         let content_encoding = match headers.get("content-encoding") {
             Some(val) => {
-                let enc = val.to_str().map_err(|_| {
+                let enc_raw = val.to_str().map_err(|_| {
                     Error::InvalidHeaderValue(
                         "Content-Encoding contains non-visible ASCII characters".into(),
                     )
                 })?;
-                if !SUPPORTED_ENCODINGS.contains(&enc) {
-                    return Err(Error::UnsupportedEncoding(enc.to_string()));
+                let enc = enc_raw.to_ascii_lowercase();
+                if !SUPPORTED_ENCODINGS.contains(&enc.as_str()) {
+                    return Err(Error::UnsupportedEncoding(enc_raw.to_string()));
                 }
-                Some(enc.to_string())
+                Some(enc)
             }
             None => None,
         };
@@ -145,12 +146,12 @@ impl Context {
                 ))
             })?;
 
-        let client_ts_raw = header_str(headers, POSTHOG_CLIENT_TIMESTAMP)?;
+        let client_ts_raw = header_str(headers, POSTHOG_ATTEMPT_TIMESTAMP)?;
         let client_timestamp: DateTime<Utc> = DateTime::parse_from_rfc3339(client_ts_raw)
             .map(|dt| dt.with_timezone(&Utc))
             .map_err(|_| {
                 Error::InvalidHeaderValue(format!(
-                    "{POSTHOG_CLIENT_TIMESTAMP} is not valid RFC 3339: {client_ts_raw}"
+                    "{POSTHOG_ATTEMPT_TIMESTAMP} is not valid RFC 3339: {client_ts_raw}"
                 ))
             })?;
 
@@ -222,7 +223,7 @@ mod tests {
             HeaderValue::from_str(&Uuid::new_v4().to_string()).unwrap(),
         );
         h.insert(
-            POSTHOG_CLIENT_TIMESTAMP,
+            POSTHOG_ATTEMPT_TIMESTAMP,
             HeaderValue::from_static("2025-01-15T10:30:00Z"),
         );
         h.insert("content-type", HeaderValue::from_static("application/json"));
@@ -373,7 +374,7 @@ mod tests {
     fn invalid_rfc3339_timestamp() {
         let mut headers = valid_headers();
         headers.insert(
-            POSTHOG_CLIENT_TIMESTAMP,
+            POSTHOG_ATTEMPT_TIMESTAMP,
             HeaderValue::from_static("not-a-timestamp"),
         );
         let err = test_context(&headers).unwrap_err();

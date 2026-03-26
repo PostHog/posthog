@@ -90,7 +90,7 @@ fn log_and_return_header_error(
     let request_id = raw_header_str(headers, POSTHOG_REQUEST_ID);
     let sdk_info = raw_header_str(headers, POSTHOG_SDK_INFO);
     let attempt = raw_header_str(headers, POSTHOG_ATTEMPT);
-    let client_ts = raw_header_str(headers, POSTHOG_CLIENT_TIMESTAMP);
+    let client_ts = raw_header_str(headers, POSTHOG_ATTEMPT_TIMESTAMP);
     let user_agent = raw_header_str(headers, "user-agent");
     let content_type = raw_header_str(headers, "content-type");
     let content_encoding = raw_header_str(headers, "content-encoding");
