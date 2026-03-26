@@ -6,7 +6,7 @@
         "summary": "Get all actions",
         "title": "Get all actions",
         "required_scopes": ["action:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -36,7 +36,7 @@
         "summary": "Get action",
         "title": "Get action",
         "required_scopes": ["action:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -81,7 +81,7 @@
         "summary": "List activity logs",
         "title": "List activity logs",
         "required_scopes": ["activity_log:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -96,7 +96,7 @@
         "summary": "List alerts",
         "title": "List alerts",
         "required_scopes": ["alert:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -111,7 +111,7 @@
         "summary": "Get alert",
         "title": "Get alert",
         "required_scopes": ["alert:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -186,7 +186,7 @@
         "summary": "List annotations",
         "title": "List annotations",
         "required_scopes": ["annotation:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -216,7 +216,7 @@
         "summary": "Retrieve annotation",
         "title": "Retrieve annotation",
         "required_scopes": ["annotation:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -261,7 +261,7 @@
         "summary": "List function templates",
         "title": "List function templates",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -276,7 +276,7 @@
         "summary": "Get function template",
         "title": "Get function template",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -291,7 +291,7 @@
         "summary": "List functions",
         "title": "List functions",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -321,7 +321,7 @@
         "summary": "Get function",
         "title": "Get function",
         "required_scopes": ["hog_function:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -396,7 +396,7 @@
         "summary": "List all cohorts",
         "title": "List all cohorts",
         "required_scopes": ["cohort:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -411,7 +411,7 @@
         "summary": "Create cohort",
         "title": "Create cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -426,7 +426,7 @@
         "summary": "Get cohort",
         "title": "Get cohort",
         "required_scopes": ["cohort:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -441,7 +441,7 @@
         "summary": "Update cohort",
         "title": "Update cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -456,7 +456,7 @@
         "summary": "Add persons to static cohort",
         "title": "Add persons to static cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -471,7 +471,7 @@
         "summary": "Remove person from static cohort",
         "title": "Remove person from static cohort",
         "required_scopes": ["cohort:write"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -576,7 +576,7 @@
         "summary": "List saved queries",
         "title": "List saved queries",
         "required_scopes": ["warehouse_view:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -606,7 +606,7 @@
         "summary": "Get saved query",
         "title": "Get saved query",
         "required_scopes": ["warehouse_view:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -696,7 +696,7 @@
         "summary": "Get run history",
         "title": "Get run history",
         "required_scopes": ["warehouse_view:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -711,7 +711,7 @@
         "summary": "List early access features",
         "title": "List early access features",
         "required_scopes": ["early_access_feature:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -741,7 +741,7 @@
         "summary": "Get early access feature",
         "title": "Get early access feature",
         "required_scopes": ["early_access_feature:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -786,7 +786,7 @@
         "summary": "List error tracking issues",
         "title": "List error tracking issues",
         "required_scopes": ["error_tracking:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -801,7 +801,7 @@
         "summary": "Get error tracking issue",
         "title": "Get error tracking issue",
         "required_scopes": ["error_tracking:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -831,7 +831,7 @@
         "summary": "Get all feature flags",
         "title": "Get all feature flags",
         "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -846,7 +846,7 @@
         "summary": "Get feature flag definition",
         "title": "Get feature flag definition",
         "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -996,7 +996,7 @@
         "summary": "List notebooks",
         "title": "List notebooks",
         "required_scopes": ["notebook:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1026,7 +1026,7 @@
         "summary": "Get notebook",
         "title": "Get notebook",
         "required_scopes": ["notebook:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1071,7 +1071,7 @@
         "summary": "List persons",
         "title": "List persons",
         "required_scopes": ["person:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1086,7 +1086,7 @@
         "summary": "Get person",
         "title": "Get person",
         "required_scopes": ["person:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1326,7 +1326,7 @@
         "summary": "Get all surveys in the project with optional filtering.",
         "title": "Get all surveys in the project with optional filtering.",
         "required_scopes": ["survey:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1341,7 +1341,7 @@
         "summary": "Get a specific survey by ID.",
         "title": "Get a specific survey by ID.",
         "required_scopes": ["survey:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1431,7 +1431,7 @@
         "summary": "List workflows",
         "title": "List workflows",
         "required_scopes": ["hog_flow:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1446,7 +1446,7 @@
         "summary": "Get workflow",
         "title": "Get workflow",
         "required_scopes": ["hog_flow:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
