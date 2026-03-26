@@ -9757,7 +9757,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["total_users"], 5)
 
 
-class TestFeatureFlagEvaluationTags(APIBaseTest):
+class TestFeatureFlagEvaluationContexts(APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
@@ -9772,15 +9772,15 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         super().tearDown()
 
     @pytest.mark.ee
-    def test_create_feature_flag_with_evaluation_tags(self):
+    def test_create_feature_flag_with_evaluation_contexts(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Flag with evaluation tags",
+                "name": "Flag with evaluation contexts",
                 "key": "flag-with-eval-tags",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": ["app", "marketing", "docs"],
-                "evaluation_tags": ["app", "docs"],
+                "evaluation_contexts": ["app", "docs"],
             },
             format="json",
         )
@@ -9802,7 +9802,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(eval_context_names, ["app", "docs"])
 
     @pytest.mark.ee
-    def test_update_feature_flag_evaluation_tags(self):
+    def test_update_feature_flag_evaluation_contexts(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -9811,12 +9811,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Add initial tags and evaluation tags
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing"],
-                "evaluation_tags": ["app"],
+                "evaluation_contexts": ["app"],
             },
             format="json",
         )
@@ -9830,12 +9829,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         assert first_context is not None
         self.assertEqual(first_context.evaluation_context.name, "app")
 
-        # Update evaluation tags
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing", "docs"],
-                "evaluation_tags": ["marketing", "docs"],
+                "evaluation_contexts": ["marketing", "docs"],
             },
             format="json",
         )
@@ -9847,7 +9845,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(eval_context_names, ["docs", "marketing"])
 
     @pytest.mark.ee
-    def test_remove_all_evaluation_tags(self):
+    def test_remove_all_evaluation_contexts(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -9856,12 +9854,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Add initial tags and evaluation tags
         self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing"],
-                "evaluation_tags": ["app", "marketing"],
+                "evaluation_contexts": ["app", "marketing"],
             },
             format="json",
         )
@@ -9870,12 +9867,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
 
         self.assertEqual(FeatureFlagEvaluationContext.objects.filter(feature_flag=flag).count(), 2)
 
-        # Remove all evaluation tags but keep regular tags
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing"],
-                "evaluation_tags": [],
+                "evaluation_contexts": [],
             },
             format="json",
         )
@@ -9889,7 +9885,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(tagged_items.count(), 2)
 
     @pytest.mark.ee
-    def test_evaluation_tags_in_minimal_serializer(self):
+    def test_evaluation_contexts_in_minimal_serializer(self):
         from posthog.api.feature_flag import MinimalFeatureFlagSerializer
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
@@ -9901,7 +9897,6 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Create evaluation contexts (using new model)
         app_context = EvaluationContext.objects.create(name="app", team=self.team)
         docs_context = EvaluationContext.objects.create(name="docs", team=self.team)
 
@@ -9911,8 +9906,8 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         serializer = MinimalFeatureFlagSerializer(flag)
         data = serializer.data
 
-        self.assertIn("evaluation_tags", data)
-        self.assertEqual(sorted(data["evaluation_tags"]), ["app", "docs"])
+        self.assertIn("evaluation_contexts", data)
+        self.assertEqual(sorted(data["evaluation_contexts"]), ["app", "docs"])
 
     @pytest.mark.ee
     def test_evaluation_contexts_independent_from_tags(self):
@@ -9925,12 +9920,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
                 "key": "independent-contexts",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": ["app", "docs"],
-                "evaluation_tags": ["production", "staging"],
+                "evaluation_contexts": ["production", "staging"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(sorted(response.json()["evaluation_tags"]), ["production", "staging"])
         self.assertEqual(sorted(response.json()["evaluation_contexts"]), ["production", "staging"])
 
         # Contexts without any tags
@@ -9941,7 +9935,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
                 "key": "contexts-no-tags",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": [],
-                "evaluation_tags": ["production"],
+                "evaluation_contexts": ["production"],
             },
             format="json",
         )
@@ -9949,59 +9943,50 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(response.json()["evaluation_contexts"], ["production"])
 
     @pytest.mark.ee
-    def test_evaluation_tags_hidden_when_feature_flag_disabled(self):
-        """Test that evaluation tags are hidden when FLAG_EVALUATION_TAGS feature flag is disabled"""
-        # Override the default mock to disable the feature flag
+    def test_evaluation_contexts_hidden_when_feature_flag_disabled(self):
         self.mock_feature_enabled.return_value = False
 
-        # Create a flag with evaluation tags
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Flag with evaluation tags",
+                "name": "Flag with evaluation contexts",
                 "key": "flag-with-eval-tags-disabled",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": ["web", "mobile"],
-                "evaluation_tags": ["web"],
+                "evaluation_contexts": ["web"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # Verify the flag was created but WITHOUT evaluation tags (feature flag disabled)
         flag = FeatureFlag.objects.get(key="flag-with-eval-tags-disabled")
-        self.assertEqual(len(flag.evaluation_tags.all()), 0)  # No evaluation tags created
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
-        # Verify evaluation tags are hidden in API response (due to feature flag being disabled)
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], [])  # Hidden due to feature flag
+        self.assertEqual(response.data["evaluation_contexts"], [])
 
-        # Test that evaluation tags can't be created when feature flag is disabled
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "name": "Updated flag with disabled feature flag",
-                "evaluation_tags": ["web", "mobile"],  # Should be ignored
+                "evaluation_contexts": ["web", "mobile"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Verify evaluation tags were not created (feature flag disabled)
         flag.refresh_from_db()
-        self.assertEqual(len(flag.evaluation_tags.all()), 0)  # Still no evaluation tags
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
-        # Now enable the feature flag
         self.mock_feature_enabled.return_value = True
 
-        # Verify evaluation tags are still empty (feature flag was disabled during creation)
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], [])  # Still empty because none were created
+        self.assertEqual(response.data["evaluation_contexts"], [])
 
     @pytest.mark.ee
-    def test_evaluation_tags_in_cache(self):
+    def test_evaluation_contexts_in_cache(self):
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
         from posthog.models.feature_flag import set_feature_flags_for_team_in_cache
 
@@ -10033,9 +10018,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
 
     @pytest.mark.ee
-    def test_evaluation_tags_cache_invalidation(self):
-        """Test that cache is invalidated when evaluation tags are updated"""
-
+    def test_evaluation_contexts_cache_invalidation(self):
         from posthog.models.feature_flag import get_feature_flags_for_team_in_cache, set_feature_flags_for_team_in_cache
 
         flag = FeatureFlag.objects.create(
@@ -10046,22 +10029,19 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Set initial cache
         set_feature_flags_for_team_in_cache(self.team.project_id)
 
-        # Verify flag is in cache without evaluation tags
         cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
         assert cached_flags is not None
         cached_flag = next((f for f in cached_flags if f.key == "cache-invalidation-test"), None)
         assert cached_flag is not None
         self.assertEqual(cached_flag.evaluation_tag_names, [])
 
-        # Update flag with evaluation tags via API
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "docs"],
-                "evaluation_tags": ["app"],
+                "evaluation_contexts": ["app"],
             },
             format="json",
         )

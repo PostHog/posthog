@@ -466,7 +466,7 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
         return []
     }
@@ -474,7 +474,14 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     return [
         {
             key: ProductTab.LIVE,
-            label: 'Live',
+            label: (
+                <div className="flex items-center gap-1">
+                    Live
+                    <LemonTag type="highlight" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
             link: '/web/live',
         },
     ]

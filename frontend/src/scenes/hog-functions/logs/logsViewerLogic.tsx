@@ -79,9 +79,11 @@ const toKey = (log: LogEntry): string => {
 }
 
 export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
-    // TRICKY: CH query is timezone aware so we dont send iso, and we need to convert to UTC
+    // TRICKY: HogQL interprets bare timestamps as being in the team's timezone,
+    // so we must format in the team timezone (not UTC).
     // See https://github.com/PostHog/posthog/pull/45651
-    return timestamp.tz('UTC').format('YYYY-MM-DD HH:mm:ss.SSS')
+    const teamTimezone = teamLogic.findMounted()?.values.currentTeam?.timezone ?? 'UTC'
+    return timestamp.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
 const buildBoundaryFilters = (request: LogEntryParams): string => {

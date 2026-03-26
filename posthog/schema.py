@@ -3949,6 +3949,25 @@ class SharingConfigurationSettings(BaseModel):
     whitelabel: bool | None = None
 
 
+class SignalSourceProduct(StrEnum):
+    SESSION_REPLAY = "session_replay"
+    LLM_ANALYTICS = "llm_analytics"
+    GITHUB = "github"
+    LINEAR = "linear"
+    ZENDESK = "zendesk"
+    ERROR_TRACKING = "error_tracking"
+
+
+class SignalSourceType(StrEnum):
+    SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
+    EVALUATION = "evaluation"
+    ISSUE = "issue"
+    TICKET = "ticket"
+    ISSUE_CREATED = "issue_created"
+    ISSUE_REOPENED = "issue_reopened"
+    ISSUE_SPIKING = "issue_spiking"
+
+
 class SimilarIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
