@@ -382,37 +382,17 @@ impl FeatureFlagMatcher {
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
-        // Build precomputed dependency graph with evaluation stages and transitive dependency map.
-        // On the precomputed path, flag_keys filtering happens during build (only needed flags
-        // are cloned). On the fallback path, we filter after build via filter_stages_by_keys.
-        let precomputed = match PrecomputedDependencyGraph::build(
-            &feature_flags,
-            self.team_id,
-            flag_keys.as_deref(),
-        ) {
-            Some(result) => result,
-            None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
-        };
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
         self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
         self.preloaded_cohorts = feature_flags.cohorts;
 
-        // Extract global stats before potential consuming filter call
-        let error_count = precomputed.error_count;
-        let has_cycle_errors = precomputed.has_cycle_errors;
-
-        // Only the fallback (graph) path needs post-build filtering — the precomputed
-        // path already filtered during build when flag_keys was provided.
-        let (evaluation_stages, flags_with_missing_deps) =
-            if precomputed.is_graph_fallback && flag_keys.is_some() {
-                let filtered = precomputed.filter_stages_by_keys(flag_keys.as_ref().unwrap());
-                (filtered.evaluation_stages, filtered.flags_with_missing_deps)
-            } else {
-                (
-                    precomputed.evaluation_stages,
-                    precomputed.flags_with_missing_deps,
-                )
-            };
+        let PrecomputedDependencyGraph {
+            error_count,
+            has_cycle_errors,
+            evaluation_stages,
+            flags_with_missing_deps,
+        } = precomputed;
 
         if error_count > 0 {
             with_canonical_log(|log| log.dependency_graph_errors = error_count);

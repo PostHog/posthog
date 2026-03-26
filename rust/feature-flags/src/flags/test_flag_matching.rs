@@ -26,8 +26,8 @@ mod tests {
         utils::{
             graph_utils::PrecomputedDependencyGraph,
             test_utils::{
-                create_test_flag, create_test_flag_that_depends_on_flag, mock_group_type_cache,
-                TestContext,
+                create_test_flag, create_test_flag_that_depends_on_flag, flag_list_with_metadata,
+                mock_group_type_cache, TestContext,
             },
         },
     };
@@ -212,10 +212,7 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -291,10 +288,7 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -411,10 +405,7 @@ mod tests {
             Some(groups),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![person_flag.clone(), group_flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![person_flag.clone(), group_flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -512,10 +503,7 @@ mod tests {
             Some(groups),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
@@ -599,14 +587,11 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                independent_flag.clone(),
-                leaf_flag.clone(),
-                parent_flag.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            independent_flag.clone(),
+            leaf_flag.clone(),
+            parent_flag.clone(),
+        ]);
 
         {
             let overrides = HashMap::from([("email".to_string(), json!("override@example.com"))]);
@@ -775,10 +760,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
-        let flags = FeatureFlagList {
-            flags: vec![leaf_flag.clone(), parent_flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![leaf_flag.clone(), parent_flag.clone()]);
 
         {
             let overrides = HashMap::from([("email".to_string(), json!("control@example.com"))]);
@@ -943,15 +925,12 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                independent_flag.clone(),
-                leaf_flag.clone(),
-                intermediate_flag.clone(),
-                parent_flag.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            independent_flag.clone(),
+            leaf_flag.clone(),
+            intermediate_flag.clone(),
+            parent_flag.clone(),
+        ]);
 
         reset_fetch_calls_count();
 
@@ -1079,18 +1058,15 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                independent_flag.clone(),
-                leaf_flag.clone(),
-                cycle_node.clone(),
-                cycle_middle_flag.clone(),
-                cycle_start_flag.clone(),
-                parent_flag.clone(),
-                missing_dependency_flag.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            independent_flag.clone(),
+            leaf_flag.clone(),
+            cycle_node.clone(),
+            cycle_middle_flag.clone(),
+            cycle_start_flag.clone(),
+            parent_flag.clone(),
+            missing_dependency_flag.clone(),
+        ]);
 
         {
             // Leaf flag evaluates to true
@@ -1259,10 +1235,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
-        let flags = FeatureFlagList {
-            flags: vec![leaf_flag.clone(), parent_flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![leaf_flag.clone(), parent_flag.clone()]);
 
         {
             // Leaf flag evaluates to "control"
@@ -1781,10 +1754,7 @@ mod tests {
         reset_fetch_calls_count();
         let result = matcher
             .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
-                    ..Default::default()
-                },
+                flag_list_with_metadata(vec![flag.clone()]),
                 Some(person_property_overrides),
                 None,
                 None,
@@ -4062,10 +4032,7 @@ mod tests {
         .await
         .unwrap();
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -4161,10 +4128,7 @@ mod tests {
             Some(true),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -4256,7 +4220,7 @@ mod tests {
 
         // Create flag without continuity
         let flag_no_continuity = create_test_flag(
-            None,
+            Some(2),
             Some(team.id),
             None,
             Some("flag_no_continuity_mix".to_string()),
@@ -4299,10 +4263,8 @@ mod tests {
         .await
         .unwrap();
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_continuity.clone(), flag_no_continuity.clone()],
-            ..Default::default()
-        };
+        let flags =
+            flag_list_with_metadata(vec![flag_continuity.clone(), flag_no_continuity.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -5456,10 +5418,7 @@ mod tests {
 
         let result = matcher
             .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
-                    ..Default::default()
-                },
+                flag_list_with_metadata(vec![flag.clone()]),
                 Some(person_property_overrides),
                 None,
                 None,
@@ -6219,10 +6178,7 @@ mod tests {
             None,
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         reset_fetch_calls_count();
 
         let result = matcher
@@ -6497,10 +6453,7 @@ mod tests {
             Some(groups.clone()),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let result = matcher
             .evaluate_all_feature_flags(
@@ -6875,14 +6828,10 @@ mod tests {
             Some(false), // ensure_experience_continuity
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_with_continuity, flag_without_continuity],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag_with_continuity, flag_without_continuity]);
 
         // Build dependency graph for the flags
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         // Test the scenario where hash key override reading fails
         // This simulates the case where we have experience continuity flags but hash override reads fail
@@ -6992,12 +6941,15 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![filtered_continuity_flag, active_normal_flag],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1, 2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         // Simulate a hash-key-override read failure
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
@@ -7084,12 +7036,16 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![base_flag, dependent_flag],
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+            },
             ..Default::default()
         };
 
         // Build dependency graph for the flags
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -7187,12 +7143,15 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -7285,12 +7244,15 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -7385,13 +7347,9 @@ mod tests {
         ))
         .unwrap();
 
-        let flags = FeatureFlagList {
-            flags: vec![disabled_standalone, active_flag],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![disabled_standalone, active_flag]);
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -7481,12 +7439,19 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b, flag_c],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: None,
+            evaluation_metadata: EvaluationMetadata {
+                dependency_stages: vec![vec![1], vec![2], vec![3]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([
+                    (1, HashSet::new()),
+                    (2, HashSet::from([1])),
+                    (3, HashSet::from([1, 2])),
+                ]),
+            },
             cohorts: None,
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build dependency graph");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -7577,10 +7542,7 @@ mod tests {
             Some(true), // ensure_experience_continuity = true
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7672,10 +7634,7 @@ mod tests {
             Some(true), // ensure_experience_continuity = true
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7780,10 +7739,7 @@ mod tests {
             Some(true), // ensure_experience_continuity = true
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7893,10 +7849,7 @@ mod tests {
             Some(true), // ensure_experience_continuity = true
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -7993,10 +7946,7 @@ mod tests {
             Some(true), // ensure_experience_continuity = true
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -8129,14 +8079,11 @@ mod tests {
             Some(false),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![
-                flag_optimizable.clone(),
-                flag_needs_lookup.clone(),
-                flag_no_continuity.clone(),
-            ],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![
+            flag_optimizable.clone(),
+            flag_needs_lookup.clone(),
+            flag_no_continuity.clone(),
+        ]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -8277,10 +8224,8 @@ mod tests {
             Some(true),
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_optimizable.clone(), flag_needs_lookup.clone()],
-            ..Default::default()
-        };
+        let flags =
+            flag_list_with_metadata(vec![flag_optimizable.clone(), flag_needs_lookup.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -8428,10 +8373,8 @@ mod tests {
             Some(true), // experience continuity enabled
         );
 
-        let flags = FeatureFlagList {
-            flags: vec![flag_needs_lookup.clone(), flag_depends_on_b.clone()],
-            ..Default::default()
-        };
+        let flags =
+            flag_list_with_metadata(vec![flag_needs_lookup.clone(), flag_depends_on_b.clone()]);
 
         // Reset counter before the test
         reset_hash_key_override_lookup_count();
@@ -8537,10 +8480,7 @@ mod tests {
         );
         let person_property_overrides =
             HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         reset_fetch_calls_count();
 
@@ -8657,10 +8597,7 @@ mod tests {
         let person_property_overrides =
             HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             "test_user".to_string(),
@@ -8766,10 +8703,7 @@ mod tests {
         let person_property_overrides =
             HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
 
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-            ..Default::default()
-        };
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
 
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
@@ -9241,7 +9175,7 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b, flag_c],
-            evaluation_metadata: Some(EvaluationMetadata {
+            evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -9249,17 +9183,11 @@ mod tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
-            }),
+            },
             ..Default::default()
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build from precomputed metadata");
-
-        assert!(
-            !precomputed.is_graph_fallback,
-            "Should use the precomputed path"
-        );
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -9346,18 +9274,16 @@ mod tests {
 
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
-            evaluation_metadata: Some(EvaluationMetadata {
+            evaluation_metadata: EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
-            }),
+            },
             ..Default::default()
         };
 
-        let precomputed = PrecomputedDependencyGraph::build(&flags, team.id, None)
-            .expect("Should build from precomputed metadata");
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
 
-        assert!(!precomputed.is_graph_fallback);
         assert!(precomputed.flags_with_missing_deps.contains(&1));
 
         let router = context.create_postgres_router();
@@ -9469,10 +9395,7 @@ mod tests {
 
         let result = matcher
             .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
-                    ..Default::default()
-                },
+                flag_list_with_metadata(vec![flag.clone()]),
                 None,
                 None,
                 None,

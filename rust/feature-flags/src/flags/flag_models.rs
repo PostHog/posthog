@@ -62,12 +62,26 @@ pub struct EvaluationMetadata {
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
 }
 
-/// Wrapper struct for deserializing hypercache format: {"flags": [...], "cohorts": [...]}
+impl EvaluationMetadata {
+    /// Builds metadata that places all flags in a single evaluation stage
+    /// with no dependency ordering. Used by the PG fallback path.
+    pub fn single_stage(flags: &[FeatureFlag]) -> Self {
+        Self {
+            dependency_stages: vec![flags.iter().map(|f| f.id).collect()],
+            ..Default::default()
+        }
+    }
+}
+
+/// Wrapper struct for deserializing hypercache format:
+/// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]}`
+///
+/// `evaluation_metadata` is always present in cache entries (written by Django).
+/// The PG fallback path constructs this struct directly with `Default::default()`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
-    #[serde(default)]
-    pub evaluation_metadata: Option<EvaluationMetadata>,
+    pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps).
     /// Precomputed by Django at cache-write time so the Rust service can skip
     /// the separate CohortCacheManager PG query.
@@ -230,10 +244,8 @@ pub struct FeatureFlagList {
     #[serde(skip)]
     pub filtered_out_flag_ids: HashSet<i32>,
     /// Pre-computed dependency metadata from Django's hypercache.
-    /// Present when the cache was written by new Django code; absent for PG fallback
-    /// or old cache entries.
     #[serde(skip)]
-    pub evaluation_metadata: Option<EvaluationMetadata>,
+    pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps),
     /// precomputed by Django at cache-write time.
     /// When present, the matcher uses these instead of querying CohortCacheManager.
