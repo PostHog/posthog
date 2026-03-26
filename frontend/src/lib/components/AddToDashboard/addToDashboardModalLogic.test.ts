@@ -133,7 +133,7 @@ describe('addToDashboardModalLogic', () => {
             })
     })
 
-    it('orders dashboards: on insight first, then pinned, then mine, then the rest', async () => {
+    it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {
         const insightOnlyOnDash2: QueryBasedInsightModel = {
             ...MOCK_INSIGHT,
             dashboards: [2],
@@ -179,8 +179,8 @@ describe('addToDashboardModalLogic', () => {
         await expectLogic(logic).toMatchValues({
             orderedDashboards: [
                 expect.objectContaining({ id: 2 }),
-                expect.objectContaining({ id: 1 }),
                 expect.objectContaining({ id: 3 }),
+                expect.objectContaining({ id: 1 }),
                 expect.objectContaining({ id: 4 }),
             ],
         })
