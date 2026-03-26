@@ -31,7 +31,7 @@ const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 export const Syncs = ({ id }: SyncsProps): JSX.Element => {
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(
+    const { jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(
         dataWarehouseSourceSettingsLogic({ id, availableSources: {} })
     )
     const { loadMoreJobs, setSelectedSchemas } = useActions(
@@ -48,7 +48,6 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
 
     const filteredJobs =
         selectedSchemas.length > 0 ? jobs.filter((job) => selectedSchemas.includes(job.schema.name)) : jobs
-
 
     return (
         <>

@@ -60,9 +60,8 @@ export const SyncProgressStep = (): JSX.Element => {
             title: 'Table',
             key: 'table',
             render: function RenderTable(_, schema) {
-                const displayName = schema.label ?? schema.name
                 if (!schema.table) {
-                    return displayName
+                    return schema.label ?? schema.name
                 }
 
                 return (
@@ -70,7 +69,7 @@ export const SyncProgressStep = (): JSX.Element => {
                         to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}
                         onClick={() => cancelWizard()}
                     >
-                        {displayName}
+                        {schema.label ?? schema.name}
                     </Link>
                 )
             },

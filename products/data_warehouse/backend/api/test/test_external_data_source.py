@@ -658,7 +658,6 @@ class TestExternalDataSource(APIBaseTest):
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "label": schema.label,
-                    "display_name": schema.display_name,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
                     "status": schema.status,
@@ -1654,7 +1653,6 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
-                    "name": "table_1",
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,
@@ -1707,7 +1705,6 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
-                    "name": "table_1",
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,

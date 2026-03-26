@@ -51,7 +51,6 @@ logger = structlog.get_logger(__name__)
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
-    display_name = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
     sync_type = serializers.SerializerMethodField(read_only=True)
     incremental_field = serializers.SerializerMethodField(read_only=True)
@@ -67,7 +66,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "label",
-            "display_name",
             "table",
             "should_sync",
             "last_synced_at",
@@ -86,16 +84,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "label",
-            "display_name",
             "table",
             "last_synced_at",
             "latest_error",
             "status",
             "description",
         ]
-
-    def get_display_name(self, schema: ExternalDataSchema) -> str:
-        return schema.display_name
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
@@ -495,7 +489,7 @@ def handle_external_data_schema_change(
         sync_frequency = sync_frequency_interval_to_sync_frequency(external_data_schema.sync_frequency_interval)
 
     context = ExternalDataSchemaContext(
-        name=external_data_schema.display_name or "",
+        name=external_data_schema.name or "",
         sync_type=external_data_schema.sync_type,
         sync_frequency=sync_frequency,
         source_id=str(source.id) if source else "",
@@ -512,7 +506,7 @@ def handle_external_data_schema_change(
         activity=activity,
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
-            name=external_data_schema.display_name,
+            name=external_data_schema.name,
             context=context,
         ),
     )

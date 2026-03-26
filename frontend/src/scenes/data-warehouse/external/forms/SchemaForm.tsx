@@ -67,10 +67,9 @@ export default function SchemaForm(): JSX.Element {
                                 title: 'Table',
                                 key: 'table',
                                 render: function RenderTable(_, schema) {
-                                    const schemaName = schema.name ?? schema.table
-                                    const isSuggested = suggestedTablesMap[schemaName] !== undefined
+                                    const isSuggested = suggestedTablesMap[schema.table] !== undefined
                                     const tooltip =
-                                        suggestedTablesMap[schemaName] ??
+                                        suggestedTablesMap[schema.table] ??
                                         'This table is suggested to be enabled for this source'
 
                                     return (

@@ -5611,7 +5611,6 @@ export interface IncrementalField {
 
 export interface ExternalDataSourceSyncSchema {
     table: string
-    name?: string
     rows?: number | null
     should_sync: boolean
     sync_time_of_day: string | null

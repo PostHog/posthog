@@ -685,7 +685,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         schema_names = [schema.name for schema in source_schemas]
-        schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
         if not payload_schemas or not isinstance(payload_schemas, list):
@@ -743,7 +742,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
-                label=schema_label_by_name.get(schema_name),
                 team=self.team,
                 source=new_source_model,
                 should_sync=should_sync,
@@ -949,8 +947,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
+            schema_names = [s.name for s in schemas]
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
-                {s.name: s.label for s in schemas},
+                schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
                 descriptions=descriptions,
@@ -1014,8 +1013,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         data = [
             {
-                "table": schema.label or schema.name,
-                "name": schema.name,
+                "table": schema.name,
                 "should_sync": False,
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,

@@ -117,7 +117,6 @@ export interface ExternalDataSchemaApi {
     readonly name: string
     /** @nullable */
     readonly label: string | null
-    readonly display_name: string
     /** @nullable */
     readonly table: ExternalDataSchemaApiTable
     should_sync?: boolean
