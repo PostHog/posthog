@@ -27,6 +27,7 @@ export interface SeriesDatum {
     count: number
     filter?: FilterType
     hideTooltip?: boolean
+    anomalyScore?: number | null
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series

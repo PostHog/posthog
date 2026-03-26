@@ -1,42 +1,60 @@
+import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-headless/protocol'
+
 export interface RasterizeRecordingInput {
-    recording_url: string
-    wait_for_css_selector: string
-    recording_duration: number // seconds
-    playback_speed: number // 1-360
-    screenshot_width?: number
-    screenshot_height?: number
+    session_id: string
+    team_id: number
+    capture_timeout?: number // max virtual-time seconds before aborting capture (default: unlimited)
+    playback_speed?: number // 1-360, defaults to 4
+    start_timestamp?: number // ms since epoch
+    end_timestamp?: number // ms since epoch
     recording_fps?: number // target FPS for final video
-    skip_postprocessing?: boolean // skip ffmpeg post-processing (for AI pipeline)
+    skip_inactivity?: boolean // skip inactive sections during playback (default: true)
+    mouse_tail?: boolean // show mouse trail (default: true)
+    viewport_events?: Array<{ timestamp: number; width: number; height: number }> // viewport resize events
+    show_metadata_footer?: boolean // render URL + timestamp bar at bottom (for AI pipeline)
+    trim?: number // optional max output duration in seconds (only trims if video is longer)
+    viewport_width?: number // override capture width (default: 1280)
+    viewport_height?: number // override capture height (default: 720)
     s3_bucket: string
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
 }
 
-export interface InactivityPeriod {
-    ts_from_s: number
-    ts_to_s: number | null
-    active: boolean
+/**
+ * Extends the base InactivityPeriod from the shared protocol with
+ * recording_ts fields that map segment boundaries to post-processed video
+ * positions.
+ */
+export interface InactivityPeriod extends BaseInactivityPeriod {
     recording_ts_from_s?: number
     recording_ts_to_s?: number
 }
 
+export interface ActivityTimings {
+    total_s: number
+    setup_s: number // browser setup + player load + data fetch
+    capture_s: number // screen recording of playback
+    upload_s: number
+}
+
 export interface RasterizeRecordingOutput {
-    s3_key: string
-    pre_roll: number
+    s3_uri: string
+    video_duration_s: number // actual playback duration of the output video
     playback_speed: number
-    measured_width: number | null
+    show_metadata_footer: boolean
+    truncated: boolean // true when capture_timeout stopped the recording early
     inactivity_periods: InactivityPeriod[]
-    segment_start_timestamps: Record<string, number>
-    custom_fps: number | null
     file_size_bytes: number
+    timings: ActivityTimings
 }
 
 /** Internal result from the recorder before S3 upload */
 export interface RecordingResult {
     video_path: string
-    pre_roll: number
     playback_speed: number
-    measured_width: number | null
+    capture_duration_s: number // wall-clock seconds of useful capture (up to RECORDING_ENDED)
+    frame_count: number // total frames captured
+    truncated: boolean // true when capture_timeout stopped the recording early
     inactivity_periods: InactivityPeriod[]
-    segment_start_timestamps: Record<string, number>
-    custom_fps: number | null
+    custom_fps: number
+    timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }

@@ -22,8 +22,8 @@
   WITH
       cte AS (SELECT
               count() AS cnt,
-              hour AS start_hour,
-              hour AS end_hour
+              toStartOfDay(hour) AS start_hour,
+              toStartOfDay(hour) AS end_hour
           FROM
               events
           GROUP BY
@@ -210,6 +210,21 @@
   LIMIT 50000
   '''
 # ---
+# name: TestTransformQuerySnapshots.test_hard_cap_timestamp_with_variable_range
+  '''
+  SELECT
+      count(),
+      toStartOfDay(timestamp) AS start_date,
+      toStartOfDay(timestamp) AS end_date
+  FROM
+      events
+  WHERE
+      greater(timestamp, minus(today(), toIntervalDay(90)))
+  GROUP BY
+      toStartOfDay(timestamp)
+  LIMIT 50000
+  '''
+# ---
 # name: TestTransformQuerySnapshots.test_like_operator
   '''
   SELECT
@@ -227,12 +242,12 @@
   SELECT
       count(),
       event AS name,
-      hour AS start_hour
+      toStartOfDay(hour) AS start_hour
   FROM
       events
   GROUP BY
       event,
-      hour
+      toStartOfDay(hour)
   LIMIT 50000
   '''
 # ---
@@ -336,12 +351,12 @@
   '''
   SELECT
       count(),
-      hour AS start_hour,
-      hour AS end_hour
+      toStartOfDay(hour) AS start_hour,
+      toStartOfDay(hour) AS end_hour
   FROM
       events
   GROUP BY
-      hour
+      toStartOfDay(hour)
   LIMIT 50000
   '''
 # ---
@@ -374,13 +389,13 @@
   SELECT
       count(),
       event AS name,
-      hour AS start_hour,
-      hour AS end_hour
+      toStartOfDay(hour) AS start_hour,
+      toStartOfDay(hour) AS end_hour
   FROM
       events
   GROUP BY
       event,
-      hour
+      toStartOfDay(hour)
   LIMIT 50000
   '''
 # ---

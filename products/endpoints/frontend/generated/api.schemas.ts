@@ -846,6 +846,11 @@ export interface HogQLQueryApi {
     name?: string | null
     query: string
     response?: HogQLQueryResponseApi | null
+    /**
+     * Run the selected connection query directly without translating it through HogQL first
+     * @nullable
+     */
+    sendRawQuery?: boolean | null
     tags?: QueryLogTagsApi | null
     /**
      * Constant values that can be referenced with the {placeholder} syntax in the query
@@ -889,6 +894,7 @@ export const MultipleBreakdownTypeApi = {
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
     RevenueAnalytics: 'revenue_analytics',
 } as const
 
@@ -3675,6 +3681,7 @@ export type DataWarehouseSyncIntervalApi =
 
 export const DataWarehouseSyncIntervalApi = {
     '5min': '5min',
+    '15min': '15min',
     '30min': '30min',
     '1hour': '1hour',
     '6hour': '6hour',

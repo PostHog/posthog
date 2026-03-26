@@ -3347,7 +3347,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_charge["data"],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchema.SyncType.WEBHOOK,
     )
 
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
@@ -3361,10 +3361,10 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
         enabled=True,
         deleted=False,
         type="warehouse_source_webhook",
-        inputs_schema=[{"key": "schema_mapping", "type": "json"}, {"key": "schema_ids", "type": "json"}],
+        inputs_schema=[{"key": "schema_mapping", "type": "json"}, {"key": "source_id", "type": "string"}],
         inputs={
             "schema_mapping": {"value": {"charge": schema_id_str}},
-            "schema_ids": {"value": [schema_id_str]},
+            "source_id": {"value": str(inputs.external_data_source_id)},
         },
     )
 

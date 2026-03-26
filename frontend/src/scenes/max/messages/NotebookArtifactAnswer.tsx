@@ -140,6 +140,7 @@ export function NotebookArtifactAnswer({
                     {localIsSaved && artifactId ? (
                         <LemonButton
                             to={urls.notebook(artifactId)}
+                            targetBlank
                             type="primary"
                             size="small"
                             icon={<IconOpenInNew />}
@@ -223,6 +224,7 @@ function VisualizationBlockPreview({ block }: { block: VisualizationBlock }): JS
                 </LemonButton>
                 <LemonButton
                     to={urls.insightNew({ query: query as InsightVizNode | DataVisualizationNode })}
+                    targetBlank
                     icon={<IconOpenInNew />}
                     size="xsmall"
                     tooltip="Open as new insight"
@@ -262,6 +264,7 @@ function SessionReplayBlockPreview({ block }: { block: SessionReplayBlock }): JS
                 <span className="text-xs font-medium">{block.title || 'Session Replay'}</span>
                 <LemonButton
                     to={urls.replaySingle(block.session_id)}
+                    targetBlank
                     icon={<IconOpenInNew />}
                     size="xsmall"
                     tooltip="Open session replay"

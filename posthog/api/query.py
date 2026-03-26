@@ -141,10 +141,22 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
     def _try_coalesce(
         self, query: BaseModel, execution_mode: ExecutionMode, client_query_id: str
-    ) -> Optional[Response]:
-        """Attempt query coalescing. Returns Response for follower-error, None otherwise."""
-        if execution_mode != ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
-            return None
+    ) -> tuple[Optional[Response], ExecutionMode]:
+        """Attempt query coalescing.
+
+        Returns a (response, execution_mode) tuple.  The response is non-None only
+        when a follower must short-circuit (e.g. replay an error or report a timeout).
+        The returned execution_mode may differ from the input: force_blocking followers
+        are downgraded to blocking so they hit the cache populated by the leader.
+        """
+        # Coalescing applies to both regular blocking queries and force_blocking queries.
+        # force_blocking followers are downgraded to RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        # on DONE so they read from the cache the leader just populated, rather than recalculating.
+        if execution_mode not in (
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ):
+            return None, execution_mode
 
         enabled = posthoganalytics.feature_enabled(
             "http-query-coalescing",
@@ -164,15 +176,15 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             is_leader = coalescer.try_acquire()
         except RedisError:
             log.warning("query_coalescing_redis_error", msg="redis unavailable, skipping coalescing")
-            return None
+            return None, execution_mode
 
         if is_leader:
             log.info("query_coalescing_leader_start")
             self._coalescer = coalescer
-            return None
+            return None, execution_mode
 
         if not enabled:
-            return None
+            return None, execution_mode
 
         # Follower path
         log.info("query_coalescing_follower_waiting")
@@ -181,7 +193,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         if signal == CoalesceSignal.DONE:
             log.info("query_coalescing_follower_done")
-            return None
+            # Followers fall through to cache-aware mode so they read the result
+            # the leader just wrote, instead of recalculating.
+            return None, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
         if signal == CoalesceSignal.ERROR:
             error_data = coalescer.get_error_response()
@@ -191,24 +205,24 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     body = orjson.loads(error_data["body"])
                 except Exception:
                     log.warning("query_coalescing_follower_body_parse_failed")
-                    return None
+                    return None, execution_mode
                 return Response(
                     data=body,
                     status=error_data["status"],
-                )
+                ), execution_mode
             # Couldn't read error, fall through
             log.warning("query_coalescing_follower_error_read_failed")
-            return None
+            return None, execution_mode
 
         if signal == CoalesceSignal.TIMEOUT:
             log.warning("query_coalescing_follower_timeout")
             return Response(
                 data={"type": "server_error", "detail": "Query is still running, please try again shortly."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            ), execution_mode
 
         log.info("query_coalescing_follower_fallthrough", signal=signal)
-        return None
+        return None, execution_mode
 
     def finalize_response(self, request, response, *args, **kwargs):
         try:
@@ -245,7 +259,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 data, self.team, data.client_query_id, request.user
             )
 
-            error = self._try_coalesce(query, execution_mode, client_query_id)
+            error, execution_mode = self._try_coalesce(query, execution_mode, client_query_id)
             if error is not None:
                 return error
 
@@ -304,6 +318,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if result.get("query_status") and result["query_status"].get("complete") is False
                 else status.HTTP_200_OK
             )
+
+            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
+                formatted = self._try_format_for_llm(query, result)
+                if formatted is not None:
+                    result["formatted_results"] = formatted
+
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -435,6 +455,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    def _try_format_for_llm(self, query: BaseModel, result: dict) -> str | None:
+        """Try to format query results as LLM-friendly text. Returns None on failure."""
+        if not settings.EE_AVAILABLE:
+            return None
+        try:
+            from ee.hogai.context.insight.format import format_query_results_for_llm
+
+            return format_query_results_for_llm(query, result, self.team)
+        except Exception:
+            logger.warning("mcp_llm_format_failed", exc_info=True)
+            return None
 
 
 MAX_QUERY_TIMEOUT = 600

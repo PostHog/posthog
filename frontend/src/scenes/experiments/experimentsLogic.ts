@@ -117,6 +117,7 @@ export function isSingleVariantShipped(experiment: Experiment): boolean {
 
     return (
         !!filters &&
+        experiment.feature_flag?.active !== false &&
         Array.isArray(filters.groups?.[0]?.properties) &&
         filters.groups?.[0]?.properties?.length === 0 &&
         filters.groups?.[0]?.rollout_percentage === 100 &&
@@ -298,7 +299,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 archiveExperiment: async (id: number) => {
-                    await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
                     lemonToast.info('Experiment archived')
                     return {
                         ...values.experiments,
@@ -306,8 +307,14 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         count: values.experiments.count - 1,
                     }
                 },
-                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string }) => {
-                    const data = payload.featureFlagKey ? { feature_flag_key: payload.featureFlagKey } : {}
+                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string; name?: string }) => {
+                    const data: Record<string, string> = {}
+                    if (payload.featureFlagKey) {
+                        data.feature_flag_key = payload.featureFlagKey
+                    }
+                    if (payload.name) {
+                        data.name = payload.name
+                    }
                     const duplicatedExperiment = await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
                         data
@@ -386,9 +393,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
                 }
 
-                // Add evaluation tags filter if required by team
+                // Add evaluation contexts filter if required by team
                 if (currentTeam?.require_evaluation_contexts) {
-                    params.has_evaluation_tags = true
+                    params.has_evaluation_contexts = true
                 }
 
                 return params

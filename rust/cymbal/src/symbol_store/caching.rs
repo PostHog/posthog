@@ -8,7 +8,7 @@ use crate::metric_consts::{
     STORE_CACHE_MISSES,
 };
 
-use super::{saving::Saveable, Fetcher, Parser, Provider};
+use super::{Fetcher, Parser, Provider};
 
 // This is a type-specific symbol provider layer, designed to
 // wrap some inner provider and provide a type-safe caching layer
@@ -24,8 +24,8 @@ impl<P> Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
     P::Ref: ToString + Send,
-    P::Fetched: Countable + Send,
-    P::Set: Any + Send + Sync,
+    P::Fetched: Send,
+    P::Set: Countable + Any + Send + Sync,
 {
     pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
         Self { inner, cache }
@@ -37,8 +37,8 @@ impl<P> Provider for Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
     P::Ref: ToString + Send,
-    P::Fetched: Countable + Send,
-    P::Set: Any + Send + Sync,
+    P::Fetched: Send,
+    P::Set: Countable + Any + Send + Sync,
 {
     type Ref = P::Ref;
     type Set = P::Set;
@@ -61,8 +61,8 @@ where
         // the outer layer, which is not something the interface
         // guarentees)
         let found = self.inner.fetch(team_id, r).await?;
-        let bytes = found.byte_count();
         let parsed = self.inner.parse(found).await?;
+        let bytes = parsed.byte_count();
 
         let mut cache = self.cache.lock().await; // Re-acquire the cache-wide lock to insert, dropping the ref_lock
 
@@ -167,11 +167,5 @@ pub trait Countable {
 impl Countable for Vec<u8> {
     fn byte_count(&self) -> usize {
         self.len()
-    }
-}
-
-impl Countable for Saveable {
-    fn byte_count(&self) -> usize {
-        self.data.len()
     }
 }

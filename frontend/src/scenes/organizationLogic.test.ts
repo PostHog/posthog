@@ -32,14 +32,14 @@ describe('organizationLogic', () => {
         })
     })
 
-    describe('currentOrganizationId throws before load', () => {
-        it('throws when currentOrganization is null', () => {
+    describe('currentOrganizationId before load', () => {
+        it('returns @current fallback when currentOrganization is null', () => {
             // Clear the user/organization context so currentOrganization starts as null
             window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
             initKeaTests(false)
             logic = organizationLogic()
             logic.mount()
-            expect(() => logic.values.currentOrganizationId).toThrow('accessed before')
+            expect(logic.values.currentOrganizationId).toBe('@current')
         })
     })
 

@@ -127,6 +127,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 15
 
         defaults:
             run:
@@ -292,6 +293,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 15
 
         defaults:
             run:
@@ -358,6 +360,7 @@ jobs:
         needs: [changes, build, test, linting]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all Rust jobs

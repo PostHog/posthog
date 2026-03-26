@@ -98,12 +98,12 @@ function createToolbarModulePlugin(dirname) {
 export function getToolbarBuildConfig(dirname) {
     return {
         name: 'Toolbar',
-        globalName: 'posthogToolbar',
+        globalName: '__posthogToolbarModule',
         entryPoints: ['src/toolbar/index.tsx'],
         format: 'iife',
         outfile: path.resolve(dirname, 'dist', 'toolbar.js'),
-        banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
-        footer: { js: 'return posthogToolbar })();' },
+        banner: { js: 'var __posthogToolbarModule = (function () { var define = undefined;' },
+        footer: { js: 'return __posthogToolbarModule })();' },
         publicPath: isDev ? '/static/' : 'https://us.posthog.com/static/',
         writeMetaFile: true,
         extraPlugins: [createToolbarModulePlugin(dirname)],

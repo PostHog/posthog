@@ -6,7 +6,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
-import { OrganizationType } from '~/types'
+import { AppContext, OrganizationType } from '~/types'
 
 import {
     LanguageCode,
@@ -35,6 +35,7 @@ describe('messageActionsMenuLogic', () => {
     beforeEach(() => {
         jest.resetAllMocks()
         window.localStorage.clear()
+        window.POSTHOG_APP_CONTEXT = undefined as unknown as AppContext
 
         jest.spyOn(mockApi.llmAnalytics, 'translate').mockResolvedValue(mockTranslationResponse)
 

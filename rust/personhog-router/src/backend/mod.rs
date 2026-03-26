@@ -6,9 +6,6 @@ pub use leader::LeaderBackend;
 pub use replica::ReplicaBackend;
 
 use async_trait::async_trait;
-use personhog_proto::personhog::leader::v1::{
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
@@ -22,7 +19,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
 

@@ -3,10 +3,31 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
+    organization_id: zod.string(),
+})
+
+export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
+
+export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
+
+export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
+    from_project: zod.number().describe('Source project ID to copy the flag from'),
+    target_project_ids: zod
+        .array(zod.number())
+        .max(featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to copy the flag to'),
+    copy_schedule: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyCopyScheduleDefault)
+        .describe('Whether to also copy scheduled changes for this flag'),
+})
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
@@ -32,11 +53,11 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('JSON-encoded list of feature flag keys to exclude from the results.'),
-    has_evaluation_tags: zod
+    has_evaluation_contexts: zod
         .enum(['false', 'true'])
         .optional()
         .describe(
-            "Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags."
+            "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -330,15 +351,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
-    evaluation_tags: zod
+    evaluation_contexts: zod
         .array(zod.string())
         .optional()
-        .describe('Evaluation context tags. Must be a subset of `tags`.'),
+        .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
 })
 
 /**
@@ -641,15 +668,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
-    evaluation_tags: zod
+    evaluation_contexts: zod
         .array(zod.string())
         .optional()
-        .describe('Evaluation context tags. Must be a subset of `tags`.'),
+        .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
 })
 
 /**
@@ -662,4 +695,101 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsActivityRetrieve2QueryLimitDefault = 10
+
+export const featureFlagsActivityRetrieve2QueryPageDefault = 1
+
+export const FeatureFlagsActivityRetrieve2QueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .default(featureFlagsActivityRetrieve2QueryLimitDefault)
+        .describe('Number of items per page'),
+    page: zod.number().min(1).default(featureFlagsActivityRetrieve2QueryPageDefault).describe('Page number'),
+})
+
+/**
+ * Get other active flags that depend on this flag.
+ */
+export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsEvaluationReasonsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault = `{}`
+
+export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    distinct_id: zod.string().min(1).describe('User distinct ID'),
+    groups: zod
+        .string()
+        .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)
+        .describe('Groups for feature flag evaluation (JSON object string)'),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsUserBlastRadiusCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const FeatureFlagsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
+    condition: zod.record(zod.string(), zod.unknown()).describe('The release condition to evaluate'),
+    group_type_index: zod
+        .number()
+        .nullish()
+        .describe('Group type index for group-based flags (null for person-based flags)'),
 })

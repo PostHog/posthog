@@ -33,8 +33,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLogic(insightLogicProps)
     )
 
-    const { query, queryChanged, insightQuery, generatedInsightNameLoading } = useValues(insightDataLogic(insightProps))
-    const { cancelChanges, generateInsightName } = useActions(insightDataLogic(insightProps))
+    const { query, queryChanged, insightQuery, generatedInsightMetadataLoading } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const { cancelChanges, generateInsightMetadata } = useActions(insightDataLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
@@ -85,8 +87,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         setInsightMetadata({ description })
                     }
                 }}
-                onGenerateName={canAccessAutoname && insightQuery ? generateInsightName : undefined}
-                isGeneratingName={canAccessAutoname && generatedInsightNameLoading}
+                onGenerateMetadata={canAccessAutoname && insightQuery ? generateInsightMetadata : undefined}
+                isGeneratingMetadata={canAccessAutoname && generatedInsightMetadataLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}

@@ -48,6 +48,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             "variant": None,
             "properties": [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}],
             "rollout_percentage": 30,
+            "aggregation_group_type_index": None,
         }
 
         payload = {
@@ -98,6 +99,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             "variant": None,
             "properties": [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}],
             "rollout_percentage": 30,
+            "aggregation_group_type_index": None,
         }
 
         payload = {
@@ -177,6 +179,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             "properties": [{"key": "$geoip_city_name", "value": ["Sydney"], "operator": "exact", "type": "person"}],
             "rollout_percentage": 50,
             "variant": None,
+            "aggregation_group_type_index": None,
         }
         change_past = ScheduledChange.objects.create(
             team=self.team,
@@ -205,6 +208,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             "properties": [{"key": "$geoip_city_name", "value": ["New York"], "operator": "exact", "type": "person"}],
             "rollout_percentage": 75,
             "variant": None,
+            "aggregation_group_type_index": None,
         }
         change_due_now = ScheduledChange.objects.create(
             team=self.team,
@@ -244,7 +248,13 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # The changes due have been propagated in the correct order (oldest scheduled_at first)
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"], [change_past_condition, change_due_now_condition])
+        self.assertEqual(
+            updated_flag.filters["groups"],
+            [
+                change_past_condition,
+                change_due_now_condition,
+            ],
+        )
 
     def test_scheduled_changes_create_activity_log_with_trigger(self) -> None:
         """Test that scheduled changes create activity logs with trigger information while preserving user attribution"""
@@ -626,6 +636,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             "variant": None,
             "properties": [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}],
             "rollout_percentage": 75,
+            "aggregation_group_type_index": None,
         }
 
         feature_flag = FeatureFlag.objects.create(

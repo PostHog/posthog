@@ -21,6 +21,7 @@ pub mod pipeline;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
+pub mod signals;
 pub mod spike_config;
 pub mod stages;
 pub mod suppression_rules;

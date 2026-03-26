@@ -343,7 +343,7 @@ const ExperimentsTable = ({
                                     fullWidth
                                     disabledReason={
                                         isLegacyExperiment(experiment)
-                                            ? 'Duplication is not supported for experiments using legacy metrics. Please recreate the experiment manually to duplicate it.'
+                                            ? 'Not supported for experiments using legacy metrics. Please recreate the experiment manually.'
                                             : undefined
                                     }
                                 >

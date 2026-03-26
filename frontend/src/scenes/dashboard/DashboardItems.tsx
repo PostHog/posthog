@@ -18,10 +18,10 @@ import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunity
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
+import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
@@ -59,14 +59,13 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         moveToDashboard,
+        copyToDashboard,
         setTileOverride,
         setDashboardMode,
     } = useActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
@@ -174,7 +173,7 @@ export function DashboardItems(): JSX.Element {
                         className={className}
                         dragConfig={{
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
-                            handle: '.CardMeta,.TextCard__body',
+                            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body',
                             cancel: 'a,table,button,input,.Popover',
                             bounded: true,
                         }}
@@ -271,7 +270,7 @@ export function DashboardItems(): JSX.Element {
                         }}
                     >
                         {tiles?.map((tile) => {
-                            const { insight, text } = tile
+                            const { insight, text, button_tile } = tile
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -299,10 +298,10 @@ export function DashboardItems(): JSX.Element {
                                               return
                                           }
 
-                                          // Don't trigger when clicking obvious interactive controls
+                                          // Don't trigger when clicking obvious interactive controls or readonly rich text (TipTap/LemonMarkdown).
                                           if (
                                               target.closest(
-                                                  'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"]'
+                                                  'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
                                               )
                                           ) {
                                               return
@@ -312,12 +311,18 @@ export function DashboardItems(): JSX.Element {
                                           setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
                                       }
                                     : undefined,
-                                showEditingControls: isEditablePlacement,
+                                showEditingControls: isEditablePlacement || dashboardMode === DashboardMode.Edit,
                                 moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                     if (!dashboard) {
                                         throw new Error('must be on a dashboard to move this tile')
                                     }
                                     moveToDashboard(tile, dashboard.id, id, name)
+                                },
+                                copyToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to copy this tile')
+                                    }
+                                    copyToDashboard(tile, dashboard.id, id, name)
                                 },
                                 removeFromDashboard: () => removeTile(tile),
                             }
@@ -374,7 +379,7 @@ export function DashboardItems(): JSX.Element {
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
-                                        otherDashboards={otherDashboards}
+                                        dashboardId={dashboard?.id}
                                         isDragging={isDragging.current}
                                         onEdit={() => {
                                             if (dashboard?.id) {
@@ -382,9 +387,41 @@ export function DashboardItems(): JSX.Element {
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onCopyToDashboard={({ id, name }) => {
+                                            if (!dashboard) {
+                                                throw new Error('must be on a dashboard to copy this tile')
+                                            }
+                                            copyToDashboard(tile, dashboard.id, id, name)
+                                        }}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
+                                        showEditingControls={commonTileProps.showEditingControls}
+                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                    />
+                                )
+                            }
+
+                            if (button_tile) {
+                                return (
+                                    <DashboardButtonTileItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        placement={placement}
+                                        dashboardId={dashboard?.id}
+                                        isDraggingRef={isDragging}
+                                        onEdit={() => {
+                                            if (dashboard?.id) {
+                                                push(urls.dashboardButtonTile(dashboard.id, tile.id))
+                                            }
+                                        }}
+                                        onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onDuplicate={() => duplicateTile(tile)}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={commonTileProps.showResizeHandles}
+                                        showEditingControls={commonTileProps.showEditingControls}
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}

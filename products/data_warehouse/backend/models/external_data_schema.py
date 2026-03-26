@@ -25,6 +25,8 @@ from products.data_warehouse.backend.data_load.service import (
 from products.data_warehouse.backend.s3 import get_s3_client
 from products.data_warehouse.backend.types import IncrementalFieldType
 
+type IncrementalFieldValue = str | int | float | None
+
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
@@ -39,6 +41,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
         APPEND = "append", "append"
+        WEBHOOK = "webhook", "webhook"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -46,6 +49,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         MONTHLY = "month", "Monthly"
 
     name = models.CharField(max_length=400)
+    label = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     source = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
@@ -89,8 +93,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.sync_type == self.SyncType.APPEND
 
     @property
+    def is_webhook(self):
+        return self.sync_type == self.SyncType.WEBHOOK
+
+    @property
     def should_use_incremental_field(self):
-        return self.is_incremental or self.is_append
+        return self.is_incremental or self.is_append or self.is_webhook
 
     @property
     def incremental_field(self) -> str | None:
@@ -107,14 +115,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def incremental_field_last_value(self) -> str | None:
+    def incremental_field_last_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_last_value", None)
 
         return None
 
     @property
-    def incremental_field_earliest_value(self) -> str | None:
+    def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
 
@@ -447,6 +455,8 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | Non
         return None
     if frequency == "5min":
         return timedelta(minutes=5)
+    if frequency == "15min":
+        return timedelta(minutes=15)
     if frequency == "30min":
         return timedelta(minutes=30)
     if frequency == "1hour":
@@ -470,6 +480,8 @@ def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta
         return None
     if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
+    if sync_frequency_interval == timedelta(minutes=15):
+        return "15min"
     if sync_frequency_interval == timedelta(minutes=30):
         return "30min"
     if sync_frequency_interval == timedelta(hours=1):

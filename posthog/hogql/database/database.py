@@ -48,6 +48,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     Table,
     TableNode,
     UnknownDatabaseField,
@@ -113,6 +114,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
     SessionsTableV3,
     join_events_table_to_sessions_table_v3,
 )
+from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -249,8 +251,10 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
             "posthog": TableNode(
                 name="posthog",
                 children={
-                    **clone_root_tables()
+                    **clone_root_tables(),
                     # Add new tables here
+                    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
+                    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                 },
             ),
             "system": SystemTables(),
@@ -271,6 +275,7 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
     _connection_id: str | None = None
+    _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
 
     _timezone: str | None
@@ -294,6 +299,7 @@ class Database(BaseModel):
         self._view_table_names = []
         self._denied_tables = set()
         self._connection_id = None
+        self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
@@ -625,7 +631,7 @@ class Database(BaseModel):
                     id=str(db_schema.id),
                     name=db_schema.name,
                     should_sync=db_schema.should_sync,
-                    incremental=db_schema.is_incremental,
+                    incremental=db_schema.is_incremental or db_schema.is_webhook,
                     status=db_schema.status,
                     last_synced_at=str(db_schema.last_synced_at),
                 )
@@ -815,6 +821,17 @@ class Database(BaseModel):
             )
             if connection_id is not None:
                 database._connection_id = connection_id
+                direct_source = (
+                    ExternalDataSource.objects.filter(
+                        team_id=team.pk,
+                        id=connection_id,
+                        access_method=ExternalDataSource.AccessMethod.DIRECT,
+                    )
+                    .only("connection_metadata")
+                    .first()
+                )
+                if direct_source is not None:
+                    database._direct_connection_metadata = direct_source.connection_metadata
 
         with timings.measure("filter_system_tables_for_user"):
             if team is not None:
@@ -1692,6 +1709,16 @@ def serialize_fields(
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.JSON,
                         schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, StructDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.JSON,
+                        schema_valid=schema_valid,
+                        fields=list(field.fields.keys()),
                     )
                 )
             elif isinstance(field, StringArrayDatabaseField):

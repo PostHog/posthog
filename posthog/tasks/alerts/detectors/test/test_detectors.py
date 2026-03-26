@@ -20,6 +20,7 @@ from posthog.tasks.alerts.detectors.statistical.iqr import IQRDetector
 from posthog.tasks.alerts.detectors.statistical.mad import MADDetector
 from posthog.tasks.alerts.detectors.statistical.zscore import ZScoreDetector
 from posthog.tasks.alerts.detectors.threshold import ThresholdDetector
+from posthog.tasks.alerts.trends import _compute_min_samples_for_detector
 
 # Shared test data
 ANOMALY_DATA = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 100])
@@ -514,3 +515,35 @@ class TestEnsembleDetector:
                     ],
                 }
             )
+
+
+class TestComputeMinSamplesForDetector:
+    @parameterized.expand(
+        [
+            ("zscore_default", {"type": "zscore", "window": 30}, 31),
+            ("zscore_custom_window", {"type": "zscore", "window": 168}, 169),
+            (
+                "iforest_with_preprocessing",
+                {"type": "isolation_forest", "window": 168, "preprocessing": {"diffs_n": 1, "lags_n": 3}},
+                173,
+            ),
+            ("iforest_no_window", {"type": "isolation_forest", "preprocessing": {"diffs_n": 1, "lags_n": 3}}, 35),
+            ("threshold", {"type": "threshold"}, 1),
+            ("ecod_no_window", {"type": "ecod"}, 31),
+            ("lof_no_window", {"type": "lof"}, 31),
+            (
+                "ensemble_picks_max",
+                {
+                    "type": "ensemble",
+                    "detectors": [
+                        {"type": "zscore", "window": 30},
+                        {"type": "isolation_forest", "window": 168, "preprocessing": {"diffs_n": 1, "lags_n": 3}},
+                    ],
+                },
+                173,
+            ),
+            ("ensemble_empty", {"type": "ensemble", "detectors": []}, 31),
+        ]
+    )
+    def test_compute_min_samples(self, _name: str, config: dict[str, Any], expected: int) -> None:
+        assert _compute_min_samples_for_detector(config) == expected
