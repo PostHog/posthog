@@ -5,7 +5,8 @@ import { tryDecodeURIComponent } from 'lib/utils'
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
-import { PATH_NODE_CARD_TOP_OFFSET } from './constants'
+import { PATH_NODE_CARD_HEIGHT, PATH_NODE_CARD_OVERLAP_GAP, PATH_NODE_CARD_TOP_OFFSET } from './constants'
+// eslint-disable-next-line import/no-cycle
 import { HIDE_PATH_CARD_HEIGHT } from './Paths'
 
 const PATH_NODE_CARD_TOP_ADJUSTMENTS = 33
@@ -38,6 +39,78 @@ export interface PathNodeData {
     source: PathNodeData
     target: PathNodeData
     visible?: boolean
+    active?: boolean
+    resolvedTop?: number
+}
+
+export function getForwardConnectedIndices(startNode: PathNodeData): {
+    nodeIndices: Set<number>
+    linkIndices: Set<number>
+} {
+    const nodeIndices = new Set<number>([startNode.index])
+    const linkIndices = new Set<number>()
+
+    const queue = [...startNode.sourceLinks]
+    for (const link of queue) {
+        if (!linkIndices.has(link.index)) {
+            linkIndices.add(link.index)
+            nodeIndices.add(link.target.index)
+            for (const nextLink of link.target.sourceLinks) {
+                queue.push(nextLink)
+            }
+        }
+    }
+
+    return { nodeIndices, linkIndices }
+}
+
+export const activateNodes = (nodes: PathNodeData[], activeIndices: Set<number>): PathNodeData[] =>
+    nodes.map((node) => ({
+        ...node,
+        visible: activeIndices.has(node.index) || node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
+        active: activeIndices.has(node.index),
+    }))
+
+export const deactivateNodes = (nodes: PathNodeData[]): PathNodeData[] =>
+    nodes.map((node) => ({
+        ...node,
+        visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
+        active: false,
+    }))
+
+export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number): PathNodeData[] {
+    const visibleNodes = nodes.filter((n) => n.visible)
+    if (visibleNodes.length === 0) {
+        return nodes
+    }
+
+    const topByIndex = new Map<number, number>()
+    for (const node of visibleNodes) {
+        topByIndex.set(node.index, calculatePathNodeCardTop(node, canvasHeight))
+    }
+
+    const byLayer = new Map<number, PathNodeData[]>()
+    for (const node of visibleNodes) {
+        const group = byLayer.get(node.layer) ?? []
+        group.push(node)
+        byLayer.set(node.layer, group)
+    }
+
+    const resolvedTops = new Map<number, number>()
+    for (const group of byLayer.values()) {
+        group.sort((a, b) => topByIndex.get(a.index)! - topByIndex.get(b.index)!)
+        let prevBottom = -Infinity
+        for (const node of group) {
+            const naturalTop = topByIndex.get(node.index)!
+            const resolvedTop = Math.max(naturalTop, prevBottom + PATH_NODE_CARD_OVERLAP_GAP)
+            resolvedTops.set(node.index, resolvedTop)
+            prevBottom = resolvedTop + PATH_NODE_CARD_HEIGHT
+        }
+    }
+
+    return nodes.map((node) =>
+        resolvedTops.has(node.index) ? { ...node, resolvedTop: resolvedTops.get(node.index) } : node
+    )
 }
 
 export function roundedRect(

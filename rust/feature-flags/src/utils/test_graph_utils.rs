@@ -1412,6 +1412,7 @@ fn create_flag_with_deps(
         aggregation_group_type_index: None,
         payloads: None,
         super_groups: None,
+        feature_enrollment: None,
 
         holdout: None,
     };

@@ -8,7 +8,7 @@ from django.conf import settings
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -52,7 +52,7 @@ def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
 @activity.defn(name="load-recordings-with-person")
 async def load_recordings_with_person(input: RecordingsWithPersonInput) -> LoadRecordingsPage:
     bind_contextvars(distinct_ids=input.distinct_ids, team_id=input.team_id)
-    tag_queries(product=Product.REPLAY, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info("Loading sessions for distinct IDs", distinct_id_count=len(input.distinct_ids), cursor=input.cursor)
 
@@ -81,7 +81,7 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> LoadR
 @activity.defn(name="load-recordings-with-team-id")
 async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
     bind_contextvars(team_id=input.team_id)
-    tag_queries(product=Product.REPLAY, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info("Loading sessions for team", cursor=input.cursor)
 
@@ -109,7 +109,7 @@ async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> LoadRe
 @activity.defn(name="load-recordings-with-query")
 async def load_recordings_with_query(input: RecordingsWithQueryInput) -> LoadRecordingsPage:
     bind_contextvars(team_id=input.team_id)
-    tag_queries(product=Product.REPLAY, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info("Loading sessions matching query", cursor=input.cursor)
 

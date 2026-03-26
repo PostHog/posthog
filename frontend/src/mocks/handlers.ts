@@ -216,7 +216,6 @@ export const defaultMocks: Mocks = {
         '/api/organizations/:organization_id/proxy_records/': [],
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/default_evaluation_tags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/default_evaluation_contexts/': {
             default_evaluation_contexts: [],
             available_contexts: [],
