@@ -235,6 +235,15 @@ class TestValidateAlertConfig:
                 "every_5_minutes",
                 "Invalid calculation interval: every_5_minutes",
             ),
+            (
+                "none_calculation_interval",
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                None,
+                "Invalid calculation interval: None",
+            ),
         ]
     )
     def test_validate_alert_config(

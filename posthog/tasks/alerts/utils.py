@@ -62,11 +62,8 @@ def validate_alert_config(
     calculation_interval: str | None = None,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure."""
-    if calculation_interval is not None:
-        try:
-            AlertCalculationInterval(calculation_interval)
-        except ValueError:
-            raise ValueError(f"Invalid calculation interval: {calculation_interval}")
+    if calculation_interval is None or calculation_interval not in AlertCalculationInterval.__members__.values():
+        raise ValueError(f"Invalid calculation interval: {calculation_interval}")
 
     try:
         parsed_condition = AlertCondition.model_validate(condition)
