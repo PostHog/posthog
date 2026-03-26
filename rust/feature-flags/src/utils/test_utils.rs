@@ -83,6 +83,12 @@ pub async fn insert_new_team_in_redis(
     Ok(team)
 }
 
+/// Write flags to the hypercache key for `team_id` in Redis.
+/// Auto-generates single-stage `evaluation_metadata` with no transitive-dependency
+/// information (all flags in one stage, `transitive_deps[id] = []` for each flag).
+///
+/// Not suitable for tests that combine inter-flag dependencies with `flag_keys`
+/// filtering — use `insert_flags_with_metadata_for_team_in_redis` instead.
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
