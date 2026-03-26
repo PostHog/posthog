@@ -269,7 +269,9 @@ def generate_random_token(nbytes: int = 32) -> str:
 
     Uses base57 encoding (base62 minus 0, 1, O, I, l) to avoid visually ambiguous characters.
     """
-    return int_to_base(secrets.randbits(nbytes * 8), 57, alphabet=BASE57)
+    bits = nbytes * 8
+    value = secrets.randbits(bits) | (1 << (bits - 1))  # Set top bit to guarantee consistent length
+    return int_to_base(value, 57, alphabet=BASE57)
 
 
 def generate_random_token_project() -> str:

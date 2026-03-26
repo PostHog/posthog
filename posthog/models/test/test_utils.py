@@ -98,14 +98,15 @@ class TestTokenGeneration:
             ("personal_35B", generate_random_token_personal, "phx_", 35),
         ]
     )
-    def test_minimum_length_preserves_entropy(self, _name, generator, prefix, entropy_bytes):
-        max_base57_digits = math.ceil(entropy_bytes * 8 / math.log2(57))
+    def test_exact_length(self, _name, generator, prefix, entropy_bytes):
+        bits = entropy_bytes * 8
+        # With top bit forced on, value is in [2^(bits-1), 2^bits)
+        min_digits = math.floor(math.log(2 ** (bits - 1), 57)) + 1
+        max_digits = math.floor(math.log(2**bits - 1, 57)) + 1
         for _ in range(20):
             token = generator()
             body = token[len(prefix) :]
-            # randbits can produce values with leading zeros in base57, so the
-            # output may be up to 1 digit shorter than the theoretical max
-            assert len(body) >= max_base57_digits - 1, f"Token body too short: {len(body)} < {max_base57_digits - 1}"
+            assert min_digits <= len(body) <= max_digits, f"Expected {min_digits}-{max_digits} digits, got {len(body)}"
 
 
 def test_convert_funnel_query():
