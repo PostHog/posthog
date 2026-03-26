@@ -307,8 +307,14 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         count: values.experiments.count - 1,
                     }
                 },
-                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string }) => {
-                    const data = payload.featureFlagKey ? { feature_flag_key: payload.featureFlagKey } : {}
+                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string; name?: string }) => {
+                    const data: Record<string, string> = {}
+                    if (payload.featureFlagKey) {
+                        data.feature_flag_key = payload.featureFlagKey
+                    }
+                    if (payload.name) {
+                        data.name = payload.name
+                    }
                     const duplicatedExperiment = await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
                         data

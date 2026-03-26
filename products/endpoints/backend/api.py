@@ -106,6 +106,7 @@ from common.hogvm.python.utils import HogVMException
 
 MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
+MIN_SYNC_FREQUENCY_INTERVAL = timedelta(minutes=30)
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
 
@@ -429,6 +430,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     }
                 )
 
+    def _validate_sync_frequency(self, sync_frequency: DataWarehouseSyncInterval | None) -> None:
+        """Validate sync_frequency is not too frequent for endpoints."""
+        if sync_frequency is not None:
+            interval = sync_frequency_to_sync_frequency_interval(sync_frequency.value)
+            if interval is not None and interval < MIN_SYNC_FREQUENCY_INTERVAL:
+                raise ValidationError(
+                    {"sync_frequency": f"Sync frequency must be at least 30 minutes. Got: {sync_frequency.value}."}
+                )
+
     def _validate_hogql_query(self, query: HogQLQuery) -> None:
         """Validate that a HogQL query can be parsed and the variables are valid."""
         try:
@@ -583,6 +593,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             self._validate_hogql_query(query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
+        self._validate_sync_frequency(data.sync_frequency)
 
     @extend_schema(
         request=EndpointRequest,
@@ -668,6 +679,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         strict: bool = True,
     ) -> None:
         self._validate_cache_age_seconds(data.cache_age_seconds)
+        self._validate_sync_frequency(data.sync_frequency)
 
         # Determine final states after this request (for validation)
         will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)

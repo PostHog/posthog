@@ -457,11 +457,13 @@ class EnterpriseExperimentsViewSet(
             )
 
         feature_flag_key = request.data.get("feature_flag_key")
+        name = request.data.get("name")
 
         service = ExperimentService(team=self.team, user=request.user)
         duplicate_experiment = service.duplicate_experiment(
             source_experiment,
             feature_flag_key=feature_flag_key,
+            name=name,
             serializer_context=self.get_serializer_context(),
         )
 
