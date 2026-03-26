@@ -13,7 +13,7 @@ import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/q
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic } from './experimentLogic'
+import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -1246,6 +1246,30 @@ describe('experimentLogic', () => {
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
+        })
+    })
+
+    describe('getDisplayOrderedIndices', () => {
+        it.each([
+            ['null orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], null, [0, 1, 2]],
+            ['undefined orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], undefined, [0, 1]],
+            ['empty orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], [], [0, 1]],
+            ['reorders by orderedUuids', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], ['c', 'a', 'b'], [2, 0, 1]],
+            [
+                'appends missing metrics at end',
+                [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }],
+                ['c', 'a'],
+                [2, 0, 1, 3],
+            ],
+            ['ignores uuids not in metrics', [{ uuid: 'a' }, { uuid: 'b' }], ['x', 'b', 'y', 'a'], [1, 0]],
+            ['handles metrics without uuids', [{ uuid: 'a' }, {}, { uuid: 'c' }], ['c', 'a'], [2, 0, 1]],
+        ])('%s', (_desc, metrics, orderedUuids, expected) => {
+            expect(getDisplayOrderedIndices(metrics, orderedUuids)).toEqual(expected)
+        })
+
+        it('returns all indices exactly once', () => {
+            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
+            expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
         })
     })
 })

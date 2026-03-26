@@ -6,6 +6,10 @@ use std::collections::{HashMap, HashSet};
 use crate::cohorts::cohort_models::Cohort;
 use crate::properties::property_models::PropertyFilter;
 
+// NOTE: The `evaluation_tags` field was renamed to `evaluation_contexts` in the Python
+// serializer (PR #52186). The Rust field keeps the old name for internal compatibility,
+// but uses `#[serde(rename = "evaluation_contexts")]` to match the JSON key.
+
 /// Deserializes a JSON object with string keys into `HashMap<i32, HashSet<i32>>`.
 /// JSON only supports string keys, so Python serializes `{1: [2, 3]}` as `{"1": [2, 3]}`.
 fn deserialize_string_keyed_i32_map<'de, D>(
@@ -185,7 +189,9 @@ pub struct FeatureFlag {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default, alias = "evaluation_contexts")]
+    /// Evaluation context tags for this flag. JSON key is `evaluation_contexts`,
+    /// but Rust field remains `evaluation_tags` for internal compatibility.
+    #[serde(default, rename = "evaluation_contexts")]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
@@ -202,6 +208,8 @@ impl FeatureFlag {
     }
 }
 
+/// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
+/// always named `evaluation_tags` in the SQL query, so no alias is needed.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct FeatureFlagRow {
     pub id: i32,
@@ -215,7 +223,7 @@ pub struct FeatureFlagRow {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default, alias = "evaluation_contexts")]
+    #[serde(default)]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
