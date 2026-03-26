@@ -5,14 +5,12 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -21,15 +19,9 @@ import {
     isQuickFilterItem,
     quickFilterToPropertyFilters,
 } from 'lib/components/TaxonomicFilter/types'
-import {
-    TaxonomicPopover,
-    TaxonomicPopoverProps,
-    TaxonomicStringPopover,
-} from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -52,7 +44,9 @@ import {
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
+import { BoxPlotPropertySelector, PropertyValueMathSelector } from './PropertyMathSelector'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
@@ -154,7 +148,6 @@ export function ActionFilterRow({
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
 
-    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const {
         setNodeRef,
         attributes: { 'aria-disabled': _, ...attributes },
@@ -542,139 +535,42 @@ export function ActionFilterRow({
                                             />
                                         )}
                                         {mathAvailability === MathAvailability.BoxPlotOnly && (
-                                            <div className="flex-auto min-w-0">
-                                                <TaxonomicStringPopover
-                                                    groupType={
-                                                        mathPropertyType ||
-                                                        TaxonomicFilterGroupType.NumericalEventProperties
-                                                    }
-                                                    groupTypes={[
-                                                        TaxonomicFilterGroupType.NumericalEventProperties,
-                                                        TaxonomicFilterGroupType.SessionProperties,
-                                                        TaxonomicFilterGroupType.PersonProperties,
-                                                    ]}
-                                                    value={mathProperty || undefined}
-                                                    onChange={(currentValue, groupType) =>
-                                                        onMathPropertySelect(index, currentValue, groupType)
-                                                    }
-                                                    eventNames={name ? [name] : []}
-                                                    placeholder="Select numeric property"
-                                                    data-attr="box-plot-property-select"
-                                                    showNumericalPropsOnly
-                                                    renderValue={(currentValue) => (
-                                                        <PropertyKeyInfo
-                                                            value={currentValue}
-                                                            disablePopover
-                                                            type={TaxonomicFilterGroupType.EventProperties}
-                                                        />
-                                                    )}
-                                                />
-                                            </div>
+                                            <BoxPlotPropertySelector
+                                                mathPropertyType={mathPropertyType}
+                                                mathProperty={mathProperty}
+                                                index={index}
+                                                onMathPropertySelect={onMathPropertySelect}
+                                                mathName={name}
+                                            />
                                         )}
                                         {mathAvailability !== MathAvailability.BoxPlotOnly &&
                                             mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                                 MathCategory.PropertyValue && (
-                                                <div className="flex-auto min-w-0">
-                                                    <TaxonomicStringPopover
-                                                        groupType={
-                                                            mathPropertyType ||
-                                                            TaxonomicFilterGroupType.NumericalEventProperties
-                                                        }
-                                                        groupTypes={[
-                                                            TaxonomicFilterGroupType.DataWarehouseProperties,
-                                                            TaxonomicFilterGroupType.NumericalEventProperties,
-                                                            TaxonomicFilterGroupType.SessionProperties,
-                                                            TaxonomicFilterGroupType.PersonProperties,
-                                                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                                                        ]}
-                                                        schemaColumns={
-                                                            filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                            filter.name
-                                                                ? Object.values(
-                                                                      dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                                  )
-                                                                : []
-                                                        }
-                                                        value={mathProperty}
-                                                        onChange={(currentValue, groupType) =>
-                                                            onMathPropertySelect(index, currentValue, groupType)
-                                                        }
-                                                        eventNames={name ? [name] : []}
-                                                        data-attr="math-property-select"
-                                                        showNumericalPropsOnly={showNumericalPropsOnly}
-                                                        renderValue={(currentValue) => (
-                                                            <Tooltip
-                                                                title={
-                                                                    currentValue === '$session_duration' ? (
-                                                                        <>
-                                                                            Calculate{' '}
-                                                                            {mathDefinitions[
-                                                                                math ?? ''
-                                                                            ]?.name.toLowerCase()}{' '}
-                                                                            of the session duration. This is based on
-                                                                            the <code>$session_id</code> property
-                                                                            associated with events. The duration is
-                                                                            derived from the time difference between the
-                                                                            first and last event for each distinct{' '}
-                                                                            <code>$session_id</code>.
-                                                                        </>
-                                                                    ) : (
-                                                                        <>
-                                                                            Calculate{' '}
-                                                                            {mathDefinitions[
-                                                                                math ?? ''
-                                                                            ]?.name.toLowerCase()}{' '}
-                                                                            from property <code>{currentValue}</code>.
-                                                                            Note that only {name} occurrences where{' '}
-                                                                            <code>{currentValue}</code> is set with a
-                                                                            numeric value will be taken into account.
-                                                                        </>
-                                                                    )
-                                                                }
-                                                                placement="right"
-                                                            >
-                                                                <PropertyKeyInfo
-                                                                    value={currentValue}
-                                                                    disablePopover
-                                                                    type={TaxonomicFilterGroupType.EventProperties}
-                                                                />
-                                                            </Tooltip>
-                                                        )}
-                                                    />
-                                                </div>
+                                                <PropertyValueMathSelector
+                                                    mathPropertyType={mathPropertyType}
+                                                    mathProperty={mathProperty}
+                                                    mathName={name}
+                                                    index={index}
+                                                    onMathPropertySelect={onMathPropertySelect}
+                                                    showNumericalPropsOnly={showNumericalPropsOnly}
+                                                    schemaColumns={
+                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
+                                                        filter.name
+                                                            ? Object.values(
+                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                              )
+                                                            : []
+                                                    }
+                                                    mathDisplayName={mathDefinitions[math ?? '']?.name.toLowerCase()}
+                                                />
                                             )}
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.HogQLExpression && (
-                                            <div className="flex-auto min-w-0">
-                                                <LemonDropdown
-                                                    visible={isHogQLDropdownVisible}
-                                                    closeOnClickInside={false}
-                                                    onClickOutside={() => setIsHogQLDropdownVisible(false)}
-                                                    overlay={
-                                                        // eslint-disable-next-line react/forbid-dom-props
-                                                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                                            <HogQLEditor
-                                                                value={mathHogQL}
-                                                                onChange={(currentValue) => {
-                                                                    onMathHogQLSelect(index, currentValue)
-                                                                    setIsHogQLDropdownVisible(false)
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    }
-                                                >
-                                                    <LemonButton
-                                                        fullWidth
-                                                        type="secondary"
-                                                        data-attr={`math-hogql-select-${index}`}
-                                                        onClick={() =>
-                                                            setIsHogQLDropdownVisible(!isHogQLDropdownVisible)
-                                                        }
-                                                    >
-                                                        <code>{mathHogQL}</code>
-                                                    </LemonButton>
-                                                </LemonDropdown>
-                                            </div>
+                                            <HogQLMathEditorDropdown
+                                                mathHogQL={mathHogQL}
+                                                index={index}
+                                                onMathHogQLSelect={onMathHogQLSelect}
+                                            />
                                         )}
                                     </>
                                 )}

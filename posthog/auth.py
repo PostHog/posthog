@@ -29,13 +29,14 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import (
+    LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
     PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
-    hash_key_value,
 )
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
@@ -239,7 +240,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         mode_used = None
 
         for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(personal_api_key, mode=mode, iterations=iterations)
+            secure_value = hash_key_value(
+                personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
+            )
             try:
                 personal_api_key_object = (
                     PersonalAPIKey.objects.select_related("user")

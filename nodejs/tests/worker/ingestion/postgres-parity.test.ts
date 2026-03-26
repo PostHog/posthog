@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
-import { PluginServer } from '../../../src/server'
+import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
 import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
 import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
@@ -28,7 +28,7 @@ describe('postgres parity', () => {
     jest.retryTimes(1) // Reduced from 5 to limit timeout amplification when kafka/clickhouse is degraded
     let postgres: PostgresRouter
     let kafkaProducer: KafkaProducerWrapper
-    let server: PluginServer
+    let server: IngestionGeneralServer
     let personRepository: PostgresPersonRepository
     let clickhouse: Clickhouse
     let teamId: number
@@ -52,7 +52,7 @@ describe('postgres parity', () => {
 
         await resetTestDatabase()
 
-        server = new PluginServer({
+        server = new IngestionGeneralServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
         await server.start()

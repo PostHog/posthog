@@ -1,1 +1,1 @@
-1067_add_dashboardtemplate_is_featured
+1071_move_tokens_to_sensitive_config
