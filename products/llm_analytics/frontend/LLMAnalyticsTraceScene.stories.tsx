@@ -11,7 +11,12 @@ import fullTrace from './__mocks__/fullTrace.json'
 import traceWithoutContent from './__mocks__/traceWithoutContent.json'
 import { LLMAnalyticsTraceScene } from './LLMAnalyticsTraceScene'
 
-const meta: Meta<{ trace: LLMTrace; eventId?: string }> = {
+interface LLMAnalyticsTraceSceneProps {
+    trace: LLMTrace
+    eventId?: string
+}
+
+const meta: Meta<LLMAnalyticsTraceSceneProps> = {
     title: 'Scenes-App/LLM Analytics/Trace',
     parameters: {
         layout: 'fullscreen',
@@ -39,7 +44,7 @@ const meta: Meta<{ trace: LLMTrace; eventId?: string }> = {
     },
 }
 export default meta
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<LLMAnalyticsTraceSceneProps>
 
 export const Full: Story = {
     args: {

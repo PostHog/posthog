@@ -12,8 +12,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof PlayerInspector> = {
+type Story = StoryObj<{}>
+const meta: Meta = {
     title: 'Components/PlayerInspector',
     component: PlayerInspector,
     decorators: [

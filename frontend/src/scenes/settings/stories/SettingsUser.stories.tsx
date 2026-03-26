@@ -17,8 +17,8 @@ interface StoryProps {
     sectionId: SettingSectionId
 }
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<(props: StoryProps) => JSX.Element> = {
+type Story = StoryObj<StoryProps>
+const meta: Meta<StoryProps> = {
     title: 'Scenes-App/Settings/User',
     parameters: {
         layout: 'fullscreen',

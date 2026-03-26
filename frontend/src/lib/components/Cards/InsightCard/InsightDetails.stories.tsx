@@ -4,7 +4,7 @@ import { QueryBasedInsightModel } from '~/types'
 
 import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{ insight: QueryBasedInsightModel }>
 const meta: Meta<{ insight: QueryBasedInsightModel }> = {
     title: 'Components/Cards/Insight Details',
     component: InsightDetailsComponent as any,

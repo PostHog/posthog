@@ -7,8 +7,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { PostOnboardingModal } from './PostOnboardingModal'
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<{ productKey: ProductKey }> = {
+interface PostOnboardingModalProps {
+    productKey: ProductKey
+}
+
+type Story = StoryObj<PostOnboardingModalProps>
+const meta: Meta<PostOnboardingModalProps> = {
     title: 'Scenes-Other/Onboarding/Post Onboarding Modal',
     parameters: {
         layout: 'fullscreen',

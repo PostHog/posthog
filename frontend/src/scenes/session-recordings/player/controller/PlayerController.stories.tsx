@@ -19,7 +19,7 @@ interface ControllerStoryProps {
     showPlayNext?: boolean
 }
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<ControllerStoryProps>
 const meta: Meta<ControllerStoryProps> = {
     title: 'Replay/Player/Controller',
     component: PlayerController,

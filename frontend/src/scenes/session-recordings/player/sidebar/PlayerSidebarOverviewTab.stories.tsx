@@ -16,7 +16,7 @@ interface OverviewTabProps {
     sessionId?: string
 }
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<OverviewTabProps>
 const meta: Meta<OverviewTabProps> = {
     title: 'Replay/Overview Tab',
     parameters: {

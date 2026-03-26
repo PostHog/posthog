@@ -4,7 +4,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingU
 
 import { RecordingsUniversalFiltersDisplay as RecordingsUniversalFiltersDisplayComponent } from './RecordingsUniversalFiltersDisplay'
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{ filters: RecordingUniversalFilters }>
 const meta: Meta<{ filters: RecordingUniversalFilters }> = {
     title: 'Components/Cards/Recordings Universal Filters Display',
     component: RecordingsUniversalFiltersDisplayComponent as any,

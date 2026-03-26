@@ -11,7 +11,7 @@ import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trend
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import funnelOneStep from './funnelOneStep.json'
 
-type Story = StoryObj<typeof App>
+type Story = StoryObj<{}>
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Insights/Error & Empty States',

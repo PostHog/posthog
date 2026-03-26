@@ -13,8 +13,8 @@ import { InsightLogicProps } from '~/types'
 
 import { FunnelCorrelationTable } from './FunnelCorrelationTable'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof FunnelCorrelationTable> = {
+type Story = StoryObj<{}>
+const meta: Meta = {
     title: 'Insights/FunnelCorrelationTable',
     component: FunnelCorrelationTable,
     decorators: [

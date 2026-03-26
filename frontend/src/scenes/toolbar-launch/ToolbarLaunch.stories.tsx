@@ -12,7 +12,7 @@ import { TeamPublicType } from '~/types'
 
 import { ToolbarLaunch } from './ToolbarLaunch'
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-Other/ToolbarLaunch',
     parameters: {
