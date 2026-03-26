@@ -1,3 +1,4 @@
+import type { BaseServerConfig } from '../servers/base-server'
 import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
@@ -39,6 +40,7 @@ export enum PluginServerMode {
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
     ingestion_v2_testing = 'ingestion-v2-testing',
+    ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
 }
 
@@ -49,12 +51,8 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
-export type CommonConfig = {
+export type CommonConfig = BaseServerConfig & {
     // Observability
-    CONTINUOUS_PROFILING_ENABLED: boolean
-    PYROSCOPE_SERVER_ADDRESS: string
-    PYROSCOPE_APPLICATION_NAME: string
-    INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
     OTEL_TRACES_SAMPLER_ARG: number
@@ -117,7 +115,6 @@ export type CommonConfig = {
     // Server
     BASE_DIR: string
     LOG_LEVEL: LogLevel
-    HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number
     HEALTHCHECK_MAX_STALE_SECONDS: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -136,7 +133,6 @@ export type CommonConfig = {
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
     INTERNAL_API_BASE_URL: string
-    INTERNAL_API_SECRET: string
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
@@ -150,11 +146,6 @@ export type CommonConfig = {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-
-    // Pod termination
-    POD_TERMINATION_ENABLED: boolean
-    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
-    POD_TERMINATION_JITTER_MINUTES: number
 }
 
 export type ExternalRequestConfig = Pick<

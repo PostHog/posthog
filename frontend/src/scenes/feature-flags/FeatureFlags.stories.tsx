@@ -42,10 +42,6 @@ const meta: Meta = {
                         reason: 'Feature flag is active',
                     },
                 ],
-                '/api/environments/:team_id/default_evaluation_tags/': {
-                    default_evaluation_tags: [],
-                    enabled: false,
-                },
                 '/api/environments/:team_id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
