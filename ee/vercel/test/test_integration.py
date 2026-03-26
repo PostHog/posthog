@@ -236,8 +236,10 @@ class TestVercelIntegration(TestCase):
         VercelIntegration.upsert_installation(self.installation_id, self.payload, self.user_claims)
 
         self.installation.refresh_from_db()
-        assert self.installation.config == self.payload
+        expected_config = {k: v for k, v in self.payload.items() if k != "credentials"}
+        assert self.installation.config == expected_config
         assert self.installation.config != original_config
+        assert self.installation.sensitive_config["credentials"] == self.payload["credentials"]
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_new_user_new_org(self, mock_report):
@@ -258,9 +260,12 @@ class TestVercelIntegration(TestCase):
         assert "new_user_456" in new_installation.config["user_mappings"]
         assert new_installation.config["user_mappings"]["new_user_456"] is not None
 
-        # Check all other config fields match
+        # Check all other config fields match (credentials are in sensitive_config)
         for key, value in self.payload.items():
-            assert new_installation.config[key] == value
+            if key == "credentials":
+                assert new_installation.sensitive_config["credentials"] == value
+            else:
+                assert new_installation.config[key] == value
 
         new_user = User.objects.get(email=self.payload["account"]["contact"]["email"])
         assert new_user.first_name == "John"
@@ -295,9 +300,12 @@ class TestVercelIntegration(TestCase):
             "user_mappings", {}
         )
 
-        # Check all other config fields match
+        # Check all other config fields match (credentials are in sensitive_config)
         for key, value in self.payload.items():
-            assert new_installation.config[key] == value
+            if key == "credentials":
+                assert new_installation.sensitive_config["credentials"] == value
+            else:
+                assert new_installation.config[key] == value
 
         # Existing user IS added to the organization - they are installing so they should be a member
         new_org = new_installation.organization
@@ -617,10 +625,18 @@ class TestVercelIntegration(TestCase):
         ]
     )
     def test_get_access_token(self, _, credentials, expected):
-        self.installation.config["credentials"] = credentials
+        self.installation.sensitive_config["credentials"] = credentials
         self.installation.save()
         result = VercelIntegration._get_access_token(self.installation)
         assert result == expected
+
+    def test_get_access_token_fallback_from_config(self):
+        """Pre-migration installations store credentials in config — fallback should find them."""
+        self.installation.config["credentials"] = {"access_token": "legacy_token", "token_type": "Bearer"}
+        self.installation.sensitive_config = {}
+        self.installation.save()
+        result = VercelIntegration._get_access_token(self.installation)
+        assert result == "legacy_token"
 
     @parameterized.expand(
         [
@@ -1182,6 +1198,8 @@ class TestPushSecretsToVercel(TestCase):
             integration_id="icfg_secrets_test_123456789",
             config={
                 "billing_plan_id": "posthog-usage-based",
+            },
+            sensitive_config={
                 "credentials": {"access_token": "test_token", "token_type": "Bearer"},
             },
             created_by=self.user,

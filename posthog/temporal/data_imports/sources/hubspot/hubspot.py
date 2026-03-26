@@ -44,11 +44,12 @@ def _get_properties_str(
     object_type: str,
     logger: FilteringBoundLogger,
     include_custom_props: bool = True,
+    source_id: str | None = None,
 ) -> str:
     """Builds a string of properties to be requested from the HubSpot API."""
     props = list(props)
     if include_custom_props:
-        all_props = _get_property_names(api_key, refresh_token, object_type)
+        all_props = _get_property_names(api_key, refresh_token, object_type, source_id=source_id)
         custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
         props = props + [c for c in custom_props if c not in props]
 
@@ -116,6 +117,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
     include_custom_props: bool = True,
     selected_properties: list[str] | None = None,
+    source_id: str | None = None,
 ) -> Iterator[Any]:
     config = HUBSPOT_ENDPOINTS[endpoint]
     object_type = OBJECT_TYPE_SINGULAR[endpoint]
@@ -128,7 +130,7 @@ def get_rows(
 
     if selected_properties:
         # Validate selected properties against what HubSpot actually has
-        available_props = set(_get_property_names(api_key, refresh_token, object_type))
+        available_props = set(_get_property_names(api_key, refresh_token, object_type, source_id=source_id))
         invalid_props = [p for p in selected_properties if p not in available_props]
         if invalid_props:
             logger.warning(
@@ -151,6 +153,7 @@ def get_rows(
             object_type=object_type,
             include_custom_props=False,
             logger=logger,
+            source_id=source_id,
         )
     else:
         props_str = _get_properties_str(
@@ -160,6 +163,7 @@ def get_rows(
             object_type=object_type,
             include_custom_props=include_custom_props,
             logger=logger,
+            source_id=source_id,
         )
         expected_properties = props_str.split(",") if props_str else []
 
@@ -191,7 +195,7 @@ def get_rows(
         response = requests.get(page_url, headers=headers, timeout=60)
 
         if response.status_code == 401:
-            api_key = hubspot_refresh_access_token(refresh_token)
+            api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
             headers = _get_headers(api_key)
             raise HubspotRetryableError(f"Hubspot API 401 - refreshed token, retrying: url={page_url}")
 
@@ -247,6 +251,7 @@ def hubspot_source(
     resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
     include_custom_props: bool = True,
     selected_properties: list[str] | None = None,
+    source_id: str | None = None,
 ) -> SourceResponse:
     endpoint_config = HUBSPOT_ENDPOINTS[endpoint]
 
@@ -260,6 +265,7 @@ def hubspot_source(
             resumable_source_manager=resumable_source_manager,
             include_custom_props=include_custom_props,
             selected_properties=selected_properties,
+            source_id=source_id,
         ),
         primary_keys=["id"],
         partition_count=1,

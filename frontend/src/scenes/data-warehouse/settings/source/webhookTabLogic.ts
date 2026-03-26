@@ -127,19 +127,19 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 }
             },
         ],
-        hasIncrementalSchemas: [
+        hasWebhookSchemas: [
             (s) => [s.source],
             (source: ExternalDataSource | null): boolean => {
                 if (!source?.schemas) {
                     return false
                 }
-                return source.schemas.some((s) => s.sync_type === 'incremental' && s.should_sync)
+                return source.schemas.some((s) => s.sync_type === 'webhook' && s.should_sync)
             },
         ],
         canDeleteWebhook: [
-            (s) => [s.webhookInfo, s.hasIncrementalSchemas],
-            (webhookInfo: WebhookInfo | null, hasIncrementalSchemas: boolean): boolean => {
-                return !!webhookInfo?.exists && !hasIncrementalSchemas
+            (s) => [s.webhookInfo, s.hasWebhookSchemas],
+            (webhookInfo: WebhookInfo | null, hasWebhookSchemas: boolean): boolean => {
+                return !!webhookInfo?.exists && !hasWebhookSchemas
             },
         ],
         mappedTables: [

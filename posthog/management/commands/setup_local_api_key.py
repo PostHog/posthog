@@ -14,8 +14,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import User
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import mask_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import hash_key_value, mask_key_value
 
 DEV_API_KEY = settings.DEV_API_KEY
 DEV_USER_EMAIL = "test@posthog.com"
