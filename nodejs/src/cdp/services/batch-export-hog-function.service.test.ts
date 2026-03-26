@@ -17,20 +17,11 @@ import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 
-import { PersonHogClient } from '../../ingestion/personhog/client'
-import { PersonHogGroupRepository } from '../../ingestion/personhog/personhog-group-repository'
+import { PersonHogClient } from '../../personhog/client'
+import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
 import { GroupTypeIndex, TeamId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { GroupsManagerService } from './managers/groups-manager.service'
-
-type MockPersonHogClient = {
-    groups: jest.Mocked<
-        Pick<
-            PersonHogClient['groups'],
-            'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
-        >
-    >
-}
 
 describe('BatchExportHogFunctionService', () => {
     let hub: Hub
@@ -405,7 +396,7 @@ describe('BatchExportHogFunctionService', () => {
         })
     })
 
-    describe('groups enrichment via PersonHogGroupRepository', () => {
+    describe('groups enrichment via DualReadGroupRepository', () => {
         let originalGroupsManager: GroupsManagerService
 
         const setupGroups = async () => {
@@ -439,36 +430,34 @@ describe('BatchExportHogFunctionService', () => {
             await setupGroups()
 
             // Build a mock gRPC client that returns the same data postgres holds
-            const mockGrpc: MockPersonHogClient = {
-                groups: {
-                    fetchGroup: jest.fn(),
-                    fetchGroupsByKeys: jest.fn().mockResolvedValue([
-                        {
-                            team_id: team.id as TeamId,
-                            group_type_index: 0 as GroupTypeIndex,
-                            group_key: 'acme-inc',
-                            group_properties: { name: 'Acme Inc', industry: 'Tech' },
-                        },
-                    ]),
-                    fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
-                        const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
-                        for (const id of teamIds) {
-                            result[id.toString()] = [{ group_type: 'company', group_type_index: 0 as GroupTypeIndex }]
-                        }
-                        return Promise.resolve(result)
-                    }),
-                    fetchGroupTypesByProjectIds: jest.fn(),
-                },
+            const mockGrpc = {
+                fetchGroup: jest.fn(),
+                fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                    {
+                        team_id: team.id as TeamId,
+                        group_type_index: 0 as GroupTypeIndex,
+                        group_key: 'acme-inc',
+                        group_properties: { name: 'Acme Inc', industry: 'Tech' },
+                    },
+                ]),
+                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
+                    const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+                    for (const id of teamIds) {
+                        result[id.toString()] = [{ group_type: 'company', group_type_index: 0 as GroupTypeIndex }]
+                    }
+                    return Promise.resolve(result)
+                }),
+                fetchGroupTypesByProjectIds: jest.fn(),
             }
 
-            const personhogRepo = new PersonHogGroupRepository(
+            const dualReadRepo = new DualReadGroupRepository(
                 hub.groupRepository,
                 mockGrpc as unknown as PersonHogClient,
                 100,
                 'test'
             )
-            const personhogGroupsManager = new GroupsManagerService(hub.teamManager, personhogRepo)
-            api['batchExportHogFunctionService']['groupsManager'] = personhogGroupsManager
+            const dualReadGroupsManager = new GroupsManagerService(hub.teamManager, dualReadRepo)
+            api['batchExportHogFunctionService']['groupsManager'] = dualReadGroupsManager
 
             clickhouseEvent.properties = JSON.stringify({
                 $lib_version: '1.0.0',
@@ -500,8 +489,8 @@ describe('BatchExportHogFunctionService', () => {
             })
 
             // Verify gRPC was the path used (not postgres)
-            expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalled()
-            expect(mockGrpc.groups.fetchGroupsByKeys).toHaveBeenCalled()
+            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalled()
+            expect(mockGrpc.fetchGroupsByKeys).toHaveBeenCalled()
         })
     })
 })

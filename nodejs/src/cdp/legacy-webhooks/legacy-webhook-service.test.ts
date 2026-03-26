@@ -3,23 +3,14 @@ import { mockFetch } from '../../../tests/helpers/mocks/request.mock'
 import { Message } from 'node-rdkafka'
 
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { PersonHogClient } from '../../ingestion/personhog/client'
-import { PersonHogGroupRepository } from '../../ingestion/personhog/personhog-group-repository'
+import { PersonHogClient } from '../../personhog/client'
+import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
 import { Action, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { FetchResponse } from '../../utils/request'
 import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { LegacyWebhookService } from './legacy-webhook-service'
-
-type MockPersonHogClient = {
-    groups: jest.Mocked<
-        Pick<
-            PersonHogClient['groups'],
-            'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
-        >
-    >
-}
 
 jest.setTimeout(10000)
 
@@ -391,44 +382,42 @@ describe('LegacyWebhookService', () => {
         })
     })
 
-    describe('PersonHogGroupRepository compatibility', () => {
-        it('should enrich events with group properties when groupRepository is wrapped with PersonHogGroupRepository', async () => {
-            // Wrap the real postgres groupRepository with PersonHogGroupRepository at 100% gRPC rollout
+    describe('DualReadGroupRepository compatibility', () => {
+        it('should enrich events with group properties when groupRepository is wrapped with DualReadGroupRepository', async () => {
+            // Wrap the real postgres groupRepository with DualReadGroupRepository at 100% gRPC rollout
             // with a mock gRPC client that returns the same data as the existing mock
-            const mockGrpcClient: MockPersonHogClient = {
-                groups: {
-                    fetchGroup: jest.fn().mockResolvedValue({
-                        group_properties: { name: 'Test Project' },
-                    } as any),
-                    fetchGroupsByKeys: jest.fn(),
-                    fetchGroupTypesByTeamIds: jest.fn(),
-                    fetchGroupTypesByProjectIds: jest.fn(),
-                },
+            const mockGrpcClient = {
+                fetchGroup: jest.fn().mockResolvedValue({
+                    group_properties: { name: 'Test Project' },
+                }),
+                fetchGroupsByKeys: jest.fn(),
+                fetchGroupTypesByTeamIds: jest.fn(),
+                fetchGroupTypesByProjectIds: jest.fn(),
             }
 
-            const personhogRepo = new PersonHogGroupRepository(
+            const dualReadRepo = new DualReadGroupRepository(
                 hub.groupRepository,
                 mockGrpcClient as unknown as PersonHogClient,
                 100,
                 'test'
             )
 
-            const personhogService = new LegacyWebhookService(
+            const dualReadService = new LegacyWebhookService(
                 hub.postgres,
                 hub.teamManager,
                 hub.groupTypeManager,
-                personhogRepo,
+                dualReadRepo,
                 hub.pubSub
             )
-            await personhogService.start()
+            await dualReadService.start()
 
-            personhogService['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            dualReadService['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
             hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
                 project: 0,
             })
 
-            const processEventSpy = jest.spyOn(personhogService, 'processEvent')
+            const processEventSpy = jest.spyOn(dualReadService, 'processEvent')
 
             const messages: Message[] = [
                 createKafkaMessage(
@@ -439,7 +428,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            const result = await personhogService.processBatch(messages)
+            const result = await dualReadService.processBatch(messages)
             await result.backgroundTask
 
             expect(processEventSpy).toHaveBeenCalledTimes(1)
@@ -453,9 +442,9 @@ describe('LegacyWebhookService', () => {
             })
 
             // fetchGroup with useReadReplica: true should route to gRPC at 100%
-            expect(mockGrpcClient.groups.fetchGroup).toHaveBeenCalled()
+            expect(mockGrpcClient.fetchGroup).toHaveBeenCalled()
 
-            await personhogService.stop()
+            await dualReadService.stop()
         })
     })
 })
