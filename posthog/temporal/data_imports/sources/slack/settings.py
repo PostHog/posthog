@@ -3,10 +3,13 @@ from typing import Optional
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 
+from products.data_warehouse.backend.types import IncrementalField
+
 
 @dataclass
 class EndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
     partition_keys: Optional[list[str]] = None
     partition_mode: Optional[PartitionMode] = None
     partition_format: Optional[PartitionFormat] = None
