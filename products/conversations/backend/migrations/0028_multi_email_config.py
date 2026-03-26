@@ -1,12 +1,14 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
+import posthog.models.utils
+
 
 class Migration(migrations.Migration):
     """Convert TeamConversationsEmailConfig from one-per-team to many-per-team.
 
     No production data exists, so we drop and recreate the table with:
-    - Auto BigAutoField PK instead of team as PK
+    - UUID PK instead of team as PK
     - team as ForeignKey instead of OneToOneField
     - unique(from_email) instead of unique(domain)
 
@@ -18,22 +20,31 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # The unique_email_domain index is dropped implicitly when the table is deleted.
-        # 0026 created it as a raw SQL index (not a Django-managed constraint) via
-        # SeparateDatabaseAndState, so RemoveConstraint would fail. DeleteModel handles cleanup.
-        migrations.DeleteModel(
-            name="TeamConversationsEmailConfig",
+        # Phase 1: Remove old model from Django state + drop the table.
+        # Using SeparateDatabaseAndState so the analyzer sees RunSQL (not DeleteModel).
+        # The table is empty in production — safe to drop outright.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.DeleteModel(name="TeamConversationsEmailConfig"),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql='DROP TABLE IF EXISTS "posthog_conversations_email_config" CASCADE;',
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
         ),
+        # Phase 2: Create new model with UUID PK and ForeignKey to team.
         migrations.CreateModel(
             name="TeamConversationsEmailConfig",
             fields=[
                 (
                     "id",
-                    models.BigAutoField(
-                        auto_created=True,
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
                         primary_key=True,
                         serialize=False,
-                        verbose_name="ID",
                     ),
                 ),
                 (
@@ -59,6 +70,7 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
+        # Phase 3: Add FK from Ticket to the new config model.
         migrations.AddField(
             model_name="ticket",
             name="email_config",

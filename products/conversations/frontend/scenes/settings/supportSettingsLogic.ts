@@ -10,7 +10,7 @@ import { SlackChannelType, UserBasicType } from '~/types'
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
 export interface EmailConfigStatus {
-    id: number
+    id: string
     from_email: string
     from_name: string
     forwarding_address: string | null
@@ -66,16 +66,16 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setNewEmailFromName: (value: string) => ({ value }),
         connectEmail: true,
         connectEmailDone: (config: EmailConfigStatus | null) => ({ config }),
-        disconnectEmail: (configId: number) => ({ configId }),
-        disconnectEmailDone: (configId: number) => ({ configId }),
-        verifyEmailDomain: (configId: number) => ({ configId }),
-        verifyEmailDomainDone: (configId: number, verified: boolean, dnsRecords: Record<string, any> | null) => ({
+        disconnectEmail: (configId: string) => ({ configId }),
+        disconnectEmailDone: (configId: string) => ({ configId }),
+        verifyEmailDomain: (configId: string) => ({ configId }),
+        verifyEmailDomainDone: (configId: string, verified: boolean, dnsRecords: Record<string, any> | null) => ({
             configId,
             verified,
             dnsRecords,
         }),
-        sendTestEmail: (configId: number) => ({ configId }),
-        sendTestEmailDone: (configId: number) => ({ configId }),
+        sendTestEmail: (configId: string) => ({ configId }),
+        sendTestEmailDone: (configId: string) => ({ configId }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -192,14 +192,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
         emailVerifyingConfigId: [
-            null as number | null,
+            null as string | null,
             {
                 verifyEmailDomain: (_, { configId }) => configId,
                 verifyEmailDomainDone: () => null,
             },
         ],
         emailTestingConfigId: [
-            null as number | null,
+            null as string | null,
             {
                 sendTestEmail: (_, { configId }) => configId,
                 sendTestEmailDone: () => null,

@@ -1,11 +1,12 @@
 from django.db import models
 
 from posthog.models.team import Team
+from posthog.models.utils import UUIDModel
 
 MAX_EMAIL_CONFIGS_PER_TEAM = 10
 
 
-class TeamConversationsEmailConfig(models.Model):
+class TeamConversationsEmailConfig(UUIDModel):
     """Per-team email channel configuration.
 
     A team can have multiple email configs (e.g. support@, billing@).

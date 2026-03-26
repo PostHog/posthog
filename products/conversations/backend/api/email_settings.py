@@ -1,5 +1,6 @@
 """Email channel settings API for connect/disconnect flows."""
 
+import uuid
 import secrets
 from email.utils import formataddr, make_msgid
 
@@ -48,7 +49,7 @@ def _set_email_enabled(team: Team, *, enabled: bool) -> None:
     t.save(update_fields=["conversations_settings"])
 
 
-def _get_config_for_team(config_id: int, team: Team) -> TeamConversationsEmailConfig | None:
+def _get_config_for_team(config_id: uuid.UUID, team: Team) -> TeamConversationsEmailConfig | None:
     """Look up a config by id scoped to team. Returns None if not found."""
     return TeamConversationsEmailConfig.objects.filter(id=config_id, team=team).first()
 
@@ -101,7 +102,7 @@ class EmailConnectSerializer(serializers.Serializer):
 
 
 class ConfigIdSerializer(serializers.Serializer):
-    config_id = serializers.IntegerField()
+    config_id = serializers.UUIDField()
 
 
 class EmailStatusView(APIView):

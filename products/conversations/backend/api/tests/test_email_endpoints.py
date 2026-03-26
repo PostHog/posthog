@@ -78,7 +78,12 @@ class TestEmailChannelPermissions(BaseTest):
                 "/api/conversations/v1/email/connect",
                 {"from_email": "s@example.com", "from_name": "S"},
             ),
-            ("disconnect", "post", "/api/conversations/v1/email/disconnect", {"config_id": 999}),
+            (
+                "disconnect",
+                "post",
+                "/api/conversations/v1/email/disconnect",
+                {"config_id": "00000000-0000-0000-0000-000000000999"},
+            ),
         ]
     )
     def test_member_cannot_access(self, _name, method, path, body):
@@ -108,7 +113,7 @@ class TestEmailChannelPermissions(BaseTest):
         # Disconnect with a nonexistent config_id returns 404 (not crash)
         response = self.client.post(
             "/api/conversations/v1/email/disconnect",
-            {"config_id": 999},
+            {"config_id": "00000000-0000-0000-0000-000000000999"},
             content_type="application/json",
         )
         assert response.status_code == 404
