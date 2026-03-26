@@ -23,7 +23,6 @@ export interface TaxonomicBreakdownFilterProps {
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
     showLabel?: boolean
-    /** Show breakdown options (limit, "Other" toggle) inline instead of in a cog popover */
     showInlineOptions?: boolean
     disablePropertyInfo?: boolean
     size?: 'small' | 'medium'

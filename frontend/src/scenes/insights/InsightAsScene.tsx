@@ -4,7 +4,6 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -101,8 +100,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
                     </div>
                 </LemonBanner>
             )}
-
-            {insightMode === ItemMode.Edit && insight?.short_id && <AlertDeletionWarning />}
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 

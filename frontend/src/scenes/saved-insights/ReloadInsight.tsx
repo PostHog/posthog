@@ -25,9 +25,9 @@ export function ReloadInsight(): JSX.Element {
         return <> </>
     }
     return (
-        <div className="text-xs text-secondary mb-2">
-            Unsaved insight from {new Date(draftQuery.timestamp).toLocaleString()} ·{' '}
-            <Link to={urls.insightNew({ query: draftQuery.query })}>Restore</Link>
+        <div className="text-secondary mb-4">
+            You have an unsaved insight from {new Date(draftQuery.timestamp).toLocaleString()}.{' '}
+            <Link to={urls.insightNew({ query: draftQuery.query })}>Click here</Link> to view it.
         </div>
     )
 }
