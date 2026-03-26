@@ -17,7 +17,7 @@ Optional: Issues (R/W), Workflows (R/W).
 Steps:
 
 1. GitHub -> Settings -> Developer Settings -> GitHub Apps -> New GitHub App
-2. Set the **Setup URL** to `http://localhost:8010/integrations/github/callback`
+2. Set the **Setup URL** (NOT the Callback URL or the Homepage URL) to `http://localhost:8010/integrations/github/callback`
 3. Set the permissions above
 4. Generate and download a private key
 5. Install the app on your test repositories
@@ -109,11 +109,15 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 To test changes to `@posthog/agent` before publishing:
 
 ```bash
-# Set the PostHog Code monorepo root
-export LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
+# Set this as an environment variable in the PostHog monorepo root (in your .env)
+LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 
-# Build the packages first
+# Build the @posthog/agent package OR run pnpm dev in Posthog Code
 cd /path/to/posthog-code/packages/agent && pnpm build
+
+OR
+
+pnpm dev
 
 # Run a task from the UI
 ```

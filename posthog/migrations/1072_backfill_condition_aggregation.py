@@ -50,7 +50,7 @@ def backfill_condition_aggregation(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1070_add_unique_cohort_kind_per_team"),
+        ("posthog", "1071_move_tokens_to_sensitive_config"),
     ]
 
     operations = [
