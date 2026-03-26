@@ -48,6 +48,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         MONTHLY = "month", "Monthly"
 
     name = models.CharField(max_length=400)
+    label = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     source = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)

@@ -5585,6 +5585,7 @@ export interface DataModelingJob {
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
+    label: string | null
     should_sync: boolean
     last_synced_at?: Dayjs
 }

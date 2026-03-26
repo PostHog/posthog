@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("dashboards", "0001_migrate_dashboards_models"),
-        ("data_warehouse", "0035_alter_externaldatasource_source_type"),
+        ("data_warehouse", "0036_externaldataschema_label"),
     ]
 
     operations = [

@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("ee", "0041_migrate_dashboards_models"),
         ("dashboards", "0001_migrate_dashboards_models"),
-        ("data_warehouse", "0036_migrate_dashboards_models"),
+        ("data_warehouse", "0037_migrate_dashboards_models"),
         ("posthog", "1069_datadeletionrequest"),
     ]
 
