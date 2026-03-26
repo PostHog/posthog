@@ -419,7 +419,12 @@ function IdleGrid(): JSX.Element {
                     onKeyDown={handleGridKeyDown}
                 >
                     {columns.map((col, colIndex) => (
-                        <div key={col.kind} role="rowgroup" className="flex-1 min-w-0 flex flex-col gap-px">
+                        <div
+                            key={col.kind}
+                            role="rowgroup"
+                            className="flex-1 min-w-0 flex flex-col gap-px"
+                            data-attr={`homepage-grid-column-${col.kind}`}
+                        >
                             <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
                                 {col.icon}
                                 {col.label}
@@ -433,10 +438,16 @@ function IdleGrid(): JSX.Element {
                                     </div>
                                 ))
                             ) : col.items.length === 0 ? (
-                                <div className="px-3 py-2 border border-dashed rounded text-xs text-tertiary">
+                                <div
+                                    className="px-3 py-2 border border-dashed rounded text-xs text-tertiary"
+                                    data-attr={`homepage-grid-empty-${col.kind}`}
+                                >
                                     {col.emptyLabel}{' '}
                                     <Tooltip title={col.emptyTooltip} delayMs={0}>
-                                        <IconInfo className="size-3 text-tertiary" />
+                                        <IconInfo
+                                            className="size-3 text-tertiary"
+                                            data-attr={`homepage-grid-empty-tooltip-${col.kind}`}
+                                        />
                                     </Tooltip>
                                 </div>
                             ) : (
@@ -463,8 +474,13 @@ function IdleGrid(): JSX.Element {
                                                     <ContextMenuItem
                                                         asChild
                                                         onClick={() => {
+                                                            posthog.capture('homepage grid item remove from starred', {
+                                                                kind: item.kind,
+                                                                href: item.href,
+                                                            })
                                                             deleteShortcut(item.entryId!)
                                                         }}
+                                                        data-attr="homepage-grid-remove-from-starred"
                                                     >
                                                         <ButtonPrimitive menuItem variant="danger" forceVariant>
                                                             <IconStar className="size-4 text-inherit" /> Remove from
@@ -475,8 +491,13 @@ function IdleGrid(): JSX.Element {
                                                     <ContextMenuItem
                                                         asChild
                                                         onClick={() => {
+                                                            posthog.capture('homepage grid item add to starred', {
+                                                                kind: item.kind,
+                                                                href: item.href,
+                                                            })
                                                             addShortcutItem(item.entry!)
                                                         }}
+                                                        data-attr="homepage-grid-add-to-starred"
                                                     >
                                                         <ButtonPrimitive menuItem>
                                                             <IconStar className="size-4" /> Add to starred
