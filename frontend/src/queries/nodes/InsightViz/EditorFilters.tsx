@@ -44,6 +44,7 @@ import {
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
 import {
+    BreakdownFilter,
     DataVisualizationNode,
     InsightQueryNode,
     InsightVizNode,
@@ -673,16 +674,7 @@ function getFiltersSummary(properties: AnyPropertyFilter[] | PropertyGroupFilter
     return names.length > 0 ? names.join(', ') : pluralize(filters.length, 'filter')
 }
 
-function getBreakdownSummary(
-    breakdownFilter:
-        | {
-              breakdown?: string | number | (string | number)[] | null
-              breakdown_type?: string | null
-              breakdowns?: { property?: string }[]
-          }
-        | null
-        | undefined
-): string | null {
+function getBreakdownSummary(breakdownFilter: BreakdownFilter | null | undefined): string | null {
     if (!breakdownFilter) {
         return null
     }
