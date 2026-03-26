@@ -770,8 +770,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         # Cannot start SAML flow - sso_login catches AuthFailed and redirects
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.url, "/login?error_code=improperly_configured_sso")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
         # Attempting to use SAML fails
         _session = self.client.session
