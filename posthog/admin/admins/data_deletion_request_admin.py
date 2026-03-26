@@ -282,8 +282,17 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             if not can_submit:
                 messages.error(request, "Cannot submit: property removal request requires at least one property.")
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-            obj.status = RequestStatus.PENDING
-            obj.save(update_fields=["status", "updated_at"])
+            updated = DataDeletionRequest.objects.filter(
+                pk=obj.pk,
+                status=RequestStatus.DRAFT,
+            ).update(
+                status=RequestStatus.PENDING,
+                updated_at=timezone.now(),
+            )
+            if not updated:
+                messages.error(request, "Request is no longer in draft status.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+            obj.refresh_from_db()
             self.log_change(request, obj, "Submitted: status changed from draft to pending.")
             messages.success(request, "Request submitted and is now pending.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
