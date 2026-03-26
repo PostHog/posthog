@@ -29,6 +29,13 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
     return access_token
 
 
+def hubspot_access_token_is_valid(access_token: str) -> bool:
+    res = requests.get(
+        "https://api.hubapi.com/oauth/v1/access-tokens/" + access_token,
+    )
+    return res.status_code == 200
+
+
 def _update_source_job_inputs(source_id: str, access_token: str) -> None:
     from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
