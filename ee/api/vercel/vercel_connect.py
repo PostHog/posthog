@@ -214,7 +214,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             created_by=user,
         )
 
-        Integration.objects.create(
+        resource = Integration.objects.create(
             team=team,
             kind=Integration.IntegrationKind.VERCEL,
             integration_id=str(team.pk),
@@ -222,7 +222,25 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             created_by=user,
         )
 
+        from ee.vercel.client import VercelAPIClient
         from ee.vercel.integration import VercelIntegration
+
+        client = VercelAPIClient(bearer_token=cached_data["access_token"])
+        import_result = client.import_resource(
+            integration_config_id=installation_id,
+            resource_id=str(resource.pk),
+            product_id="posthog",
+            name=team.name,
+            secrets=VercelIntegration._build_secrets(team),
+        )
+        if not import_result.success:
+            logger.error(
+                "Failed to import resource to Vercel",
+                error=import_result.error,
+                installation_id=installation_id,
+                resource_id=str(resource.pk),
+                integration="vercel",
+            )
 
         VercelIntegration.bulk_sync_feature_flags_to_vercel(team)
 
