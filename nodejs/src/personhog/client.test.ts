@@ -1,6 +1,8 @@
 import { create } from '@bufbuild/protobuf'
+import { Client } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
+import { PersonHogService } from '../generated/personhog/personhog/service/v1/service_pb'
 import { ConsistencyLevel } from '../generated/personhog/personhog/types/v1/common_pb'
 import { GroupKeySchema } from '../generated/personhog/personhog/types/v1/common_pb'
 import {
@@ -19,7 +21,15 @@ function jsonBytes(obj: any): Uint8Array {
     return textEncoder.encode(JSON.stringify(obj))
 }
 
-const mockRpcClient = {
+type PersonHogRpcClient = Client<typeof PersonHogService>
+
+const mockRpcClient: {
+    [K in
+        | 'getGroup'
+        | 'getGroupsBatch'
+        | 'getGroupTypeMappingsByTeamIds'
+        | 'getGroupTypeMappingsByProjectIds']: jest.MockedFunction<PersonHogRpcClient[K]>
+} = {
     getGroup: jest.fn(),
     getGroupsBatch: jest.fn(),
     getGroupTypeMappingsByTeamIds: jest.fn(),
