@@ -3,6 +3,7 @@ from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
 from django.core import signing
+from django.db import transaction
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
@@ -194,35 +195,35 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists():
             raise exceptions.ValidationError("This project already has a Vercel integration.")
 
-        OrganizationIntegration.objects.create(
-            organization=organization,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id=installation_id,
-            config={
-                "type": "connectable",
-                "credentials": {
-                    "access_token": cached_data["access_token"],
-                    "token_type": cached_data["token_type"],
+        with transaction.atomic():
+            OrganizationIntegration.objects.create(
+                organization=organization,
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                integration_id=installation_id,
+                config={
+                    "type": "connectable",
+                    "credentials": {
+                        "access_token": cached_data["access_token"],
+                        "token_type": cached_data["token_type"],
+                    },
+                    "vercel_team_id": cached_data.get("team_id"),
+                    "vercel_user_id": cached_data["user_id"],
+                    "configuration_id": cached_data.get("configuration_id"),
+                    "user_mappings": {
+                        cached_data["user_id"]: user.pk,
+                    },
                 },
-                "vercel_team_id": cached_data.get("team_id"),
-                "vercel_user_id": cached_data["user_id"],
-                "configuration_id": cached_data.get("configuration_id"),
-                "user_mappings": {
-                    cached_data["user_id"]: user.pk,
-                },
-            },
-            created_by=user,
-        )
+                created_by=user,
+            )
 
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
-            config={"type": "connectable"},
-            created_by=user,
-        )
+            resource = Integration.objects.create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                config={"type": "connectable"},
+                created_by=user,
+            )
 
-        from ee.vercel.client import VercelAPIClient
         from ee.vercel.integration import VercelIntegration
 
         client = VercelAPIClient(bearer_token=cached_data["access_token"])

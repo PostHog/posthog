@@ -1285,17 +1285,33 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation or installation.config.get("type") != "connectable":
             return
-        Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
-            config={"type": "connectable"},
-        )
-        logger.info(
-            "Auto-created Vercel resource for connectable installation",
-            team_id=team.pk,
-            integration="vercel",
-        )
+        try:
+            resource, created = Integration.objects.get_or_create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                defaults={"config": {"type": "connectable"}},
+            )
+            if created:
+                logger.info(
+                    "Auto-created Vercel resource for connectable installation",
+                    team_id=team.pk,
+                    integration="vercel",
+                )
+                access_token = VercelIntegration._get_access_token(installation)
+                if access_token:
+                    client = VercelAPIClient(bearer_token=access_token)
+                    client.import_resource(
+                        integration_config_id=installation.integration_id,
+                        resource_id=str(resource.pk),
+                        product_id="posthog",
+                        name=team.name,
+                        secrets=VercelIntegration._build_secrets(team),
+                    )
+        except Exception as e:
+            logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
+            capture_exception(e)
+            return
 
     try:
         sync_func()
