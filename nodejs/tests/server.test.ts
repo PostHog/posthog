@@ -15,21 +15,26 @@ describe('server', () => {
     })
 
     afterEach(async () => {
-        await pluginsServer?.stop?.()
-        expect(process.exit).toHaveBeenCalledTimes(1)
-        expect(process.exit).toHaveBeenCalledWith(0)
-        pluginsServer = null
+        if (pluginsServer) {
+            await pluginsServer.stop()
+            expect(process.exit).toHaveBeenCalledTimes(1)
+            expect(process.exit).toHaveBeenCalledWith(0)
+            pluginsServer = null
+        }
     })
 
-    // Running all capabilities together takes too long in tests, so they are split up
-    it('should not error on startup - ingestion', async () => {
-        pluginsServer = new PluginServer({
+    // Ingestion modes are handled by IngestionGeneralServer (see ingestion-general-server.test.ts)
+    it('should error on startup with ingestion mode', async () => {
+        const server = new PluginServer({
             LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
-        await pluginsServer.start()
+        await server.start()
+        // start() catches the error and calls stop(error) internally, which exits with 1
+        expect(process.exit).toHaveBeenCalledWith(1)
     })
 
+    // Running all capabilities together takes too long in tests, so they are split up
     it('should not error on startup - cdp', async () => {
         pluginsServer = new PluginServer({
             LOG_LEVEL: 'debug',

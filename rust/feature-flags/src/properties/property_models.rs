@@ -51,7 +51,27 @@ pub enum PropertyType {
     Flag,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+/// Pre-compiled regex state for Regex/NotRegex operators.
+/// Populated by `prepare_regex()` at flag-load time.
+/// Clone is cheap: fancy_regex::Regex uses Arc<Prog> internally.
+#[derive(Clone)]
+pub enum CompiledRegex {
+    /// Pattern compiled successfully — use this for matching.
+    Compiled(fancy_regex::Regex),
+    /// Pattern failed to compile — always returns Ok(false), no re-compilation needed.
+    InvalidPattern,
+}
+
+impl std::fmt::Debug for CompiledRegex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Compiled(re) => write!(f, "CompiledRegex(/{}/)", re.as_str()),
+            Self::InvalidPattern => write!(f, "CompiledRegex(invalid)"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
     // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
@@ -61,6 +81,26 @@ pub struct PropertyFilter {
     pub prop_type: PropertyType,
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
+    /// Pre-compiled regex for Regex/NotRegex operators.
+    /// `None` means `prepare_regex()` was not called (fallback to on-the-fly compilation).
+    /// `Some(Compiled(_))` holds the pre-compiled regex.
+    /// `Some(InvalidPattern)` means the pattern failed to compile — returns false immediately.
+    #[serde(skip)]
+    pub compiled_regex: Option<CompiledRegex>,
+}
+
+impl Default for PropertyFilter {
+    fn default() -> Self {
+        PropertyFilter {
+            key: String::new(),
+            value: None,
+            operator: None,
+            prop_type: PropertyType::default(),
+            negation: None,
+            group_type_index: None,
+            compiled_regex: None,
+        }
+    }
 }
 
 #[allow(clippy::needless_update)]

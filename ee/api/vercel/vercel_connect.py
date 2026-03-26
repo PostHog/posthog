@@ -1,18 +1,12 @@
-import json
-import uuid
-import zlib
-import base64
-import hashlib
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
 from django.core import signing
-from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import InvalidToken
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,7 +16,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
 
-from ee.vercel.client import VercelAPIClient
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
+from ee.vercel.client import APIError, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -32,34 +27,22 @@ ALLOWED_REDIRECT_DOMAINS = {
 }
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
-USED_TOKEN_CACHE_PREFIX = "vercel_connect_used:"
-
-
-def _get_fernet() -> Fernet:
-    key = base64.urlsafe_b64encode(hashlib.sha256(settings.VERCEL_CLIENT_INTEGRATION_SECRET.encode()).digest())
-    return Fernet(key)
+CONNECT_SALT = "vercel_connect"
 
 
 def _sign_connect_session(data: dict) -> str:
-    data["jti"] = str(uuid.uuid4())
-    payload = zlib.compress(json.dumps(data).encode())
-    return _get_fernet().encrypt(payload).decode()
+    return encrypt_payload(data, salt=CONNECT_SALT, jti=True)
 
 
 def _load_connect_session(token: str) -> dict:
     try:
-        decrypted = _get_fernet().decrypt(token.encode(), ttl=CONNECT_SESSION_TIMEOUT)
+        return decrypt_payload(token, salt=CONNECT_SALT, ttl=CONNECT_SESSION_TIMEOUT)
     except InvalidToken:
         raise signing.BadSignature("Invalid or expired token")
-    return json.loads(zlib.decompress(decrypted))
 
 
 def _mark_token_used(jti: str) -> bool:
-    cache_key = f"{USED_TOKEN_CACHE_PREFIX}{jti}"
-    if cache.get(cache_key):
-        return False
-    cache.set(cache_key, True, timeout=CONNECT_SESSION_TIMEOUT)
-    return True
+    return mark_token_used(jti, ttl=CONNECT_SESSION_TIMEOUT)
 
 
 def _validate_next_url(url: str) -> str:
@@ -75,6 +58,28 @@ def _validate_next_url(url: str) -> str:
     if not parsed.hostname or parsed.hostname not in ALLOWED_REDIRECT_DOMAINS:
         return ""
     return url
+
+
+def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
+    """Return True if Vercel no longer recognises this installation (401/403/404).
+
+    Returns False when Vercel confirms the installation is active, or when
+    we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
+    the existing integration to avoid accidental deletion.
+    """
+    access_token = integration.config.get("credentials", {}).get("access_token")
+    if not access_token:
+        return False
+
+    installation_id = integration.integration_id
+    if not installation_id:
+        return False
+
+    client = VercelAPIClient(bearer_token=access_token)
+    try:
+        return not client.check_installation_active(installation_id)
+    except APIError:
+        return False
 
 
 class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
@@ -187,17 +192,25 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         organization = membership.organization
         installation_id = cached_data["installation_id"]
 
-        # Check if this org already has a Vercel integration
         existing = OrganizationIntegration.objects.filter(
             organization=organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         ).first()
 
         if existing:
-            raise exceptions.ValidationError(
-                "This organization already has a Vercel integration. "
-                "Please unlink the existing one first or choose a different organization."
-            )
+            if _is_installation_orphaned(existing):
+                logger.info(
+                    "vercel_connect_deleting_orphaned_integration",
+                    old_installation_id=existing.integration_id,
+                    organization_id=str(organization_id),
+                    integration="vercel",
+                )
+                existing.delete()
+            else:
+                raise exceptions.ValidationError(
+                    "This organization already has a Vercel integration. "
+                    "Please unlink the existing one first or choose a different organization."
+                )
 
         OrganizationIntegration.objects.create(
             organization=organization,
@@ -205,15 +218,17 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             integration_id=installation_id,
             config={
                 "type": "connectable",
-                "credentials": {
-                    "access_token": cached_data["access_token"],
-                    "token_type": cached_data["token_type"],
-                },
                 "vercel_team_id": cached_data.get("team_id"),
                 "vercel_user_id": cached_data["user_id"],
                 "configuration_id": cached_data.get("configuration_id"),
                 "user_mappings": {
                     cached_data["user_id"]: user.pk,
+                },
+            },
+            sensitive_config={
+                "credentials": {
+                    "access_token": cached_data["access_token"],
+                    "token_type": cached_data["token_type"],
                 },
             },
             created_by=user,
@@ -255,18 +270,32 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         ).select_related("organization")
 
         org_ids = [m.organization_id for m in memberships]
-        orgs_with_vercel = set(
-            OrganizationIntegration.objects.filter(
+        vercel_integrations = {
+            i.organization_id: i
+            for i in OrganizationIntegration.objects.filter(
                 organization_id__in=org_ids,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            ).values_list("organization_id", flat=True)
-        )
+            )
+        }
+
+        orphaned_org_ids: set = set()
+        for org_id, integration in vercel_integrations.items():
+            if _is_installation_orphaned(integration):
+                logger.info(
+                    "vercel_session_deleting_orphaned_integration",
+                    installation_id=integration.integration_id,
+                    organization_id=str(org_id),
+                    integration="vercel",
+                )
+                integration.delete()
+                orphaned_org_ids.add(org_id)
 
         organizations = [
             {
                 "id": str(m.organization.id),
                 "name": m.organization.name,
-                "already_linked": m.organization_id in orgs_with_vercel,
+                "already_linked": m.organization_id in vercel_integrations
+                and m.organization_id not in orphaned_org_ids,
             }
             for m in memberships
         ]

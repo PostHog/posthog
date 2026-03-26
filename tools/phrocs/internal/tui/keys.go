@@ -268,13 +268,20 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
+	case msg.Code == tea.KeyEscape:
+		if !m.viewportAtBottom {
+			m.dbg("viewport: escape → goto bottom")
+			m.viewport.GotoBottom()
+			m.viewportAtBottom = true
+		}
+
 	case key.Matches(msg, m.keys.GotoTop):
-		m.dbg("viewport: goto top")
+		m.dbg("viewport: home → goto top")
 		m.viewport.GotoTop()
 		m.viewportAtBottom = false
 
 	case key.Matches(msg, m.keys.GotoBottom):
-		m.dbg("viewport: goto bottom")
+		m.dbg("viewport: end → goto bottom")
 		m.viewport.GotoBottom()
 		m.viewportAtBottom = true
 

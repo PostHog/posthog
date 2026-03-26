@@ -588,7 +588,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [visual-regression, changes]
-        if: always() && needs.changes.outputs.mode == 'update' && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
             contents: write
             pull-requests: write
@@ -637,9 +637,44 @@ jobs:
                     echo "Snapshot changes detected in patches"
                   fi
 
-            # UPDATE mode: commit the changes
+            # Visual Review: submit snapshots and auto-approve baseline
+            # Runs before commit-snapshots so the baseline update lands in the same commit
+            - name: Install VR CLI deps
+              run: cd products/visual_review/cli && npm ci
+
+            - name: Submit to Visual Review
+              continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+                  VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
+              run: |
+                  npx tsx products/visual_review/cli/src/index.ts submit \
+                    --dir frontend/__snapshots__/ \
+                    --type storybook \
+                    --baseline frontend/snapshots.yml \
+                    $VR_AUTO_APPROVE \
+                    --token "$VR_TOKEN" \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR"
+
+            # Stage baseline if updated by VR submit — included in the snapshot commit
+            - name: Check baseline changes
+              id: check-baseline
+              run: |
+                  if git diff --quiet frontend/snapshots.yml; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    git add frontend/snapshots.yml
+                  fi
+
+            # UPDATE mode: commit PNGs + baseline together
             - name: Commit snapshot changes
-              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
+              if: (steps.check-snapshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: storybook
