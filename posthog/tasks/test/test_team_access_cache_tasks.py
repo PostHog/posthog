@@ -27,6 +27,17 @@ class TestInvalidateTokenCacheTask(TestCase):
         with self.assertRaises(Exception):
             invalidate_token_cache_task(token_hash="sha256$abc123")
 
+    @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
+    def test_token_task_retries_on_transient_failure(self, mock_cache: MagicMock) -> None:
+        error = Exception("Redis down")
+        mock_cache.invalidate_token.side_effect = error
+
+        with patch.object(invalidate_token_cache_task, "retry", side_effect=error) as mock_retry:
+            with self.assertRaises(Exception):
+                invalidate_token_cache_task(token_hash="sha256$abc123")
+
+        mock_retry.assert_called_once_with(exc=error)
+
 
 class TestInvalidateUserTokensTask(TestCase):
     @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
@@ -43,6 +54,17 @@ class TestInvalidateUserTokensTask(TestCase):
 
         with self.assertRaises(Exception):
             invalidate_user_tokens_task(user_id=42)
+
+    @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
+    def test_user_tokens_task_retries_on_transient_failure(self, mock_cache: MagicMock) -> None:
+        error = Exception("Redis down")
+        mock_cache.invalidate_user_tokens.side_effect = error
+
+        with patch.object(invalidate_user_tokens_task, "retry", side_effect=error) as mock_retry:
+            with self.assertRaises(Exception):
+                invalidate_user_tokens_task(user_id=42)
+
+        mock_retry.assert_called_once_with(exc=error)
 
 
 class TestInvalidateTokenSync(TestCase):
