@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.ai.session_summary.activities.a5_embed_and_store_segments import SESSION_SEGMENTS_EMBEDDING_MODEL
 
@@ -21,17 +21,18 @@ def count_distinct_persons(team: Team, distinct_ids: list[str]) -> int:
     """
     if not distinct_ids:
         return 0
-    result = execute_hogql_query(
-        query_type="DistinctPersonCount",
-        query=parse_select(
-            """
-            SELECT COUNT(DISTINCT person_id)
-            FROM person_distinct_ids
-            WHERE distinct_id IN {distinct_ids}"""
-        ),
-        placeholders={"distinct_ids": ast.Constant(value=distinct_ids)},
-        team=team,
-    )
+    with tags_context(product=Product.SESSION_SUMMARY, feature=Feature.QUERY):
+        result = execute_hogql_query(
+            query_type="DistinctPersonCount",
+            query=parse_select(
+                """
+                SELECT COUNT(DISTINCT person_id)
+                FROM person_distinct_ids
+                WHERE distinct_id IN {distinct_ids}"""
+            ),
+            placeholders={"distinct_ids": ast.Constant(value=distinct_ids)},
+            team=team,
+        )
     return result.results[0][0] if result.results and len(result.results) > 0 else 0
 
 
@@ -42,7 +43,7 @@ def _fetch_video_segment_rows_paginated(team: Team, lookback_hours: int) -> Iter
     """
     for offset in range(0, MAX_SEGMENTS_RETURNED, PAGE_SIZE):
         page_size = min(PAGE_SIZE, MAX_SEGMENTS_RETURNED - offset)
-        with tags_context(product=Product.SESSION_SUMMARY):
+        with tags_context(product=Product.SESSION_SUMMARY, feature=Feature.QUERY):
             result = execute_hogql_query(
                 query_type="VideoSegmentsForClustering",
                 query=parse_select(

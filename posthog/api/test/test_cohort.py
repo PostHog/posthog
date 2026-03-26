@@ -69,6 +69,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         activity_response = self._get_cohort_activity(cohort_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
         self.maxDiff = None
 
         # Sort 'changes' lists for order-insensitive comparison
