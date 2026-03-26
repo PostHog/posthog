@@ -41,9 +41,7 @@ interface TagsDisplayProps {
 }
 
 function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }: TagsDisplayProps): JSX.Element {
-    const hasTags = tags.length > 0 || evaluationContexts.length > 0
-
-    if (hasEvaluationContexts && hasTags) {
+    if (hasEvaluationContexts) {
         return (
             <FeatureFlagEvaluationContexts
                 tags={tags}
