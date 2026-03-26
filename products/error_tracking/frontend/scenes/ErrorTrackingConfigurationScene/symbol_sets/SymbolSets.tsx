@@ -81,9 +81,16 @@ const SymbolSetTable = (): JSX.Element => {
         symbolSetOrder,
         selectedSymbolSetIds,
         deleteSymbolSetResponseLoading,
+        shiftKeyHeld,
+        previouslyCheckedIndex,
     } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, bulkDeleteSymbolSets } =
-        useActions(symbolSetLogic)
+    const {
+        deleteSymbolSet,
+        setSymbolSetOrder,
+        setSelectedSymbolSetIds,
+        bulkDeleteSymbolSets,
+        setPreviouslyCheckedIndex,
+    } = useActions(symbolSetLogic)
 
     const someSelected = selectedSymbolSetIds.length > 0 && selectedSymbolSetIds.length < symbolSets.length
     const allSelected = symbolSets.length > 0 && selectedSymbolSetIds.length === symbolSets.length
@@ -101,16 +108,31 @@ const SymbolSetTable = (): JSX.Element => {
                     }
                 />
             ),
-            render: (_, { id }) => {
+            render: (_, { id }, recordIndex) => {
                 const checked = selectedSymbolSetIds.includes(id)
                 return (
                     <LemonCheckbox
                         checked={checked}
-                        onChange={() =>
-                            checked
-                                ? setSelectedSymbolSetIds(selectedSymbolSetIds.filter((i: string) => i !== id))
-                                : setSelectedSymbolSetIds([...selectedSymbolSetIds, id])
-                        }
+                        onChange={(newValue) => {
+                            const includedIds: string[] = []
+
+                            if (!shiftKeyHeld || previouslyCheckedIndex === null) {
+                                includedIds.push(id)
+                            } else {
+                                const start = Math.min(previouslyCheckedIndex, recordIndex)
+                                const end = Math.max(previouslyCheckedIndex, recordIndex) + 1
+                                includedIds.push(
+                                    ...symbolSets.slice(start, end).map((s: ErrorTrackingSymbolSet) => s.id)
+                                )
+                            }
+
+                            setPreviouslyCheckedIndex(recordIndex)
+                            setSelectedSymbolSetIds(
+                                newValue
+                                    ? [...new Set([...selectedSymbolSetIds, ...includedIds])]
+                                    : selectedSymbolSetIds.filter((i: string) => !includedIds.includes(i))
+                            )
+                        }}
                     />
                 )
             },

@@ -1,4 +1,4 @@
-import { actions, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -27,6 +27,8 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         setSymbolSetOrder: (order: SymbolSetOrder) => ({ order }),
         setPage: (page: number) => ({ page }),
         setSelectedSymbolSetIds: (ids: string[]) => ({ ids }),
+        setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
+        setPreviouslyCheckedIndex: (index: number) => ({ index }),
     }),
 
     defaults({
@@ -36,6 +38,8 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         symbolSetOrder: '-created_at' as SymbolSetOrder,
         selectedSymbolSetIds: [] as string[],
         deleteSymbolSetResponse: null as null,
+        shiftKeyHeld: false as boolean,
+        previouslyCheckedIndex: null as number | null,
     }),
 
     reducers({
@@ -53,6 +57,13 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         selectedSymbolSetIds: {
             setSelectedSymbolSetIds: (_, { ids }) => ids,
             loadSymbolSets: () => [],
+        },
+        shiftKeyHeld: {
+            setShiftKeyHeld: (_, { shiftKeyHeld }) => shiftKeyHeld,
+        },
+        previouslyCheckedIndex: {
+            setPreviouslyCheckedIndex: (_, { index }) => index,
+            loadSymbolSets: () => null,
         },
     }),
 
@@ -129,4 +140,18 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
             },
         ],
     })),
+
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(() => {
+            const onKeyChange = (event: KeyboardEvent): void => {
+                actions.setShiftKeyHeld(event.shiftKey)
+            }
+            window.addEventListener('keydown', onKeyChange)
+            window.addEventListener('keyup', onKeyChange)
+            return () => {
+                window.removeEventListener('keydown', onKeyChange)
+                window.removeEventListener('keyup', onKeyChange)
+            }
+        }, 'shiftKeyListener')
+    }),
 ])
