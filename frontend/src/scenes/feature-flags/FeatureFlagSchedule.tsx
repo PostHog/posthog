@@ -702,7 +702,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                 />
             )}
 
-            {!scheduledChangesLoading && activeSchedules.length === 0 && completed.length === 0 && (
+            {!scheduledChangesLoading && activeSchedules.length === 0 && completedSchedules.length === 0 && (
                 <div className="rounded border border-dashed p-6 flex flex-col items-center gap-2 text-center">
                     <span className="text-muted text-sm">No scheduled changes yet</span>
                     {featureFlag.can_edit && (
