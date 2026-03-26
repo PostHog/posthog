@@ -16,7 +16,7 @@ from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
-from posthog.hogql.escape_sql import POSTGRES_KEYWORD_FUNCTIONS, safe_identifier
+from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
@@ -1504,8 +1504,8 @@ class Resolver(CloningVisitor):
 
         if self.dialect == "postgres" and len(node.chain) == 1:
             keyword = name.lower()
-            if keyword in POSTGRES_KEYWORD_FUNCTIONS and name not in scope.columns and name not in scope.aliases:
-                keyword_type = POSTGRES_KEYWORD_TYPES.get(keyword, ast.UnknownType)
+            if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
+                keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
                 return ast.Keyword(
                     name=keyword,
                     type=keyword_type(nullable=False),
