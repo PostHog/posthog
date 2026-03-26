@@ -33,22 +33,26 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
     const [experimentName, setExperimentName] = useState('')
     const [flagKey, setFlagKey] = useState('')
     const [flagKeyManuallyEdited, setFlagKeyManuallyEdited] = useState(false)
+    const [isExistingFlag, setIsExistingFlag] = useState(false)
     const [showReuseFlag, setShowReuseFlag] = useState(false)
 
     const handleNameChange = (value: string): void => {
         setExperimentName(value)
         if (!flagKeyManuallyEdited) {
             setFlagKey(slugifyFeatureFlagKey(value, { fromTitleInput: true }))
+            setIsExistingFlag(false)
         }
     }
 
     const handleFlagKeyChange = (value: string): void => {
         setFlagKeyManuallyEdited(true)
+        setIsExistingFlag(false)
         setFlagKey(slugifyFeatureFlagKey(value))
     }
 
     const selectExistingFlag = (key: string): void => {
         setFlagKeyManuallyEdited(true)
+        setIsExistingFlag(true)
         setFlagKey(key)
     }
 
@@ -58,7 +62,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
             featureFlagKey: flagKey || undefined,
             name: experimentName.trim() || undefined,
         })
-        onClose()
+        handleClose()
     }
 
     const handleClose = (): void => {
@@ -66,6 +70,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
         setExperimentName('')
         setFlagKey('')
         setFlagKeyManuallyEdited(false)
+        setIsExistingFlag(false)
         setShowReuseFlag(false)
         onClose()
     }
@@ -116,8 +121,12 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                     />
                     <div className="text-xs text-muted mt-1">
                         {flagKey
-                            ? 'A new flag will be created with this key'
-                            : 'Leave empty to auto-generate a flag from the experiment name'}
+                            ? isExistingFlag
+                                ? flagKey === experiment.feature_flag?.key
+                                    ? 'This experiment will reuse the same flag as the original'
+                                    : 'This experiment will use an existing flag'
+                                : 'A new flag will be created with this key'
+                            : 'Type an experiment name above to fill this automatically, or enter a custom key'}
                     </div>
                 </div>
 
