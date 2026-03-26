@@ -20,6 +20,28 @@ import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
 /**
+ * Unlayer exports HTML with an XHTML 1.0 Transitional DOCTYPE and bare `&` in
+ * `<link>` href attributes (e.g. Google Fonts URLs). Bare `&` is invalid in
+ * XHTML and can cause email clients to ignore the `<link>` tag, preventing web
+ * fonts from loading. This function:
+ *   1. Replaces the XHTML DOCTYPE with HTML5 (`<!DOCTYPE html>`)
+ *   2. Encodes bare `&` as `&amp;` in `<link>` href attributes
+ */
+function fixUnlayerHtmlForEmailClients(html: string): string {
+    // Replace XHTML DOCTYPE with HTML5
+    html = html.replace(/<!DOCTYPE[^>]*>/i, '<!DOCTYPE html>')
+
+    // Fix bare "&"" in <link> href attributes — encode as &amp;
+    // Matches <link ...href="..." ...> and fixes any & not already followed by amp;
+    html = html.replace(/(<link\b[^>]*\bhref\s*=\s*")([^"]*?)(")/gi, (_match, before, url, after) => {
+        const fixedUrl = url.replace(/&(?!amp;)/g, '&amp;')
+        return before + fixedUrl + after
+    })
+
+    return html
+}
+
+/**
  * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
  * native_email: advanced editor with email integration dropdown, and additional email metafields
  * native_email_template: editor for creating reusable templates, with only subject and preheader, and email content fields
@@ -312,11 +334,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
 
+                const sanitizedHtml = fixUnlayerHtmlForEmailClients(htmlData.html)
+
                 const finalValues: EmailTemplate = {
                     ...formValues,
                     html: ['native_email', 'native_email_template'].includes(props.type)
-                        ? htmlData.html
-                        : escapeHTMLStringCurlies(htmlData.html),
+                        ? sanitizedHtml
+                        : escapeHTMLStringCurlies(sanitizedHtml),
                     text: textData.text,
                     design: htmlData.design,
                 }
@@ -421,11 +445,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                             new Promise<any>((res) => editor.exportPlainText(res)),
                         ])
 
+                    const sanitizedHtml = fixUnlayerHtmlForEmailClients(htmlData.html)
+
                     emailContent = {
                         ...currentValues,
                         html: ['native_email', 'native_email_template'].includes(props.type)
-                            ? htmlData.html
-                            : escapeHTMLStringCurlies(htmlData.html),
+                            ? sanitizedHtml
+                            : escapeHTMLStringCurlies(sanitizedHtml),
                         text: textData.text,
                         design: htmlData.design,
                     }
