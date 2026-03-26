@@ -10,7 +10,7 @@ impl FlagFilters {
             || self
                 .groups
                 .iter()
-                .any(|group| group.aggregation_group_type_index.is_some())
+                .any(|group| matches!(group.aggregation_group_type_index, Some(Some(_))))
             || self
                 .super_groups
                 .as_ref()

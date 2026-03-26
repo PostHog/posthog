@@ -6,8 +6,16 @@ impl FlagPropertyGroup {
     /// Resolves the effective aggregation group type index for this condition,
     /// falling back to the flag-level value for backwards compatibility with
     /// flags that haven't been re-saved through the new API.
+    ///
+    /// The double option on the field distinguishes three states:
+    /// - `None` — field absent (legacy), falls back to `flag_level`
+    /// - `Some(None)` — explicit person aggregation (JSON `null`)
+    /// - `Some(Some(idx))` — explicit group aggregation
     pub fn effective_aggregation(&self, flag_level: Option<i32>) -> Option<i32> {
-        self.aggregation_group_type_index.or(flag_level)
+        match self.aggregation_group_type_index {
+            Some(inner) => inner,
+            None => flag_level,
+        }
     }
 
     /// Returns true if the group is rolled out to some percentage greater than 0.0
@@ -58,6 +66,31 @@ mod tests {
     use super::*;
     use rstest::rstest;
     use serde_json::Value;
+
+    #[rstest]
+    // Field absent (legacy) with flag-level group → falls back to flag-level
+    #[case(None, Some(1), Some(1))]
+    // Field absent (legacy) with flag-level person → falls back to person
+    #[case(None, None, None)]
+    // Explicit person (JSON null) with flag-level group → person wins
+    #[case(Some(None), Some(1), None)]
+    // Explicit group with flag-level person → group wins
+    #[case(Some(Some(2)), None, Some(2))]
+    // Explicit group with flag-level group → condition wins
+    #[case(Some(Some(2)), Some(1), Some(2))]
+    fn test_effective_aggregation(
+        #[case] condition_level: Option<Option<i32>>,
+        #[case] flag_level: Option<i32>,
+        #[case] expected: Option<i32>,
+    ) {
+        let group = FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: None,
+            variant: None,
+            aggregation_group_type_index: condition_level,
+        };
+        assert_eq!(group.effective_aggregation(flag_level), expected);
+    }
 
     #[rstest]
     #[case(Some(100.0), true)]
@@ -204,5 +237,27 @@ mod tests {
         };
 
         assert!(!group.requires_cohort_filters());
+    }
+
+    #[test]
+    fn test_serde_double_option_field_absent() {
+        let json = r#"{"properties": [], "rollout_percentage": 100.0}"#;
+        let group: FlagPropertyGroup = serde_json::from_str(json).unwrap();
+        assert_eq!(group.aggregation_group_type_index, None);
+    }
+
+    #[test]
+    fn test_serde_double_option_field_null() {
+        let json = r#"{"properties": [], "rollout_percentage": 100.0, "aggregation_group_type_index": null}"#;
+        let group: FlagPropertyGroup = serde_json::from_str(json).unwrap();
+        assert_eq!(group.aggregation_group_type_index, Some(None));
+    }
+
+    #[test]
+    fn test_serde_double_option_field_value() {
+        let json =
+            r#"{"properties": [], "rollout_percentage": 100.0, "aggregation_group_type_index": 1}"#;
+        let group: FlagPropertyGroup = serde_json::from_str(json).unwrap();
+        assert_eq!(group.aggregation_group_type_index, Some(Some(1)));
     }
 }

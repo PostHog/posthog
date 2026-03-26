@@ -971,16 +971,16 @@ impl FeatureFlagMatcher {
 
     /// Resolves group property overrides for a specific group type index by mapping
     /// the index to the group type name and looking up the corresponding overrides.
-    fn resolve_group_overrides(
+    fn resolve_group_overrides<'a>(
         &self,
         group_type_index: GroupTypeIndex,
-        group_property_overrides: Option<&HashMap<String, HashMap<String, Value>>>,
-    ) -> Option<HashMap<String, Value>> {
+        group_property_overrides: Option<&'a HashMap<String, HashMap<String, Value>>>,
+    ) -> Option<&'a HashMap<String, Value>> {
         let mapping = self.group_type_mapping.as_ref()?;
         let index_to_type_map = mapping.group_indexes_to_types();
         let group_type = index_to_type_map.get(&group_type_index)?;
         let group_overrides = group_property_overrides?;
-        group_overrides.get(group_type).cloned()
+        group_overrides.get(group_type)
     }
 
     /// Pushes CPU-bound flag evaluation onto the Rayon pool via [`RayonDispatcher`],
@@ -1264,14 +1264,20 @@ impl FeatureFlagMatcher {
 
             // For group-aggregated conditions, verify we have the group key. If not, this
             // condition can't match — log a warning and continue to the next condition.
-            if aggregation.is_some() {
-                let hashed_id = self.hashed_identifier(
-                    flag,
-                    aggregation,
-                    hash_key_overrides,
-                    request_hash_key_override,
-                )?;
-                if hashed_id.is_empty() {
+            // This checks the group key directly rather than calling hashed_identifier,
+            // which will be called again later in check_rollout/get_matching_variant.
+            if let Some(group_type_index) = aggregation {
+                let has_group_key = self
+                    .group_type_mapping
+                    .as_ref()
+                    .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
+                    .and_then(|name| self.groups.get(name))
+                    .is_some_and(|v| match v {
+                        Value::String(s) => !s.is_empty(),
+                        Value::Number(_) => true,
+                        _ => false,
+                    });
+                if !has_group_key {
                     warn!(
                         flag_key = %flag.key,
                         team_id = %flag.team_id,
@@ -1310,8 +1316,8 @@ impl FeatureFlagMatcher {
                                 group_type_index,
                                 group_property_overrides,
                             );
-                            let group_props = self
-                                .get_group_properties(group_type_index, group_overrides.as_ref())?;
+                            let group_props =
+                                self.get_group_properties(group_type_index, group_overrides)?;
                             e.insert(group_props);
                         }
                     }
@@ -1430,18 +1436,17 @@ impl FeatureFlagMatcher {
 
     /// Check if a condition matches for a feature flag.
     ///
-    /// This function evaluates a specific condition of a feature flag to determine if it should be enabled.
-    /// It first checks if the condition has any property filters. If not, it performs a rollout check.
-    /// Otherwise, it checks if the pre-computed merged properties match the condition's filters.
-    /// The function returns a tuple indicating whether the condition matched and the reason for the match.
+    /// Evaluates a specific condition to determine if it should be enabled.
+    /// If the condition has no property filters, performs a rollout check only.
+    /// Otherwise, checks if the provided properties satisfy the condition's filters.
     ///
-    /// Note: `merged_properties` should be pre-computed by the caller using `get_properties_to_check()`
-    /// to avoid redundant HashMap clones and merges when evaluating multiple conditions.
+    /// The caller resolves the correct property map (person or group) for the
+    /// condition's aggregation mode and passes it as `properties`.
     pub(crate) fn is_condition_match(
         &self,
         feature_flag: &FeatureFlag,
         condition: &FlagPropertyGroup,
-        merged_properties: &HashMap<String, Value>,
+        properties: &HashMap<String, Value>,
         aggregation_group_type_index: Option<i32>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
@@ -1473,7 +1478,7 @@ impl FeatureFlagMatcher {
                     }
                 } else if filter.is_cohort() {
                     cohort_filters.push(filter);
-                } else if !match_property(filter, merged_properties, false).unwrap_or(false) {
+                } else if !match_property(filter, properties, false).unwrap_or(false) {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -1484,7 +1489,7 @@ impl FeatureFlagMatcher {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
                 };
-                if !self.evaluate_cohort_filters(&cohort_filters, merged_properties, cohorts)? {
+                if !self.evaluate_cohort_filters(&cohort_filters, properties, cohorts)? {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -1989,7 +1994,7 @@ impl FeatureFlagMatcher {
                 let condition_level = flag
                     .get_conditions()
                     .iter()
-                    .filter_map(|c| c.aggregation_group_type_index);
+                    .filter_map(|c| c.aggregation_group_type_index.flatten());
                 flag_level.into_iter().chain(condition_level)
             })
             .collect();
@@ -2185,7 +2190,7 @@ impl FeatureFlagMatcher {
                     || flag
                         .get_conditions()
                         .iter()
-                        .any(|c| c.aggregation_group_type_index.is_some()))
+                        .any(|c| matches!(c.aggregation_group_type_index, Some(Some(_)))))
         });
 
         if !has_type_indexes {
