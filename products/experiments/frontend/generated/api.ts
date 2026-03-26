@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
@@ -424,6 +425,48 @@ export const experimentsDuplicateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentApi),
+    })
+}
+
+/**
+ * End a running experiment without shipping a variant.
+
+Sets end_date to now and marks the experiment as stopped. The feature
+flag is NOT modified — users continue to see their assigned variants
+and exposure events ($feature_flag_called) continue to be recorded.
+However, only data up to end_date is included in experiment results.
+
+Use this when:
+
+- You want to freeze the results window without changing which variant
+  users see.
+- A variant was already shipped manually via the feature flag UI and
+  the experiment just needs to be marked complete.
+
+The end_date can be adjusted after ending via PATCH if it needs to be
+backdated (e.g. to match when the flag was actually paused).
+
+Other options:
+- Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+- Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+
+Returns 400 if the experiment is not running.
+ */
+export const getExperimentsEndCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/end/`
+}
+
+export const experimentsEndCreate = async (
+    projectId: string,
+    id: number,
+    endExperimentApi: EndExperimentApi,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsEndCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(endExperimentApi),
     })
 }
 

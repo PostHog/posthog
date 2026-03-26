@@ -80,6 +80,21 @@ fn node_exceptions() {
         .collect::<Vec<_>>();
 
     assert_eq!(frames.len(), 4);
+    let context = frames[3].context.as_ref().unwrap();
+    assert_eq!(context.line.number, 27);
+    assert_eq!(
+        context.line.line,
+        "  throw new Error(\"My first PostHog error!\");"
+    );
+    assert_eq!(context.before.len(), 7);
+    // Adjacent to context line (lineno - 1); pre_context order is reversed into display order
+    assert_eq!(context.before[0].number, 26);
+    assert_eq!(
+        context.before[0].line,
+        "  posthog.capture({ event: \"Test event\", distinctId: \"test\" });"
+    );
+    assert_eq!(context.before[6].number, 20);
+    assert_eq!(context.before[6].line, "});");
 }
 
 #[test]

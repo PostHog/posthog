@@ -98,6 +98,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+    const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -504,7 +505,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     'items-center': isLayoutNavCollapsed,
                                 })}
                             >
-                                <NotificationsMenu iconOnly={isLayoutNavCollapsed} />
+                                {isNotificationsEnabled && <NotificationsMenu iconOnly={isLayoutNavCollapsed} />}
                                 <Link
                                     to={urls.settings('project')}
                                     buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
