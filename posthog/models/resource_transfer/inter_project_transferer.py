@@ -281,6 +281,13 @@ def build_resource_duplication_graph(
     for edge in edges:
         try:
             related_resource = edge.target_model.objects.get(pk=edge.target_primary_key, team_id=resource.team_id)
+
+            related_visitor = ResourceTransferVisitor.get_visitor(related_resource)
+
+            if related_visitor is None:
+                raise ValueError(f"No configured visitor for {type(related_resource)}")
+
+            _validate_common_org_access(resource.team, related_visitor, related_resource)
             yield from build_resource_duplication_graph(related_resource, exclude_set, depth + 1)
         except ObjectDoesNotExist:
             logger.exception(
@@ -553,6 +560,7 @@ def _get_mapped_substitutions(
         try:
             if target_team is not None:
                 dest_resource = dest_model.objects.get(pk=dest_pk, team_id=target_team.pk)
+                _validate_common_org_access(target_team, dest_visitor, dest_resource)
             else:
                 dest_resource = dest_model.objects.get(pk=dest_pk)
         except ObjectDoesNotExist:
@@ -642,3 +650,21 @@ def _duplicate_vertex(
         model=visitor.get_model().__name__,
     )
     return new_resource
+
+
+def _validate_common_org_access(
+    target_team: Team, other_visitor: type[ResourceTransferVisitor], other_resource: Any
+) -> None:
+    other_team = other_visitor.get_resource_team(other_resource)
+    if other_team.pk != target_team.pk:
+        logger.warning(
+            "resource_transfer.map_substitutions.team_mismatch",
+            dest_kind=other_visitor.kind,
+            dest_pk=str(other_resource.pk),
+            resource_team_id=other_team.pk,
+            target_team_id=target_team.pk,
+        )
+        raise ValueError(
+            f"Substitution resource {other_visitor.kind} {other_resource.pk} belongs to team {other_team.pk}, "
+            f"not destination team {target_team.pk}"
+        )

@@ -107,7 +107,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 dest_visitor = ResourceTransferVisitor.get_visitor(dest_kind)
                 if dest_visitor is not None:
                     try:
-                        dest_resource = dest_visitor.get_model().objects.get(pk=dest_pk, team_id=destination_team.pk)
+                        dest_resource = dest_visitor.get_model().objects.get(pk=dest_pk)
                         entry["suggested_substitution"] = {
                             "resource_kind": dest_kind,
                             "resource_id": str(dest_pk),
