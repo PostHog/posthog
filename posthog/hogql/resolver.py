@@ -1423,8 +1423,10 @@ class Resolver(CloningVisitor):
         elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
-        if node.name.lower() in ("nullif", "toNullable") or node.name.lower().endswith("OrNull"):
+        if node.name.lower() in ("nullif", "tonullable") or node.name.lower().endswith("ornull"):
             return_type.nullable = True
+        elif node.name.lower() == "assumenotnull":
+            return_type.nullable = False
 
         node.type = ast.CallType(
             name=node.name,

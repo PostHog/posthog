@@ -20,7 +20,7 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -405,7 +405,9 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
             redis_client = get_client()
 
-            tag_queries(product=Product.REPLAY, team_id=playlist.team.pk, replay_playlist_id=playlist_id)
+            tag_queries(
+                product=Product.REPLAY, feature=Feature.QUERY, team_id=playlist.team.pk, replay_playlist_id=playlist_id
+            )
 
             existing_value = redis_client.getex(
                 name=f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", ex=THIRTY_SIX_HOURS_IN_SECONDS

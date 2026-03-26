@@ -2099,7 +2099,6 @@ class TestSurvey(APIBaseTest):
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
-                        "evaluation_tags": [],
                         "evaluation_contexts": [],
                         "bucketing_identifier": "distinct_id",
                     },

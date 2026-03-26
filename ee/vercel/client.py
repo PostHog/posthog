@@ -290,6 +290,22 @@ class VercelAPIClient:
                 error_description=str(e),
             )
 
+    def check_installation_active(self, installation_id: str) -> bool:
+        """Check if a Vercel installation is still active.
+
+        Returns True if the installation exists and is accessible, False if
+        Vercel returns 401/403/404 (meaning it's been removed). Raises on
+        transient errors (5xx / network) so callers can distinguish
+        "definitely gone" from "can't tell".
+        """
+        try:
+            self._request("GET", f"{self.base_url}/installations/{installation_id}")
+            return True
+        except APIError as e:
+            if e.status_code in (401, 403, 404):
+                return False
+            raise
+
     def sso_token_exchange(
         self,
         code: str,

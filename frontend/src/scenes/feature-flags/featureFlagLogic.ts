@@ -158,7 +158,6 @@ export const NEW_FLAG: FeatureFlagType = {
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,
     tags: [],
-    evaluation_tags: [],
     evaluation_contexts: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,

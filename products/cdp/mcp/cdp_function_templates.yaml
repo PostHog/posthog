@@ -24,7 +24,7 @@ tools:
             integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination,
             site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by
             popularity (number of active functions using each template).
-        mcp_version: 1
+
     cdp-function-templates-retrieve:
         operation: hog_function_templates_retrieve
         enabled: true
@@ -39,4 +39,3 @@ tools:
             Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns
             the full template including source code, inputs schema, default filters, and mapping templates. Use this to
             understand what inputs a template requires before creating a function from it.
-        mcp_version: 1
