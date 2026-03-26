@@ -742,6 +742,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
                 sync_type_config=sync_type_config,
                 description=source_schema.description if source_schema else None,
+                label=schema_label_by_name.get(schema_name),
             )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -913,7 +914,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if instance.is_direct_postgres
                 else instance.connection_metadata
             )
-            schema_names = [s.name for s in schemas]
+            schema_names = {s.name: s.label for s in schemas}
             logger.info(
                 "refresh_schemas fetched from source",
                 source_id=str(instance.id),

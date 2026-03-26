@@ -384,6 +384,14 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
+def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[str, str | None]) -> None:
+    for schema in old_schemas:
+        new_label = new_schemas.get(schema.name)
+        if new_label is not None and schema.label != new_label:
+            schema.label = new_label
+            schema.save(update_fields=["label", "updated_at"])
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -391,6 +399,7 @@ def sync_old_schemas_with_new_schemas(
     descriptions: dict[str, str | None] | None = None,
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
+    old_schemas_names = [schema.name for schema in old_schemas]
 
     if descriptions:
         for old_schema in old_schemas:
@@ -419,7 +428,8 @@ def sync_old_schemas_with_new_schemas(
             deleted_obj.deleted = False
             deleted_obj.deleted_at = None
             deleted_obj.description = descriptions.get(schema) if descriptions else None
-            deleted_obj.save(update_fields=["deleted", "deleted_at", "description", "updated_at"])
+            deleted_obj.label = new_schemas.get(schema)
+            deleted_obj.save(update_fields=["deleted", "deleted_at", "description", "label", "updated_at"])
             actually_created.append(schema)
             continue
 
@@ -431,6 +441,7 @@ def sync_old_schemas_with_new_schemas(
             defaults={
                 "should_sync": False,
                 "description": descriptions.get(schema) if descriptions else None,
+                "label": new_schemas.get(schema),
             },
         )
         if created:
