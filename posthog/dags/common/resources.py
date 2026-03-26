@@ -141,7 +141,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
 
         if user == django_settings.CLICKHOUSE_USER:
             context.log.warning(
-                "CLICKHOUSE_PART_BREAKER_USER not configured, falling back to default user. "
+                f"CLICKHOUSE_PART_BREAKER_USER not configured, falling back to default user '{user}'. "
                 "Part breaker will not use a dedicated user with restricted permissions."
             )
         return get_cluster(

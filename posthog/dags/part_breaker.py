@@ -20,7 +20,7 @@ The process per oversized part:
 10. ATTACH PART on source table — adds each new broken part individually (SQL, replicated)
 11. Wait for replication — polls all replicas' log_pointer via ZooKeeper until past our ATTACHes (SQL)
 12. DROP PART — removes only the original oversized part (SQL)
-13. Clean up — UNFREEZE BY NAME, truncate staging tables (SQL)
+13. Clean up — SYSTEM UNFREEZE BY NAME, truncate staging tables (SQL)
 
 Safety properties:
 - Source table is never missing data — new parts are attached BEFORE the oversized part is dropped
@@ -92,8 +92,8 @@ class PartBreakerConfig(dagster.Config):
 
 
 @dataclass
-class OversizedPart:
-    """A single oversized part on a specific shard/table."""
+class PartStats:
+    """Stats for a single part on a specific shard/table."""
 
     table: str
     shard_num: int
@@ -119,13 +119,9 @@ class OversizedPart:
 class BreakResult:
     """Result of breaking a single oversized part."""
 
-    table: str
-    shard_num: int
-    partition_id: str
-    part_name: str
+    part: PartStats
     source_count: int
     post_count: int
-    old_part_gib: float
     new_largest_part_gib: float
     new_part_count: int
     duration_seconds: float
@@ -151,7 +147,7 @@ def _get_ssh_client(hostname: str) -> paramiko.SSHClient:
     ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
 
     # Fetch the host key via paramiko transport.
-    transport = paramiko.Transport(hostname)
+    transport = paramiko.Transport((hostname, 22))
     transport.connect()
     host_key = transport.get_remote_server_key()
     transport.close()
@@ -253,7 +249,7 @@ def _discover_oversized_parts(
     tables: list[str],
     max_part_size_bytes: int,
     target_shards: list[int],
-) -> list[OversizedPart]:
+) -> list[PartStats]:
     """Query system.parts across all shards for individual oversized parts.
 
     Runs the discovery query on one host per shard (via map_one_host_per_shard),
@@ -287,7 +283,7 @@ def _discover_oversized_parts(
             (table, partition_id, part_name, part_bytes, part_rows) = row
 
             results.append(
-                OversizedPart(
+                PartStats(
                     table=table,
                     shard_num=shard_num,
                     partition_id=partition_id,
@@ -300,38 +296,23 @@ def _discover_oversized_parts(
     return results
 
 
-def _check_disk_space(
-    client: Client, source_table: str, partition_id: str, required_bytes: int, multiplier: float
-) -> tuple[bool, int]:
-    """Check if the node has enough free disk space on the disk(s) holding this partition.
+def _check_disk_space(client: Client, required_bytes: int, multiplier: float) -> tuple[bool, int]:
+    """Check if any disk on the node can fit the new parts from the INSERT SELECT.
 
-    Looks up which disk(s) the partition's active parts reside on, then sums
-    the free space across those disks. This handles setups where data lives on
-    disks named something other than 'default'.
+    ClickHouse can write new parts to any disk in the storage policy, so we check
+    whether at least one disk has enough free space — not just the disk(s) currently
+    holding this partition's data.
 
-    Returns (has_enough, free_bytes).
+    Returns (has_enough, max_free_bytes_on_any_disk).
     """
-    database = _get_database()
-    # Find the distinct disk(s) this partition's parts live on
-    disk_result = client.execute(
-        "SELECT DISTINCT disk_name FROM system.parts "
-        "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(partition_id)s",
-        {"db": database, "table": source_table, "partition_id": partition_id},
-    )
-    if not isinstance(disk_result, list) or not disk_result:
-        return False, 0
-
-    disk_names = [row[0] for row in disk_result]
-    # Sum free space across all disks holding this partition's data
-    space_result = client.execute(
-        "SELECT sum(free_space) FROM system.disks WHERE name IN %(disks)s",
-        {"disks": disk_names},
-    )
+    # Check the largest free space on any local disk — CH will use whichever has room.
+    # Exclude ObjectStorage (S3) disks which report unlimited (max uint64) free space.
+    space_result = client.execute("SELECT max(free_space) FROM system.disks WHERE type = 'Local'")
     if not isinstance(space_result, list) or not space_result or space_result[0][0] is None:
         return False, 0
 
-    free_bytes: int = space_result[0][0]
-    return free_bytes >= required_bytes * multiplier, free_bytes
+    max_free_bytes: int = space_result[0][0]
+    return max_free_bytes >= required_bytes * multiplier, max_free_bytes
 
 
 def _check_no_active_breaker(client: Client, staging_source: str, staging_target: str) -> bool:
@@ -692,7 +673,7 @@ def discover_oversized_parts(
     # then cap at max_parts_per_run total.
     parts.sort(key=lambda p: p.part_bytes)
     seen_shards: set[int] = set()
-    selected: list[OversizedPart] = []
+    selected: list[PartStats] = []
     for p in parts:
         if p.shard_num in seen_shards:
             continue
@@ -714,7 +695,7 @@ def break_part(
     context: dagster.OpExecutionContext,
     config: PartBreakerConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    part: OversizedPart,
+    part: PartStats,
 ) -> Optional[BreakResult]:
     """Break a single oversized part on its shard's target node.
 
@@ -751,9 +732,7 @@ def break_part(
             # -- Step 2: Pre-flight checks --
             context.log.info("Running pre-flight checks...")
 
-            has_space, free_bytes = _check_disk_space(
-                client, source_table, partition_id, part.part_bytes, config.min_free_space_multiplier
-            )
+            has_space, free_bytes = _check_disk_space(client, part.part_bytes, config.min_free_space_multiplier)
             if not has_space:
                 free_gib = free_bytes / (1024**3)
                 required_gib = part.part_gib * config.min_free_space_multiplier
@@ -810,7 +789,7 @@ def break_part(
             # -- Step 4: FREEZE the partition --
             # FREEZE creates hardlinks in shadow/ on the SAME disk as the part.
             # Use a named backup so we can UNFREEZE by name later.
-            freeze_name = f"part_breaker_{part.part_name}"
+            freeze_name = f"part_breaker_{part.part_name}_{time.strftime('%Y%m%d%H%M%S')}"
             context.log.info(f"Freezing partition {partition_id} on {source_table} (backup: {freeze_name})...")
             client.execute(
                 f"ALTER TABLE {database}.{source_table} FREEZE PARTITION '{partition_id}' WITH NAME '{freeze_name}'"
@@ -902,10 +881,8 @@ def break_part(
 
             # -- Step 10: Move detached parts to source table's detached dir --
             # List the detached parts for this partition
-            detached_parts = (
-                _ssh_exec(ssh, f"ls -1 {staging_tgt_detached} | grep '^{partition_id}_'").strip().split("\n")
-            )
-            detached_parts = [p for p in detached_parts if p]  # filter empty
+            ls_output = _ssh_exec(ssh, f"sudo ls -1 {staging_tgt_detached}")
+            detached_parts = [p for p in ls_output.strip().split("\n") if p and p.startswith(f"{partition_id}_")]
 
             context.log.info(f"Moving {len(detached_parts)} parts to {source_detached}...")
             for dp in detached_parts:
@@ -1003,15 +980,19 @@ def break_part(
             _truncate_staging(client, staging_source)
             _truncate_staging(client, staging_target)
 
-            # UNFREEZE removes the named shadow backup
+            # SYSTEM UNFREEZE cleans up files AND empty directories across all disks
             try:
-                client.execute(f"ALTER TABLE {database}.{source_table} UNFREEZE WITH NAME '{freeze_name}'")
+                client.execute(f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'")
             except Exception as e:
                 context.log.warning(f"UNFREEZE failed (backup '{freeze_name}'): {e}")
 
         except Exception:
-            # Clean up staging tables on any failure
-            context.log.warning("Error during part break — cleaning up staging tables")
+            # Clean up on failure to avoid leaking shadow disk space and staging data
+            context.log.warning("Error during part break — cleaning up")
+            try:
+                client.execute(f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'")
+            except Exception as e:
+                context.log.warning(f"Failed to UNFREEZE {freeze_name}: {e}")
             try:
                 _truncate_staging(client, staging_source)
             except Exception as e:
@@ -1029,13 +1010,9 @@ def break_part(
         duration = time.time() - start_time
 
         return BreakResult(
-            table=source_table,
-            shard_num=shard,
-            partition_id=partition_id,
-            part_name=part.part_name,
+            part=part,
             source_count=source_count,
             post_count=post_count,
-            old_part_gib=part.part_gib,
             new_largest_part_gib=new_largest_gib,
             new_part_count=new_part_count,
             duration_seconds=duration,
@@ -1059,8 +1036,8 @@ def break_part(
     break_result = next(iter(result.values()))
 
     context.log.info(
-        f"{break_result.table} shard {break_result.shard_num}, part {break_result.part_name}: "
-        f"{break_result.old_part_gib:.1f} GiB → {break_result.new_largest_part_gib:.1f} GiB largest "
+        f"{break_result.part.table} shard {break_result.part.shard_num}, part {break_result.part.part_name}: "
+        f"{break_result.part.part_gib:.1f} GiB → {break_result.new_largest_part_gib:.1f} GiB largest "
         f"({break_result.new_part_count} parts), "
         f"count {break_result.source_count:,} → {break_result.post_count:,} "
         f"(diff: {break_result.count_diff_pct:.2%}), "
@@ -1070,11 +1047,11 @@ def break_part(
     # Emit structured metadata for Dagster UI visibility
     context.add_output_metadata(
         {
-            "table": break_result.table,
-            "shard": break_result.shard_num,
-            "partition": break_result.partition_id,
-            "part_name": break_result.part_name,
-            "old_part_gib": round(break_result.old_part_gib, 1),
+            "table": break_result.part.table,
+            "shard": break_result.part.shard_num,
+            "partition": break_result.part.partition_id,
+            "part_name": break_result.part.part_name,
+            "old_part_gib": round(break_result.part.part_gib, 1),
             "new_largest_gib": round(break_result.new_largest_part_gib, 1),
             "new_part_count": break_result.new_part_count,
             "duration_hours": round(break_result.duration_seconds / 3600, 1),
@@ -1104,13 +1081,13 @@ def report_results(
     )
     for r in completed:
         context.log.info(
-            f"  {r.table} shard {r.shard_num}, part {r.part_name}: "
-            f"{r.old_part_gib:.1f} GiB → {r.new_largest_part_gib:.1f} GiB "
+            f"  {r.part.table} shard {r.part.shard_num}, part {r.part.part_name}: "
+            f"{r.part.part_gib:.1f} GiB → {r.new_largest_part_gib:.1f} GiB "
             f"({r.new_part_count} parts, {r.duration_seconds / 3600:.1f}h, "
             f"count diff: {r.count_diff_pct:.2%})"
         )
 
-    total_gib = sum(r.old_part_gib for r in completed)
+    total_gib = sum(r.part.part_gib for r in completed)
     total_hours = sum(r.duration_seconds for r in completed) / 3600
     context.add_output_metadata(
         {
