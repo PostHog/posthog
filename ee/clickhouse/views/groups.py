@@ -17,12 +17,15 @@ from rest_framework import mixins, request, response, serializers, status, views
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
 
+from posthog.schema import ProductKey
+
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -700,6 +703,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
+        tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
         rows = sync_execute(
             f"""
             SELECT group_type_index, tupleElement(keysAndValues, 1) as key, count(*) as count
@@ -756,6 +760,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             if value_filter:
                 params["value_filter"] = f"%{value_filter}%"
 
+            tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
             rows = sync_execute(query, params)
 
             span.set_attribute("result_count", len(rows))

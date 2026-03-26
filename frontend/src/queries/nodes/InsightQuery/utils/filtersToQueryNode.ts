@@ -480,7 +480,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     // group aggregation
-    if (filters.aggregation_group_type_index !== undefined) {
+    if (filters.aggregation_group_type_index != null) {
         query.aggregation_group_type_index = filters.aggregation_group_type_index
     }
 
