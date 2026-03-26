@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.ast import HogQLXAttribute, HogQLXTag, UUIDType
 from posthog.hogql.errors import InternalHogQLError
@@ -163,3 +165,24 @@ class TestVisitor(BaseTest):
     def test_visit_interval_type(self):
         # Just ensure ``IntervalType`` can be visited without throwing ``NotImplementedError``
         TraversingVisitor().visit(ast.IntervalType())
+
+    @parameterized.expand(
+        [
+            ("asc", "ASC"),
+            ("desc", "DESC"),
+        ]
+    )
+    def test_order_expr_accepts_valid_directions(self, _name: str, direction: str):
+        expr = ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
+        self.assertEqual(expr.order, direction)
+
+    @parameterized.expand(
+        [
+            ("injection", "DESC; SELECT 1"),
+            ("empty", ""),
+            ("lowercase", "asc"),
+        ]
+    )
+    def test_order_expr_rejects_invalid_direction(self, _name: str, direction: str):
+        with self.assertRaises(ValueError):
+            ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]

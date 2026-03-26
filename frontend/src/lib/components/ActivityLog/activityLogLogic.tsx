@@ -192,6 +192,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
     path((key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key]),
     actions({
         setPage: (page: number) => ({ page }),
+        setHighlightedActivityId: (id: string | null) => ({ id }),
     }),
     loaders(({ values, props }) => ({
         activity: [
@@ -210,6 +211,12 @@ export const activityLogLogic = kea<activityLogLogicType>([
             1,
             {
                 setPage: (_, { page }) => page,
+            },
+        ],
+        highlightedActivityId: [
+            null as string | null,
+            {
+                setHighlightedActivityId: (_, { id }) => id,
             },
         ],
     })),
@@ -247,12 +254,23 @@ export const activityLogLogic = kea<activityLogLogicType>([
         },
     })),
     urlToAction(({ values, actions, props }) => {
+        const syncActivityHighlight = (searchParams: Record<string, any>): void => {
+            const activityId = searchParams?.activity
+            if (activityId && activityId !== values.highlightedActivityId) {
+                actions.setHighlightedActivityId(activityId)
+            } else if (!activityId && values.highlightedActivityId !== null) {
+                actions.setHighlightedActivityId(null)
+            }
+        }
+
         const onPageChange = (
             searchParams: Record<string, any>,
             hashParams: Record<string, any>,
             pageScope: ActivityScope,
             forceUsePageParam?: boolean
         ): void => {
+            syncActivityHighlight(searchParams)
+
             const pageInURL = searchParams['page']
             const firstScope = Array.isArray(props.scope) ? props.scope[0] : props.scope
 
@@ -288,6 +306,9 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
+            // Catch-all for pages that don't need pagination handling (surveys, product
+            // tours, experiments, etc.) but still support ?activity= deep linking.
+            '*': (_, searchParams) => syncActivityHighlight(searchParams),
         }
     }),
     events(({ actions, values }) => ({

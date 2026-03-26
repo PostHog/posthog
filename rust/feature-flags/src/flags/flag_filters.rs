@@ -20,6 +20,10 @@ impl FlagFilters {
                 !overrides.contains_key(&Self::enrollment_key(flag_key))
             })
             || self
+                .groups
+                .iter()
+                .any(|group| matches!(group.aggregation_group_type_index, Some(Some(_))))
+            || self
                 .super_groups
                 .as_ref()
                 .is_some_and(|groups| groups.iter().any(|g| g.requires_db_properties(overrides)))

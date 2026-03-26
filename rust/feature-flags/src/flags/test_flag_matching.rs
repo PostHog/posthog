@@ -107,7 +107,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
 
@@ -128,7 +128,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(!match_result.matches);
         assert_eq!(match_result.variant, None);
 
@@ -149,7 +149,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // Expecting false for non-existent distinct_id
         assert!(!match_result.matches);
@@ -1227,7 +1227,9 @@ mod tests {
             group_type_cache,
             Some(groups),
         );
-        let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
+        let variant = matcher
+            .get_matching_variant(&flag, None, None, &None)
+            .unwrap();
         assert!(variant.is_some(), "No variant was selected");
         assert!(
             ["control", "test", "test2"].contains(&variant.unwrap().as_str()),
@@ -1264,7 +1266,9 @@ mod tests {
             None,
         );
 
-        let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
+        let variant = matcher
+            .get_matching_variant(&flag, None, None, &None)
+            .unwrap();
         assert!(variant.is_some());
         assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
     }
@@ -1296,7 +1300,7 @@ mod tests {
             None,
         );
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, &None)
+            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1340,7 +1344,7 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(1, FlagValue::Boolean(true));
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, &None)
+            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1417,7 +1421,7 @@ mod tests {
 
         // All filters match: should pass
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &person_properties, None, &None)
+            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1442,7 +1446,7 @@ mod tests {
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
         let (is_match, reason) = matcher2
-            .is_condition_match(&flag, &condition, &mismatched_properties, None, &None)
+            .is_condition_match(&flag, &condition, &mismatched_properties, None, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -1462,7 +1466,7 @@ mod tests {
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(false));
 
         let (is_match, reason) = matcher3
-            .is_condition_match(&flag, &condition, &person_properties, None, &None)
+            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -1610,7 +1614,9 @@ mod tests {
                     empty_group_type_cache(),
                     None,
                 );
-                matcher.get_match(&flag_clone, None, None, &None).unwrap()
+                matcher
+                    .get_match(&flag_clone, None, None, None, &None)
+                    .unwrap()
             }));
         }
 
@@ -1675,7 +1681,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(result.matches);
     }
@@ -1700,7 +1706,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // With empty distinct_id and 100% rollout, the flag should match
         // This is consistent with the Python implementation
@@ -1731,14 +1737,14 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(!result.matches);
 
         // Now set the rollout percentage to 100%
         flag.filters.groups[0].rollout_percentage = Some(100.0);
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(result.matches);
     }
@@ -1792,7 +1798,9 @@ mod tests {
         // Run the test multiple times to simulate distribution
         for i in 0..1000 {
             matcher.distinct_id = format!("user_{i}");
-            let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
+            let variant = matcher
+                .get_matching_variant(&flag, None, None, &None)
+                .unwrap();
             match variant.as_deref() {
                 Some("control") => control_count += 1,
                 Some("test") => test_count += 1,
@@ -1843,7 +1851,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(!result.matches);
     }
@@ -1887,7 +1895,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // The match should fail due to invalid data type
         assert!(!result.matches);
@@ -1914,7 +1922,14 @@ mod tests {
         );
 
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &flag.filters.groups[0], &HashMap::new(), None, &None)
+            .is_condition_match(
+                &flag,
+                &flag.filters.groups[0],
+                &HashMap::new(),
+                None,
+                None,
+                &None,
+            )
             .unwrap();
 
         assert!(is_match);
@@ -1999,7 +2014,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(result.matches);
     }
@@ -2230,7 +2245,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let result = matcher.get_match(&flag, None, None, &None).unwrap();
+            let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
             assert_eq!(
                 result.matches,
                 should_match,
@@ -2381,12 +2396,14 @@ mod tests {
             .await
             .unwrap();
 
-        let result_test_id = matcher_test_id.get_match(&flag, None, None, &None).unwrap();
+        let result_test_id = matcher_test_id
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
         let result_example_id = matcher_example_id
-            .get_match(&flag, None, None, &None)
+            .get_match(&flag, None, None, None, &None)
             .unwrap();
         let result_another_id = matcher_another_id
-            .get_match(&flag, None, None, &None)
+            .get_match(&flag, None, None, None, &None)
             .unwrap();
 
         assert!(result_test_id.matches);
@@ -2497,7 +2514,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(result.matches);
         assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
@@ -2644,12 +2661,14 @@ mod tests {
             .await
             .unwrap();
 
-        let result_test_id = matcher_test_id.get_match(&flag, None, None, &None).unwrap();
+        let result_test_id = matcher_test_id
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
         let result_example_id = matcher_example_id
-            .get_match(&flag, None, None, &None)
+            .get_match(&flag, None, None, None, &None)
             .unwrap();
         let result_another_id = matcher_another_id
-            .get_match(&flag, None, None, &None)
+            .get_match(&flag, None, None, None, &None)
             .unwrap();
 
         assert!(!result_test_id.matches);
@@ -2763,7 +2782,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(result.matches);
     }
@@ -2857,7 +2876,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(result.matches);
     }
@@ -2946,7 +2965,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // The user matches the cohort, but the flag is set to NotIn, so it should evaluate to false
         assert!(!result.matches);
@@ -3066,7 +3085,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(result.matches);
     }
@@ -3160,7 +3179,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // The user does not match the cohort, and the flag is set to In, so it should evaluate to false
         assert!(!result.matches);
@@ -3254,7 +3273,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(
             result.matches,
@@ -3335,7 +3354,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(
             !result.matches,
@@ -3421,7 +3440,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(
             result.matches,
@@ -3512,7 +3531,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(
             !result.matches,
@@ -3940,7 +3959,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // The condition matches and has a variant override, so it should return "control"
         // regardless of what the hash-based variant computation would return
@@ -3995,7 +4014,7 @@ mod tests {
             .unwrap();
 
         let result_invalid = matcher
-            .get_match(&flag_invalid_override, None, None, &None)
+            .get_match(&flag_invalid_override, None, None, None, &None)
             .unwrap();
 
         // The condition matches but has an invalid variant override,
@@ -4167,7 +4186,7 @@ mod tests {
             .unwrap();
 
         let result = matcher
-            .get_match(&flag_with_holdout, None, None, &None)
+            .get_match(&flag_with_holdout, None, None, None, &None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
@@ -4195,7 +4214,7 @@ mod tests {
             .unwrap();
 
         let result = matcher2
-            .get_match(&flag_with_holdout, None, None, &None)
+            .get_match(&flag_with_holdout, None, None, None, &None)
             .unwrap();
 
         assert!(result.matches);
@@ -4204,7 +4223,7 @@ mod tests {
 
         // same should hold true for a different feature flag when within holdout
         let result = matcher2
-            .get_match(&other_flag_with_holdout, None, None, &None)
+            .get_match(&other_flag_with_holdout, None, None, None, &None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("holdout-1".to_string()));
@@ -4212,7 +4231,7 @@ mod tests {
 
         // Test with matcher1 (outside holdout) to verify different variants
         let result = matcher
-            .get_match(&other_flag_with_holdout, None, None, &None)
+            .get_match(&other_flag_with_holdout, None, None, None, &None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("third-variant".to_string()));
@@ -4220,14 +4239,14 @@ mod tests {
 
         // when holdout exists but is zero, should default to regular flag evaluation
         let result = matcher
-            .get_match(&flag_without_holdout, None, None, &None)
+            .get_match(&flag_without_holdout, None, None, None, &None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
 
         let result = matcher2
-            .get_match(&flag_without_holdout, None, None, &None)
+            .get_match(&flag_without_holdout, None, None, None, &None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
@@ -4334,7 +4353,7 @@ mod tests {
             .unwrap();
 
         let result = matcher
-            .get_match(&flag_with_new_holdout, None, None, &None)
+            .get_match(&flag_with_new_holdout, None, None, None, &None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
@@ -4358,7 +4377,7 @@ mod tests {
             .unwrap();
 
         let result = matcher2
-            .get_match(&flag_with_new_holdout, None, None, &None)
+            .get_match(&flag_with_new_holdout, None, None, None, &None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("holdout-1".to_string()));
@@ -4449,7 +4468,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("holdout-42".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
@@ -4535,7 +4554,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(result.matches);
         assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
         assert!(
@@ -4636,7 +4655,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let result = matcher.get_match(&flag, None, None, &None).unwrap();
+            let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
             assert!(result.matches);
             assert_eq!(result.variant, Some("holdout-1".to_string()));
             assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
@@ -4712,7 +4731,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert_eq!(
             result,
             FeatureFlagMatch {
@@ -4735,7 +4754,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert_eq!(
             result,
             FeatureFlagMatch {
@@ -4758,7 +4777,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert_eq!(
             result,
             FeatureFlagMatch {
@@ -4858,7 +4877,7 @@ mod tests {
             .unwrap();
 
         // This should not throw DependencyNotFound because we skip dependency graph evaluation for static cohorts
-        let result = matcher.get_match(&flag, None, None, &None);
+        let result = matcher.get_match(&flag, None, None, None, &None);
         assert!(result.is_ok(), "Should not throw DependencyNotFound error");
 
         let match_result = result.unwrap();
@@ -4989,7 +5008,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result_numeric = matcher_numeric.get_match(&flag, None, None, &None).unwrap();
+        let result_numeric = matcher_numeric
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
 
         // Test with string group key (same value)
         let groups_string = HashMap::from([("organization".to_string(), json!("123"))]);
@@ -5009,7 +5030,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result_string = matcher_string.get_match(&flag, None, None, &None).unwrap();
+        let result_string = matcher_string
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
 
         // Both should match and produce the same result
         assert!(result_numeric.matches, "Numeric group key should match");
@@ -5041,7 +5064,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result_float = matcher_float.get_match(&flag, None, None, &None).unwrap();
+        let result_float = matcher_float
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
         assert!(result_float.matches, "Float group key should match");
 
         // Test with invalid group key type (should use empty string and not match this specific case)
@@ -5062,7 +5087,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result_bool = matcher_bool.get_match(&flag, None, None, &None).unwrap();
+        let result_bool = matcher_bool
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
         // Boolean group key should use empty string identifier, which returns hash 0.0, making flag evaluate to false
         assert!(
             !result_bool.matches,
@@ -5212,7 +5239,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(result.matches, "Super condition user should match");
         assert_eq!(
             result.reason,
@@ -5237,7 +5264,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(!result.matches, "PostHog user should not match");
         assert_eq!(
             result.reason,
@@ -5262,7 +5289,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(!result.matches, "Regular user should not match");
         assert_eq!(
             result.reason,
@@ -5335,7 +5362,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
     }
@@ -5391,7 +5418,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let high_device_result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let high_device_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(
             high_device_result.matches,
             "device-high hash should fall inside rollout"
@@ -5413,7 +5440,7 @@ mod tests {
             .await
             .unwrap();
         let same_device_result = matcher_same_device
-            .get_match(&flag, None, None, &None)
+            .get_match(&flag, None, None, None, &None)
             .unwrap();
         assert_eq!(
             high_device_result.matches, same_device_result.matches,
@@ -5435,7 +5462,9 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let low_device_result = matcher_low.get_match(&flag, None, None, &None).unwrap();
+        let low_device_result = matcher_low
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
         assert!(
             !low_device_result.matches,
             "device-low hash should fall outside rollout"
@@ -5468,7 +5497,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let match_without_device = matcher.get_match(&flag, None, None, &None).unwrap();
+        let match_without_device = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(
             !match_without_device.matches,
             "missing device_id should always evaluate to false for device_id bucketing"
@@ -5489,7 +5518,9 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let high_distinct_result = matcher_high.get_match(&flag, None, None, &None).unwrap();
+        let high_distinct_result = matcher_high
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
         assert!(
             !high_distinct_result.matches,
             "empty device_id should evaluate to false for device_id bucketing"
@@ -5524,7 +5555,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let high_distinct_result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let high_distinct_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
         assert!(
             !high_distinct_result.matches,
             "distinct-id bucketing should ignore device_id input"
@@ -5545,7 +5576,9 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let low_distinct_result = matcher_low.get_match(&flag, None, None, &None).unwrap();
+        let low_distinct_result = matcher_low
+            .get_match(&flag, None, None, None, &None)
+            .unwrap();
         assert!(
             low_distinct_result.matches,
             "distinct-id bucketing should follow the distinct hash even when device_id exists"
@@ -6221,7 +6254,7 @@ mod tests {
         user_properties.insert("email".to_string(), json!("specific@example.com"));
 
         let result = matcher
-            .get_match(&flag, Some(&user_properties), None, &None)
+            .get_match(&flag, Some(&user_properties), None, None, &None)
             .unwrap();
         assert!(result.matches, "Flag should match for specific user");
         assert_eq!(
@@ -6250,7 +6283,7 @@ mod tests {
         other_properties.insert("email".to_string(), json!("other@example.com"));
 
         let result2 = matcher2
-            .get_match(&flag, Some(&other_properties), None, &None)
+            .get_match(&flag, Some(&other_properties), None, None, &None)
             .unwrap();
         assert!(result2.matches, "Flag should match for other user");
         assert_eq!(
@@ -8165,7 +8198,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert_eq!(result.matches, expected_match);
         assert_eq!(result.reason, expected_reason);
@@ -8223,7 +8256,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // Falls through to regular conditions (0% rollout → no match)
         assert!(!result.matches);
@@ -8303,7 +8336,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         // Should match via feature_enrollment (not super_groups which uses wrong_key)
         assert!(result.matches);
@@ -8737,5 +8770,784 @@ mod tests {
             flag_detail.enabled,
             "Group flag should match from DB properties even without a person"
         );
+    }
+
+    // =========================================================================
+    // Per-condition aggregation tests (mixed targeting: user + group in one flag)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_per_condition_aggregation_group_condition_uses_group_key_for_hashing() {
+        // A flag with one group-aggregated condition. Verify that group property overrides
+        // are correctly routed to the condition and that the condition matches when the
+        // group properties satisfy the filter.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("mixed-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "industry".to_string(),
+                        value: Some(json!("tech")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(1),
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(Some(1)),
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+        let group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([("industry".to_string(), json!("tech"))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, None, Some(&group_overrides), None, &None)
+            .unwrap();
+        assert!(
+            result.matches,
+            "Group condition should match with correct group property"
+        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+        assert_eq!(result.condition_index, Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_per_condition_aggregation_person_condition_uses_distinct_id_for_hashing() {
+        // A flag with one person-aggregated condition (aggregation_group_type_index = None on
+        // the condition). Verify the distinct_id is used for hashing.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("person-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("test@example.com")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: None, // Person-level condition
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let person_overrides = HashMap::from([("email".to_string(), json!("test@example.com"))]);
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        let result = matcher
+            .get_match(&flag, Some(&person_overrides), None, None, &None)
+            .unwrap();
+        assert!(
+            result.matches,
+            "Person condition should match with correct person property"
+        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    #[tokio::test]
+    async fn test_mixed_targeting_group_condition_fails_person_condition_matches() {
+        // A flag with two conditions:
+        //   Condition 0: group-aggregated (organization), requires industry=tech
+        //   Condition 1: person-aggregated, requires email=test@example.com
+        // The group type is NOT provided in the groups map, so condition 0 should fail gracefully
+        // and condition 1 should still match.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("mixed-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    // Condition 0: group-aggregated (organization)
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "industry".to_string(),
+                            value: Some(json!("tech")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(1),
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: Some(Some(1)),
+                    },
+                    // Condition 1: person-aggregated
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("test@example.com")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        // No groups provided — the group condition should be skipped
+        let person_overrides = HashMap::from([("email".to_string(), json!("test@example.com"))]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            None, // No groups!
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, Some(&person_overrides), None, None, &None)
+            .unwrap();
+
+        // The group condition (index 0) fails due to missing group type, but evaluation
+        // continues and the person condition (index 1) matches.
+        assert!(
+            result.matches,
+            "Person condition should match even though group condition was skipped"
+        );
+        assert_eq!(result.condition_index, Some(1));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    #[tokio::test]
+    async fn test_mixed_targeting_group_condition_matches_before_person_condition() {
+        // When both conditions could match, the first one (group) wins because conditions
+        // are evaluated in order.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("mixed-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    // Condition 0: group-aggregated
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "industry".to_string(),
+                            value: Some(json!("tech")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(1),
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: Some(Some(1)),
+                    },
+                    // Condition 1: person-aggregated
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("test@example.com")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+        let person_overrides = HashMap::from([("email".to_string(), json!("test@example.com"))]);
+        let group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([("industry".to_string(), json!("tech"))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(
+                &flag,
+                Some(&person_overrides),
+                Some(&group_overrides),
+                None,
+                &None,
+            )
+            .unwrap();
+
+        // Condition 0 (group) matches first
+        assert!(result.matches);
+        assert_eq!(result.condition_index, Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_backwards_compat_flag_level_aggregation_used_when_condition_has_none() {
+        // Flags saved before per-condition aggregation have aggregation_group_type_index only at
+        // the flag level. The condition's effective_aggregation should fall back to the flag-level
+        // value, preserving existing behavior.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("legacy-group-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "industry".to_string(),
+                        value: Some(json!("tech")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(1),
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: None, // No per-condition aggregation
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1), // Flag-level aggregation
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+        let group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([("industry".to_string(), json!("tech"))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, None, Some(&group_overrides), None, &None)
+            .unwrap();
+
+        // The flag-level aggregation_group_type_index=1 should be used as the fallback
+        assert!(
+            result.matches,
+            "Flag-level aggregation should be used when condition has none"
+        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    #[tokio::test]
+    async fn test_per_condition_aggregation_condition_level_takes_precedence_over_flag_level() {
+        // When a condition has its own aggregation_group_type_index, it takes precedence over
+        // the flag-level value. Here, the flag-level says person (None) but the condition
+        // explicitly sets group type 1.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("override-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "industry".to_string(),
+                        value: Some(json!("tech")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Group,
+                        group_type_index: Some(1),
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    // Condition explicitly sets group type 1, overriding the flag-level None
+                    aggregation_group_type_index: Some(Some(1)),
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None, // Flag-level says person
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+        let group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([("industry".to_string(), json!("tech"))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, None, Some(&group_overrides), None, &None)
+            .unwrap();
+
+        assert!(
+            result.matches,
+            "Condition-level aggregation (group) should take precedence over flag-level (person)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mixed_targeting_variant_uses_condition_aggregation_for_hashing() {
+        // Multivariate flag with two conditions using different aggregation. The variant
+        // assignment should hash using the matching condition's aggregation mode.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("variant-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    // Condition 0: group-aggregated — won't match (group not provided)
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "industry".to_string(),
+                            value: Some(json!("tech")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(1),
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: Some(Some(1)),
+                    },
+                    // Condition 1: person-aggregated — will match
+                    FlagPropertyGroup {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: None,
+                    },
+                ],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: Some("Control".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: Some("Test".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        // No groups provided, so the group condition is skipped.
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        // Person condition (index 1) matches, variant is assigned using distinct_id hash
+        assert!(result.matches);
+        assert_eq!(result.condition_index, Some(1));
+        assert!(
+            result.variant.is_some(),
+            "Variant should be assigned using person aggregation"
+        );
+        let variant = result.variant.unwrap();
+        assert!(
+            variant == "control" || variant == "test",
+            "Variant should be one of the defined variants, got: {variant}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mixed_targeting_all_conditions_fail_returns_no_match() {
+        // When no conditions match at all, the flag should return false with the highest
+        // priority reason.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("no-match-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    // Condition 0: group-aggregated — no group provided
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "industry".to_string(),
+                            value: Some(json!("tech")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(1),
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: Some(Some(1)),
+                    },
+                    // Condition 1: person-aggregated — wrong email
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("wrong@example.com")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let person_overrides = HashMap::from([("email".to_string(), json!("test@example.com"))]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, Some(&person_overrides), None, None, &None)
+            .unwrap();
+
+        assert!(!result.matches, "No conditions should match");
+    }
+
+    #[tokio::test]
+    async fn test_mixed_targeting_rollout_only_conditions_with_different_aggregation() {
+        // A flag with two rollout-only conditions (no property filters) with different
+        // aggregation modes. Condition 0 is group-aggregated and should hash based on
+        // the group key, condition 1 is person-aggregated and should hash based on
+        // distinct_id. Both have 100% rollout, so condition 0 matches first.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("rollout-mixed".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    // Condition 0: group-aggregated, 100% rollout, no properties
+                    FlagPropertyGroup {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: Some(Some(1)),
+                    },
+                    // Condition 1: person-aggregated, 100% rollout, no properties
+                    FlagPropertyGroup {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        aggregation_group_type_index: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        // Group condition (index 0) matches first since both are 100% rollout
+        assert!(result.matches);
+        assert_eq!(result.condition_index, Some(0));
     }
 }
