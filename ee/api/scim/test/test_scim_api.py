@@ -415,45 +415,37 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         user = User.objects.get(id=user_id)
         assert user.email == "valid@example.com"
 
-    def _create_multi_org_user(self) -> tuple[str, Organization]:
-        """Create a SCIM-provisioned user who also belongs to another org."""
+    def _create_user_with_unowned_email(self) -> str:
+        """Create a user whose current email domain is not owned by the SCIM org."""
+        user = User.objects.create(email="victim@external.com", first_name="Victim")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        from ee.models.scim_provisioned_user import SCIMProvisionedUser
+
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="victim@external.com",
+            active=True,
+        )
+        return str(user.id)
+
+    def test_put_rejects_email_change_when_org_does_not_own_current_domain(self):
         self.client.credentials(**self.scim_headers)
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
-            self._scim_user_data("victim@example.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        user_id = response.json()["id"]
-
-        other_org = Organization.objects.create(name="VictimOrg")
-        user = User.objects.get(id=user_id)
-        OrganizationMembership.objects.create(user=user, organization=other_org)
-
-        return user_id, other_org
-
-    def test_put_rejects_email_change_for_multi_org_user(self):
-        user_id, _other_org = self._create_multi_org_user()
-
-        # Add a second verified domain so the new email passes domain validation
-        OrganizationDomain.objects.create(
-            organization=self.organization,
-            domain="partner.com",
-            verified_at="2024-01-01T00:00:00Z",
-        )
+        user_id = self._create_user_with_unowned_email()
 
         response = self.client.put(
             f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            self._scim_user_data("attacker-controlled@partner.com"),
+            self._scim_user_data("attacker@example.com"),
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         user = User.objects.get(id=user_id)
-        assert user.email == "victim@example.com"
+        assert user.email == "victim@external.com"
 
-    def test_patch_replace_rejects_email_change_for_multi_org_user(self):
-        user_id, _other_org = self._create_multi_org_user()
+    def test_patch_replace_rejects_email_change_when_org_does_not_own_current_domain(self):
+        self.client.credentials(**self.scim_headers)
+        user_id = self._create_user_with_unowned_email()
 
         response = self.client.patch(
             f"/scim/v2/{self.domain.id}/Users/{user_id}",
@@ -466,10 +458,11 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         user = User.objects.get(id=user_id)
-        assert user.email == "victim@example.com"
+        assert user.email == "victim@external.com"
 
-    def test_patch_add_rejects_email_change_for_multi_org_user(self):
-        user_id, _other_org = self._create_multi_org_user()
+    def test_patch_add_rejects_email_change_when_org_does_not_own_current_domain(self):
+        self.client.credentials(**self.scim_headers)
+        user_id = self._create_user_with_unowned_email()
 
         response = self.client.patch(
             f"/scim/v2/{self.domain.id}/Users/{user_id}",
@@ -482,10 +475,9 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         user = User.objects.get(id=user_id)
-        assert user.email == "victim@example.com"
+        assert user.email == "victim@external.com"
 
-    def test_put_allows_email_change_for_single_org_user(self):
-        """Email changes should still work for users who only belong to the SCIM org."""
+    def test_put_allows_email_change_when_org_owns_both_domains(self):
         self.client.credentials(**self.scim_headers)
         OrganizationDomain.objects.create(
             organization=self.organization,
@@ -495,7 +487,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         response = self.client.post(
             f"/scim/v2/{self.domain.id}/Users",
-            self._scim_user_data("solo@example.com"),
+            self._scim_user_data("user@example.com"),
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -503,13 +495,13 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         response = self.client.put(
             f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            self._scim_user_data("solo@partner.com"),
+            self._scim_user_data("user@partner.com"),
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
 
         user = User.objects.get(id=user_id)
-        assert user.email == "solo@partner.com"
+        assert user.email == "user@partner.com"
 
 
 class TestSCIMAuditLogging(APILicensedTest):
