@@ -5,9 +5,9 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    """Convert TeamConversationsEmailConfig from one-per-team to many-per-team.
+    """Create new TeamConversationsEmailConfig with UUID PK and many-per-team support.
 
-    No production data exists, so we drop and recreate the table with:
+    Old table was renamed in 0029. This creates the new table with:
     - UUID PK instead of team as PK
     - team as ForeignKey instead of OneToOneField
     - unique(from_email) instead of unique(domain)
@@ -16,25 +16,10 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("conversations", "0027_slack_config_unique_slack_team_id"),
+        ("conversations", "0029_rename_old_email_config_table"),
     ]
 
     operations = [
-        # Phase 1: Remove old model from Django state + drop the table.
-        # Using SeparateDatabaseAndState so the analyzer sees RunSQL (not DeleteModel).
-        # The table is empty in production — safe to drop outright.
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.DeleteModel(name="TeamConversationsEmailConfig"),
-            ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql='DROP TABLE IF EXISTS "posthog_conversations_email_config" CASCADE;',
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-            ],
-        ),
-        # Phase 2: Create new model with UUID PK and ForeignKey to team.
         migrations.CreateModel(
             name="TeamConversationsEmailConfig",
             fields=[
@@ -70,7 +55,6 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
-        # Phase 3: Add FK from Ticket to the new config model.
         migrations.AddField(
             model_name="ticket",
             name="email_config",
