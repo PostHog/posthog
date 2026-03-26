@@ -86,6 +86,12 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_ADDR: string
     PERSONHOG_ROLLOUT_PERCENTAGE: number
     PERSONHOG_TLS: boolean
+    PERSONHOG_TIMEOUT_MS: number
+    PERSONHOG_READ_MAX_BYTES: number
+    PERSONHOG_WRITE_MAX_BYTES: number
+    PERSONHOG_PING_INTERVAL_MS: number
+    PERSONHOG_PING_TIMEOUT_MS: number
+    PERSONHOG_PING_IDLE_CONNECTION: boolean
 
     // Redis
     REDIS_URL: string
@@ -227,6 +233,12 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_ADDR: '',
         PERSONHOG_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_TLS: false,
+        PERSONHOG_TIMEOUT_MS: 5000,
+        PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
+        PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
+        PERSONHOG_PING_INTERVAL_MS: 30_000,
+        PERSONHOG_PING_TIMEOUT_MS: 5_000,
+        PERSONHOG_PING_IDLE_CONNECTION: true,
 
         // Redis
         // ok to connect to localhost over plaintext

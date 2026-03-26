@@ -89,6 +89,12 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'PERSONHOG_ADDR'
         | 'PERSONHOG_ROLLOUT_PERCENTAGE'
         | 'PERSONHOG_TLS'
+        | 'PERSONHOG_TIMEOUT_MS'
+        | 'PERSONHOG_READ_MAX_BYTES'
+        | 'PERSONHOG_WRITE_MAX_BYTES'
+        | 'PERSONHOG_PING_INTERVAL_MS'
+        | 'PERSONHOG_PING_TIMEOUT_MS'
+        | 'PERSONHOG_PING_IDLE_CONNECTION'
         // Misc
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
@@ -174,6 +180,12 @@ export class IngestionGeneralServer implements NodeServer {
             const grpcClient = new PersonHogClient({
                 addr: this.config.PERSONHOG_ADDR,
                 useTls: this.config.PERSONHOG_TLS,
+                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
+                writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
+                pingIntervalMs: this.config.PERSONHOG_PING_INTERVAL_MS,
+                pingTimeoutMs: this.config.PERSONHOG_PING_TIMEOUT_MS,
+                pingIdleConnection: this.config.PERSONHOG_PING_IDLE_CONNECTION,
             })
             groupRepository = new DualReadGroupRepository(
                 postgresGroupRepository,

@@ -306,6 +306,65 @@ describe('DualReadGroupRepository', () => {
         })
     })
 
+    describe('sticky routing decision within an event loop iteration', () => {
+        it('consecutive calls share the same routing decision', async () => {
+            const expectedTypes = {
+                [TEAM_ID.toString()]: [{ group_type: 'organization', group_type_index: 0 as GroupTypeIndex }],
+            }
+            const expectedGroups = [
+                {
+                    team_id: TEAM_ID,
+                    group_type_index: GROUP_TYPE_INDEX,
+                    group_key: GROUP_KEY,
+                    group_properties: {},
+                },
+            ]
+            mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue(expectedTypes)
+            mockPostgres.fetchGroupsByKeys.mockResolvedValue(expectedGroups)
+            mockGrpc.fetchGroupTypesByTeamIds.mockResolvedValue(expectedTypes)
+            mockGrpc.fetchGroupsByKeys.mockResolvedValue(expectedGroups)
+
+            // At 50% rollout, without sticky routing each call would independently
+            // roll the dice and could split across backends. With sticky routing,
+            // both calls within the same event loop iteration use the same decision.
+            jest.spyOn(Math, 'random').mockReturnValue(0.3) // 0.3 * 100 = 30 < 50 → gRPC
+            const repo = createRepo(50)
+
+            await repo.fetchGroupTypesByTeamIds([TEAM_ID])
+            await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
+
+            // Both should hit gRPC, not a mix
+            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalled()
+            expect(mockGrpc.fetchGroupsByKeys).toHaveBeenCalled()
+            expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+            expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
+
+            jest.spyOn(Math, 'random').mockRestore()
+        })
+
+        it('decision resets after setImmediate fires', async () => {
+            mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue({})
+            mockGrpc.fetchGroupTypesByTeamIds.mockResolvedValue({})
+
+            const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.3) // → gRPC at 50%
+            const repo = createRepo(50)
+
+            await repo.fetchGroupTypesByTeamIds([TEAM_ID])
+            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+
+            // Let setImmediate fire to clear the cached decision
+            await new Promise((resolve) => setImmediate(resolve))
+
+            // Now change the random to force postgres
+            randomSpy.mockReturnValue(0.8) // 0.8 * 100 = 80 >= 50 → postgres
+
+            await repo.fetchGroupTypesByTeamIds([TEAM_ID])
+            expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+
+            randomSpy.mockRestore()
+        })
+    })
+
     describe('write operations always delegate to postgres', () => {
         it('insertGroup', async () => {
             mockPostgres.insertGroup.mockResolvedValue(1)

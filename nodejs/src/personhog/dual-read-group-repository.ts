@@ -10,6 +10,8 @@ import { PersonHogClient } from './client'
 import { personhogErrorsTotal, personhogLatencySeconds, personhogRequestsTotal } from './metrics'
 
 export class DualReadGroupRepository implements GroupRepository {
+    private grpcDecision: boolean | undefined = undefined
+
     constructor(
         private postgres: GroupRepository,
         private grpcClient: PersonHogClient,
@@ -18,7 +20,17 @@ export class DualReadGroupRepository implements GroupRepository {
     ) {}
 
     private shouldUseGrpc(): boolean {
-        return Math.random() * 100 < this.grpcPercentage
+        if (this.grpcDecision === undefined) {
+            this.grpcDecision = Math.random() * 100 < this.grpcPercentage
+            // Clear on the next event loop iteration so consecutive calls within
+            // the same async chain (e.g., fetchGroupTypes then fetchGroups for one
+            // event) share the same routing decision, but different event loop
+            // iterations get fresh decisions.
+            setImmediate(() => {
+                this.grpcDecision = undefined
+            })
+        }
+        return this.grpcDecision
     }
 
     private async timedPostgres<T>(method: string, fn: () => Promise<T>): Promise<T> {
@@ -35,13 +47,13 @@ export class DualReadGroupRepository implements GroupRepository {
         const end = personhogLatencySeconds.startTimer({ method, source: 'grpc', client: this.clientLabel })
         try {
             const result = await fn()
-            personhogRequestsTotal.inc({ method, source: 'grpc', client: this.clientLabel })
             return result
         } catch (error) {
             personhogErrorsTotal.inc({ method, client: this.clientLabel })
             throw error
         } finally {
             end()
+            personhogRequestsTotal.inc({ method, source: 'grpc', client: this.clientLabel })
         }
     }
 

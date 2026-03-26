@@ -105,6 +105,12 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         const grpcClient = new PersonHogClient({
             addr: serverConfig.PERSONHOG_ADDR,
             useTls: serverConfig.PERSONHOG_TLS,
+            timeoutMs: serverConfig.PERSONHOG_TIMEOUT_MS,
+            readMaxBytes: serverConfig.PERSONHOG_READ_MAX_BYTES,
+            writeMaxBytes: serverConfig.PERSONHOG_WRITE_MAX_BYTES,
+            pingIntervalMs: serverConfig.PERSONHOG_PING_INTERVAL_MS,
+            pingTimeoutMs: serverConfig.PERSONHOG_PING_TIMEOUT_MS,
+            pingIdleConnection: serverConfig.PERSONHOG_PING_IDLE_CONNECTION,
         })
         groupRepository = new DualReadGroupRepository(
             postgresGroupRepository,
