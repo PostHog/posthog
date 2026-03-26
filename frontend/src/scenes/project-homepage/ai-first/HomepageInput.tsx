@@ -57,7 +57,9 @@ function IdleInput(): JSX.Element {
                     {!query && (
                         <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
                             <span className="text-tertiary">{placeholder}</span>
-                            <span className="text-tertiary opacity-50 contrast-more:opacity-100">/ for commands</span>
+                            <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
+                                / for commands
+                            </span>
                         </span>
                     )}
                     <TextareaPrimitive
@@ -99,6 +101,7 @@ function IdleInput(): JSX.Element {
                                 const grid = document.querySelector<HTMLElement>('[data-attr="homepage-grid"]')
                                 if (grid) {
                                     e.preventDefault()
+                                    grid.dataset.keyboardFocus = 'true'
                                     grid.focus()
                                 }
                             }
@@ -285,12 +288,23 @@ function IdleGrid(): JSX.Element {
 
     const handleGridKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
-            // First navigation into the grid: highlight first column, first item
+            // Find the next non-empty column in a given direction
+            const findNonEmptyCol = (from: number, direction: 1 | -1): number | null => {
+                for (let i = from + direction; i >= 0 && i < columns.length; i += direction) {
+                    if (columns[i].items.length > 0) {
+                        return i
+                    }
+                }
+                return null
+            }
+
+            // First navigation into the grid: highlight first non-empty column
             if (!highlight) {
                 if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'Enter') {
                     e.preventDefault()
-                    if (columns[0].items.length > 0) {
-                        setHighlight([0, 0])
+                    const firstCol = columns.findIndex((c) => c.items.length > 0)
+                    if (firstCol !== -1) {
+                        setHighlight([firstCol, 0])
                     }
                 } else if (e.key === 'Escape') {
                     document.querySelector<HTMLElement>('#homepage-input')?.focus()
@@ -306,7 +320,6 @@ function IdleGrid(): JSX.Element {
                     if (row < colItems.length - 1) {
                         setHighlight([col, row + 1])
                     }
-                    // At bottom of column: do nothing (don't wrap)
                     break
                 }
                 case 'ArrowUp': {
@@ -314,7 +327,6 @@ function IdleGrid(): JSX.Element {
                     if (row > 0) {
                         setHighlight([col, row - 1])
                     } else {
-                        // At top of column: return to input
                         setHighlight(null)
                         document.querySelector<HTMLElement>('#homepage-input')?.focus()
                     }
@@ -322,19 +334,17 @@ function IdleGrid(): JSX.Element {
                 }
                 case 'ArrowRight': {
                     e.preventDefault()
-                    if (col < columns.length - 1) {
-                        const nextCol = col + 1
-                        const nextColLen = columns[nextCol].items.length
-                        setHighlight([nextCol, Math.min(row, nextColLen - 1)])
+                    const nextCol = findNonEmptyCol(col, 1)
+                    if (nextCol !== null) {
+                        setHighlight([nextCol, Math.min(row, columns[nextCol].items.length - 1)])
                     }
                     break
                 }
                 case 'ArrowLeft': {
                     e.preventDefault()
-                    if (col > 0) {
-                        const prevCol = col - 1
-                        const prevColLen = columns[prevCol].items.length
-                        setHighlight([prevCol, Math.min(row, prevColLen - 1)])
+                    const prevCol = findNonEmptyCol(col, -1)
+                    if (prevCol !== null) {
+                        setHighlight([prevCol, Math.min(row, columns[prevCol].items.length - 1)])
                     }
                     break
                 }
@@ -377,14 +387,23 @@ function IdleGrid(): JSX.Element {
             style={{ gridTemplateRows: isCollapsed ? '0fr' : '1fr' }}
         >
             <div className="overflow-hidden">
-                {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus */}
                 <div
                     ref={gridRef}
                     role="grid"
                     data-attr="homepage-grid"
-                    className="flex gap-2 w-full mt-2 outline-none min-h-[174px]"
+                    className="flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full mt-3 outline-none min-h-[174px]"
                     tabIndex={-1}
                     aria-hidden={isCollapsed}
+                    onFocus={(e) => {
+                        // Only auto-highlight when focused via keyboard (ArrowDown from input)
+                        if (!highlight && e.currentTarget.dataset.keyboardFocus === 'true') {
+                            delete e.currentTarget.dataset.keyboardFocus
+                            const firstCol = columns.findIndex((c) => c.items.length > 0)
+                            if (firstCol !== -1) {
+                                setHighlight([firstCol, 0])
+                            }
+                        }
+                    }}
                     onKeyDown={handleGridKeyDown}
                 >
                     {columns.map((col, colIndex) => (
@@ -524,7 +543,7 @@ export function HomepageInput(): JSX.Element {
                 <div className="flex flex-col items-center gap-3 pb-(--scene-layout-header-height)">
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline={null} />
                     <IdleInput />
-                    <p className="w-full flex justify-center text-xs text-tertiary/50 m-0 grow">
+                    <p className="w-full flex justify-center text-xs text-tertiary/50 m-0 grow px-4 text-center">
                         PostHog AI can make mistakes. Please double-check responses
                     </p>
                     <IdleGrid />
