@@ -674,11 +674,14 @@ function getFiltersSummary(properties: AnyPropertyFilter[] | PropertyGroupFilter
 }
 
 function getBreakdownSummary(
-    breakdownFilter: {
-        breakdown?: string | number | (string | number)[] | null
-        breakdown_type?: string | null
-        breakdowns?: { property?: string }[]
-    } | null
+    breakdownFilter:
+        | {
+              breakdown?: string | number | (string | number)[] | null
+              breakdown_type?: string | null
+              breakdowns?: { property?: string }[]
+          }
+        | null
+        | undefined
 ): string | null {
     if (!breakdownFilter) {
         return null
