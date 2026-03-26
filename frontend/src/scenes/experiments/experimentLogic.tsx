@@ -108,7 +108,6 @@ import {
     initializeMetricOrdering,
     isLegacyExperiment,
     percentageDistribution,
-    transformFiltersForWinningVariant,
 } from './utils'
 
 export const NEW_EXPERIMENT: Experiment = {
@@ -598,7 +597,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentViewed',
 
                 'reportExperimentExposureCohortCreated',
-                'reportExperimentVariantShipped',
                 'reportExperimentVariantScreenshotUploaded',
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
@@ -658,6 +656,7 @@ export const experimentLogic = kea<experimentLogicType>([
         launchExperiment: true,
         endExperiment: true,
         endExperimentWithoutShipping: true,
+        finishExperiment: ({ selectedVariantKey }: { selectedVariantKey: string }) => ({ selectedVariantKey }),
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: true,
@@ -1715,27 +1714,43 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperimentSuccess: () => {
-            lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
-            actions.closeFinishExperimentModal()
-            if (!values.isExperimentStopped) {
-                actions.endExperiment()
-            }
-            actions.reportExperimentVariantShipped(values.experiment)
+        finishExperiment: async ({ selectedVariantKey }) => {
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
+                    {
+                        variant_key: selectedVariantKey,
+                        conclusion: values.experiment.conclusion,
+                        conclusion_comment: values.experiment.conclusion_comment,
+                    }
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                actions.closeFinishExperimentModal()
+                lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
 
-            // Trigger Hogfetti celebration with cascading delays
-            if (values.experiment.conclusion === ExperimentConclusion.Won) {
-                const trigger = values.hogfettiTrigger
-                if (trigger) {
-                    ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+                // Trigger Hogfetti celebration with cascading delays
+                if (values.experiment.conclusion === ExperimentConclusion.Won) {
+                    const trigger = values.hogfettiTrigger
+                    if (trigger) {
+                        ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+                    }
+                }
+            } catch (error: any) {
+                actions.closeFinishExperimentModal()
+                if (error.status === 409 && error.data?.change_request_id) {
+                    showApprovalRequiredToast(
+                        error.data.change_request_id,
+                        'end this experiment and roll out the winning variant'
+                    )
+                    dispatchChangeRequestCreated({
+                        resourceType: 'feature_flag',
+                        resourceId: values.experiment.feature_flag?.id ?? '',
+                    })
+                } else {
+                    lemonToast.error(error.detail || 'Failed to ship variant')
                 }
             }
-        },
-        finishExperimentFailure: ({ error, errorObject }) => {
-            if (errorObject?.status !== 409) {
-                lemonToast.error(error)
-            }
-            actions.closeFinishExperimentModal()
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
             try {
@@ -2308,40 +2323,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (values.experimentId && values.experimentId !== 'new' && values.experimentId !== 'web') {
                         return (await api.experiments.createExposureCohort(values.experimentId)).cohort
                     }
-                    return null
-                },
-            },
-        ],
-        featureFlag: [
-            null as FeatureFlagType | null,
-            {
-                finishExperiment: async ({ selectedVariantKey }) => {
-                    if (!values.experiment.feature_flag) {
-                        throw new Error('Experiment does not have a feature flag linked')
-                    }
-
-                    const currentFlagFilters = values.experiment.feature_flag?.filters
-                    const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariantKey)
-
-                    try {
-                        await api.update(
-                            `api/projects/${values.currentProjectId}/feature_flags/${values.experiment.feature_flag?.id}`,
-                            { filters: newFilters }
-                        )
-                    } catch (e: any) {
-                        if (e.status === 409 && e.data?.change_request_id) {
-                            showApprovalRequiredToast(
-                                e.data.change_request_id,
-                                'end this experiment and roll out the winning variant'
-                            )
-                            dispatchChangeRequestCreated({
-                                resourceType: 'feature_flag',
-                                resourceId: values.experiment.feature_flag?.id ?? '',
-                            })
-                        }
-                        throw e
-                    }
-
                     return null
                 },
             },
