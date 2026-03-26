@@ -522,6 +522,63 @@ class EnterpriseExperimentsViewSet(
             ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
         )
 
+    @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
+    def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source_experiment: Experiment = self.get_object()
+
+        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
+        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
+        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
+        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
+            saved_metric__query__kind__in=legacy_kinds
+        ).exists()
+        if has_legacy_inline or has_legacy_saved:
+            return Response(
+                {"detail": "Copying is not supported for experiments using legacy metrics."},
+                status=400,
+            )
+
+        target_project_id = request.data.get("target_project_id")
+        if not target_project_id:
+            return Response({"detail": "target_project_id is required."}, status=400)
+
+        target_team = Team.objects.filter(project_id=target_project_id).first()
+        if target_team is None:
+            return Response({"detail": "Target project not found."}, status=404)
+
+        if target_team.organization_id != self.team.organization_id:
+            return Response({"detail": "Target project must be in the same organization."}, status=403)
+
+        from posthog.user_permissions import UserPermissions
+
+        user_permissions = UserPermissions(user=request.user)
+        accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
+        if target_team.id not in accessible_team_ids:
+            return Response({"detail": "You do not have access to the target project."}, status=403)
+
+        feature_flag_key = request.data.get("feature_flag_key")
+
+        service = ExperimentService(team=self.team, user=request.user)
+        new_experiment = service.duplicate_experiment_to_project(
+            source_experiment,
+            target_team,
+            feature_flag_key=feature_flag_key,
+            serializer_context={
+                "request": request,
+                "team_id": target_team.id,
+                "project_id": target_team.project_id,
+                "get_team": lambda: target_team,
+            },
+        )
+
+        target_context = {
+            **self.get_serializer_context(),
+            "team_id": target_team.id,
+            "project_id": target_team.project_id,
+            "get_team": lambda: target_team,
+        }
+        return Response(ExperimentSerializer(new_experiment, context=target_context).data, status=201)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()

@@ -1268,6 +1268,60 @@ class ExperimentService:
             serializer_context=serializer_context,
         )
 
+    def duplicate_experiment_to_project(
+        self,
+        source_experiment: Experiment,
+        target_team: Team,
+        *,
+        feature_flag_key: str | None = None,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Duplicate an experiment as a new draft in a different project."""
+        if feature_flag_key is None:
+            feature_flag_key = source_experiment.feature_flag.key
+
+        parameters = deepcopy(source_experiment.parameters) or {}
+        # If using a different flag key, check the target team for an existing flag with matching variants
+        existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target_team.id).first()
+        if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
+            parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
+
+        self.validate_experiment_parameters(parameters)
+        self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
+        self.validate_experiment_metrics(source_experiment.metrics)
+        self.validate_experiment_metrics(source_experiment.metrics_secondary)
+
+        base_name = f"{source_experiment.name} (Copy)"
+        duplicate_name = base_name
+        counter = 1
+        while Experiment.objects.filter(team_id=target_team.id, name=duplicate_name, deleted=False).exists():
+            duplicate_name = f"{base_name} {counter}"
+            counter += 1
+
+        duplicate_description = source_experiment.description or ""
+        duplicate_type = source_experiment.type or "product"
+
+        # Saved metrics and holdouts are team-scoped — skip them for cross-project copy.
+        # The inline metrics/metrics_secondary JSON fields carry the actual definitions.
+        target_service = ExperimentService(team=target_team, user=self.user)
+        return target_service.create_experiment(
+            name=duplicate_name,
+            feature_flag_key=feature_flag_key,
+            description=duplicate_description,
+            type=duplicate_type,
+            parameters=parameters,
+            filters=source_experiment.filters,
+            metrics=deepcopy(source_experiment.metrics),
+            metrics_secondary=deepcopy(source_experiment.metrics_secondary),
+            stats_config=source_experiment.stats_config,
+            scheduling_config=source_experiment.scheduling_config,
+            exposure_criteria=source_experiment.exposure_criteria,
+            primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
+            secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
+            exposure_preaggregation_enabled=source_experiment.exposure_preaggregation_enabled,
+            serializer_context=serializer_context,
+        )
+
     # ------------------------------------------------------------------
     # Exposure cohort
     # ------------------------------------------------------------------
