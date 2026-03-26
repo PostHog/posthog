@@ -444,7 +444,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
-        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
+        - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -469,7 +469,7 @@ class EnterpriseExperimentsViewSet(
             created_by_id=request.query_params.get("created_by_id"),
             order=request.query_params.get("order"),
             evaluation_runtime=request.query_params.get("evaluation_runtime"),
-            has_evaluation_tags=request.query_params.get("has_evaluation_tags"),
+            has_evaluation_contexts=request.query_params.get("has_evaluation_contexts"),
         )
 
         # Serialize using the standard FeatureFlagSerializer
