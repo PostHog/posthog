@@ -139,7 +139,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                 refresh_token = config_refresh_token
 
             if not config_hubspot_access_code:
-                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+                hubspot_access_code = hubspot_refresh_access_token(refresh_token, source_id=inputs.source_id)
             else:
                 hubspot_access_code = config_hubspot_access_code
 
@@ -157,4 +157,5 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             selected_properties=selected_properties,
+            source_id=inputs.source_id,
         )
