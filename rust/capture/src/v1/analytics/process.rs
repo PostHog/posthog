@@ -25,7 +25,7 @@ pub async fn process_batch(
     tracing::info!(ctx = ?context, "process_batch called");
 
     validate_batch(&batch)?;
-    context.set_batch_metadata(&batch.metadata);
+    context.set_batch_metadata(&batch);
 
     let mut events: Vec<WrappedEvent> = validate_events(context, batch);
 
@@ -49,10 +49,10 @@ pub async fn process_batch(
 }
 
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
-    DateTime::parse_from_rfc3339(&batch.metadata.created_at).map_err(|_| {
+    DateTime::parse_from_rfc3339(&batch.created_at).map_err(|_| {
         Error::InvalidBatch(format!(
             "created_at is not valid RFC 3339: {}",
-            batch.metadata.created_at
+            batch.created_at
         ))
     })?;
 
@@ -345,7 +345,7 @@ mod tests {
     use crate::event_restrictions::{
         Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
-    use crate::v1::analytics::types::{Batch, BatchMetadata, Event, Metadata};
+    use crate::v1::analytics::types::{Batch, Event, Metadata};
     use crate::v1::sinks::Destination;
     use crate::v1::Error;
 
@@ -377,11 +377,9 @@ mod tests {
 
     fn valid_batch(events: Vec<Event>) -> Batch {
         Batch {
-            metadata: BatchMetadata {
-                created_at: "2026-03-19T14:30:00.000Z".to_string(),
-                historical_migration: false,
-                capture_internal: false,
-            },
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
             batch: events,
         }
     }
@@ -397,11 +395,9 @@ mod tests {
     #[test]
     fn batch_bad_created_at() {
         let batch = Batch {
-            metadata: BatchMetadata {
-                created_at: "not-a-timestamp".to_string(),
-                historical_migration: false,
-                capture_internal: false,
-            },
+            created_at: "not-a-timestamp".to_string(),
+            historical_migration: false,
+            capture_internal: None,
             batch: vec![valid_event()],
         };
         let err = validate_batch(&batch).unwrap_err();
@@ -565,11 +561,9 @@ mod tests {
             historical_migration: false,
         };
         let batch = Batch {
-            metadata: BatchMetadata {
-                created_at: "2026-03-19T14:30:00.000Z".to_string(),
-                historical_migration: false,
-                capture_internal: false,
-            },
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
             batch: vec![Event {
                 metadata: valid_metadata(),
                 properties: raw_obj("[1,2,3]"),

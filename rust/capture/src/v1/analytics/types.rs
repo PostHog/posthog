@@ -21,17 +21,12 @@ pub enum EventResult {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct BatchMetadata {
+pub struct Batch {
     pub created_at: String,
     #[serde(default)]
     pub historical_migration: bool,
-    #[serde(default)]
-    pub capture_internal: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Batch {
-    pub metadata: BatchMetadata,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_internal: Option<bool>,
     pub batch: Vec<Event>,
 }
 
@@ -120,7 +115,7 @@ mod tests {
     #[test]
     fn parse_valid_batch() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "$pageview",
@@ -132,9 +127,9 @@ mod tests {
         }"#;
 
         let batch: Batch = serde_json::from_str(json).unwrap();
-        assert_eq!(batch.metadata.created_at, "2026-03-19T14:30:00.000Z");
-        assert!(!batch.metadata.historical_migration);
-        assert!(!batch.metadata.capture_internal);
+        assert_eq!(batch.created_at, "2026-03-19T14:30:00.000Z");
+        assert!(!batch.historical_migration);
+        assert_eq!(batch.capture_internal, None);
         assert_eq!(batch.batch.len(), 1);
 
         let meta = &batch.batch[0].metadata;
@@ -148,7 +143,7 @@ mod tests {
     #[test]
     fn parse_batch_with_properties() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "$identify",
@@ -178,7 +173,7 @@ mod tests {
     #[test]
     fn parse_event_properties_array_accepted_by_serde() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "e",
@@ -196,7 +191,6 @@ mod tests {
     #[test]
     fn parse_batch_missing_created_at() {
         let json = r#"{
-            "metadata": {},
             "batch": [{
                 "metadata": {
                     "name": "e",
@@ -211,14 +205,14 @@ mod tests {
 
     #[test]
     fn parse_batch_missing_batch_field() {
-        let json = r#"{"metadata": {"created_at": "2026-03-19T14:30:00.000Z"}}"#;
+        let json = r#"{"created_at": "2026-03-19T14:30:00.000Z"}"#;
         assert!(serde_json::from_str::<Batch>(json).is_err());
     }
 
     #[test]
     fn parse_event_missing_event_name() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
@@ -233,7 +227,7 @@ mod tests {
     #[test]
     fn parse_event_missing_uuid() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "e",
@@ -248,7 +242,7 @@ mod tests {
     #[test]
     fn parse_event_missing_distinct_id() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "e",
@@ -263,7 +257,7 @@ mod tests {
     #[test]
     fn parse_event_missing_timestamp() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "e",
@@ -278,7 +272,7 @@ mod tests {
     #[test]
     fn parse_event_missing_metadata() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "properties": {"key": "value"}
             }]
@@ -288,7 +282,7 @@ mod tests {
 
     #[test]
     fn parse_batch_empty_array() {
-        let json = r#"{"metadata": {"created_at": "2026-03-19T14:30:00.000Z"}, "batch": []}"#;
+        let json = r#"{"created_at": "2026-03-19T14:30:00.000Z", "batch": []}"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
         assert!(batch.batch.is_empty());
     }
@@ -296,7 +290,7 @@ mod tests {
     #[test]
     fn parse_batch_extra_fields_ignored() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z", "unknown_meta_field": 99 },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "unknown_top_field": true,
             "batch": [{
                 "metadata": {
@@ -316,33 +310,31 @@ mod tests {
     #[test]
     fn parse_batch_metadata_defaults() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": []
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
-        assert_eq!(batch.metadata.created_at, "2026-03-19T14:30:00.000Z");
-        assert!(!batch.metadata.historical_migration);
-        assert!(!batch.metadata.capture_internal);
+        assert_eq!(batch.created_at, "2026-03-19T14:30:00.000Z");
+        assert!(!batch.historical_migration);
+        assert_eq!(batch.capture_internal, None);
     }
 
     #[test]
     fn parse_batch_metadata_explicit_true() {
         let json = r#"{
-            "metadata": {
-                "created_at": "2026-03-19T14:30:00.000Z",
-                "historical_migration": true,
-                "capture_internal": true
-            },
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "historical_migration": true,
+            "capture_internal": true,
             "batch": []
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
-        assert_eq!(batch.metadata.created_at, "2026-03-19T14:30:00.000Z");
-        assert!(batch.metadata.historical_migration);
-        assert!(batch.metadata.capture_internal);
+        assert_eq!(batch.created_at, "2026-03-19T14:30:00.000Z");
+        assert!(batch.historical_migration);
+        assert_eq!(batch.capture_internal, Some(true));
     }
 
     #[test]
-    fn parse_batch_missing_batch_metadata() {
+    fn parse_batch_missing_created_at_with_events() {
         let json = r#"{
             "batch": [{
                 "metadata": {
@@ -359,7 +351,7 @@ mod tests {
     #[test]
     fn parse_event_optional_metadata_fields() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "$pageview",
@@ -388,7 +380,7 @@ mod tests {
     #[test]
     fn parse_event_optional_metadata_defaults_to_none() {
         let json = r#"{
-            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
                 "metadata": {
                     "name": "$pageview",

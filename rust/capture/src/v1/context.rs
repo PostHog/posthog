@@ -178,10 +178,10 @@ impl Context {
         })
     }
 
-    pub fn set_batch_metadata(&mut self, metadata: &crate::v1::analytics::types::BatchMetadata) {
-        self.created_at = Some(metadata.created_at.clone());
-        self.capture_internal = metadata.capture_internal;
-        self.historical_migration = metadata.historical_migration;
+    pub fn set_batch_metadata(&mut self, batch: &crate::v1::analytics::types::Batch) {
+        self.created_at = Some(batch.created_at.clone());
+        self.capture_internal = batch.capture_internal.unwrap_or(false);
+        self.historical_migration = batch.historical_migration;
     }
 }
 
