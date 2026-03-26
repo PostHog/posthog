@@ -264,6 +264,7 @@ export const urls = {
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
+    healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',

@@ -1,17 +1,21 @@
-import { useActions } from 'kea'
-
 import { IconRevert, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { healthSceneLogic } from '../healthSceneLogic'
 import { kindToLabel, severityLabel, severityToTagType } from '../healthUtils'
 import { getIssueRenderer } from '../issueRenderers'
 import type { HealthIssue } from '../types'
 
-export const HealthIssueCard = ({ issue }: { issue: HealthIssue }): JSX.Element => {
-    const { dismissIssue, undismissIssue } = useActions(healthSceneLogic)
+export const HealthIssueCard = ({
+    issue,
+    onDismiss,
+    onUndismiss,
+}: {
+    issue: HealthIssue
+    onDismiss?: (id: string) => void
+    onUndismiss?: (id: string) => void
+}): JSX.Element => {
     const Renderer = getIssueRenderer(issue.kind)
 
     return (
@@ -26,13 +30,15 @@ export const HealthIssueCard = ({ issue }: { issue: HealthIssue }): JSX.Element 
                         <TZLabel time={issue.created_at} />
                     </span>
                 </div>
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    icon={issue.dismissed ? <IconRevert /> : <IconX />}
-                    tooltip={issue.dismissed ? 'Undismiss' : 'Dismiss'}
-                    onClick={() => (issue.dismissed ? undismissIssue(issue.id) : dismissIssue(issue.id))}
-                />
+                {(onDismiss || onUndismiss) && (
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        icon={issue.dismissed ? <IconRevert /> : <IconX />}
+                        tooltip={issue.dismissed ? 'Undismiss' : 'Dismiss'}
+                        onClick={() => (issue.dismissed ? onUndismiss?.(issue.id) : onDismiss?.(issue.id))}
+                    />
+                )}
             </div>
             <Renderer issue={issue} />
         </div>

@@ -1,26 +1,19 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { CATEGORY_ORDER, HEALTH_CATEGORY_CONFIG, categoryForKind } from '../healthCategories'
 import type { HealthIssueCategory } from '../healthCategories'
 import { healthSceneLogic } from '../healthSceneLogic'
-import { severityToTagType } from '../healthUtils'
-import type { HealthIssue, HealthIssueSeverity } from '../types'
-import { SEVERITY_ORDER } from '../types'
+import { severityToTagType, worstSeverity } from '../healthUtils'
+import type { HealthIssue } from '../types'
 import { HealthIssueCard } from './HealthIssueCard'
-
-const worstSeverity = (issues: HealthIssue[]): HealthIssueSeverity => {
-    for (const severity of SEVERITY_ORDER) {
-        if (issues.some((i) => i.severity === severity)) {
-            return severity
-        }
-    }
-    return 'info'
-}
 
 export const HealthIssueList = (): JSX.Element => {
     const { issues, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
+    const { dismissIssue, undismissIssue } = useActions(healthSceneLogic)
 
     if (healthIssuesLoading && !healthIssues) {
         return (
@@ -78,15 +71,30 @@ export const HealthIssueList = (): JSX.Element => {
                                             <span className="font-medium">{config.label}</span>
                                             <span className="text-xs text-muted">({categoryIssues.length})</span>
                                         </div>
-                                        <LemonTag type={severityToTagType(worst)} size="small">
-                                            {worst}
-                                        </LemonTag>
+                                        <div className="flex items-center gap-2">
+                                            <LemonTag type={severityToTagType(worst)} size="small">
+                                                {worst}
+                                            </LemonTag>
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="xsmall"
+                                                to={urls.healthCategory(category)}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                View details
+                                            </LemonButton>
+                                        </div>
                                     </div>
                                 ),
                                 content: (
                                     <div className="divide-y divide-border -m-4">
                                         {categoryIssues.map((issue) => (
-                                            <HealthIssueCard key={issue.id} issue={issue} />
+                                            <HealthIssueCard
+                                                key={issue.id}
+                                                issue={issue}
+                                                onDismiss={dismissIssue}
+                                                onUndismiss={undismissIssue}
+                                            />
                                         ))}
                                     </div>
                                 ),
