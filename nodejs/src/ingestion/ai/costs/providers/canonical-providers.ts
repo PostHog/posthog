@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-23 20:09:13 UTC
+// Generated at: 2026-03-25 20:08:23 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -54,9 +54,6 @@ export type CanonicalProvider =
     | 'google-vertex-us'
     | 'google-vertex-us-east5'
     | 'groq'
-    | 'hyperbolic'
-    | 'hyperbolic-bf16'
-    | 'hyperbolic-fp8'
     | 'inception'
     | 'inceptron-fp8'
     | 'inceptron-int4'
@@ -64,7 +61,6 @@ export type CanonicalProvider =
     | 'inflection'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
@@ -108,6 +104,7 @@ export type CanonicalProvider =
     | 'parasail-int8'
     | 'perplexity'
     | 'phala'
+    | 'reka-bf16'
     | 'relace-bf16'
     | 'relace-fp8'
     | 'sambanova'

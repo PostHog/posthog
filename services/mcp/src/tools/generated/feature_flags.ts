@@ -34,7 +34,7 @@ const featureFlagGetAll = (): ToolBase<typeof FeatureFlagGetAllSchema, unknown> 
                 created_by_id: params.created_by_id,
                 evaluation_runtime: params.evaluation_runtime,
                 excluded_properties: params.excluded_properties,
-                has_evaluation_tags: params.has_evaluation_tags,
+                has_evaluation_contexts: params.has_evaluation_contexts,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -101,8 +101,8 @@ const createFeatureFlag = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
-        if (params.evaluation_tags !== undefined) {
-            body['evaluation_tags'] = params.evaluation_tags
+        if (params.evaluation_contexts !== undefined) {
+            body['evaluation_contexts'] = params.evaluation_contexts
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
@@ -144,8 +144,8 @@ const updateFeatureFlag = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
-        if (params.evaluation_tags !== undefined) {
-            body['evaluation_tags'] = params.evaluation_tags
+        if (params.evaluation_contexts !== undefined) {
+            body['evaluation_contexts'] = params.evaluation_contexts
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',

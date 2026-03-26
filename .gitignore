@@ -9,6 +9,7 @@ __pycache__/
 .dmypy.json
 .DS_Store
 .eslintcache
+.hypothesis
 .mypy_cache
 .parcel-cache
 .posthog/
