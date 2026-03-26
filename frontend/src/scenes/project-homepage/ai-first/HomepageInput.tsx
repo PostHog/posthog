@@ -294,6 +294,12 @@ function IdleGrid(): JSX.Element {
 
     const handleGridKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
+            // Only handle keys when the grid div itself is focused (virtual navigation),
+            // not when a child link has native focus (e.g. via Tab)
+            if (e.target !== e.currentTarget) {
+                return
+            }
+
             // Find the next non-empty column in a given direction
             const findNonEmptyCol = (from: number, direction: 1 | -1): number | null => {
                 for (let i = from + direction; i >= 0 && i < columns.length; i += direction) {
