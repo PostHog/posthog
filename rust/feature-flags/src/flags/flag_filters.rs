@@ -47,7 +47,11 @@ mod tests {
 
     use super::*;
 
-    fn pf(key: &str, prop_type: PropertyType, operator: OperatorType) -> crate::properties::property_models::PropertyFilter {
+    fn pf(
+        key: &str,
+        prop_type: PropertyType,
+        operator: OperatorType,
+    ) -> crate::properties::property_models::PropertyFilter {
         mock!(crate::properties::property_models::PropertyFilter,
             key: key.mock_into(),
             prop_type: prop_type,
@@ -55,7 +59,10 @@ mod tests {
         )
     }
 
-    fn group(props: Vec<crate::properties::property_models::PropertyFilter>, rollout: f64) -> FlagPropertyGroup {
+    fn group(
+        props: Vec<crate::properties::property_models::PropertyFilter>,
+        rollout: f64,
+    ) -> FlagPropertyGroup {
         mock!(FlagPropertyGroup,
             properties: Some(props),
             rollout_percentage: Some(rollout)
@@ -93,7 +100,11 @@ mod tests {
                 100.0,
             ),
             group(
-                vec![pf("yet_another_key", PropertyType::Person, OperatorType::Exact)],
+                vec![pf(
+                    "yet_another_key",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                )],
                 100.0,
             ),
         ]);
@@ -102,7 +113,10 @@ mod tests {
             // Not enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                ("another_key".to_string(), Value::String("value".to_string())),
+                (
+                    "another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
             ]);
 
             assert!(f.requires_db_properties(&overrides, "test-flag"));
@@ -112,8 +126,14 @@ mod tests {
             // Enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                ("another_key".to_string(), Value::String("value".to_string())),
-                ("yet_another_key".to_string(), Value::String("value".to_string())),
+                (
+                    "another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
+                (
+                    "yet_another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
             ]);
 
             assert!(!f.requires_db_properties(&overrides, "test-flag"));
@@ -240,8 +260,14 @@ mod tests {
         {
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                ("another_key".to_string(), Value::String("value".to_string())),
-                ("yet_another_key".to_string(), Value::String("value".to_string())),
+                (
+                    "another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
+                (
+                    "yet_another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
             ]);
             assert!(!f.requires_db_properties(&overrides, "test-flag"));
         }
@@ -258,7 +284,11 @@ mod tests {
                 100.0,
             ),
             group(
-                vec![pf("yet_another_key", PropertyType::Person, OperatorType::Exact)],
+                vec![pf(
+                    "yet_another_key",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                )],
                 100.0,
             ),
         ]);
@@ -267,7 +297,10 @@ mod tests {
             // Not enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                ("another_key".to_string(), Value::String("value".to_string())),
+                (
+                    "another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
             ]);
 
             assert!(f.requires_db_properties(&overrides, "test-flag"));
@@ -277,8 +310,14 @@ mod tests {
             // Enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                ("another_key".to_string(), Value::String("value".to_string())),
-                ("yet_another_key".to_string(), Value::String("value".to_string())),
+                (
+                    "another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
+                (
+                    "yet_another_key".to_string(),
+                    Value::String("value".to_string()),
+                ),
             ]);
 
             assert!(!f.requires_db_properties(&overrides, "test-flag"));

@@ -129,7 +129,9 @@ mod tests {
     #[test]
     fn test_has_cohort_filters_when_cohort_filter_present() {
         let group = FlagPropertyGroup {
-            properties: Some(vec![mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact))]),
+            properties: Some(vec![
+                mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact)),
+            ]),
             rollout_percentage: Some(100.0),
             variant: None,
             ..Default::default()
@@ -141,7 +143,9 @@ mod tests {
     #[test]
     fn test_does_not_have_cohort_filters_when_no_cohort_filter_present() {
         let group = FlagPropertyGroup {
-            properties: Some(vec![mock!(crate::properties::property_models::PropertyFilter, key: "key".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact))]),
+            properties: Some(vec![
+                mock!(crate::properties::property_models::PropertyFilter, key: "key".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact)),
+            ]),
             rollout_percentage: Some(100.0),
             variant: None,
             ..Default::default()
@@ -153,7 +157,9 @@ mod tests {
     #[test]
     fn test_requires_cohort_filters_when_rolled_out_and_cohort_filter_present() {
         let group = FlagPropertyGroup {
-            properties: Some(vec![mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact))]),
+            properties: Some(vec![
+                mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact)),
+            ]),
             rollout_percentage: Some(100.0),
             variant: None,
             ..Default::default()
@@ -165,7 +171,9 @@ mod tests {
     #[test]
     fn test_does_not_require_cohort_filters_when_not_rolled_out() {
         let group = FlagPropertyGroup {
-            properties: Some(vec![mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact))]),
+            properties: Some(vec![
+                mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact)),
+            ]),
             rollout_percentage: Some(0.0),
             variant: None,
             ..Default::default()

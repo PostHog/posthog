@@ -1917,8 +1917,7 @@ mod tests {
 
     #[test]
     fn test_flags_require_db_preparation_skips_filtered_out() {
-        let person_property =
-            mock!(crate::properties::property_models::PropertyFilter, key: "email".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
+        let person_property = mock!(crate::properties::property_models::PropertyFilter, key: "email".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         let mut flag_a = mock!(FeatureFlag, filters: vec![person_property.clone()].mock_into());
         flag_a.id = 1;
         flag_a.key = "flag_a".to_string();

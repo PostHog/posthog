@@ -71,7 +71,7 @@ impl std::fmt::Debug for CompiledRegex {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
     // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
@@ -87,20 +87,6 @@ pub struct PropertyFilter {
     /// `Some(InvalidPattern)` means the pattern failed to compile — returns false immediately.
     #[serde(skip)]
     pub compiled_regex: Option<CompiledRegex>,
-}
-
-impl Default for PropertyFilter {
-    fn default() -> Self {
-        PropertyFilter {
-            key: String::new(),
-            value: None,
-            operator: None,
-            prop_type: PropertyType::default(),
-            negation: None,
-            group_type_index: None,
-            compiled_regex: None,
-        }
-    }
 }
 
 #[allow(clippy::needless_update)]

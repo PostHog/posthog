@@ -656,7 +656,8 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                 ..Default::default()
             }
         ),
-    ].mock_into();
+    ]
+    .mock_into();
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -735,7 +736,8 @@ async fn test_evaluate_feature_flags_details() {
                 ..Default::default()
             }
         ),
-    ].mock_into();
+    ]
+    .mock_into();
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
