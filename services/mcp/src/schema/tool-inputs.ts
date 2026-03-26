@@ -8,6 +8,48 @@ import { InsightQuerySchema, PropertyFilter } from './query'
 export const DocumentationSearchSchema = z.object({
     query: z.string(),
 })
+export const TaskCreateToolInputSchema = z.object({
+    title: z
+        .string()
+        .max(255)
+        .optional()
+        .describe('Optional task title. If omitted, PostHog will generate one from the description.'),
+    description: z
+        .string()
+        .min(1)
+        .describe('What the agent should do. Include enough detail for the task to be actionable.'),
+    origin_product: z
+        .enum([
+            'error_tracking',
+            'eval_clusters',
+            'user_created',
+            'slack',
+            'support_queue',
+            'session_summaries',
+            'hogbot',
+        ])
+        .default('user_created')
+        .describe(
+            "Where the task originated. Leave as 'user_created' unless you are mirroring another PostHog workflow."
+        ),
+    repository: z
+        .string()
+        .regex(/^[^/]+\/[^/]+$/, 'Repository must be in org/repo format')
+        .optional()
+        .describe(
+            "Optional GitHub repository in org/repo format, for example `posthog/posthog`. If omitted, the task is created without a repository. If provided, PostHog will use the project team's default GitHub integration."
+        ),
+    run_immediately: z
+        .boolean()
+        .default(true)
+        .describe('Whether to start the task immediately after creating it. Defaults to true.'),
+    run_mode: z
+        .enum(['interactive', 'background'])
+        .default('background')
+        .describe(
+            "How to run the task when `run_immediately` is true. Use 'background' unless the user explicitly wants an interactive run."
+        ),
+})
 
 export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
 

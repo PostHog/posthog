@@ -1424,6 +1424,96 @@
             "readOnlyHint": true
         }
     },
+    "tasks-list": {
+        "description": "List tasks in the current project, newest first. Supports filtering by origin product, repository, repository organization, stage, and creator so you can find existing work before creating or updating a task.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List tasks",
+        "title": "List tasks",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "task-create": {
+        "description": "Create a new task for the current project and, by default, start running it immediately. Provide the task description and optionally a title, origin product, repository, and run settings. If a repository is provided, PostHog uses the team's default GitHub integration.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create task",
+        "title": "Create task",
+        "required_scopes": ["task:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "task-get": {
+        "description": "Retrieve a task by ID, including its repository, metadata, and latest run summary if one exists.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task",
+        "title": "Get task",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "task-runs-list": {
+        "description": "List runs for a specific task. Use this to inspect execution history, statuses, stages, outputs, and timestamps for a task.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List task runs",
+        "title": "List task runs",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "task-run-get": {
+        "description": "Retrieve a specific run for a task by run ID. Returns run status, stage, branch, output, state, artifacts, and timestamps.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task run",
+        "title": "Get task run",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "task-repository-readiness-get": {
+        "description": "Get repository readiness details for a repository in the current project. Use this before creating or running a task to understand whether the repository is ready for autonomous work.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task repository readiness",
+        "title": "Get task repository readiness",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",

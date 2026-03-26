@@ -61,6 +61,13 @@ export const ToolConfigSchema = z
          * the request body still sends the original field name.
          */
         rename_params: z.record(z.string(), z.string()).optional(),
+        /**
+         * Optional follow-up operation to call after a successful custom-schema tool request.
+         * Currently supported only for tools using `input_schema`, where helper fields like
+         * `run_immediately`, `run_mode`, and `run_branch` are stripped from the primary request
+         * body and used for the follow-up request instead.
+         */
+        post_action_operation: z.string().optional(),
     })
     .strict()
     .refine(
@@ -74,6 +81,9 @@ export const ToolConfigSchema = z
     )
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
+    })
+    .refine((data) => !data.post_action_operation || !!data.input_schema, {
+        message: 'post_action_operation is only supported when input_schema is set',
     })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>

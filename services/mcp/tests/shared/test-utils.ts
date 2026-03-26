@@ -19,6 +19,7 @@ export interface CreatedResources {
     surveys: string[]
     actions: number[]
     cohorts: number[]
+    tasks?: string[]
 }
 
 export function validateEnvironmentVariables(): void {
@@ -140,6 +141,18 @@ export async function cleanupResources(
         }
     }
     resources.cohorts = []
+
+    for (const taskId of resources.tasks ?? []) {
+        try {
+            await client.request({
+                method: 'DELETE',
+                path: `/api/projects/${projectId}/tasks/${taskId}/`,
+            })
+        } catch (error) {
+            console.warn(`Failed to cleanup task ${taskId}:`, error)
+        }
+    }
+    resources.tasks = []
 }
 
 export function parseToolResponse(result: any): any {

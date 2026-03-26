@@ -111,6 +111,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'query:read',
     'survey:read',
     'survey:write',
+    'task:read',
+    'task:write',
     'user:read',
     'warehouse_table:read',
     'warehouse_view:read',

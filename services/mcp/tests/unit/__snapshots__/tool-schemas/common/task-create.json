@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "What the agent should do. Include enough detail for the task to be actionable.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "origin_product": {
+            "default": "user_created",
+            "description": "Where the task originated. Leave as 'user_created' unless you are mirroring another PostHog workflow.",
+            "enum": [
+                "error_tracking",
+                "eval_clusters",
+                "user_created",
+                "slack",
+                "support_queue",
+                "session_summaries",
+                "hogbot"
+            ],
+            "type": "string"
+        },
+        "repository": {
+            "description": "Optional GitHub repository in org/repo format, for example `posthog/posthog`. If omitted, the task is created without a repository. If provided, PostHog will use the project team's default GitHub integration.",
+            "pattern": "^[^/]+\\/[^/]+$",
+            "type": "string"
+        },
+        "run_immediately": {
+            "default": true,
+            "description": "Whether to start the task immediately after creating it. Defaults to true.",
+            "type": "boolean"
+        },
+        "run_mode": {
+            "default": "background",
+            "description": "How to run the task when `run_immediately` is true. Use 'background' unless the user explicitly wants an interactive run.",
+            "enum": ["interactive", "background"],
+            "type": "string"
+        },
+        "title": {
+            "description": "Optional task title. If omitted, PostHog will generate one from the description.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["description"],
+    "type": "object"
+}

@@ -76,6 +76,11 @@ describe('Tool Filtering - Features', () => {
             expectedTools: ['docs-search'],
         },
         {
+            features: ['tasks'],
+            description: 'task tools',
+            expectedTools: ['tasks-list', 'task-create', 'task-get'],
+        },
+        {
             features: ['invalid', 'flags'],
             description: 'valid tools when mixed with invalid features',
             expectedTools: ['feature-flag-get-definition'],
@@ -96,13 +101,15 @@ describe('Tool Filtering - Features', () => {
             }
         })
 
-        it('should not expose annotation list/get tools in v2', () => {
-            const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
+        it('should expose task read tools in v2', () => {
+            const tools = getToolsForFeatures({ features: ['tasks'], version: 2 })
 
-            expect(tools).toContain('annotation-create')
-            expect(tools).toContain('annotation-delete')
-            expect(tools).not.toContain('annotations-list')
-            expect(tools).not.toContain('annotation-retrieve')
+            expect(tools).toContain('tasks-list')
+            expect(tools).toContain('task-get')
+            expect(tools).toContain('task-runs-list')
+            expect(tools).toContain('task-run-get')
+            expect(tools).toContain('task-repository-readiness-get')
+            expect(tools).toContain('task-create')
         })
     })
 })

@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "refresh": {
+            "default": false,
+            "type": "boolean"
+        },
+        "repository": {
+            "description": "Repository in org/repo format",
+            "minLength": 1,
+            "type": "string"
+        },
+        "window_days": {
+            "default": 7,
+            "maximum": 30,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["repository"],
+    "type": "object"
+}

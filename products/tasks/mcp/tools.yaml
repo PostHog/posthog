@@ -1,0 +1,143 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Tasks
+feature: tasks
+url_prefix: /tasks
+tools:
+    tasks-list:
+        operation: tasks_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List tasks
+        description: >
+            List tasks in the current project, newest first. Supports filtering by origin product, repository,
+            repository organization, stage, and creator so you can find existing work before creating or updating a
+            task.
+    task-create:
+        operation: tasks_create
+        enabled: true
+        input_schema: TaskCreateToolInputSchema
+        post_action_operation: tasks_run_create
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create task
+        description: >
+            Create a new task for the current project and, by default, start running it immediately. Provide the task
+            description and optionally a title, origin product, repository, and run settings. If a repository is
+            provided, PostHog uses the team's default GitHub integration.
+    task-get:
+        operation: tasks_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get task
+        description: >
+            Retrieve a task by ID, including its repository, metadata, and latest run summary if one exists.
+    tasks-update:
+        operation: tasks_update
+        enabled: false
+    task-update:
+        operation: tasks_partial_update
+        enabled: false
+    task-delete:
+        operation: tasks_destroy
+        enabled: false
+    task-run-create:
+        operation: tasks_run_create
+        enabled: false
+    task-runs-list:
+        operation: tasks_runs_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List task runs
+        description: >
+            List runs for a specific task. Use this to inspect execution history, statuses, stages, outputs, and
+            timestamps for a task.
+    task-runs-create:
+        operation: tasks_runs_create
+        enabled: false
+    task-run-get:
+        operation: tasks_runs_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get task run
+        description: >
+            Retrieve a specific run for a task by run ID. Returns run status, stage, branch, output, state, artifacts,
+            and timestamps.
+    task-runs-update:
+        operation: tasks_runs_update
+        enabled: false
+    task-runs-partial-update:
+        operation: tasks_runs_partial_update
+        enabled: false
+    task-runs-append-log-create:
+        operation: tasks_runs_append_log_create
+        enabled: false
+    task-runs-artifacts-create:
+        operation: tasks_runs_artifacts_create
+        enabled: false
+    task-runs-artifacts-presign-create:
+        operation: tasks_runs_artifacts_presign_create
+        enabled: false
+    task-runs-command-create:
+        operation: tasks_runs_command_create
+        enabled: false
+    task-runs-connection-token-retrieve:
+        operation: tasks_runs_connection_token_retrieve
+        enabled: false
+    task-runs-relay-message-create:
+        operation: tasks_runs_relay_message_create
+        enabled: false
+    task-runs-session-logs-retrieve:
+        operation: tasks_runs_session_logs_retrieve
+        enabled: false
+    task-runs-set-output-partial-update:
+        operation: tasks_runs_set_output_partial_update
+        enabled: false
+    task-runs-stream-retrieve:
+        operation: tasks_runs_stream_retrieve
+        enabled: false
+    task-repository-readiness-get:
+        operation: tasks_repository_readiness_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get task repository readiness
+        description: >
+            Get repository readiness details for a repository in the current project. Use this before creating or
+            running a task to understand whether the repository is ready for autonomous work.

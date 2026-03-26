@@ -527,7 +527,16 @@ function generateToolCode(
 
     // When input_schema is set, use the named export from tool-inputs instead of Orval
     if (config.input_schema) {
-        return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
+        return generateCustomSchemaToolCode(
+            toolName,
+            config,
+            resolved,
+            category,
+            schemaName,
+            factoryName,
+            knownTypes,
+            spec
+        )
     }
 
     const composition = composeToolSchema(config, resolved, spec)
@@ -636,7 +645,8 @@ function generateCustomSchemaToolCode(
     category: CategoryConfig,
     schemaName: string,
     factoryName: string,
-    knownTypes: Set<string>
+    knownTypes: Set<string>,
+    spec: OpenApiSpec
 ): { code: string; orvalImports: string[]; toolInputsImports: string[]; responseType: string | undefined } {
     const pathParamNames = extractPathParams(resolved.path)
 
@@ -644,6 +654,9 @@ function generateCustomSchemaToolCode(
 
     const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
     const responseType = resolveResponseType(resolved.operation, knownTypes)
+    const postActionResolved = config.post_action_operation
+        ? findOperation(spec, config.post_action_operation)
+        : undefined
 
     const needsProjectId = resolved.path.includes('{project_id}')
     const needsOrgId = resolved.path.includes('{organization_id}')
@@ -656,19 +669,32 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    if (pathParamNames.length > 0) {
+    const helperFields = postActionResolved ? ['run_immediately', 'run_mode', 'run_branch'] : []
+
+    const usesExtractedRest = pathParamNames.length > 0 || helperFields.length > 0
+
+    if (usesExtractedRest) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
+        const helperDestructured = helperFields
+            .map((field) =>
+                field === 'run_immediately'
+                    ? `run_immediately = true, `
+                    : field === 'run_mode'
+                      ? `run_mode = 'background', `
+                      : `${field}, `
+            )
+            .join('')
         if (useBody) {
-            handlerBody += `        const { ${destructured}...body } = params\n`
+            handlerBody += `        const { ${destructured}${helperDestructured}...body } = params\n`
         } else {
-            handlerBody += `        const { ${destructured}...query } = params\n`
+            handlerBody += `        const { ${destructured}${helperDestructured}...query } = params\n`
         }
     }
 
     handlerBody += `        const result = await context.api.request({\n`
     handlerBody += `            method: '${resolved.method}',\n`
     handlerBody += `            path: ${pathExpr},\n`
-    if (pathParamNames.length > 0) {
+    if (usesExtractedRest) {
         if (useBody) {
             handlerBody += `            body,\n`
         } else {
@@ -680,6 +706,31 @@ function generateCustomSchemaToolCode(
         handlerBody += `            query: params,\n`
     }
     handlerBody += `        })\n`
+
+    if (postActionResolved) {
+        const postActionPathParamNames = extractPathParams(postActionResolved.path)
+        const postActionPathExpr = buildPathExpr(
+            postActionResolved.path,
+            postActionPathParamNames,
+            postActionPathParamNames.length === 1 && postActionPathParamNames[0] === 'id' ? '(result as any).' : ''
+        )
+        const postActionEnrichment = buildEnrichment(config, category, needsProjectId).replaceAll(
+            'result',
+            'postActionResult'
+        )
+
+        handlerBody += `        if (run_immediately !== false) {\n`
+        handlerBody += `            const postActionBody: Record<string, unknown> = {}\n`
+        handlerBody += `            if (run_mode !== undefined) postActionBody['mode'] = run_mode\n`
+        handlerBody += `            if (run_branch !== undefined) postActionBody['branch'] = run_branch\n`
+        handlerBody += `            const postActionResult = await context.api.request({\n`
+        handlerBody += `                method: '${postActionResolved.method}',\n`
+        handlerBody += `                path: ${postActionPathExpr},\n`
+        handlerBody += `                body: postActionBody,\n`
+        handlerBody += `            })\n`
+        handlerBody += postActionEnrichment
+        handlerBody += `        }\n`
+    }
 
     handlerBody += buildEnrichment(config, category, needsProjectId)
 
