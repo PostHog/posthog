@@ -194,6 +194,7 @@ def account_requests(request: Request) -> Response:
     request_id = data.get("id", "")
     email = data.get("email")
     if not email:
+        _capture_provisioning_event("account_request", "error", error_code="missing_email")
         return Response(
             {"type": "error", "error": {"code": "invalid_request", "message": "email is required"}}, status=400
         )
@@ -209,6 +210,7 @@ def account_requests(request: Request) -> Response:
 
         expires_at = parse_datetime(expires_at_str)
         if expires_at and expires_at < timezone.now():
+            _capture_provisioning_event("account_request", "error", error_code="expired")
             return Response(
                 {"type": "error", "error": {"code": "expired", "message": "Account request has expired"}},
                 status=400,
@@ -217,6 +219,7 @@ def account_requests(request: Request) -> Response:
     stripe_info = orchestrator.get("stripe") or {}
     stripe_account_id = stripe_info.get("account", "") if orchestrator.get("type") == "stripe" else ""
     if not stripe_account_id:
+        _capture_provisioning_event("account_request", "error", error_code="missing_stripe_account")
         return Response(
             {
                 "type": "error",
@@ -360,12 +363,14 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())
     if not memberships:
+        _capture_provisioning_event("authorize", "no_organization")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
 
     org_ids = [m.organization_id for m in memberships]
     non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
 
     if not non_demo_teams:
+        _capture_provisioning_event("authorize", "no_team")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
 
     if len(memberships) == 1 and len(non_demo_teams) == 1:
@@ -478,6 +483,7 @@ def oauth_token(request: Request) -> Response:
     elif grant_type == "refresh_token":
         return _exchange_refresh_token(request)
     else:
+        _capture_provisioning_event("token_exchange", "unsupported_grant_type", grant_type=grant_type)
         return Response(
             {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"},
             status=400,
@@ -487,6 +493,7 @@ def oauth_token(request: Request) -> Response:
 def _exchange_authorization_code(request: Request) -> Response:
     code = request.data.get("code", "")
     if not code:
+        _capture_provisioning_event("token_exchange", "missing_code", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "code is required"}, status=400)
 
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
@@ -506,6 +513,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
+        _capture_provisioning_event("token_exchange", "user_not_found", grant_type="authorization_code")
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
     oauth_app = _get_stripe_oauth_app()
@@ -551,6 +559,7 @@ def _exchange_authorization_code(request: Request) -> Response:
 def _exchange_refresh_token(request: Request) -> Response:
     refresh_token_value = request.data.get("refresh_token", "")
     if not refresh_token_value:
+        _capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
 
     old_refresh = find_oauth_refresh_token(refresh_token_value)
@@ -823,6 +832,7 @@ def deep_links(request: Request) -> Response:
 
     purpose = request.data.get("purpose", "dashboard")
     if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
+        _capture_provisioning_event("deep_link_created", "unsupported_purpose", purpose=purpose)
         return Response(
             {
                 "error": {
@@ -856,6 +866,8 @@ def deep_links(request: Request) -> Response:
     url = f"{host}/agentic/login?token={token}"
     if team_id:
         url += f"&team_id={team_id}"
+
+    _capture_provisioning_event("deep_link_created", "success", purpose=purpose, team_id=team_id)
 
     return Response(
         {

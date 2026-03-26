@@ -7,6 +7,7 @@ from django.core.cache import cache
 
 import requests
 import structlog
+import posthoganalytics
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -146,9 +147,31 @@ def stripe_region_proxy(strategy: str):
                     current_region=current,
                     target_domain=target,
                 )
+                posthoganalytics.capture(
+                    "agentic_provisioning region_proxy",
+                    distinct_id="agentic_provisioning_system",
+                    properties={
+                        "outcome": "proxied",
+                        "strategy": strategy,
+                        "from_region": current,
+                        "to_domain": target,
+                        "endpoint": request.path,
+                    },
+                )
                 try:
                     return _proxy_to_region(request, target)
                 except requests.exceptions.RequestException:
+                    posthoganalytics.capture(
+                        "agentic_provisioning region_proxy",
+                        distinct_id="agentic_provisioning_system",
+                        properties={
+                            "outcome": "proxy_failed",
+                            "strategy": strategy,
+                            "from_region": current,
+                            "to_domain": target,
+                            "endpoint": request.path,
+                        },
+                    )
                     if strategy == "body_region":
                         return Response(
                             {"error": {"code": "proxy_failed", "message": "Failed to route to correct region"}},
