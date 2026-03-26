@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddSnapshotsInputApi,
+    AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     AutoApproveResultApi,
     CreateRepoInputApi,
@@ -182,6 +184,27 @@ export const visualReviewRunsRetrieve = async (
     return apiMutator<RunApi>(getVisualReviewRunsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Add a batch of snapshots to a pending run (shard-based flow).
+ */
+export const getVisualReviewRunsAddSnapshotsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/add-snapshots/`
+}
+
+export const visualReviewRunsAddSnapshotsCreate = async (
+    projectId: string,
+    id: string,
+    addSnapshotsInputApi: AddSnapshotsInputApi,
+    options?: RequestInit
+): Promise<AddSnapshotsResultApi> => {
+    return apiMutator<AddSnapshotsResultApi>(getVisualReviewRunsAddSnapshotsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSnapshotsInputApi),
     })
 }
 

@@ -109,6 +109,9 @@ export interface CreateRunInputApi {
     /** @nullable */
     pr_number?: number | null
     baseline_hashes?: CreateRunInputApiBaselineHashes
+    unchanged_count?: number
+    removed_identifiers?: string[]
+    purpose?: string
     metadata?: CreateRunInputApiMetadata
 }
 
@@ -122,6 +125,18 @@ export interface UploadTargetApi {
 
 export interface CreateRunResultApi {
     run_id: string
+    uploads: UploadTargetApi[]
+}
+
+export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
+
+export interface AddSnapshotsInputApi {
+    snapshots: SnapshotManifestItemApi[]
+    baseline_hashes?: AddSnapshotsInputApiBaselineHashes
+}
+
+export interface AddSnapshotsResultApi {
+    added: number
     uploads: UploadTargetApi[]
 }
 

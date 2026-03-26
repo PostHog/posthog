@@ -4191,6 +4191,38 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type AddSnapshotsInputBaselineHashes = {[key: string]: string};
+
+    export type SnapshotManifestItemMetadata = {[key: string]: unknown};
+
+    export interface SnapshotManifestItem {
+      identifier: string;
+      content_hash: string;
+      /** @nullable */
+      width?: number | null;
+      /** @nullable */
+      height?: number | null;
+      metadata?: SnapshotManifestItemMetadata;
+    }
+
+    export interface AddSnapshotsInput {
+      snapshots: SnapshotManifestItem[];
+      baseline_hashes?: AddSnapshotsInputBaselineHashes;
+    }
+
+    export type UploadTargetFields = {[key: string]: string};
+
+    export interface UploadTarget {
+      content_hash: string;
+      url: string;
+      fields: UploadTargetFields;
+    }
+
+    export interface AddSnapshotsResult {
+      added: number;
+      uploads: UploadTarget[];
+    }
+
     /**
      * * `product_analytics` - product_analytics
     * `sql` - sql
@@ -7553,18 +7585,6 @@ export namespace Schemas {
 
     export type CreateRunInputMetadata = {[key: string]: unknown};
 
-    export type SnapshotManifestItemMetadata = {[key: string]: unknown};
-
-    export interface SnapshotManifestItem {
-      identifier: string;
-      content_hash: string;
-      /** @nullable */
-      width?: number | null;
-      /** @nullable */
-      height?: number | null;
-      metadata?: SnapshotManifestItemMetadata;
-    }
-
     export interface CreateRunInput {
       repo_id: string;
       run_type: string;
@@ -7578,14 +7598,6 @@ export namespace Schemas {
       removed_identifiers?: string[];
       purpose?: string;
       metadata?: CreateRunInputMetadata;
-    }
-
-    export type UploadTargetFields = {[key: string]: string};
-
-    export interface UploadTarget {
-      content_hash: string;
-      url: string;
-      fields: UploadTargetFields;
     }
 
     export interface CreateRunResult {
