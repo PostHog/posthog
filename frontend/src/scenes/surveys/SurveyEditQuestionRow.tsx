@@ -6,14 +6,13 @@ import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
 import {
     BasicSurveyQuestion,
-    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -207,18 +206,24 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             return
         }
 
+        const oldChoices = question.choices || []
         const updatedTranslations = { ...question.translations }
+
         Object.keys(updatedTranslations).forEach((lang) => {
             const trans = updatedTranslations[lang]
-            if (trans.choices) {
-                const oldChoices = trans.choices
-                const newTransChoices = [...newChoices].map((defaultChoice, idx) => {
-                    const existingChoice = oldChoices[idx]
-                    if (existingChoice !== undefined && existingChoice !== null) {
-                        return existingChoice
+            const transChoices = trans.choices && Array.isArray(trans.choices) ? trans.choices : []
+            if (trans.choices && Array.isArray(trans.choices)) {
+                // Sync choices by index: keep translation from same index in old choices
+                // This way if user deletes choice at index 2, we delete index 2 in all languages
+                const newTransChoices = newChoices.map((newChoice, newIndex) => {
+                    // Check if this choice existed at this same position in old choices
+                    if (oldChoices[newIndex] === newChoice && transChoices[newIndex] !== undefined) {
+                        // Same choice at same position, keep the translation
+                        return transChoices[newIndex]
                     }
-                    if (defaultChoice !== undefined && defaultChoice !== null && defaultChoice !== '') {
-                        return defaultChoice
+                    // This is a new/modified choice, initialize with the default or placeholder
+                    if (newChoice !== '' && newChoice !== undefined) {
+                        return newChoice
                     }
                     return '[Translation needed]'
                 })
@@ -404,12 +409,30 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Open && (
-                    <LemonField name="validation">
+                    <LemonField
+                        name="validation"
+                        info={
+                            editingLanguage
+                                ? 'Validation settings can only be changed in the default language'
+                                : undefined
+                        }
+                    >
                         {({ value, onChange }) => (
-                            <ValidationRulesEditor
-                                value={(question as BasicSurveyQuestion).validation ?? value}
-                                onChange={onChange}
-                            />
+                            <Tooltip
+                                title={
+                                    editingLanguage
+                                        ? 'Validation settings can only be changed in the default language'
+                                        : undefined
+                                }
+                            >
+                                <div className={editingLanguage ? 'cursor-not-allowed opacity-60' : ''}>
+                                    <ValidationRulesEditor
+                                        value={(question as BasicSurveyQuestion).validation ?? value}
+                                        onChange={editingLanguage ? () => {} : onChange}
+                                        disabled={!!editingLanguage}
+                                    />
+                                </div>
+                            </Tooltip>
                         )}
                     </LemonField>
                 )}
@@ -560,19 +583,31 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                     )
                                                                 }
                                                             />
-                                                            <LemonButton
-                                                                icon={<IconTrash />}
-                                                                size="xsmall"
-                                                                noPadding
-                                                                onClick={() => {
-                                                                    const newChoices = [...value]
-                                                                    newChoices.splice(index, 1)
-                                                                    handleChoicesChange(newChoices)
-                                                                    if (isOpenChoice) {
-                                                                        toggleHasOpenChoice(false)
-                                                                    }
-                                                                }}
-                                                            />
+                                                            <Tooltip
+                                                                title={
+                                                                    editingLanguage
+                                                                        ? 'Choices can only be modified in the default language'
+                                                                        : undefined
+                                                                }
+                                                            >
+                                                                <LemonButton
+                                                                    icon={<IconTrash />}
+                                                                    size="xsmall"
+                                                                    className="px-1"
+                                                                    disabled={editingLanguage !== null}
+                                                                    onClick={() => {
+                                                                        if (editingLanguage) {
+                                                                            return
+                                                                        }
+                                                                        const newChoices = [...value]
+                                                                        newChoices.splice(index, 1)
+                                                                        handleChoicesChange(newChoices)
+                                                                        if (isOpenChoice) {
+                                                                            toggleHasOpenChoice(false)
+                                                                        }
+                                                                    }}
+                                                                />
+                                                            </Tooltip>
                                                         </div>
                                                     )
                                                 })}

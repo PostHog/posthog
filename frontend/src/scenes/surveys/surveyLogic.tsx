@@ -1392,18 +1392,6 @@ export const surveyLogic = kea<surveyLogicType>([
                                       delete cleanedTrans.upperBoundLabel
                                   }
 
-                                  // Initialize choices for new single/multiple choice questions
-                                  if (
-                                      (type === SurveyQuestionType.SingleChoice ||
-                                          type === SurveyQuestionType.MultipleChoice) &&
-                                      !cleanedTrans.choices
-                                  ) {
-                                      const defaultChoices =
-                                          (defaultSurveyFieldValues[type].questions[0] as MultipleSurveyQuestion)
-                                              .choices || []
-                                      cleanedTrans.choices = defaultChoices
-                                  }
-
                                   acc[lang] = cleanedTrans
                                   return acc
                               },
@@ -1411,12 +1399,36 @@ export const surveyLogic = kea<surveyLogicType>([
                           )
                         : undefined
 
+                    // Get the new question with default values for the new type
+                    const newQuestionDefaults = defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase
+                    const newChoices = (newQuestionDefaults as MultipleSurveyQuestion).choices || []
+
+                    // Initialize choices for new single/multiple choice questions in translations
+                    const choicesInitializedTranslations = cleanedTranslations
+                        ? Object.entries(cleanedTranslations).reduce(
+                              (acc, [lang, trans]) => {
+                                  const cleanedTrans = { ...trans }
+                                  if (
+                                      (type === SurveyQuestionType.SingleChoice ||
+                                          type === SurveyQuestionType.MultipleChoice) &&
+                                      !cleanedTrans.choices
+                                  ) {
+                                      cleanedTrans.choices = newChoices
+                                  }
+                                  acc[lang] = cleanedTrans
+                                  return acc
+                              },
+                              {} as Record<string, any>
+                          )
+                        : cleanedTranslations
+
                     newQuestions[idx] = {
                         ...q,
-                        ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
+                        ...newQuestionDefaults,
                         question,
                         description,
-                        translations: cleanedTranslations,
+                        choices: newChoices, // Ensure choices are set for choice-based questions
+                        translations: choicesInitializedTranslations,
                     }
                     return {
                         ...state,

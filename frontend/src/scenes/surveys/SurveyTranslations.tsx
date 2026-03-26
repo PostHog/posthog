@@ -51,24 +51,34 @@ export function SurveyTranslations(): JSX.Element {
             return
         }
 
-        // Initialize each question's translation with choices arrays for multiple choice questions
+        // Initialize each question's translation with all translatable fields from defaults
         const updatedQuestions = survey.questions.map((question) => {
-            if (
-                question.type === SurveyQuestionType.SingleChoice ||
-                question.type === SurveyQuestionType.MultipleChoice
-            ) {
-                return {
-                    ...question,
-                    translations: {
-                        ...question.translations,
-                        [lang]: {
-                            ...question.translations?.[lang],
-                            choices: question.choices || [],
-                        },
-                    },
-                }
+            const baseTranslation = {
+                question: question.question || '',
+                description: question.description || '',
+                buttonText: question.buttonText || '',
+                lowerBoundLabel: question.lowerBoundLabel || '',
+                upperBoundLabel: question.upperBoundLabel || '',
             }
-            return question
+
+            const newTranslation =
+                question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
+                    ? {
+                          ...baseTranslation,
+                          choices: question.choices || [],
+                      }
+                    : baseTranslation
+
+            return {
+                ...question,
+                translations: {
+                    ...question.translations,
+                    [lang]: {
+                        ...question.translations?.[lang],
+                        ...newTranslation,
+                    },
+                },
+            }
         })
 
         setSurveyValue('questions', updatedQuestions)
@@ -77,6 +87,9 @@ export function SurveyTranslations(): JSX.Element {
             [lang]: {
                 name: survey.name || '',
                 description: survey.description || '',
+                thankYouMessageHeader: survey.appearance?.thankYouMessageHeader || '',
+                thankYouMessageDescription: survey.appearance?.thankYouMessageDescription || '',
+                thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText || '',
             },
         })
         setEditingLanguage(lang)
