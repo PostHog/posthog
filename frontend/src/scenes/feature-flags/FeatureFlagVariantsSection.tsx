@@ -21,8 +21,10 @@ export function FeatureFlagVariantsSection({ featureFlag, variants }: FeatureFla
             <LemonCollapse
                 multiple
                 defaultActiveKeys={allVariantKeys}
+                className="[&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
                 panels={variants.map((variant, index) => ({
                     key: `variant-${index}`,
+                    className: '!pl-[2.5rem] dark:bg-surface-secondary',
                     header: (
                         <div className="flex gap-2 items-center">
                             <Lettermark

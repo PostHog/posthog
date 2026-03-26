@@ -1,5 +1,5 @@
 import * as d3 from 'd3'
-import { Dispatch, RefObject, SetStateAction } from 'react'
+import { RefObject } from 'react'
 
 import sankey, { sankeyJustify, sankeyLinkHorizontal, type SankeyLink, type SankeyLayout } from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
@@ -8,9 +8,17 @@ import { stripHTTP } from 'lib/utils'
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
 // eslint-disable-next-line import/no-cycle
-import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
-import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd, roundedRect } from './pathUtils'
+import { FALLBACK_CANVAS_WIDTH } from './Paths'
+import { PathNodeData, isSelectedPathStartOrEnd, roundedRect } from './pathUtils'
 import { Paths } from './types'
+
+export interface PathsHoverHandlers {
+    onNodesReady: (nodes: PathNodeData[]) => void
+    onNodeHover: (nodeIndex: number) => void
+    onLinkHover: (sourceIndex: number, targetIndex: number, linkIndex: number) => void
+    onHoverClear: () => void
+    isCardHovered: () => boolean
+}
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -36,7 +44,7 @@ const appendPathNodes = (
     nodes: PathNodeData[],
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
-    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
+    handlers: PathsHoverHandlers
 ): void => {
     svg.append('g')
         .selectAll('rect')
@@ -71,16 +79,16 @@ const appendPathNodes = (
             return startNodeColor
         })
         .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-            if (data.y1 - data.y0 > HIDE_PATH_CARD_HEIGHT) {
+            if (handlers.isCardHovered()) {
                 return
             }
-            setNodeCards(
-                nodes.map((node: PathNodeData) =>
-                    node.index === data.index
-                        ? { ...node, visible: true }
-                        : { ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }
-                )
-            )
+            handlers.onNodeHover(data.index)
+        })
+        .on('mouseleave', () => {
+            if (handlers.isCardHovered()) {
+                return
+            }
+            handlers.onHoverClear()
         })
         .append('title')
         .text((d: PathNodeData) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
@@ -98,12 +106,7 @@ const appendDropoffs = (svg: D3Selector): void => {
     dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--color-bg-surface-primary)')
 }
 
-const appendPathLinks = (
-    svg: any,
-    links: SankeyLink<PathNodeData, {}>[],
-    nodes: PathNodeData[],
-    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
-): void => {
+const appendPathLinks = (svg: any, links: SankeyLink<PathNodeData, {}>[], handlers: PathsHoverHandlers): void => {
     const link = svg
         .append('g')
         .attr('fill', 'none')
@@ -120,39 +123,16 @@ const appendPathLinks = (
             return Math.max(1, d.width)
         })
         .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-            svg.select(`#path-${data.index}`).attr('stroke', 'var(--paths-link-hover)')
-            if (data?.source?.targetLinks.length === 0) {
+            if (handlers.isCardHovered()) {
                 return
             }
-            const nodesToColor = [data.source]
-            const pathCardsToShow: number[] = []
-            while (nodesToColor.length > 0) {
-                const _node = nodesToColor.pop()
-                _node?.targetLinks.forEach((_link: PathTargetLink) => {
-                    svg.select(`#path-${_link.index}`).attr('stroke', 'var(--paths-link-hover)')
-                    nodesToColor.push(_link.source)
-                    pathCardsToShow.push(_link.source.index)
-                })
-            }
-            const pathCards = [data.target]
-            pathCardsToShow.push(data.target.index, data.source.index)
-            while (pathCards.length > 0) {
-                const node = pathCards.pop()
-                node?.sourceLinks.forEach((l: PathTargetLink) => {
-                    pathCards.push(l.target)
-                    pathCardsToShow.push(l.target.index)
-                })
-            }
-            setNodeCards(
-                nodes.map((node: PathNodeData) => ({
-                    ...node,
-
-                    visible: pathCardsToShow.includes(node.index) ? true : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
-                }))
-            )
+            handlers.onLinkHover(data.source.index, data.target.index, data.index)
         })
         .on('mouseleave', () => {
-            svg.selectAll('path').attr('stroke', 'var(--paths-link)')
+            if (handlers.isCardHovered()) {
+                return
+            }
+            handlers.onHoverClear()
         })
 
     link.append('g')
@@ -201,7 +181,7 @@ export function renderPaths(
     paths: Paths,
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
-    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
+    handlers: PathsHoverHandlers
 ): void {
     if (!paths || paths.nodes.length === 0) {
         return
@@ -223,10 +203,10 @@ export function renderPaths(
     const clonedPaths = structuredClone(paths)
     const { nodes, links } = sankey(clonedPaths)
 
-    setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
+    handlers.onNodesReady(nodes)
 
-    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
+    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, handlers)
     appendDropoffs(svg)
-    appendPathLinks(svg, links, nodes, setNodeCards)
+    appendPathLinks(svg, links, handlers)
     addChartAxisLines(svg, height, nodes, maxLayer)
 }

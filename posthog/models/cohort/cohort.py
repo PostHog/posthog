@@ -223,6 +223,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     objects = CohortManager()  # type: ignore
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "kind"],
+                condition=models.Q(kind__isnull=False, deleted=False),
+                name="unique_cohort_kind_per_team",
+            ),
+        ]
+
     def __str__(self):
         return self.name or "Untitled cohort"
 

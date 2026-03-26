@@ -200,7 +200,12 @@ This automatically:
 - Runs migrations via `bin/migrate` (calls `migrate_product_databases` management command)
 - Creates the database in local Docker via the Postgres init script
 
-Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. In prod, set `PRODUCT_DB_VISUAL_REVIEW_WRITER_URL` (and optionally `…_READER_URL`). If the env var is absent, the route is silently skipped.
+Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. In prod, the infrastructure handles env vars and connections automatically. If the env var is absent, the route is silently skipped.
+
+### Adding a new product database
+
+1. Add a route in `products/db_routing.yaml` (this repo)
+2. Ask `#team-infrastructure` to provision the database — they'll handle the cluster, credentials, and connection plumbing
 
 ### Cross-database constraints
 

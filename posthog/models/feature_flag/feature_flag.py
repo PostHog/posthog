@@ -23,14 +23,13 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
-    from posthog.models.tag import Tag
     from posthog.models.team import Team
 
 
@@ -110,11 +109,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         help_text="Identifier used for bucketing users into rollout and variants",
     )
 
-    # Cache projection: evaluation_tag_names is stored in Redis but isn't a DB field.
-    # This allows us to include evaluation tags in the cached flag data without
-    # modifying the FeatureFlag model schema. The Redis cache stores the serialized
-    # JSON including evaluation_tags, and when we deserialize, we store them here
-    # temporarily to avoid N+1 queries when accessing evaluation tags.
+    # Cache projection: stored in Redis but not a DB field. Avoids N+1 queries
+    # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
 
     last_called_at = models.DateTimeField(
@@ -594,12 +590,8 @@ def get_feature_flags(
     # Include disabled flags (active=False) so flag dependencies can reference them
     # and evaluate them as false, rather than raising DependencyNotFound errors.
 
-    # Build queryset with evaluation tags aggregated
-    # Single-shot query: flags plus evaluation tag names aggregated to a string array.
-    # We use ArrayAgg to fetch all evaluation tag names in one query instead of
-    # doing a separate query per flag. This is crucial for performance when we have
-    # many flags. The evaluation tags are stored as a many-to-many relationship
-    # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
+    # Aggregate evaluation context names into a string array per flag in one query,
+    # avoiding N+1 queries when serializing many flags.
     qs = FeatureFlag.objects.filter(**filter_kwargs)
 
     # Exclude encrypted remote config flags at the database level if requested
@@ -649,7 +641,7 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
 def set_feature_flags_for_team_in_cache(
     project_id: int,
 ) -> list[FeatureFlag]:
-    # Fetch flags once (with evaluation tags pre-loaded)
+    # Fetch flags once (with evaluation contexts pre-loaded)
     all_feature_flags = get_feature_flags(project_id=project_id)
 
     # Serialize for cache storage
@@ -673,18 +665,16 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
             parsed_data = json.loads(flag_data)
             flags = []
             for flag_data in parsed_data:
-                # Cache projection pattern: evaluation_tags is included in the Redis cache
-                # even though it's not a field on the FeatureFlag model. We extract it
-                # before creating the model instance and store it as a temporary attribute.
-                # This avoids N+1 queries when the Rust service needs to access evaluation
-                # tags for many flags at once.
-                evaluation_tags_list = flag_data.pop("evaluation_tags", None)
-                flag_data.pop("evaluation_contexts", None)
+                # Extract evaluation contexts before creating the model instance since
+                # it's not a DB field. Accept both old and new key names for cache
+                # entries written before or after the rename.
+                contexts_list = flag_data.pop("evaluation_contexts", None)
+                if contexts_list is None:
+                    contexts_list = flag_data.pop("evaluation_tags", None)
+                else:
+                    flag_data.pop("evaluation_tags", None)  # discard legacy key if present
                 flag = FeatureFlag(**flag_data)
-                # Store the evaluation tags as a private attribute. The evaluation_tag_names
-                # property will check this first before falling back to a database query.
-                # This makes cache retrieval extremely fast - no DB queries needed.
-                flag._evaluation_tag_names = evaluation_tags_list
+                flag._evaluation_tag_names = contexts_list
                 flags.append(flag)
             # Filter to only return active flags. The cache includes inactive flags
             # for dependency resolution (used by the Rust service), but Python callers
@@ -711,55 +701,3 @@ class FeatureFlagDashboards(models.Model):
                 name="unique feature flag for a dashboard",
             )
         ]
-
-
-class FeatureFlagEvaluationTag(models.Model):
-    """
-    Marks an existing tag as also being an evaluation context for a feature flag.
-    When a tag is marked as an evaluation context, it serves dual purpose:
-    1. It remains an organizational tag (via the TaggedItem relationship)
-    2. It acts as an evaluation constraint - the flag will only evaluate when
-       the SDK/client provides matching environment context tags
-    This allows for user-specified evaluation contexts like "docs-page",
-    "marketing-site", "app", etc.
-    """
-
-    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_tags")
-    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="evaluation_flags")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = [["feature_flag", "tag"]]
-
-    def __str__(self) -> str:
-        return f"{self.feature_flag.key} - {self.tag.name}"
-
-    @staticmethod
-    def get_team_ids_using_tag(tag: "Tag") -> list[int]:
-        """
-        Find all teams that have flags using this tag as an evaluation tag.
-
-        Used by signal handlers to invalidate caches when a tag is renamed.
-        """
-        return list(
-            FeatureFlagEvaluationTag.objects.filter(tag=tag).values_list("feature_flag__team_id", flat=True).distinct()
-        )
-
-
-class TeamDefaultEvaluationTag(UUIDModel):
-    """
-    Defines default evaluation contexts that will be automatically applied to new feature flags in a team.
-    These contexts serve as default evaluation contexts that can be configured at the team/organization level.
-    When a new feature flag is created and the team has default_evaluation_contexts_enabled=True,
-    these contexts will be automatically added as evaluation contexts for the new flag.
-    """
-
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_contexts")
-    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = [["team", "tag"]]
-
-    def __str__(self) -> str:
-        return f"{self.team.name} - {self.tag.name}"

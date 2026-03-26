@@ -69,29 +69,53 @@ jobs:
                     git diff --stat nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts nodejs/src/ingestion/ai/costs/providers/llm-costs.json
                   fi
 
-            - name: Create Pull Request
+            - name: Clean up stale branch
+              if: steps.check-changes.outputs.changes == 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    gh pr close "$existing_pr" --delete-branch || true
+                    echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Commit via GitHub API (signed)
               if: steps.check-changes.outputs.changes == 'true'
-              uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v8.0.0
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  token: ${{ steps.app-token.outputs.token }}
-                  commit-message: 'chore(llma): update LLM costs'
-                  title: 'chore(llma): Update LLM costs'
-                  body: |
-                      This is an automated PR to update LLM pricing models.
-
-                      ## Reviewer checklist
-
-                      Please verify that there aren't any odd changes in the pricing by checking against the official pricing pages:
-
-                      - [Anthropic Pricing](https://claude.com/pricing#api)
-                      - [OpenAI Pricing](https://openai.com/api/pricing/)
-                      - [Google AI (Gemini) Pricing](https://ai.google.dev/pricing)
-                      - [Mistral AI Pricing](https://mistral.ai/pricing#api-pricing)
+                  commit_message: 'chore(llma): update LLM costs'
+                  repo: ${{ github.repository }}
                   branch: chore/llma-update-ai-costs
-                  base: master
-                  delete-branch: true
-                  labels: |
-                      automated
-                      llm-analytics
-                  team-reviewers: |
-                      team-llm-analytics
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Create pull request
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    echo "PR #$existing_pr already exists — updated by commit"
+                  else
+                    gh pr create \
+                      --title "chore(llma): Update LLM costs" \
+                      --body "$(cat <<'BODY'
+                  This is an automated PR to update LLM pricing models.
+
+                  ## Reviewer checklist
+
+                  Please verify that there aren't any odd changes in the pricing by checking against the official pricing pages:
+
+                  - [Anthropic Pricing](https://claude.com/pricing#api)
+                  - [OpenAI Pricing](https://openai.com/api/pricing/)
+                  - [Google AI (Gemini) Pricing](https://ai.google.dev/pricing)
+                  - [Mistral AI Pricing](https://mistral.ai/pricing#api-pricing)
+                  BODY
+                  )" \
+                      --base master \
+                      --head chore/llma-update-ai-costs \
+                      --label "automated" --label "llm-analytics" \
+                      --reviewer "PostHog/team-llm-analytics"
+                  fi
