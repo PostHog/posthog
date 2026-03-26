@@ -322,10 +322,14 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             (emailActions, emailTotalsByActionId): EmailMetricRow[] =>
                 emailActions.map((action: { id: string; name: string }) => {
                     const totals = emailTotalsByActionId[action.id] || {}
+                    const sent = totals.email_sent ?? 0
+                    const bounced = totals.email_bounced ?? 0
+                    const blocked = totals.email_blocked ?? 0
                     return {
                         id: action.id,
                         email: action.name,
-                        delivered: totals.email_delivered ?? 0,
+                        // Fallback to calculating delivered as sent - bounced - blocked if email_delivered metric is not available, since we were not always collecting this metric
+                        delivered: totals.email_delivered ?? Math.max(0, sent - bounced - blocked),
                         sent: totals.email_sent ?? 0,
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
