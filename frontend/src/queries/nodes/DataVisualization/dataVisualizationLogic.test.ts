@@ -225,7 +225,16 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
-    it('uses the first numeric column as x-axis when enabling a line chart on all-numeric data', async () => {
+    it.each([
+        {
+            displayType: ChartDisplayType.ActionsLineGraph,
+            name: 'line chart',
+        },
+        {
+            displayType: ChartDisplayType.ActionsAreaGraph,
+            name: 'area chart',
+        },
+    ])('uses the first numeric column as x-axis when enabling a $name on all-numeric data', async ({ displayType }) => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['screen_width', 'screen_height'],
             types: [
@@ -238,10 +247,10 @@ describe('dataVisualizationLogic', () => {
             ],
         })
 
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+        logic.actions.setVisualizationType(displayType)
 
         await expectLogic(logic).toMatchValues({
-            effectiveVisualizationType: ChartDisplayType.ActionsLineGraph,
+            effectiveVisualizationType: displayType,
             selectedXAxis: 'screen_width',
             selectedYAxis: [
                 {

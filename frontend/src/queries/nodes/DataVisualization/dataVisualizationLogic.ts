@@ -319,7 +319,7 @@ const applyAutoHeatmapSettings = (
     })
 }
 
-const shouldUseFirstNumericColumnAsLineChartXAxis = (
+const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
     columns: Column[],
     numericalColumns: Column[],
     selectedXAxis: string | null,
@@ -1128,8 +1128,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }))
 
             if (
-                visualizationType === ChartDisplayType.ActionsLineGraph &&
-                shouldUseFirstNumericColumnAsLineChartXAxis(
+                [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
+                shouldUseFirstNumericColumnAsContinuousChartXAxis(
                     values.columns,
                     values.numericalColumns,
                     values.selectedXAxis,
