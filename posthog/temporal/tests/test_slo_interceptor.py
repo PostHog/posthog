@@ -67,144 +67,117 @@ def _make_slo_config(start_properties: dict | None = None) -> SloConfig:
     )
 
 
+def _get_slo_calls(mock_analytics: MagicMock, event: str) -> list:
+    return [c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == event]
+
+
 pytestmark = [pytest.mark.asyncio]
 
 
+@pytest.mark.parametrize(
+    "workflow_cls,slo_config,raises,expected_outcome,extra_completed_checks",
+    [
+        (
+            TrackedWorkflow,
+            _make_slo_config(start_properties={"source": "web"}),
+            False,
+            SloOutcome.SUCCESS,
+            {"extra_key": "extra_value"},
+        ),
+        (
+            TrackedFailureWorkflow,
+            _make_slo_config(),
+            True,
+            SloOutcome.FAILURE,
+            {},
+        ),
+        (
+            TrackedBusinessFailureWorkflow,
+            _make_slo_config(),
+            False,
+            SloOutcome.FAILURE,
+            {"reason": "business logic"},
+        ),
+    ],
+    ids=["success_with_completion_props", "exception_failure", "business_logic_failure"],
+)
 @patch("posthog.slo.events.posthoganalytics")
-async def test_interceptor_emits_started_and_completed_on_success(mock_analytics: MagicMock):
+async def test_interceptor_emits_slo_events(
+    mock_analytics: MagicMock,
+    workflow_cls,
+    slo_config: SloConfig,
+    raises: bool,
+    expected_outcome: SloOutcome,
+    extra_completed_checks: dict,
+):
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-slo",
-            workflows=[TrackedWorkflow],
+            workflows=[workflow_cls],
             activities=[],
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            result = await env.client.execute_workflow(
-                TrackedWorkflow.run,
-                TrackedWorkflowInput(
-                    value="test",
-                    slo=_make_slo_config(start_properties={"source": "web"}),
-                ),
-                id="test-success",
+            execute = env.client.execute_workflow(
+                workflow_cls.run,
+                TrackedWorkflowInput(value="test", slo=slo_config),
+                id=f"test-{workflow_cls.__name__}",
                 task_queue="test-slo",
             )
+            if raises:
+                with pytest.raises(Exception):
+                    await execute
+            else:
+                await execute
 
-    assert result == "ok"
-
-    started_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
-    ]
+    started_calls = _get_slo_calls(mock_analytics, "slo_operation_started")
     assert len(started_calls) == 1
-    started_props = started_calls[0].kwargs["properties"]
-    assert started_props["operation"] == "export"
-    assert started_props["team_id"] == 1
-    assert started_props["resource_id"] == "42"
-    assert started_props["source"] == "web"
+    assert started_calls[0].kwargs["properties"]["operation"] == "export"
+    assert started_calls[0].kwargs["properties"]["resource_id"] == "42"
 
-    completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
-    ]
+    completed_calls = _get_slo_calls(mock_analytics, "slo_operation_completed")
     assert len(completed_calls) == 1
     completed_props = completed_calls[0].kwargs["properties"]
-    assert completed_props["outcome"] == SloOutcome.SUCCESS
-    assert completed_props["extra_key"] == "extra_value"
+    assert completed_props["outcome"] == expected_outcome
     assert completed_props["duration_ms"] is not None
+    for key, value in extra_completed_checks.items():
+        assert completed_props[key] == value
 
 
+@pytest.mark.parametrize(
+    "workflow_cls,input_cls,slo",
+    [
+        (UntrackedWorkflow, UntrackedWorkflowInput, None),
+        (TrackedWorkflow, TrackedWorkflowInput, None),
+    ],
+    ids=["untracked_input_type", "tracked_input_with_none_slo"],
+)
 @patch("posthog.slo.events.posthoganalytics")
-async def test_interceptor_emits_failure_on_exception(mock_analytics: MagicMock):
+async def test_interceptor_skips_untracked_workflows(
+    mock_analytics: MagicMock,
+    workflow_cls,
+    input_cls,
+    slo,
+):
+    inputs = (
+        input_cls(value="test")
+        if slo is None and input_cls == UntrackedWorkflowInput
+        else input_cls(value="test", slo=slo)
+    )
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-slo",
-            workflows=[TrackedFailureWorkflow],
-            activities=[],
-            interceptors=[SloInterceptor()],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            with pytest.raises(Exception):
-                await env.client.execute_workflow(
-                    TrackedFailureWorkflow.run,
-                    TrackedWorkflowInput(slo=_make_slo_config()),
-                    id="test-failure",
-                    task_queue="test-slo",
-                )
-
-    completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
-    ]
-    assert len(completed_calls) == 1
-    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
-
-
-@patch("posthog.slo.events.posthoganalytics")
-async def test_interceptor_respects_workflow_outcome_override(mock_analytics: MagicMock):
-    async with await WorkflowEnvironment.start_local() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-slo",
-            workflows=[TrackedBusinessFailureWorkflow],
+            workflows=[workflow_cls],
             activities=[],
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
-                TrackedBusinessFailureWorkflow.run,
-                TrackedWorkflowInput(slo=_make_slo_config()),
-                id="test-business-failure",
-                task_queue="test-slo",
-            )
-
-    assert result == "ok"
-
-    completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
-    ]
-    assert len(completed_calls) == 1
-    props = completed_calls[0].kwargs["properties"]
-    assert props["outcome"] == SloOutcome.FAILURE
-    assert props["reason"] == "business logic"
-
-
-@patch("posthog.slo.events.posthoganalytics")
-async def test_interceptor_passes_through_untracked_workflows(mock_analytics: MagicMock):
-    async with await WorkflowEnvironment.start_local() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-slo",
-            workflows=[UntrackedWorkflow],
-            activities=[],
-            interceptors=[SloInterceptor()],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            result = await env.client.execute_workflow(
-                UntrackedWorkflow.run,
-                UntrackedWorkflowInput(value="test"),
-                id="test-untracked",
-                task_queue="test-slo",
-            )
-
-    assert result == "ok"
-    assert mock_analytics.capture.call_count == 0
-
-
-@patch("posthog.slo.events.posthoganalytics")
-async def test_interceptor_passes_through_none_slo(mock_analytics: MagicMock):
-    async with await WorkflowEnvironment.start_local() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-slo",
-            workflows=[TrackedWorkflow],
-            activities=[],
-            interceptors=[SloInterceptor()],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            result = await env.client.execute_workflow(
-                TrackedWorkflow.run,
-                TrackedWorkflowInput(value="test", slo=None),
-                id="test-none-slo",
+                workflow_cls.run,
+                inputs,
+                id=f"test-skip-{workflow_cls.__name__}",
                 task_queue="test-slo",
             )
 

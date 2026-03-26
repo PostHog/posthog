@@ -57,6 +57,23 @@ class ProcessSubscriptionWorkflowInputs:
     distinct_id: str = ""
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
+
+
+@dataclasses.dataclass
+class TrackedSubscriptionInputs:
+    """Internal inputs for ProcessSubscriptionWorkflow with SLO tracking.
+
+    Duplicates ProcessSubscriptionWorkflowInputs fields intentionally:
+    Temporal deserializes by the declared parameter type, so SLO config
+    must be on the type the workflow declares. Due to this "extending"
+    ProcessSubscriptionWorkflow did not work.
+    """
+
+    subscription_id: int
+    team_id: int = 0
+    distinct_id: str = ""
+    previous_value: typing.Optional[str] = None
+    invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
 
 

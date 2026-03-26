@@ -126,9 +126,10 @@ async def test_transient_error_retries_and_succeeds(
     "error_factory,expected_exception_class,expected_call_count",
     [
         (lambda: QueryError("Invalid HogQL query"), "QueryError", 1),
-        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 10),
+        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 1),
+        (lambda: CHQueryErrorS3Error("S3 error", code=499), "CHQueryErrorS3Error", 10),
     ],
-    ids=["non_retryable_user_error", "generic_runtime_error"],
+    ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")

@@ -32,6 +32,7 @@ from posthog.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionInfo,
+    TrackedSubscriptionInputs,
 )
 
 
@@ -102,7 +103,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         for sub in subscription_infos:
             task = temporalio.workflow.execute_child_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(
+                TrackedSubscriptionInputs(
                     subscription_id=sub.subscription_id,
                     team_id=sub.team_id,
                     distinct_id=sub.distinct_id,
@@ -151,16 +152,15 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 @temporalio.workflow.defn(name="process-subscription")
 class ProcessSubscriptionWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> ProcessSubscriptionWorkflowInputs:
+    def parse_inputs(inputs: list[str]) -> TrackedSubscriptionInputs:
         loaded = json.loads(inputs[0])
-        return ProcessSubscriptionWorkflowInputs(**loaded)
+        return TrackedSubscriptionInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self, inputs: ProcessSubscriptionWorkflowInputs) -> None:
+    async def run(self, inputs: TrackedSubscriptionInputs) -> None:
         assets_with_content = 0
         total_assets = 0
         errors: list[ExportError] = []
-        prepare_result = None
         caught_error: BaseException | None = None
 
         try:
@@ -291,16 +291,23 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ProcessSubscriptionWorkflowInputs) -> None:
-        inputs.slo = SloConfig(
-            operation=SloOperation.SUBSCRIPTION_DELIVERY,
-            area=SloArea.ANALYTIC_PLATFORM,
+        tracked = TrackedSubscriptionInputs(
+            subscription_id=inputs.subscription_id,
             team_id=inputs.team_id,
-            resource_id=str(inputs.subscription_id),
             distinct_id=inputs.distinct_id,
+            previous_value=inputs.previous_value,
+            invite_message=inputs.invite_message,
+            slo=SloConfig(
+                operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=inputs.team_id,
+                resource_id=str(inputs.subscription_id),
+                distinct_id=inputs.distinct_id,
+            ),
         )
         await temporalio.workflow.execute_child_workflow(
             ProcessSubscriptionWorkflow.run,
-            inputs,
+            tracked,
             id=f"process-subscription-change-{inputs.subscription_id}",
             parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             execution_timeout=dt.timedelta(hours=2),
