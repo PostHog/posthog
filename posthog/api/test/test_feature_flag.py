@@ -5312,6 +5312,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         activity_response = self._get_feature_flag_activity(flag_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
         self.maxDiff = None
         assert activity == expected
 

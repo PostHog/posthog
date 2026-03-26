@@ -1379,6 +1379,7 @@ export namespace Schemas {
     }
 
     export interface ActivityLogEntry {
+      readonly id: string;
       /** @nullable */
       readonly user: ActivityLogEntryUser;
       readonly activity: string;
