@@ -218,7 +218,6 @@ export interface MinimalFeatureFlagApi {
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    readonly evaluation_tags: readonly string[]
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -250,9 +249,9 @@ export const ExperimentTypeEnumApi = {
  * `stopped_early` - Stopped Early
  * `invalid` - Invalid
  */
-export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
+export type ExperimentConclusionEnumApi = (typeof ExperimentConclusionEnumApi)[keyof typeof ExperimentConclusionEnumApi]
 
-export const ConclusionEnumApi = {
+export const ExperimentConclusionEnumApi = {
     Won: 'won',
     Lost: 'lost',
     Inconclusive: 'inconclusive',
@@ -315,7 +314,7 @@ export interface ExperimentApi {
     stats_config?: unknown | null
     scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
+    conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
@@ -380,7 +379,7 @@ export interface PatchedExperimentApi {
     stats_config?: unknown | null
     scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
+    conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
@@ -392,6 +391,40 @@ export interface PatchedExperimentApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+/**
+ * * `won` - won
+ * `lost` - lost
+ * `inconclusive` - inconclusive
+ * `stopped_early` - stopped_early
+ * `invalid` - invalid
+ */
+export type EndExperimentConclusionEnumApi =
+    (typeof EndExperimentConclusionEnumApi)[keyof typeof EndExperimentConclusionEnumApi]
+
+export const EndExperimentConclusionEnumApi = {
+    Won: 'won',
+    Lost: 'lost',
+    Inconclusive: 'inconclusive',
+    StoppedEarly: 'stopped_early',
+    Invalid: 'invalid',
+} as const
+
+export interface EndExperimentApi {
+    /** The conclusion of the experiment.
+
+* `won` - won
+* `lost` - lost
+* `inconclusive` - inconclusive
+* `stopped_early` - stopped_early
+* `invalid` - invalid */
+    conclusion?: EndExperimentConclusionEnumApi | NullEnumApi | null
+    /**
+     * Optional comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
 }
 
 export type ExperimentHoldoutsListParams = {

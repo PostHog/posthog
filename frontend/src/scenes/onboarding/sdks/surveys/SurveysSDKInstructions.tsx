@@ -1,4 +1,3 @@
-import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics'
 import {
     SurveysAngularInstallation,
     SurveysAstroInstallation,
@@ -21,10 +20,11 @@ import {
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 const SNIPPETS = {
-    JSEventCapture,
+    ...JS_WEB_SNIPPETS,
     SurveysFinalSteps,
 }
 

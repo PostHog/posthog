@@ -79,7 +79,7 @@ async def test_boto3_credentials_supplier_get_aws_region():
     supplier = Boto3CredentialsSupplier()
     region_name = "something"
 
-    with patch.dict(os.environ, {"AWS_REGION": region_name}):
+    with patch.dict(os.environ, {"AWS_DEFAULT_REGION": region_name}):
         assert region_name == supplier.get_aws_region(None, None)
 
 

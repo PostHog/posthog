@@ -127,6 +127,12 @@ class WebhookCreationResult:
 
 
 @dataclasses.dataclass
+class WebhookDeletionResult:
+    success: bool
+    error: str | None = None
+
+
+@dataclasses.dataclass
 class ExternalWebhookInfo:
     """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
 
@@ -174,6 +180,14 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         Sources should override this to query their API (e.g. list Stripe webhook endpoints).
         """
         return None
+
+    def delete_webhook(self, config: ConfigType, webhook_url: str) -> WebhookDeletionResult:
+        """Delete the webhook on the external source that matches webhook_url.
+
+        Sources should override this to call their API (e.g. delete Stripe webhook endpoint).
+        Returns a WebhookDeletionResult indicating success or failure.
+        """
+        return WebhookDeletionResult(success=False, error="This source does not support automatic webhook deletion.")
 
 
 AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData] | WebhookSource[ConfigType]
