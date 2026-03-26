@@ -168,6 +168,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.retry_config(),
         config.backend_keepalive_interval(),
         config.backend_keepalive_timeout(),
+        config.grpc_max_send_message_size,
+        config.grpc_max_recv_message_size,
     )
     .expect("Failed to create replica backend");
 
@@ -214,6 +216,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             num_partitions,
             config.backend_timeout(),
             config.retry_config(),
+            config.grpc_max_send_message_size,
+            config.grpc_max_recv_message_size,
         ));
 
         let cutover_handler: Arc<dyn CutoverHandler> = Arc::new(RouterCutoverHandler {
@@ -268,6 +272,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_send = config.grpc_max_send_message_size;
+    let max_recv = config.grpc_max_recv_message_size;
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
@@ -284,7 +290,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .http2_keepalive_interval(keepalive_interval)
             .http2_keepalive_timeout(keepalive_timeout)
             .layer(GrpcMetricsLayer)
-            .add_service(PersonHogServiceServer::new(service))
+            .add_service(
+                PersonHogServiceServer::new(service)
+                    .max_encoding_message_size(max_send)
+                    .max_decoding_message_size(max_recv),
+            )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await
         {

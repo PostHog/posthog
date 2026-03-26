@@ -3,11 +3,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
+use rocksdb::{ColumnFamilyDescriptor, SliceTransform};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::store::{block_based_table_factory, RocksDbConfig, RocksDbStore};
+use crate::rocksdb::store::{
+    column_family_options, RocksDbConfig, RocksDbStore, TIMESTAMP_PREFIX_LEN,
+};
 
 use super::keys::TimestampKey;
 use crate::pipelines::ingestion_events::TimestampMetadata;
@@ -54,23 +56,10 @@ impl DeduplicationStore {
     }
 
     fn get_cf_descriptors(rocksdb_config: &RocksDbConfig) -> Vec<ColumnFamilyDescriptor> {
-        let block_opts = block_based_table_factory();
-
-        // ----- CF: TimestampKey (prefix = 8-byte BE timestamp)
-        let mut ts_cf_opts = Options::default();
-        ts_cf_opts.set_block_based_table_factory(&block_opts);
-        ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8)); // <- per-CF
-        ts_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
-        ts_cf_opts.set_max_write_buffer_number(3);
-        // IMPORTANT: CF options don't inherit from DB options, must set compression explicitly
-        if let Some(ref per_level) = rocksdb_config.compression_per_level {
-            ts_cf_opts.set_compression_per_level(per_level);
-        } else {
-            ts_cf_opts.set_compression_type(rocksdb_config.compression_type);
-        }
-        if let Some(bottommost) = rocksdb_config.bottommost_compression_type {
-            ts_cf_opts.set_bottommost_compression_type(bottommost);
-        }
+        // column_family_options() provides all tuning (write buffers, compaction, compression,
+        // shared block cache) since CF options don't inherit from DB options.
+        let mut ts_cf_opts = column_family_options(rocksdb_config);
+        ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(TIMESTAMP_PREFIX_LEN));
 
         vec![ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts)]
     }
@@ -349,8 +338,6 @@ impl DeduplicationStore {
         &self,
         checkpoint_path: P,
     ) -> Result<LocalCheckpointInfo> {
-        self.store.flush_wal(true)?;
-
         let sequence = self.store.latest_sequence_number();
 
         self.store.create_checkpoint(checkpoint_path)?;

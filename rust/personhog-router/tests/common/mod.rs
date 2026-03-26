@@ -329,6 +329,8 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         retry_config,
         None,
         None,
+        4 * 1024 * 1024,
+        4 * 1024 * 1024,
     )
     .unwrap();
     let router = PersonHogRouter::new(Arc::new(backend));
@@ -499,6 +501,8 @@ pub async fn start_test_router_with_leader(
         retry_config,
         None,
         None,
+        4 * 1024 * 1024,
+        4 * 1024 * 1024,
     )
     .unwrap();
 
@@ -517,6 +521,8 @@ pub async fn start_test_router_with_leader(
         num_partitions,
         Duration::from_secs(5),
         retry_config,
+        4 * 1024 * 1024,
+        4 * 1024 * 1024,
     );
 
     let router = PersonHogRouter::new(Arc::new(replica)).with_leader(Arc::new(leader));
