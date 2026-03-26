@@ -361,3 +361,53 @@ impl MockFrom<Vec<PropertyFilter>> for FlagFilters {
         }
     }
 }
+
+impl Mock for FeatureFlagList {
+    fn mock() -> Self {
+        FeatureFlagList {
+            flags: vec![Mock::mock()],
+            ..Default::default()
+        }
+    }
+}
+
+impl Mock for MultivariateFlagOptions {
+    fn mock() -> Self {
+        MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 50.0,
+                    ..Default::default()
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 50.0,
+                    ..Default::default()
+                },
+            ],
+        }
+    }
+}
+
+impl Mock for EvaluationMetadata {
+    fn mock() -> Self {
+        EvaluationMetadata {
+            dependency_stages: vec![],
+            flags_with_missing_deps: vec![],
+            transitive_deps: HashMap::new(),
+        }
+    }
+}
+
+/// Wrap a vec of flags into a `FeatureFlagList` with default metadata.
+impl MockFrom<Vec<FeatureFlag>> for FeatureFlagList {
+    fn mock_from(flags: Vec<FeatureFlag>) -> Self {
+        FeatureFlagList {
+            flags,
+            ..Default::default()
+        }
+    }
+}

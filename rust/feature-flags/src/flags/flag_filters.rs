@@ -28,15 +28,31 @@ impl FlagFilters {
 mod tests {
     use rstest::rstest;
 
-    use crate::{
-        flags::test_helpers::{
-            create_simple_flag_filters, create_simple_flag_property_group,
-            create_simple_property_filter,
-        },
-        properties::property_models::{OperatorType, PropertyType},
-    };
+    use crate::flags::flag_models::FlagPropertyGroup;
+    use crate::mock;
+    use crate::properties::property_models::{OperatorType, PropertyType};
+    use crate::utils::mock::MockInto;
 
     use super::*;
+
+    fn pf(key: &str, prop_type: PropertyType, operator: OperatorType) -> crate::properties::property_models::PropertyFilter {
+        mock!(crate::properties::property_models::PropertyFilter,
+            key: key.mock_into(),
+            prop_type: prop_type,
+            operator: Some(operator)
+        )
+    }
+
+    fn group(props: Vec<crate::properties::property_models::PropertyFilter>, rollout: f64) -> FlagPropertyGroup {
+        mock!(FlagPropertyGroup,
+            properties: Some(props),
+            rollout_percentage: Some(rollout)
+        )
+    }
+
+    fn filters(groups: Vec<FlagPropertyGroup>) -> FlagFilters {
+        mock!(FlagFilters, groups: groups)
+    }
 
     #[rstest]
     #[case(100.0, true)]
@@ -46,42 +62,26 @@ mod tests {
         #[case] rollout_percentage: f64,
         #[case] expected: bool,
     ) {
-        let filters = create_simple_flag_filters(vec![create_simple_flag_property_group(
-            vec![create_simple_property_filter(
-                "cohort",
-                PropertyType::Cohort,
-                OperatorType::Exact,
-            )],
+        let f = filters(vec![group(
+            vec![pf("cohort", PropertyType::Cohort, OperatorType::Exact)],
             rollout_percentage,
         )]);
 
-        assert_eq!(filters.requires_cohort_filters(), expected);
+        assert_eq!(f.requires_cohort_filters(), expected);
     }
 
     #[test]
     fn test_requires_db_properties_when_overrides_not_enough() {
-        let filters = create_simple_flag_filters(vec![
-            create_simple_flag_property_group(
+        let f = filters(vec![
+            group(
                 vec![
-                    create_simple_property_filter(
-                        "some_key",
-                        PropertyType::Person,
-                        OperatorType::Exact,
-                    ),
-                    create_simple_property_filter(
-                        "another_key",
-                        PropertyType::Person,
-                        OperatorType::Exact,
-                    ),
+                    pf("some_key", PropertyType::Person, OperatorType::Exact),
+                    pf("another_key", PropertyType::Person, OperatorType::Exact),
                 ],
                 100.0,
             ),
-            create_simple_flag_property_group(
-                vec![create_simple_property_filter(
-                    "yet_another_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                )],
+            group(
+                vec![pf("yet_another_key", PropertyType::Person, OperatorType::Exact)],
                 100.0,
             ),
         ]);
@@ -90,74 +90,61 @@ mod tests {
             // Not enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                (
-                    "another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
+                ("another_key".to_string(), Value::String("value".to_string())),
             ]);
 
-            assert!(filters.requires_db_properties(&overrides));
+            assert!(f.requires_db_properties(&overrides));
         }
 
         {
             // Enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                (
-                    "another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
-                (
-                    "yet_another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
+                ("another_key".to_string(), Value::String("value".to_string())),
+                ("yet_another_key".to_string(), Value::String("value".to_string())),
             ]);
 
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!f.requires_db_properties(&overrides));
         }
     }
 
     #[test]
     fn test_requires_cohorts_when_groups_have_cohorts() {
-        let filters = create_simple_flag_filters(vec![create_simple_flag_property_group(
-            vec![create_simple_property_filter(
-                "some_key",
-                PropertyType::Cohort,
-                OperatorType::Exact,
-            )],
+        let f = filters(vec![group(
+            vec![pf("some_key", PropertyType::Cohort, OperatorType::Exact)],
             100.0,
         )]);
 
-        assert!(filters.requires_cohort_filters());
+        assert!(f.requires_cohort_filters());
     }
 
     #[test]
     fn test_holdout_does_not_require_cohorts() {
         use crate::flags::flag_models::Holdout;
-        let mut filters = create_simple_flag_filters(vec![]);
-        filters.holdout = Some(Holdout {
+        let mut f = filters(vec![]);
+        f.holdout = Some(Holdout {
             id: 1,
             exclusion_percentage: 10.0,
         });
 
-        assert!(!filters.requires_cohort_filters());
+        assert!(!f.requires_cohort_filters());
     }
 
     #[test]
     fn test_requires_db_properties_when_aggregation_group_type_index_set() {
-        let mut filters = create_simple_flag_filters(vec![]);
-        filters.aggregation_group_type_index = Some(1);
+        let mut f = filters(vec![]);
+        f.aggregation_group_type_index = Some(1);
 
         // Even though there are no properties, we still need to evaluate the DB properties
         // because the group type index is set.
-        assert!(filters.requires_db_properties(&HashMap::new()));
+        assert!(f.requires_db_properties(&HashMap::new()));
     }
 
     #[test]
     fn test_super_groups_require_db_properties_when_overrides_insufficient() {
-        let mut filters = create_simple_flag_filters(vec![]);
-        filters.super_groups = Some(vec![create_simple_flag_property_group(
-            vec![create_simple_property_filter(
+        let mut f = filters(vec![]);
+        f.super_groups = Some(vec![group(
+            vec![pf(
                 "$feature_enrollment/feature-flags-flag-dependency",
                 PropertyType::Person,
                 OperatorType::Exact,
@@ -167,7 +154,7 @@ mod tests {
 
         {
             // Without overrides, DB lookup is required
-            assert!(filters.requires_db_properties(&HashMap::new()));
+            assert!(f.requires_db_properties(&HashMap::new()));
         }
 
         {
@@ -176,46 +163,38 @@ mod tests {
                 "$feature_enrollment/feature-flags-flag-dependency".to_string(),
                 Value::String("value".to_string()),
             )]);
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!f.requires_db_properties(&overrides));
         }
     }
 
     #[test]
     fn test_does_not_require_db_properties_when_super_groups_empty() {
-        let mut filters = create_simple_flag_filters(vec![]);
-        filters.super_groups = Some(vec![]);
+        let mut f = filters(vec![]);
+        f.super_groups = Some(vec![]);
 
         // Empty super_groups don't require DB properties
-        assert!(!filters.requires_db_properties(&HashMap::new()));
+        assert!(!f.requires_db_properties(&HashMap::new()));
     }
 
     #[test]
     fn test_does_not_require_db_properties_when_holdout_set() {
         use crate::flags::flag_models::Holdout;
-        let mut filters = create_simple_flag_filters(vec![]);
-        filters.holdout = Some(Holdout {
+        let mut f = filters(vec![]);
+        f.holdout = Some(Holdout {
             id: 1,
             exclusion_percentage: 10.0,
         });
 
         // Holdouts don't require DB properties.
-        assert!(!filters.requires_db_properties(&HashMap::new()));
+        assert!(!f.requires_db_properties(&HashMap::new()));
     }
 
     #[test]
     fn test_requires_db_properties_when_not_enough_overrides_single_group() {
-        let filters = create_simple_flag_filters(vec![create_simple_flag_property_group(
+        let f = filters(vec![group(
             vec![
-                create_simple_property_filter(
-                    "some_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-                create_simple_property_filter(
-                    "another_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
+                pf("some_key", PropertyType::Person, OperatorType::Exact),
+                pf("another_key", PropertyType::Person, OperatorType::Exact),
             ],
             100.0,
         )]);
@@ -223,49 +202,31 @@ mod tests {
         {
             let overrides =
                 HashMap::from([("some_key".to_string(), Value::String("value".to_string()))]);
-            assert!(filters.requires_db_properties(&overrides));
+            assert!(f.requires_db_properties(&overrides));
         }
 
         {
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                (
-                    "another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
-                (
-                    "yet_another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
+                ("another_key".to_string(), Value::String("value".to_string())),
+                ("yet_another_key".to_string(), Value::String("value".to_string())),
             ]);
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!f.requires_db_properties(&overrides));
         }
     }
 
     #[test]
     fn test_requires_db_properties_when_overrides_not_enough_for_multiple_groups() {
-        let filters = create_simple_flag_filters(vec![
-            create_simple_flag_property_group(
+        let f = filters(vec![
+            group(
                 vec![
-                    create_simple_property_filter(
-                        "some_key",
-                        PropertyType::Person,
-                        OperatorType::Exact,
-                    ),
-                    create_simple_property_filter(
-                        "another_key",
-                        PropertyType::Person,
-                        OperatorType::Exact,
-                    ),
+                    pf("some_key", PropertyType::Person, OperatorType::Exact),
+                    pf("another_key", PropertyType::Person, OperatorType::Exact),
                 ],
                 100.0,
             ),
-            create_simple_flag_property_group(
-                vec![create_simple_property_filter(
-                    "yet_another_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                )],
+            group(
+                vec![pf("yet_another_key", PropertyType::Person, OperatorType::Exact)],
                 100.0,
             ),
         ]);
@@ -274,30 +235,21 @@ mod tests {
             // Not enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                (
-                    "another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
+                ("another_key".to_string(), Value::String("value".to_string())),
             ]);
 
-            assert!(filters.requires_db_properties(&overrides));
+            assert!(f.requires_db_properties(&overrides));
         }
 
         {
             // Enough overrides to evaluate locally
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
-                (
-                    "another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
-                (
-                    "yet_another_key".to_string(),
-                    Value::String("value".to_string()),
-                ),
+                ("another_key".to_string(), Value::String("value".to_string())),
+                ("yet_another_key".to_string(), Value::String("value".to_string())),
             ]);
 
-            assert!(!filters.requires_db_properties(&overrides));
+            assert!(!f.requires_db_properties(&overrides));
         }
     }
 }

@@ -1375,9 +1375,10 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        flags::flag_models::{FeatureFlagRow, FlagFilters},
+        flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
+        mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{create_test_flag, TestContext},
+        utils::test_utils::TestContext,
     };
 
     use super::*;
@@ -1395,23 +1396,13 @@ mod tests {
             .unwrap();
 
         // Create a feature flag with ensure_experience_continuity = true
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            Some("Test Flag".to_string()),
-            Some("test_flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
                 groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-
-                holdout: None,
-            }),
-            Some(false), // not deleted
-            Some(true),  // active
-            Some(true),  // ensure_experience_continuity
+                ..Default::default()
+            },
+            ensure_experience_continuity: Some(true)
         );
 
         // Convert flag to FeatureFlagRow

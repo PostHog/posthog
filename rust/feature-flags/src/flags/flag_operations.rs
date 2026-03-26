@@ -171,10 +171,10 @@ impl DependencyProvider for FeatureFlag {
 #[cfg(test)]
 mod tests {
     use crate::{
-        flags::test_helpers::{
-            create_simple_flag, create_simple_property_filter, get_flags_from_redis,
-        },
+        flags::test_helpers::get_flags_from_redis,
+        mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
+        utils::mock::MockInto,
     };
     use serde_json::{json, Value};
     use std::time::Instant;
@@ -182,7 +182,7 @@ mod tests {
 
     use super::*;
     use crate::utils::test_utils::{
-        create_test_flag, insert_flags_for_team_in_redis, setup_redis_client, TestContext,
+        insert_flags_for_team_in_redis, setup_redis_client, TestContext,
     };
 
     #[test]
@@ -487,16 +487,7 @@ mod tests {
                 "deleted flags should return no dependencies even if active",
             ),
         ] {
-            let mut flag = create_test_flag(
-                Some(1),
-                None,
-                None,
-                Some("test_flag".to_string()),
-                None,
-                Some(deleted),
-                Some(active),
-                None,
-            );
+            let mut flag = mock!(FeatureFlag, deleted: deleted, active: active);
 
             flag.filters.groups = vec![crate::flags::flag_models::FlagPropertyGroup {
                 properties: Some(vec![PropertyFilter {
@@ -1563,14 +1554,9 @@ mod tests {
 
     #[test]
     fn test_require_db_preparation_if_group_type_index() {
-        let mut flag = create_simple_flag(
-            vec![create_simple_property_filter(
-                "some_property",
-                PropertyType::Person,
-                OperatorType::Exact,
-            )],
-            100.0,
-        );
+        let mut flag = mock!(FeatureFlag, filters: vec![
+            mock!(crate::properties::property_models::PropertyFilter, key: "some_property".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact))
+        ].mock_into());
 
         let overrides = HashMap::from([(
             "some_property".to_string(),
@@ -1588,14 +1574,9 @@ mod tests {
 
     #[test]
     fn test_requires_db_preparation_if_cohort_filter_set() {
-        let flag = create_simple_flag(
-            vec![create_simple_property_filter(
-                "some_property",
-                PropertyType::Cohort,
-                OperatorType::Exact,
-            )],
-            100.0,
-        );
+        let flag = mock!(FeatureFlag, filters: vec![
+            mock!(crate::properties::property_models::PropertyFilter, key: "some_property".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact))
+        ].mock_into());
 
         // Even though override matches the cohort filter, we still need to prepare the DB
         let overrides = HashMap::from([(
@@ -1608,21 +1589,12 @@ mod tests {
 
     #[test]
     fn test_requires_db_preparation_if_not_enough_overrides() {
-        let flag = create_simple_flag(
-            vec![
-                create_simple_property_filter(
-                    "some_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-                create_simple_property_filter(
-                    "another_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-            ],
-            1.0,
-        );
+        let flag = mock!(FeatureFlag, filters: mock!(FlagFilters, groups: vec![
+            mock!(FlagPropertyGroup, properties: Some(vec![
+                mock!(crate::properties::property_models::PropertyFilter, key: "some_property".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact)),
+                mock!(crate::properties::property_models::PropertyFilter, key: "another_property".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact)),
+            ]), rollout_percentage: Some(1.0))
+        ]));
 
         {
             let overrides = HashMap::from([
@@ -1653,7 +1625,7 @@ mod tests {
     #[test]
     fn test_does_not_require_db_preparation_if_holdout_set() {
         use crate::flags::flag_models::Holdout;
-        let mut flag = create_simple_flag(vec![], 100.0);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.holdout = Some(Holdout {
             id: 1,
             exclusion_percentage: 10.0,
@@ -1666,20 +1638,20 @@ mod tests {
 
     #[test]
     fn test_has_hash_dependent_variants_none() {
-        let flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let flag = mock!(FeatureFlag);
         assert!(!flag.has_hash_dependent_variants());
     }
 
     #[test]
     fn test_has_hash_dependent_variants_empty() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.multivariate = Some(MultivariateFlagOptions { variants: vec![] });
         assert!(!flag.has_hash_dependent_variants());
     }
 
     #[test]
     fn test_has_hash_dependent_variants_single_100_percent() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![MultivariateFlagVariant {
                 key: "control".to_string(),
@@ -1693,7 +1665,7 @@ mod tests {
 
     #[test]
     fn test_has_hash_dependent_variants_two_variants() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![
                 MultivariateFlagVariant {
@@ -1713,7 +1685,7 @@ mod tests {
 
     #[test]
     fn test_has_hash_dependent_variants_multiple_with_one_at_100_percent() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![
                 MultivariateFlagVariant {
@@ -1734,7 +1706,7 @@ mod tests {
 
     #[test]
     fn test_has_partial_rollout_100_percent() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
             rollout_percentage: Some(100.0),
@@ -1746,7 +1718,7 @@ mod tests {
 
     #[test]
     fn test_has_partial_rollout_50_percent() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
             rollout_percentage: Some(50.0),
@@ -1758,7 +1730,7 @@ mod tests {
 
     #[test]
     fn test_has_partial_rollout_none_defaults_to_100() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
             rollout_percentage: None, // Defaults to 100%
@@ -1770,7 +1742,7 @@ mod tests {
 
     #[test]
     fn test_has_partial_rollout_mixed_groups() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.filters.groups = vec![
             FlagPropertyGroup {
                 properties: None,
@@ -1790,14 +1762,14 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_no_continuity() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(false);
         assert!(!flag.needs_hash_key_override());
     }
 
     #[test]
     fn test_needs_hash_key_override_continuity_none() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = None;
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
@@ -1811,7 +1783,7 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_100_percent_no_variants() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
@@ -1825,7 +1797,7 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_partial_rollout() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
@@ -1839,7 +1811,7 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_with_variants() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
@@ -1867,7 +1839,7 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_group_based_flag() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
         flag.filters.aggregation_group_type_index = Some(0); // Group-based flag
         flag.filters.groups = vec![FlagPropertyGroup {
@@ -1882,7 +1854,7 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_device_id_bucketing() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
         flag.bucketing_identifier = Some("device_id".to_string());
         flag.filters.groups = vec![FlagPropertyGroup {
@@ -1897,7 +1869,7 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_empty_groups() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
         flag.filters.groups = vec![];
         // Empty groups means no partial rollout, doesn't need lookup
@@ -1906,7 +1878,7 @@ mod tests {
 
     #[test]
     fn test_needs_hash_key_override_both_partial_and_variants() {
-        let mut flag = create_test_flag(None, None, None, None, None, None, None, None);
+        let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
         flag.filters.groups = vec![FlagPropertyGroup {
             properties: None,
@@ -1935,11 +1907,11 @@ mod tests {
     #[test]
     fn test_flags_require_db_preparation_skips_filtered_out() {
         let person_property =
-            create_simple_property_filter("email", PropertyType::Person, OperatorType::Exact);
-        let mut flag_a = create_simple_flag(vec![person_property.clone()], 100.0);
+            mock!(crate::properties::property_models::PropertyFilter, key: "email".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
+        let mut flag_a = mock!(FeatureFlag, filters: vec![person_property.clone()].mock_into());
         flag_a.id = 1;
         flag_a.key = "flag_a".to_string();
-        let mut flag_b = create_simple_flag(vec![person_property], 100.0);
+        let mut flag_b = mock!(FeatureFlag, filters: vec![person_property].mock_into());
         flag_b.id = 2;
         flag_b.key = "flag_b".to_string();
 

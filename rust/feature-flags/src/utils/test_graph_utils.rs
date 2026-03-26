@@ -921,28 +921,18 @@ mod tests {
 
 #[cfg(test)]
 mod filter_graph_by_keys_tests {
-    use super::make_flag_list;
-    use crate::flags::flag_models::FeatureFlag;
+    use super::{flag, make_flag_list};
     use crate::utils::graph_utils::{
         build_dependency_graph, filter_graph_by_keys, DependencyGraphResult, FilteredGraphResult,
     };
     use std::collections::HashSet;
 
-    // Helper function to create a test flag with dependencies for graph testing
-    fn create_test_flag_with_dependencies(
-        id: i32,
-        key: &str,
-        dependencies: HashSet<i32>,
-    ) -> FeatureFlag {
-        super::create_flag_with_deps(id, key, dependencies, true, false)
-    }
-
     #[test]
     fn test_filter_graph_by_keys_no_requested_keys() {
         // Create a simple graph with no dependencies
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
-        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::new(), true);
+        let flag2 = flag(2, "flag2", HashSet::new(), true);
+        let flag3 = flag(3, "flag3", HashSet::new(), true);
 
         let flags = vec![flag1, flag2, flag3];
         let feature_flags = make_flag_list(flags);
@@ -967,9 +957,9 @@ mod filter_graph_by_keys_tests {
     #[test]
     fn test_filter_graph_by_keys_single_flag_no_dependencies() {
         // Create a simple graph with no dependencies
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
-        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::new(), true);
+        let flag2 = flag(2, "flag2", HashSet::new(), true);
+        let flag3 = flag(3, "flag3", HashSet::new(), true);
 
         let flags = vec![flag1, flag2, flag3];
         let feature_flags = make_flag_list(flags);
@@ -1002,9 +992,9 @@ mod filter_graph_by_keys_tests {
     #[test]
     fn test_filter_graph_by_keys_single_flag_with_dependencies() {
         // Create a simple dependency: flag1 -> flag2
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2]));
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
-        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::from([2]), true);
+        let flag2 = flag(2, "flag2", HashSet::new(), true);
+        let flag3 = flag(3, "flag3", HashSet::new(), true);
 
         let flags = vec![flag1, flag2, flag3];
         let feature_flags = make_flag_list(flags);
@@ -1042,10 +1032,10 @@ mod filter_graph_by_keys_tests {
     #[test]
     fn test_filter_graph_by_keys_multiple_flags_with_shared_dependencies() {
         // Create dependencies: flag1 -> flag3, flag2 -> flag3
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([3]));
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::from([3]));
-        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
-        let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::from([3]), true);
+        let flag2 = flag(2, "flag2", HashSet::from([3]), true);
+        let flag3 = flag(3, "flag3", HashSet::new(), true);
+        let flag4 = flag(4, "flag4", HashSet::new(), true);
 
         let flags = vec![flag1, flag2, flag3, flag4];
         let feature_flags = make_flag_list(flags);
@@ -1085,8 +1075,8 @@ mod filter_graph_by_keys_tests {
     #[test]
     fn test_filter_graph_by_keys_missing_flag_key() {
         // Create a simple graph
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::new(), true);
+        let flag2 = flag(2, "flag2", HashSet::new(), true);
 
         let flags = vec![flag1, flag2];
         let feature_flags = make_flag_list(flags);
@@ -1115,8 +1105,8 @@ mod filter_graph_by_keys_tests {
     #[test]
     fn test_filter_graph_by_keys_mixed_existing_and_missing_keys() {
         // Create a simple graph
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::new(), true);
+        let flag2 = flag(2, "flag2", HashSet::new(), true);
 
         let flags = vec![flag1, flag2];
         let feature_flags = make_flag_list(flags);
@@ -1152,12 +1142,12 @@ mod filter_graph_by_keys_tests {
         // flag1 -> flag2 -> flag4
         // flag1 -> flag3 -> flag4
         // flag5 -> flag6
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2, 3]));
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::from([4]));
-        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::from([4]));
-        let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
-        let flag5 = create_test_flag_with_dependencies(5, "flag5", HashSet::from([6]));
-        let flag6 = create_test_flag_with_dependencies(6, "flag6", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::from([2, 3]), true);
+        let flag2 = flag(2, "flag2", HashSet::from([4]), true);
+        let flag3 = flag(3, "flag3", HashSet::from([4]), true);
+        let flag4 = flag(4, "flag4", HashSet::new(), true);
+        let flag5 = flag(5, "flag5", HashSet::from([6]), true);
+        let flag6 = flag(6, "flag6", HashSet::new(), true);
 
         let flags = vec![flag1, flag2, flag3, flag4, flag5, flag6];
         let feature_flags = make_flag_list(flags);
@@ -1204,10 +1194,10 @@ mod filter_graph_by_keys_tests {
         // Create two disconnected subgraphs:
         // flag1 -> flag2
         // flag3 -> flag4
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2]));
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
-        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::from([4]));
-        let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::from([2]), true);
+        let flag2 = flag(2, "flag2", HashSet::new(), true);
+        let flag3 = flag(3, "flag3", HashSet::from([4]), true);
+        let flag4 = flag(4, "flag4", HashSet::new(), true);
 
         let flags = vec![flag1, flag2, flag3, flag4];
         let feature_flags = make_flag_list(flags);
@@ -1252,9 +1242,9 @@ mod filter_graph_by_keys_tests {
         // Create a complex dependency structure to test edge preservation
         // flag1 -> flag2 -> flag3
         // flag1 -> flag3
-        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2, 3]));
-        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::from([3]));
-        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+        let flag1 = flag(1, "flag1", HashSet::from([2, 3]), true);
+        let flag2 = flag(2, "flag2", HashSet::from([3]), true);
+        let flag3 = flag(3, "flag3", HashSet::new(), true);
 
         let flags = vec![flag1, flag2, flag3];
         let feature_flags = make_flag_list(flags);
@@ -1392,58 +1382,38 @@ fn make_flag_list(
 
 /// Shared helper for `build_dependency_graph` integration tests.
 #[cfg(test)]
-fn create_flag_with_deps(
+fn flag(
     id: i32,
     key: &str,
-    dependencies: std::collections::HashSet<i32>,
+    deps: std::collections::HashSet<i32>,
     active: bool,
-    deleted: bool,
 ) -> crate::flags::flag_models::FeatureFlag {
-    use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+    use crate::mock;
+    use crate::properties::property_models::PropertyType;
+    use crate::utils::mock::MockInto;
+    use serde_json::json;
 
-    let mut filters = FlagFilters {
-        groups: vec![FlagPropertyGroup {
-            properties: Some(vec![]),
-            rollout_percentage: Some(100.0),
-            variant: None,
-            ..Default::default()
-        }],
-        multivariate: None,
-        aggregation_group_type_index: None,
-        payloads: None,
-        super_groups: None,
-
-        holdout: None,
-    };
-
-    for dep_id in dependencies {
-        filters.groups[0].properties.as_mut().unwrap().push(
-            crate::properties::property_models::PropertyFilter {
+    let dep_filters: Vec<crate::properties::property_models::PropertyFilter> = deps
+        .into_iter()
+        .map(|dep_id| {
+            mock!(crate::properties::property_models::PropertyFilter,
                 key: dep_id.to_string(),
-                value: Some(serde_json::json!(true)),
-                operator: Some(crate::properties::property_models::OperatorType::Exact),
-                prop_type: crate::properties::property_models::PropertyType::Flag,
-                group_type_index: None,
-                negation: None,
-            },
-        );
-    }
+                value: Some(json!(true)),
+                prop_type: PropertyType::Flag
+            )
+        })
+        .collect();
 
-    crate::utils::test_utils::create_test_flag(
-        Some(id),
-        Some(1),
-        None,
-        Some(key.to_string()),
-        Some(filters),
-        Some(deleted),
-        Some(active),
-        None,
-    )
+    if dep_filters.is_empty() {
+        mock!(crate::flags::flag_models::FeatureFlag, id: id, key: key.mock_into(), active: active)
+    } else {
+        mock!(crate::flags::flag_models::FeatureFlag, id: id, key: key.mock_into(), active: active, filters: dep_filters.mock_into())
+    }
 }
 
 #[cfg(test)]
 mod inactive_flag_dependency_tests {
-    use super::{create_flag_with_deps, make_flag_list};
+    use super::{flag, make_flag_list};
     use crate::utils::graph_utils::build_dependency_graph;
     use std::collections::HashSet;
 
@@ -1452,9 +1422,8 @@ mod inactive_flag_dependency_tests {
         // An inactive flag references a non-existent flag (id=999). Since the
         // inactive flag's dependencies are skipped, no MissingDependency error
         // should be produced.
-        let inactive_flag =
-            create_flag_with_deps(1, "inactive_flag", HashSet::from([999]), false, false);
-        let other_flag = create_flag_with_deps(2, "other_flag", HashSet::new(), true, false);
+        let inactive_flag = flag(1, "inactive_flag", HashSet::from([999]), false);
+        let other_flag = flag(2, "other_flag", HashSet::new(), true);
 
         let flags = vec![inactive_flag, other_flag];
         let feature_flags = make_flag_list(flags);
@@ -1473,8 +1442,8 @@ mod inactive_flag_dependency_tests {
         // Active flag depends on an inactive flag. The inactive flag should
         // still be present in the graph (it's in id_map), so the active flag's
         // dependency is satisfied.
-        let active_flag = create_flag_with_deps(1, "active_flag", HashSet::from([2]), true, false);
-        let inactive_dep = create_flag_with_deps(2, "inactive_dep", HashSet::new(), false, false);
+        let active_flag = flag(1, "active_flag", HashSet::from([2]), true);
+        let inactive_dep = flag(2, "inactive_dep", HashSet::new(), false);
 
         let flags = vec![active_flag, inactive_dep];
         let feature_flags = make_flag_list(flags);
@@ -1500,9 +1469,8 @@ mod inactive_flag_dependency_tests {
         // status to unrelated active flags. The inactive flag is excluded
         // from the graph because it is not an active seed and no active
         // flag depends on it.
-        let active_flag = create_flag_with_deps(1, "active_flag", HashSet::new(), true, false);
-        let inactive_flag =
-            create_flag_with_deps(2, "inactive_flag", HashSet::from([999]), false, false);
+        let active_flag = flag(1, "active_flag", HashSet::new(), true);
+        let inactive_flag = flag(2, "inactive_flag", HashSet::from([999]), false);
 
         let flags = vec![active_flag, inactive_flag];
         let feature_flags = make_flag_list(flags);
@@ -1518,9 +1486,8 @@ mod inactive_flag_dependency_tests {
         // An inactive flag references a present flag. The inactive flag is
         // excluded from the graph (not an active seed, not depended upon by
         // any active flag), so only the active flag remains.
-        let inactive_flag =
-            create_flag_with_deps(1, "inactive_flag", HashSet::from([2]), false, false);
-        let present_dep = create_flag_with_deps(2, "present_dep", HashSet::new(), true, false);
+        let inactive_flag = flag(1, "inactive_flag", HashSet::from([2]), false);
+        let present_dep = flag(2, "present_dep", HashSet::new(), true);
 
         let flags = vec![inactive_flag, present_dep];
         let feature_flags = make_flag_list(flags);
@@ -1539,8 +1506,7 @@ mod inactive_flag_dependency_tests {
     fn test_active_flag_with_missing_dependency_still_produces_error() {
         // Sanity check: an active flag referencing a non-existent flag should
         // still produce a MissingDependency error.
-        let active_flag =
-            create_flag_with_deps(1, "active_flag", HashSet::from([999]), true, false);
+        let active_flag = flag(1, "active_flag", HashSet::from([999]), true);
 
         let flags = vec![active_flag];
         let feature_flags = make_flag_list(flags);
@@ -1553,8 +1519,10 @@ mod inactive_flag_dependency_tests {
 
 #[cfg(test)]
 mod seed_set_closure_tests {
-    use super::{create_flag_with_deps, make_flag_list};
+    use super::{flag, make_flag_list};
+    use crate::mock;
     use crate::utils::graph_utils::build_dependency_graph;
+    use crate::utils::mock::MockInto;
     use std::collections::HashSet;
 
     #[test]
@@ -1562,11 +1530,11 @@ mod seed_set_closure_tests {
         // 5 flags: 3 active with no deps, 2 inactive with no deps.
         // Only the 3 active flags should appear in the graph.
         let flags = vec![
-            create_flag_with_deps(1, "active_1", HashSet::new(), true, false),
-            create_flag_with_deps(2, "active_2", HashSet::new(), true, false),
-            create_flag_with_deps(3, "active_3", HashSet::new(), true, false),
-            create_flag_with_deps(4, "inactive_1", HashSet::new(), false, false),
-            create_flag_with_deps(5, "inactive_2", HashSet::new(), false, false),
+            flag(1, "active_1", HashSet::new(), true),
+            flag(2, "active_2", HashSet::new(), true),
+            flag(3, "active_3", HashSet::new(), true),
+            flag(4, "inactive_1", HashSet::new(), false),
+            flag(5, "inactive_2", HashSet::new(), false),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1584,11 +1552,11 @@ mod seed_set_closure_tests {
         // A(active) -> B(active) -> C(active) chain, plus D(active, no deps)
         // and E(inactive, no deps). Graph should have 4 nodes: A, B, C, D.
         let flags = vec![
-            create_flag_with_deps(1, "a", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "b", HashSet::from([3]), true, false),
-            create_flag_with_deps(3, "c", HashSet::new(), true, false),
-            create_flag_with_deps(4, "d", HashSet::new(), true, false),
-            create_flag_with_deps(5, "e", HashSet::new(), false, false),
+            flag(1, "a", HashSet::from([2]), true),
+            flag(2, "b", HashSet::from([3]), true),
+            flag(3, "c", HashSet::new(), true),
+            flag(4, "d", HashSet::new(), true),
+            flag(5, "e", HashSet::new(), false),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1606,10 +1574,10 @@ mod seed_set_closure_tests {
         // A -> B, A -> C, B -> D, C -> D (diamond). All active.
         // Graph should have 4 nodes and 4 edges.
         let flags = vec![
-            create_flag_with_deps(1, "a", HashSet::from([2, 3]), true, false),
-            create_flag_with_deps(2, "b", HashSet::from([4]), true, false),
-            create_flag_with_deps(3, "c", HashSet::from([4]), true, false),
-            create_flag_with_deps(4, "d", HashSet::new(), true, false),
+            flag(1, "a", HashSet::from([2, 3]), true),
+            flag(2, "b", HashSet::from([4]), true),
+            flag(3, "c", HashSet::from([4]), true),
+            flag(4, "d", HashSet::new(), true),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1630,22 +1598,10 @@ mod seed_set_closure_tests {
             } else {
                 HashSet::new()
             };
-            flags.push(create_flag_with_deps(
-                i,
-                &format!("active_{i}"),
-                deps,
-                true,
-                false,
-            ));
+            flags.push(flag(i, &format!("active_{i}"), deps, true));
         }
         for i in 6..=100 {
-            flags.push(create_flag_with_deps(
-                i,
-                &format!("inactive_{i}"),
-                HashSet::new(),
-                false,
-                false,
-            ));
+            flags.push(flag(i, &format!("inactive_{i}"), HashSet::new(), false));
         }
         let feature_flags = make_flag_list(flags);
 
@@ -1658,8 +1614,8 @@ mod seed_set_closure_tests {
         // Active flag A depends on inactive flag B. B should be pulled into the
         // closure (as a terminal node) so from_nodes can wire the edge.
         let flags = vec![
-            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "inactive_b", HashSet::new(), false, false),
+            flag(1, "active_a", HashSet::from([2]), true),
+            flag(2, "inactive_b", HashSet::new(), false),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1674,8 +1630,8 @@ mod seed_set_closure_tests {
     fn test_seed_set_excludes_deleted_flags() {
         // An active-but-deleted flag should not be in the seed set.
         let flags = vec![
-            create_flag_with_deps(1, "alive", HashSet::new(), true, false),
-            create_flag_with_deps(2, "deleted_flag", HashSet::new(), true, true),
+            flag(1, "alive", HashSet::new(), true),
+            mock!(crate::flags::flag_models::FeatureFlag, id: 2, key: "deleted_flag".mock_into(), active: true, deleted: true),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1690,8 +1646,8 @@ mod seed_set_closure_tests {
         // An active, non-deleted flag depends on a deleted flag. The deleted
         // flag should be pulled into the closure via BFS.
         let flags = vec![
-            create_flag_with_deps(1, "active", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "deleted_dep", HashSet::new(), true, true),
+            flag(1, "active", HashSet::from([2]), true),
+            mock!(crate::flags::flag_models::FeatureFlag, id: 2, key: "deleted_dep".mock_into(), active: true, deleted: true),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1709,9 +1665,9 @@ mod seed_set_closure_tests {
         // empty for inactive flags, so B's dependency on C is not followed
         // and C is not included in the graph.
         let flags = vec![
-            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "inactive_b", HashSet::from([3]), false, false),
-            create_flag_with_deps(3, "inactive_c", HashSet::new(), false, false),
+            flag(1, "active_a", HashSet::from([2]), true),
+            flag(2, "inactive_b", HashSet::from([3]), false),
+            flag(3, "inactive_c", HashSet::new(), false),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1736,8 +1692,8 @@ mod seed_set_closure_tests {
     #[test]
     fn test_seed_set_all_inactive_produces_empty_graph() {
         let flags = vec![
-            create_flag_with_deps(1, "a", HashSet::new(), false, false),
-            create_flag_with_deps(2, "b", HashSet::from([1]), false, false),
+            flag(1, "a", HashSet::new(), false),
+            flag(2, "b", HashSet::from([1]), false),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1752,9 +1708,15 @@ mod seed_set_closure_tests {
         // B is filtered out (deleted), so its deps are not followed. C appears
         // in the graph only because it is an active seed, not because of B.
         let flags = vec![
-            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "deleted_b", HashSet::from([3]), true, true),
-            create_flag_with_deps(3, "dep_c", HashSet::new(), true, false),
+            flag(1, "active_a", HashSet::from([2]), true),
+            mock!(crate::flags::flag_models::FeatureFlag, id: 2, key: "deleted_b".mock_into(), active: true, deleted: true, filters: vec![
+                mock!(crate::properties::property_models::PropertyFilter,
+                    key: "3".mock_into(),
+                    value: Some(serde_json::json!(true)),
+                    prop_type: crate::properties::property_models::PropertyType::Flag
+                )
+            ].mock_into()),
+            flag(3, "dep_c", HashSet::new(), true),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1775,9 +1737,15 @@ mod seed_set_closure_tests {
         // are not followed. C is also filtered out (inactive) and not
         // reachable from any seed, so it is excluded entirely.
         let flags = vec![
-            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "deleted_b", HashSet::from([3]), true, true),
-            create_flag_with_deps(3, "inactive_c", HashSet::new(), false, false),
+            flag(1, "active_a", HashSet::from([2]), true),
+            mock!(crate::flags::flag_models::FeatureFlag, id: 2, key: "deleted_b".mock_into(), active: true, deleted: true, filters: vec![
+                mock!(crate::properties::property_models::PropertyFilter,
+                    key: "3".mock_into(),
+                    value: Some(serde_json::json!(true)),
+                    prop_type: crate::properties::property_models::PropertyType::Flag
+                )
+            ].mock_into()),
+            flag(3, "inactive_c", HashSet::new(), false),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1798,9 +1766,9 @@ mod seed_set_closure_tests {
         // Flag 3 is inactive so it won't be a seed — it can only enter the
         // graph if flag 2's dependencies are followed.
         let flags = vec![
-            create_flag_with_deps(1, "seed_flag", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "runtime_filtered", HashSet::from([3]), true, false),
-            create_flag_with_deps(3, "deep_dep", HashSet::new(), false, false),
+            flag(1, "seed_flag", HashSet::from([2]), true),
+            flag(2, "runtime_filtered", HashSet::from([3]), true),
+            flag(3, "deep_dep", HashSet::new(), false),
         ];
         let mut feature_flags = make_flag_list(flags);
         // Manually mark flag 2 as runtime-filtered (on top of make_flag_list's
@@ -1820,9 +1788,9 @@ mod seed_set_closure_tests {
     #[test]
     fn test_cycle_among_active_flags_produces_error() {
         let flags = vec![
-            create_flag_with_deps(1, "a", HashSet::from([2]), true, false),
-            create_flag_with_deps(2, "b", HashSet::from([3]), true, false),
-            create_flag_with_deps(3, "c", HashSet::from([1]), true, false),
+            flag(1, "a", HashSet::from([2]), true),
+            flag(2, "b", HashSet::from([3]), true),
+            flag(3, "c", HashSet::from([1]), true),
         ];
         let feature_flags = make_flag_list(flags);
 
@@ -1841,10 +1809,11 @@ mod precomputed_dependency_graph_tests {
     use crate::utils::graph_utils::{
         build_dependency_graph, filter_graph_by_keys, PrecomputedDependencyGraph,
     };
+    use crate::utils::mock::MockInto;
     use std::collections::{HashMap, HashSet};
 
     fn create_flag(id: i32, key: &str, dependencies: HashSet<i32>, active: bool) -> FeatureFlag {
-        super::create_flag_with_deps(id, key, dependencies, active, false)
+        super::flag(id, key, dependencies, active)
     }
 
     /// Extracts sorted flag keys from evaluation stages for deterministic comparison.
@@ -1866,10 +1835,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::new(), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -1898,10 +1864,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::from([3]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -1939,10 +1902,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(3, "flag_c", HashSet::from([4]), true),
             create_flag(4, "flag_d", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -1975,10 +1935,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(1, "flag_a", HashSet::from([2]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -1995,10 +1952,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(1, "flag_a", HashSet::from([2]), true),
             create_flag(2, "flag_b", HashSet::from([999]), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2014,10 +1968,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_build_empty_flag_list() {
-        let feature_flags = FeatureFlagList {
-            flags: vec![],
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = vec![].mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2030,10 +1981,7 @@ mod precomputed_dependency_graph_tests {
     #[test]
     fn test_build_single_flag_no_dependencies() {
         let flags = vec![create_flag(1, "solo_flag", HashSet::new(), true)];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2050,10 +1998,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(1, "inactive_flag", HashSet::from([999]), false),
             create_flag(2, "active_flag", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2071,10 +2016,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::from([3]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
 
         // Old path
         let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
@@ -2116,10 +2058,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(3, "flag_c", HashSet::from([4]), true),
             create_flag(4, "flag_d", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
 
         let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
         let old_stages = old_result.graph.into_evaluation_stages().unwrap();
@@ -2148,10 +2087,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::from([999]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
 
         let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
@@ -2175,10 +2111,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::new(), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
 
         let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
         let old_stages = old_result.graph.into_evaluation_stages().unwrap();
@@ -2208,10 +2141,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(1, "flag_a", HashSet::new(), true),
             create_flag(2, "flag_b", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
         let result = precomputed.filter_stages_by_keys(&[]);
@@ -2226,10 +2156,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::new(), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
         let result = precomputed.filter_stages_by_keys(&["flag_b".to_string()]);
@@ -2248,10 +2175,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(3, "flag_c", HashSet::new(), true),
             create_flag(4, "flag_d", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2279,10 +2203,7 @@ mod precomputed_dependency_graph_tests {
     #[test]
     fn test_filter_stages_missing_key_ignored() {
         let flags = vec![create_flag(1, "flag_a", HashSet::new(), true)];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
         let result = precomputed.filter_stages_by_keys(&["nonexistent".to_string()]);
@@ -2298,10 +2219,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::from([999]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
         let result = precomputed.filter_stages_by_keys(&["flag_a".to_string()]);
@@ -2328,10 +2246,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(4, "flag_d", HashSet::new(), true),
             create_flag(5, "flag_e", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
         let requested_keys = vec!["flag_a".to_string()];
 
         // Old path: build graph, filter, then get stages
@@ -2375,10 +2290,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::from([1]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2410,10 +2322,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::from([1]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
 
         let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
         let old_has_cycles = old_result.errors.iter().any(|e| e.is_cycle());
@@ -2449,10 +2358,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(3, "flag_c", HashSet::new(), true),
             create_flag(4, "flag_d", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags,
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
         let result =
@@ -2484,10 +2390,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(2, "flag_b", HashSet::from([999]), true),
             create_flag(3, "flag_c", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
         let requested_keys = vec!["flag_a".to_string()];
 
         // Old path
@@ -2519,10 +2422,7 @@ mod precomputed_dependency_graph_tests {
             create_flag(4, "flag_d", HashSet::new(), true),
             create_flag(5, "flag_e", HashSet::new(), true),
         ];
-        let feature_flags = FeatureFlagList {
-            flags: flags.clone(),
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = flags.clone().mock_into();
         let requested_keys = vec!["flag_a".to_string(), "flag_c".to_string()];
 
         // Old path
@@ -2670,14 +2570,12 @@ mod precomputed_dependency_graph_tests {
     #[test]
     fn test_fallback_path_used_without_precomputed_fields() {
         // Flags WITHOUT evaluation_metadata: A -> B -> C (fallback path)
-        let feature_flags = FeatureFlagList {
-            flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::from([3]), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
-            ],
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([3]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ]
+        .mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2706,15 +2604,13 @@ mod precomputed_dependency_graph_tests {
         let deps_c = HashSet::from([4]);
 
         // Without precomputed (fallback path)
-        let flags_no_precomputed = FeatureFlagList {
-            flags: vec![
-                create_flag(1, "flag_a", deps_a.clone(), true),
-                create_flag(2, "flag_b", deps_b.clone(), true),
-                create_flag(3, "flag_c", deps_c.clone(), true),
-                create_flag(4, "flag_d", HashSet::new(), true),
-            ],
-            ..Default::default()
-        };
+        let flags_no_precomputed: FeatureFlagList = vec![
+            create_flag(1, "flag_a", deps_a.clone(), true),
+            create_flag(2, "flag_b", deps_b.clone(), true),
+            create_flag(3, "flag_c", deps_c.clone(), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+        ]
+        .mock_into();
         let fallback = PrecomputedDependencyGraph::build(&flags_no_precomputed, 1, None).unwrap();
 
         // With precomputed (evaluation_metadata on the list)
@@ -2806,13 +2702,11 @@ mod precomputed_dependency_graph_tests {
     #[test]
     fn test_fallback_path_used_when_evaluation_metadata_absent() {
         // Without evaluation_metadata, fallback path is used
-        let feature_flags = FeatureFlagList {
-            flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-            ],
-            ..Default::default() // no evaluation_metadata
-        };
+        let feature_flags: FeatureFlagList = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+        ]
+        .mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
 
@@ -2982,10 +2876,8 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_is_graph_fallback_true_when_evaluation_metadata_absent() {
-        let feature_flags = FeatureFlagList {
-            flags: vec![create_flag(1, "flag_a", HashSet::new(), true)],
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList =
+            vec![create_flag(1, "flag_a", HashSet::new(), true)].mock_into();
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
         assert!(
@@ -3184,10 +3076,7 @@ mod precomputed_dependency_graph_tests {
         let requested_keys = vec!["flag_a".to_string()];
 
         // Path 1: graph fallback (no evaluation_metadata), then filter_stages_by_keys
-        let fallback_flags = FeatureFlagList {
-            flags: make_flags(),
-            ..Default::default()
-        };
+        let fallback_flags: FeatureFlagList = make_flags().mock_into();
         let full = PrecomputedDependencyGraph::build(&fallback_flags, 1, None).unwrap();
         let filtered = full.filter_stages_by_keys(&requested_keys);
 
@@ -3195,7 +3084,7 @@ mod precomputed_dependency_graph_tests {
         let precomputed_flags = FeatureFlagList {
             flags: make_flags(),
             evaluation_metadata: Some(deps.clone()),
-            ..Default::default()
+            ..Default::default() // cohorts, filtered_out_flag_ids stay default
         };
         let direct =
             PrecomputedDependencyGraph::build(&precomputed_flags, 1, Some(&requested_keys))
@@ -3264,14 +3153,12 @@ mod precomputed_dependency_graph_tests {
     fn test_build_with_flag_keys_fallback_ignores_flag_keys() {
         // On the fallback path (no evaluation_metadata), flag_keys is ignored
         // during build — the caller must use filter_stages_by_keys after.
-        let feature_flags = FeatureFlagList {
-            flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::new(), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
-            ],
-            ..Default::default()
-        };
+        let feature_flags: FeatureFlagList = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ]
+        .mock_into();
 
         let precomputed =
             PrecomputedDependencyGraph::build(&feature_flags, 1, Some(&["flag_a".to_string()]))
