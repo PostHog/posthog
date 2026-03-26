@@ -38,6 +38,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 loadRuns: async () => {
                     const response = await visualReviewRunsList(String(values.currentProjectId), {
                         review_state: values.activeTab,
+                        limit: 500,
                     })
                     return response.results
                 },
