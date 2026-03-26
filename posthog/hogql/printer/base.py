@@ -705,6 +705,9 @@ class HogQLPrinter(Visitor[str]):
         # Inline everything in HogQL
         return self._print_escaped_string(node.value)
 
+    def visit_keyword(self, node: ast.Keyword):
+        return node.name
+
     def visit_field(self, node: ast.Field):
         if node.chain == ["*"]:
             return "*"

@@ -46,6 +46,9 @@ class PostgresPrinter(HogQLPrinter):
 
         return self.visit(node.type)
 
+    def visit_keyword(self, node: ast.Keyword):
+        return node.name.upper()
+
     def visit_call(self, node: ast.Call):
         if node.name.lower() in {"percentile_cont", "percentile_disc"}:
             return super().visit_call(node)

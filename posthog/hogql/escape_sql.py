@@ -159,6 +159,15 @@ POSTGRES_RESERVED_KEYWORDS = {
     "WITH",
 }
 
+# Postgres date/time keywords that act like zero-arg functions.
+POSTGRES_KEYWORD_FUNCTIONS = {
+    "current_date",
+    "current_time",
+    "current_timestamp",
+    "localtime",
+    "localtimestamp",
+}
+
 
 def escape_postgres_identifier(v: str) -> str:
     if len(v) > 63:
