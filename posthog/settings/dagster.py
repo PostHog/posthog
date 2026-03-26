@@ -35,16 +35,16 @@ PART_BREAKER_MAX_EXECUTION_TIME: int = int(
 )  # 24h — INSERT SELECT on large parts can take many hours
 PART_BREAKER_MAX_MEMORY_USAGE: int = int(
     os.getenv("PART_BREAKER_MAX_MEMORY_USAGE", str(128 * 1024 * 1024 * 1024))
-)  # 128 GiB — peak observed was ~85 GiB on 1.7 TiB part
+)  # 128 GiB
 PART_BREAKER_RECEIVE_TIMEOUT: int = int(
     os.getenv("PART_BREAKER_RECEIVE_TIMEOUT", str(48 * 60 * 60))
 )  # 48h — must exceed INSERT SELECT duration
 PART_BREAKER_SCHEDULE: str = os.getenv("PART_BREAKER_SCHEDULE", "0 2 * * 6")  # Saturdays at 2am UTC
 PART_BREAKER_SSH_KEY: str | None = os.getenv(
     "CLICKHOUSE_SSH_PRIVATE_KEY"
-)  # Raw SSH private key (matches GitHub secret name)
+)
 PART_BREAKER_SSH_KEY_PATH: str | None = os.getenv("PART_BREAKER_SSH_KEY_PATH")  # Path to SSH key file (alternative)
 PART_BREAKER_SSH_USER: str = os.getenv("PART_BREAKER_SSH_USER", "ubuntu")
 PART_BREAKER_WORKLOAD: str = os.getenv(
     "PART_BREAKER_WORKLOAD", "OFFLINE"
-)  # OFFLINE or ONLINE — dev has no offline nodes
+)
