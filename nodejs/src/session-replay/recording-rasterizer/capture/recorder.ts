@@ -6,6 +6,7 @@ import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
 import { RasterizeRecordingInput, RecordingResult } from '../types'
 import { elapsed } from '../utils'
+import { AssetProxy } from './asset-proxy'
 import { BrowserPool } from './browser-pool'
 import { buildCaptureConfig, capturePlayback } from './capture'
 import { PlayerController, buildPlayerConfig, fetchBlockList } from './player'
@@ -65,8 +66,8 @@ export function validateInput(input: RasterizeRecordingInput): void {
 }
 
 /**
- * Prepare a browser page for capture: disable iframe sandboxing,
- * set the viewport, and optionally wire up browser log forwarding.
+ * Prepare a browser page for capture: set the viewport and optionally
+ * wire up browser log forwarding.
  */
 async function preparePage(
     page: Page,
@@ -85,20 +86,6 @@ async function preparePage(
             browserLog.error({ type: 'requestfailed', url: req.url() }, req.failure()?.errorText || 'unknown')
         )
     }
-
-    // Prevent rrweb's replay iframe from being sandboxed.
-    // rrweb sets sandbox="allow-same-origin" which blocks script execution.
-    // puppeteer-capture needs to evaluate() in all frames to inject virtual
-    // time shims — without this, frame.evaluate() hangs on sandboxed iframes.
-    await page.evaluateOnNewDocument(() => {
-        const origSetAttribute = Element.prototype.setAttribute
-        Element.prototype.setAttribute = function (name: string, value: string) {
-            if (this.tagName === 'IFRAME' && name === 'sandbox') {
-                return
-            }
-            return origSetAttribute.call(this, name, value)
-        }
-    })
 
     await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 })
 }
@@ -126,7 +113,8 @@ export async function rasterizeRecording(
         }
         await preparePage(page, viewport, cfg.captureBrowserLogs, log)
 
-        player = new PlayerController(page, baseHtml, cfg, log)
+        const assetProxy = new AssetProxy(page, log)
+        player = new PlayerController(page, baseHtml, cfg, assetProxy, log)
         const blocks = await fetchBlockList(input, cfg)
         log.info({ blockCount: blocks.length }, 'block listing fetched')
         const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blocks.length)
@@ -141,7 +129,15 @@ export async function rasterizeRecording(
 
         const setupS = elapsed(setupStart)
 
-        const captureResult = await capturePlayback(page, player, captureConfig, outputPath, log, onProgress)
+        const captureResult = await capturePlayback(
+            page,
+            player,
+            assetProxy,
+            captureConfig,
+            outputPath,
+            log,
+            onProgress
+        )
 
         return {
             video_path: outputPath,

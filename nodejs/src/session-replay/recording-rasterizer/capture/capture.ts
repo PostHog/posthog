@@ -7,6 +7,7 @@ import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
 import { InactivityPeriod, RasterizeRecordingInput, RecordingResult } from '../types'
 import { elapsed } from '../utils'
+import { AssetProxy } from './asset-proxy'
 import { PlayerController } from './player'
 
 const DEFAULT_PLAYBACK_SPEED = 4
@@ -26,9 +27,7 @@ export interface CaptureConfig {
 export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfig {
     const playbackSpeed = input.playback_speed || DEFAULT_PLAYBACK_SPEED
     const outputFps = input.recording_fps || DEFAULT_FPS
-    // Capture at outputFps * playbackSpeed so that after setpts stretches
-    // timestamps by playbackSpeed, the output plays at outputFps in real-time.
-    // e.g. 3fps output × 8x speed = 24fps capture → stretched 8x → 3fps.
+    // e.g. 3fps output × 8x speed = 24fps capture → setpts stretches 8x → 3fps
     const captureFps = outputFps * playbackSpeed
 
     const ffmpegOutputOpts = ['-crf 23', '-pix_fmt yuv420p', '-movflags +faststart']
@@ -57,23 +56,43 @@ export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfi
 }
 
 /**
- * Wrap a page's CDP session to override the screenshot format in
- * HeadlessExperimental.beginFrame calls. puppeteer-capture hardcodes
- * PNG — this lets us use JPEG (faster encoding) without forking.
- * Must be called BEFORE `captureVideo(page, ...)`.
+ * Hide grandchild frames from puppeteer-capture so it doesn't call
+ * evaluate() on third-party widget iframes whose execution contexts
+ * can be destroyed at any time.
  */
-function overrideScreenshotFormat(page: Page, format: 'jpeg' | 'png', quality?: number): void {
+function hideGrandchildFrames(page: Page): void {
+    const mainFrame = page.mainFrame()
+    const originalFrames = page.frames.bind(page)
+    ;(page as any).frames = (): ReturnType<Page['frames']> =>
+        originalFrames().filter((f) => f === mainFrame || f.parentFrame() === mainFrame)
+}
+
+/**
+ * Wrap CDP session to override screenshot format and gate beginFrame
+ * on pending stylesheet requests. Must be called before captureVideo().
+ */
+function installCDPGuards(
+    page: Page,
+    screenshotFormat: 'jpeg' | 'png',
+    screenshotQuality: number | undefined,
+    waitForRequestsSettled: () => Promise<void>
+): void {
     const originalCreateCDPSession = page.createCDPSession.bind(page)
     ;(page as any).createCDPSession = async (): Promise<CDPSession> => {
         const session = await originalCreateCDPSession()
         const originalSend = session.send.bind(session)
-        ;(session as any).send = (method: string, ...args: any[]): Promise<any> => {
+        ;(session as any).send = async (method: string, ...args: any[]): Promise<any> => {
             if (method === 'HeadlessExperimental.beginFrame') {
                 const params = args[0] ?? {}
-                params.screenshot = { format }
-                if (format === 'jpeg' && quality != null) {
-                    params.screenshot.quality = quality
+                if (screenshotFormat !== 'png') {
+                    params.screenshot = { format: screenshotFormat }
+                    if (screenshotFormat === 'jpeg' && screenshotQuality != null) {
+                        params.screenshot.quality = screenshotQuality
+                    }
                 }
+
+                await waitForRequestsSettled()
+
                 return originalSend(method as any, params)
             }
             return originalSend(method as any, ...args)
@@ -85,6 +104,7 @@ function overrideScreenshotFormat(page: Page, format: 'jpeg' | 'png', quality?: 
 export async function capturePlayback(
     page: Page,
     player: PlayerController,
+    assetProxy: AssetProxy,
     captureConfig: CaptureConfig,
     outputPath: string,
     log: Logger = createLogger(),
@@ -95,14 +115,10 @@ export async function capturePlayback(
     const captureStart = process.hrtime()
     let frameCount = 0
 
-    if (config.screenshotFormat !== 'png') {
-        overrideScreenshotFormat(page, config.screenshotFormat, config.screenshotJpegQuality)
-    }
+    hideGrandchildFrames(page)
+    installCDPGuards(page, config.screenshotFormat, config.screenshotJpegQuality, () => assetProxy.waitForSettled())
 
-    // Start capture FIRST — this installs virtual time shims (Date.now,
-    // setTimeout, rAF). Then dispatch player-start so all playback happens
-    // under deterministic virtual time control. rrweb's rAF-based rendering
-    // fires naturally as we advance virtual time in the loop below.
+    // Start capture first — installs virtual time shims before playback.
     const recorder = await captureVideo(page, {
         fps: captureConfig.captureFps,
         format: PuppeteerCaptureFormat.MP4('veryfast', 'libx264'),
@@ -155,9 +171,6 @@ export async function capturePlayback(
         await player.startPlayback()
         log.info('playback started')
 
-        // Advance virtual time until the recording ends or we hit a limit.
-        // puppeteer-capture's waitForTimeout advances the virtual clock; rrweb's
-        // shimmed timers fire deterministically within that virtual time.
         const checkIntervalMs = 250
 
         while (virtualElapsed < captureConfig.captureTimeoutMs) {
@@ -173,9 +186,6 @@ export async function capturePlayback(
             captureAbortReject = null
             virtualElapsed += checkIntervalMs
 
-            // Stop early when we've captured enough frames for the trim duration.
-            // ffmpeg -t handles the precise cut, but without this the loop would
-            // keep advancing virtual time wastefully.
             if (frameCount >= captureConfig.trimFrameLimit) {
                 log.info({ trim_s: captureConfig.trim, frames: frameCount }, 'trim limit reached')
                 break
@@ -219,9 +229,6 @@ export async function capturePlayback(
 
     const inactivityPeriods: InactivityPeriod[] = player.getInactivityPeriods()
 
-    // frameCount / outputFps = total frames expressed as video seconds.
-    // When trim is set, ffmpeg -t caps the actual output — use that as
-    // the authoritative duration since ffmpeg may discard trailing frames.
     const rawDurationS = frameCount / captureConfig.outputFps
     const captureDurationS = captureConfig.trim ? Math.min(rawDurationS, captureConfig.trim) : rawDurationS
 

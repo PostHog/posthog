@@ -2,6 +2,7 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
+import { AssetProxy } from '../capture/asset-proxy'
 import { CaptureConfig, capturePlayback } from '../capture/capture'
 import { PlayerController } from '../capture/player'
 import { RasterizationError } from '../errors'
@@ -34,6 +35,13 @@ jest.mock('../logger', () => ({
     }),
 }))
 
+jest.mock('../config', () => ({
+    config: {
+        screenshotFormat: 'jpeg',
+        screenshotJpegQuality: 80,
+    },
+}))
+
 const { __mockRecorder: mockRecorder } = require('puppeteer-capture')
 
 function baseCaptureConfig(overrides: Partial<CaptureConfig> = {}): CaptureConfig {
@@ -59,9 +67,20 @@ function mockPlayer(overrides: Partial<Record<keyof PlayerController, any>> = {}
     } as unknown as PlayerController
 }
 
+function mockAssetProxyObj(): AssetProxy {
+    return {
+        handleRequest: jest.fn(),
+        waitForSettled: jest.fn().mockResolvedValue(undefined),
+    } as unknown as AssetProxy
+}
+
+const mainFrame = { parentFrame: () => null }
 const mockPage = {
     viewport: jest.fn().mockReturnValue({ width: 1920, height: 1080 }),
     createCDPSession: jest.fn().mockResolvedValue({ send: jest.fn().mockResolvedValue({}) }),
+    mainFrame: jest.fn().mockReturnValue(mainFrame),
+    frames: jest.fn().mockReturnValue([mainFrame]),
+    on: jest.fn(),
 } as any
 
 describe('capturePlayback', () => {
@@ -108,7 +127,7 @@ describe('capturePlayback', () => {
             simulateFrames(3)
         })
 
-        const result = await capturePlayback(mockPage, player, baseCaptureConfig(), outputPath)
+        const result = await capturePlayback(mockPage, player, mockAssetProxyObj(), baseCaptureConfig(), outputPath)
 
         expect(mockRecorder.start).toHaveBeenCalledWith(outputPath)
         expect(mockRecorder.stop).toHaveBeenCalled()
@@ -124,7 +143,7 @@ describe('capturePlayback', () => {
         })
 
         const config = baseCaptureConfig({ trim: 10, trimFrameLimit: 30, outputFps: 3 })
-        const result = await capturePlayback(mockPage, player, config, outputPath)
+        const result = await capturePlayback(mockPage, player, mockAssetProxyObj(), config, outputPath)
 
         expect(mockRecorder.stop).toHaveBeenCalled()
         expect(result.capture_duration_s).toBeLessThanOrEqual(10)
@@ -136,7 +155,7 @@ describe('capturePlayback', () => {
         mockRecorder.waitForTimeout.mockImplementation(() => {})
 
         const config = baseCaptureConfig({ captureTimeoutMs: 3000 })
-        await capturePlayback(mockPage, player, config, outputPath)
+        await capturePlayback(mockPage, player, mockAssetProxyObj(), config, outputPath)
 
         expect(mockRecorder.stop).toHaveBeenCalled()
     })
@@ -146,9 +165,9 @@ describe('capturePlayback', () => {
             startPlayback: jest.fn().mockRejectedValue(new Error('playback failed')),
         })
 
-        await expect(capturePlayback(mockPage, player, baseCaptureConfig(), outputPath)).rejects.toThrow(
-            'playback failed'
-        )
+        await expect(
+            capturePlayback(mockPage, player, mockAssetProxyObj(), baseCaptureConfig(), outputPath)
+        ).rejects.toThrow('playback failed')
         expect(mockRecorder.stop).toHaveBeenCalled()
     })
 
@@ -157,7 +176,7 @@ describe('capturePlayback', () => {
         mockRecorder.stop.mockRejectedValue(new Error('ffmpeg crashed'))
 
         // Should not throw — the stop error is swallowed
-        const result = await capturePlayback(mockPage, player, baseCaptureConfig(), outputPath)
+        const result = await capturePlayback(mockPage, player, mockAssetProxyObj(), baseCaptureConfig(), outputPath)
         expect(result).toBeDefined()
     })
 
@@ -171,7 +190,7 @@ describe('capturePlayback', () => {
             getInactivityPeriods: jest.fn().mockReturnValue(periods),
         })
 
-        const result = await capturePlayback(mockPage, player, baseCaptureConfig(), outputPath)
+        const result = await capturePlayback(mockPage, player, mockAssetProxyObj(), baseCaptureConfig(), outputPath)
         expect(result.inactivity_periods).toEqual(periods)
     })
 
@@ -188,7 +207,7 @@ describe('capturePlayback', () => {
         })
 
         const config = baseCaptureConfig({ outputFps: 3 })
-        const result = await capturePlayback(mockPage, player, config, outputPath)
+        const result = await capturePlayback(mockPage, player, mockAssetProxyObj(), config, outputPath)
 
         // 18 frames / 3 fps = 6 seconds
         expect(result.capture_duration_s).toBe(6)
@@ -196,7 +215,7 @@ describe('capturePlayback', () => {
 
     it('returns truncated=false when recording ends normally', async () => {
         const player = mockPlayer({ isEnded: jest.fn().mockReturnValue(true) })
-        const result = await capturePlayback(mockPage, player, baseCaptureConfig(), outputPath)
+        const result = await capturePlayback(mockPage, player, mockAssetProxyObj(), baseCaptureConfig(), outputPath)
         expect(result.truncated).toBe(false)
     })
 
@@ -205,7 +224,7 @@ describe('capturePlayback', () => {
         mockRecorder.waitForTimeout.mockImplementation(() => {})
 
         const config = baseCaptureConfig({ captureTimeoutMs: 3000 })
-        const result = await capturePlayback(mockPage, player, config, outputPath)
+        const result = await capturePlayback(mockPage, player, mockAssetProxyObj(), config, outputPath)
         expect(result.truncated).toBe(true)
     })
 
@@ -225,7 +244,7 @@ describe('capturePlayback', () => {
         })
 
         const config = baseCaptureConfig({ captureFps: 24 })
-        await capturePlayback(mockPage, player, config, outputPath, undefined, onProgress)
+        await capturePlayback(mockPage, player, mockAssetProxyObj(), config, outputPath, undefined, onProgress)
 
         // 72 frames / 24 interval = 3 calls
         expect(onProgress).toHaveBeenCalledTimes(3)
@@ -241,7 +260,7 @@ describe('capturePlayback', () => {
         })
 
         const config = baseCaptureConfig({ captureFps: 24 })
-        await capturePlayback(mockPage, player, config, outputPath, undefined, onProgress)
+        await capturePlayback(mockPage, player, mockAssetProxyObj(), config, outputPath, undefined, onProgress)
 
         expect(onProgress).not.toHaveBeenCalled()
     })
@@ -259,9 +278,9 @@ describe('capturePlayback', () => {
             }
         })
 
-        await expect(capturePlayback(mockPage, player, baseCaptureConfig(), outputPath)).rejects.toThrow(
-            'something broke'
-        )
+        await expect(
+            capturePlayback(mockPage, player, mockAssetProxyObj(), baseCaptureConfig(), outputPath)
+        ).rejects.toThrow('something broke')
         expect(mockRecorder.stop).toHaveBeenCalled()
     })
 })

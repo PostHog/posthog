@@ -14,6 +14,7 @@ import { config as defaultConfig } from '../config'
 import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
 import { RasterizeRecordingInput } from '../types'
+import { AssetProxy } from './asset-proxy'
 
 type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'>
 
@@ -93,6 +94,7 @@ export class PlayerController {
         private page: Page,
         private html: string,
         private cfg: { siteUrl: string; recordingApiBaseUrl: string; recordingApiSecret: string },
+        private assetProxy: AssetProxy,
         private log: Logger = createLogger()
     ) {
         this.playerUrl = `${cfg.siteUrl}/player`
@@ -218,7 +220,7 @@ export class PlayerController {
             } else if (path.startsWith(BLOCK_REQUEST_PREFIX)) {
                 void this.handleBlockRequest(request, path, playerConfig)
             } else {
-                void request.continue()
+                this.assetProxy.handleRequest(request)
             }
         })
 

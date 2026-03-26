@@ -21,6 +21,8 @@ jest.mock('../logger', () => ({
     }),
 }))
 
+const _mainFrame = { parentFrame: () => null }
+
 function mockPage() {
     let emitFn: ((msg: PlayerMessage) => void) | null = null
     let _evaluateOnNewDocumentFn: ((...args: any[]) => void) | null = null
@@ -45,6 +47,7 @@ function mockPage() {
         }),
         goto: jest.fn().mockResolvedValue(undefined),
         evaluate: jest.fn().mockResolvedValue(undefined),
+        mainFrame: jest.fn().mockReturnValue(_mainFrame),
 
         // Test helpers
         _emit(msg: PlayerMessage) {
@@ -62,6 +65,11 @@ const testCfg = {
     recordingApiSecret: 'secret',
 }
 
+const mockAssetProxy = {
+    handleRequest: jest.fn(),
+    waitForSettled: jest.fn().mockResolvedValue(undefined),
+} as any
+
 function basePlayerConfig(overrides: Partial<PlayerConfig> = {}): PlayerConfig {
     return {
         teamId: 1,
@@ -78,7 +86,7 @@ function basePlayerConfig(overrides: Partial<PlayerConfig> = {}): PlayerConfig {
 describe('PlayerController', () => {
     it('load() sets up exposeFunction, evaluateOnNewDocument, request interception, and navigates', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
 
         await controller.load(basePlayerConfig(), [])
 
@@ -97,7 +105,7 @@ describe('PlayerController', () => {
 
     it('load() intercepts player URL and passes through other requests', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html>player</html>', testCfg)
+        const controller = new PlayerController(page as any, '<html>player</html>', testCfg, mockAssetProxy)
 
         await controller.load(basePlayerConfig(), [])
 
@@ -120,16 +128,14 @@ describe('PlayerController', () => {
             url: () => 'https://cdn.example.com/font.woff2',
             respond: jest.fn(),
             continue: jest.fn().mockResolvedValue(undefined),
-            headers: jest.fn().mockReturnValue({}),
         }
         handlers[0](otherRequest)
-        expect(otherRequest.continue).toHaveBeenCalled()
-        expect(otherRequest.respond).not.toHaveBeenCalled()
+        expect(mockAssetProxy.handleRequest).toHaveBeenCalledWith(otherRequest)
     })
 
     it('waitForStart() resolves when player sends started message', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
@@ -143,7 +149,7 @@ describe('PlayerController', () => {
     it('waitForStart() resets timeout on loading_progress messages', async () => {
         jest.useFakeTimers()
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 1000)
@@ -165,7 +171,7 @@ describe('PlayerController', () => {
     it('waitForStart() rejects on timeout when no progress', async () => {
         jest.useFakeTimers()
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig({ sessionId: 'sess-abc' }), 1000)
@@ -179,7 +185,7 @@ describe('PlayerController', () => {
 
     it('waitForStart() rejects when player sends error message', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
@@ -197,7 +203,7 @@ describe('PlayerController', () => {
 
     it('isEnded() returns true after ended message', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         expect(controller.isEnded()).toBe(false)
@@ -207,7 +213,7 @@ describe('PlayerController', () => {
 
     it('getError() returns stored error from message received outside active promise', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         expect(controller.getError()).toBeNull()
@@ -229,7 +235,7 @@ describe('PlayerController', () => {
 
     it('getInactivityPeriods() returns periods from player', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         expect(controller.getInactivityPeriods()).toEqual([])
@@ -245,7 +251,7 @@ describe('PlayerController', () => {
 
     it('startPlayback() dispatches the start event', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
         await controller.load(basePlayerConfig(), [])
 
         await controller.startPlayback()
@@ -281,7 +287,7 @@ describe('PlayerController', () => {
 
             const page = mockPage()
             const config = basePlayerConfig({ blockCount: 2 })
-            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
             await controller.load(config, blocks)
 
             const handlers = page._getRequestHandlers()
@@ -305,7 +311,7 @@ describe('PlayerController', () => {
 
         it('returns 404 for out-of-range index', async () => {
             const page = mockPage()
-            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
             await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
 
             const handlers = page._getRequestHandlers()
@@ -318,7 +324,7 @@ describe('PlayerController', () => {
 
         it('returns 404 for NaN index', async () => {
             const page = mockPage()
-            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
             await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
 
             const handlers = page._getRequestHandlers()
@@ -336,7 +342,7 @@ describe('PlayerController', () => {
             })
 
             const page = mockPage()
-            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
             await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
 
             const handlers = page._getRequestHandlers()
@@ -351,7 +357,7 @@ describe('PlayerController', () => {
             mockInternalFetch.mockRejectedValue(new Error('network timeout'))
 
             const page = mockPage()
-            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            const controller = new PlayerController(page as any, '<html></html>', testCfg, mockAssetProxy)
             await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
 
             const handlers = page._getRequestHandlers()

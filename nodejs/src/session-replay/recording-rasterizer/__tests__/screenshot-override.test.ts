@@ -1,5 +1,6 @@
 import { CDPSession, Page } from 'puppeteer'
 
+import { AssetProxy } from '../capture/asset-proxy'
 import { CaptureConfig, capturePlayback } from '../capture/capture'
 import { PlayerController } from '../capture/player'
 
@@ -62,16 +63,27 @@ function mockPlayer(): PlayerController {
     } as unknown as PlayerController
 }
 
+function mockAssetProxyObj(): AssetProxy {
+    return {
+        handleRequest: jest.fn(),
+        waitForSettled: jest.fn().mockResolvedValue(undefined),
+    } as unknown as AssetProxy
+}
+
 describe('overrideScreenshotFormat', () => {
     let originalSend: jest.Mock
 
     function createMockPage(): Page {
         originalSend = jest.fn().mockResolvedValue({ data: 'frame-data' })
         const mockSession = { send: originalSend } as unknown as CDPSession
+        const mainFrame = { parentFrame: () => null }
 
         return {
             viewport: jest.fn().mockReturnValue({ width: 1280, height: 720 }),
             createCDPSession: jest.fn().mockResolvedValue(mockSession),
+            mainFrame: jest.fn().mockReturnValue(mainFrame),
+            frames: jest.fn().mockReturnValue([mainFrame]),
+            on: jest.fn(),
         } as unknown as Page
     }
 
@@ -92,7 +104,13 @@ describe('overrideScreenshotFormat', () => {
         // We verify the wrapping by checking what createCDPSession returns after capturePlayback runs.
 
         // Use captureTimeoutMs=0 to exit loop immediately
-        await capturePlayback(page, mockPlayer(), baseCaptureConfig({ captureTimeoutMs: 1 }), '/tmp/test.mp4')
+        await capturePlayback(
+            page,
+            mockPlayer(),
+            mockAssetProxyObj(),
+            baseCaptureConfig({ captureTimeoutMs: 1 }),
+            '/tmp/test.mp4'
+        )
 
         // After overrideScreenshotFormat, page.createCDPSession should be replaced
         const session = await (page as any).createCDPSession()
@@ -108,7 +126,13 @@ describe('overrideScreenshotFormat', () => {
     it('passes non-beginFrame CDP calls through unchanged', async () => {
         const page = createMockPage()
 
-        await capturePlayback(page, mockPlayer(), baseCaptureConfig({ captureTimeoutMs: 1 }), '/tmp/test.mp4')
+        await capturePlayback(
+            page,
+            mockPlayer(),
+            mockAssetProxyObj(),
+            baseCaptureConfig({ captureTimeoutMs: 1 }),
+            '/tmp/test.mp4'
+        )
 
         const session = await (page as any).createCDPSession()
         await session.send('Page.navigate', { url: 'http://example.com' })
@@ -119,7 +143,13 @@ describe('overrideScreenshotFormat', () => {
     it('adds screenshot params even when beginFrame has no existing params', async () => {
         const page = createMockPage()
 
-        await capturePlayback(page, mockPlayer(), baseCaptureConfig({ captureTimeoutMs: 1 }), '/tmp/test.mp4')
+        await capturePlayback(
+            page,
+            mockPlayer(),
+            mockAssetProxyObj(),
+            baseCaptureConfig({ captureTimeoutMs: 1 }),
+            '/tmp/test.mp4'
+        )
 
         const session = await (page as any).createCDPSession()
         await session.send('HeadlessExperimental.beginFrame')
@@ -129,7 +159,7 @@ describe('overrideScreenshotFormat', () => {
         })
     })
 
-    it('does not override when config is png', async () => {
+    it('does not inject screenshot params when config is png', async () => {
         // Re-mock config with png
         const { config } = require('../config')
         const origFormat = config.screenshotFormat
@@ -137,12 +167,20 @@ describe('overrideScreenshotFormat', () => {
 
         try {
             const page = createMockPage()
-            const origCreateCDP = page.createCDPSession
 
-            await capturePlayback(page, mockPlayer(), baseCaptureConfig({ captureTimeoutMs: 1 }), '/tmp/test.mp4')
+            await capturePlayback(
+                page,
+                mockPlayer(),
+                mockAssetProxyObj(),
+                baseCaptureConfig({ captureTimeoutMs: 1 }),
+                '/tmp/test.mp4'
+            )
 
-            // createCDPSession should NOT have been wrapped
-            expect(page.createCDPSession).toBe(origCreateCDP)
+            const session = await (page as any).createCDPSession()
+            await session.send('HeadlessExperimental.beginFrame', { deadline: 1000 })
+
+            // When format is png, beginFrame should pass through without screenshot params
+            expect(originalSend).toHaveBeenCalledWith('HeadlessExperimental.beginFrame', { deadline: 1000 })
         } finally {
             config.screenshotFormat = origFormat
         }
