@@ -77,7 +77,8 @@ impl EvaluationMetadata {
 /// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]}`
 ///
 /// `evaluation_metadata` is always present in cache entries (written by Django).
-/// The PG fallback path constructs this struct directly with `Default::default()`.
+/// The PG fallback path constructs this struct with `EvaluationMetadata::single_stage()`,
+/// which places all flags in one evaluation stage with empty transitive deps.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
