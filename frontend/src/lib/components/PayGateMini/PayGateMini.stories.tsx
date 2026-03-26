@@ -9,7 +9,7 @@ import { AvailableFeature, Realm } from '~/types'
 import meCurrent from './__mocks__/@me.json'
 import { PayGateMini, PayGateMiniProps } from './PayGateMini'
 
-const meta: Meta<typeof PayGateMini> = {
+const meta: Meta<PayGateMiniProps> = {
     title: 'Components/Pay Gate Mini',
     component: PayGateMini,
     parameters: {

@@ -5,10 +5,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useStorybookMocks } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 
-import { Schemas } from './Schemas'
+import { Schemas, SchemasProps } from './Schemas'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof Schemas> = {
+type Story = StoryObj<SchemasProps>
+const meta: Meta<SchemasProps> = {
     title: 'Scenes-App/Data Warehouse/Settings/Schemas',
     component: Schemas,
     args: {

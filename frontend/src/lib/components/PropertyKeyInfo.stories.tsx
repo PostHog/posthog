@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { PropertyKeyInfo } from './PropertyKeyInfo'
+import { PropertyKeyInfo, PropertyKeyInfoProps } from './PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof PropertyKeyInfo> = {
+type Story = StoryObj<PropertyKeyInfoProps>
+const meta: Meta<PropertyKeyInfoProps> = {
     title: 'Components/Property Key Info',
-    component: PropertyKeyInfo,
+    component: PropertyKeyInfo as any,
     render: (args) => {
         return args.value ? (
             <PropertyKeyInfo {...args} />

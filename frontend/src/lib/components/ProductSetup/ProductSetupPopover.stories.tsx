@@ -8,9 +8,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { mswDecorator } from '~/mocks/browser'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ProductSetupPopover } from './ProductSetupPopover'
+import { ProductSetupPopover, ProductSetupPopoverProps } from './ProductSetupPopover'
 
-const meta: Meta<typeof ProductSetupPopover> = {
+const meta: Meta<ProductSetupPopoverProps> = {
     title: 'Components/ProductSetup/ProductSetupPopover',
     component: ProductSetupPopover,
     parameters: {

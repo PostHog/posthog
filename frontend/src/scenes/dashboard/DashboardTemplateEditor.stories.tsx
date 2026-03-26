@@ -1,9 +1,9 @@
 import { Meta } from '@storybook/react'
 
-import { DashboardTemplateEditor } from './DashboardTemplateEditor'
+import { DashboardTemplateEditor, DashboardTemplateEditorProps } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
-const meta: Meta<typeof DashboardTemplateEditor> = {
+const meta: Meta<DashboardTemplateEditorProps> = {
     title: 'Scenes-App/Dashboards',
     component: DashboardTemplateEditor,
     parameters: {

@@ -17,8 +17,9 @@ import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
+import { TaxonomicFilterProps } from './types'
 
-const meta: Meta<typeof TaxonomicFilter> = {
+const meta: Meta<TaxonomicFilterProps> = {
     title: 'Filters/Taxonomic Filter',
     component: TaxonomicFilter,
     decorators: [taxonomicFilterMocksDecorator],
@@ -35,7 +36,7 @@ const meta: Meta<typeof TaxonomicFilter> = {
 }
 export default meta
 
-export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const EventsFree: StoryFn<TaxonomicFilterProps> = (args) => {
     useMountedLogic(actionsModel)
 
     const { setIndex } = useActions(
@@ -68,7 +69,7 @@ EventsFree.parameters = {
     },
 }
 
-export const EventsPremium: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const EventsPremium: StoryFn<TaxonomicFilterProps> = (args) => {
     useAvailableFeatures([AvailableFeature.INGESTION_TAXONOMY])
     return <EventsFree {...args} />
 }
@@ -84,7 +85,7 @@ EventsPremium.parameters = {
     },
 }
 
-export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const Actions: StoryFn<TaxonomicFilterProps> = (args) => {
     useMountedLogic(actionsModel)
 
     const { setIndex } = useActions(
@@ -117,7 +118,7 @@ Actions.parameters = {
     },
 }
 
-export const Properties: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const Properties: StoryFn<TaxonomicFilterProps> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <TaxonomicFilter {...args} />
@@ -136,7 +137,7 @@ Properties.parameters = {
     },
 }
 
-export const NumericalProperties: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const NumericalProperties: StoryFn<TaxonomicFilterProps> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <TaxonomicFilter {...args} />
@@ -160,7 +161,7 @@ NumericalProperties.parameters = {
  * This story demonstrates the automatic columnar layout that's triggered when there are more than 4 group types.
  * The layout switches from horizontal tabs to a vertical/columnar layout to better organize the many categories.
  */
-export const Columnar: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const Columnar: StoryFn<TaxonomicFilterProps> = (args) => {
     useMountedLogic(actionsModel)
 
     const { setIndex } = useActions(
@@ -201,7 +202,7 @@ Columnar.parameters = {
  * This story demonstrates forcing the columnar/vertical layout even when there are fewer than 5 group types.
  * This is done by setting the `useVerticalLayout` prop to true.
  */
-export const ForceColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const ForceColumnar: StoryFn<TaxonomicFilterProps> = (args) => {
     useMountedLogic(actionsModel)
 
     const { setIndex } = useActions(
@@ -241,7 +242,7 @@ ForceColumnar.parameters = {
  * This story demonstrates forcing a horizontal layout even when there are many group types.
  * This is done by setting the `useVerticalLayout` prop to false.
  */
-export const ForceNonColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const ForceNonColumnar: StoryFn<TaxonomicFilterProps> = (args) => {
     useMountedLogic(actionsModel)
 
     const { setIndex } = useActions(
@@ -368,7 +369,7 @@ const SUGGESTED_FILTERS_PARAMETERS = {
     testOptions: { waitForSelector: '.taxonomic-infinite-list' },
 }
 
-export const SuggestedFiltersNoRecents: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const SuggestedFiltersNoRecents: StoryFn<TaxonomicFilterProps> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <SeedRecents count={0} />
@@ -382,7 +383,7 @@ SuggestedFiltersNoRecents.args = {
 }
 SuggestedFiltersNoRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
 
-export const SuggestedFiltersOneRecent: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const SuggestedFiltersOneRecent: StoryFn<TaxonomicFilterProps> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <SeedRecents count={1} />
@@ -396,7 +397,7 @@ SuggestedFiltersOneRecent.args = {
 }
 SuggestedFiltersOneRecent.parameters = SUGGESTED_FILTERS_PARAMETERS
 
-export const SuggestedFiltersFourRecents: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const SuggestedFiltersFourRecents: StoryFn<TaxonomicFilterProps> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <SeedRecents count={4} />
@@ -410,7 +411,7 @@ SuggestedFiltersFourRecents.args = {
 }
 SuggestedFiltersFourRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
 
-export const SuggestedFiltersFiveRecentsWithTruncation: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const SuggestedFiltersFiveRecentsWithTruncation: StoryFn<TaxonomicFilterProps> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <SeedRecents count={5} />
@@ -430,7 +431,7 @@ SuggestedFiltersFourRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
  * to the top of the group list (after SuggestedFilters and RecentFilters) regardless of
  * where they appear in the original taxonomicGroupTypes array.
  */
-export const PromotedGroupsAreReordered: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const PromotedGroupsAreReordered: StoryFn<TaxonomicFilterProps> = (args) => {
     useMountedLogic(actionsModel)
     const logicKey = args.taxonomicFilterLogicKey as string
     const { setSearchQuery } = useActions(taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey }))
@@ -468,7 +469,7 @@ PromotedGroupsAreReordered.parameters = {
     },
 }
 
-export const AutocaptureContextPromotesElements: StoryFn<typeof TaxonomicFilter> = (args) => {
+export const AutocaptureContextPromotesElements: StoryFn<TaxonomicFilterProps> = (args) => {
     useMountedLogic(actionsModel)
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">

@@ -3,9 +3,9 @@ import { useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ScrollableShadows } from './ScrollableShadows'
+import { ScrollableShadows, ScrollableShadowsProps } from './ScrollableShadows'
 
-const meta: Meta<typeof ScrollableShadows> = {
+const meta: Meta<ScrollableShadowsProps> = {
     title: 'Lemon UI/Scrollable Shadows',
     component: ScrollableShadows,
     tags: ['autodocs'],

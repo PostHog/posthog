@@ -88,7 +88,7 @@ const MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG: FeatureFlagType = {
     },
 }
 
-const meta: Meta<typeof CodeInstructions> = {
+const meta: Meta<CodeInstructionsProps> = {
     title: 'Scenes-App/Feature Flags/Code Examples',
     component: CodeInstructions,
     args: {

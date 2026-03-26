@@ -1,7 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import type { ComponentProps } from 'react'
 
-import { MessageSentimentBar, SentimentBar, SentimentTag } from './SentimentTag'
+import {
+    MessageSentimentBar,
+    MessageSentimentBarProps,
+    SentimentBar,
+    SentimentBarProps,
+    SentimentTag,
+    SentimentTagProps,
+} from './SentimentTag'
 
 const meta: Meta = {
     title: 'Scenes-App/LLM Analytics/Sentiment',
@@ -10,7 +16,7 @@ export default meta
 
 // -- SentimentTag --
 
-export const TagPositive: StoryObj<typeof SentimentTag> = {
+export const TagPositive: StoryObj<SentimentTagProps> = {
     render: (args) => <SentimentTag {...args} />,
     args: {
         label: 'positive',
@@ -19,7 +25,7 @@ export const TagPositive: StoryObj<typeof SentimentTag> = {
     },
 }
 
-export const TagNegative: StoryObj<typeof SentimentTag> = {
+export const TagNegative: StoryObj<SentimentTagProps> = {
     render: (args) => <SentimentTag {...args} />,
     args: {
         label: 'negative',
@@ -28,7 +34,7 @@ export const TagNegative: StoryObj<typeof SentimentTag> = {
     },
 }
 
-export const TagNeutral: StoryObj<typeof SentimentTag> = {
+export const TagNeutral: StoryObj<SentimentTagProps> = {
     render: (args) => <SentimentTag {...args} />,
     args: {
         label: 'neutral',
@@ -37,7 +43,7 @@ export const TagNeutral: StoryObj<typeof SentimentTag> = {
     },
 }
 
-export const TagLoading: StoryObj<typeof SentimentTag> = {
+export const TagLoading: StoryObj<SentimentTagProps> = {
     render: (args) => <SentimentTag {...args} />,
     args: {
         label: 'positive',
@@ -47,13 +53,13 @@ export const TagLoading: StoryObj<typeof SentimentTag> = {
 
 // -- SentimentBar --
 
-const renderSentimentBar = (args: ComponentProps<typeof SentimentBar>): JSX.Element => (
+const renderSentimentBar = (args: SentimentBarProps): JSX.Element => (
     <div className="w-80">
         <SentimentBar {...args} />
     </div>
 )
 
-export const BarPositive: StoryObj<typeof SentimentBar> = {
+export const BarPositive: StoryObj<SentimentBarProps> = {
     render: renderSentimentBar,
     args: {
         label: 'positive',
@@ -61,7 +67,7 @@ export const BarPositive: StoryObj<typeof SentimentBar> = {
     },
 }
 
-export const BarNegative: StoryObj<typeof SentimentBar> = {
+export const BarNegative: StoryObj<SentimentBarProps> = {
     render: renderSentimentBar,
     args: {
         label: 'negative',
@@ -69,7 +75,7 @@ export const BarNegative: StoryObj<typeof SentimentBar> = {
     },
 }
 
-export const BarNeutral: StoryObj<typeof SentimentBar> = {
+export const BarNeutral: StoryObj<SentimentBarProps> = {
     render: renderSentimentBar,
     args: {
         label: 'neutral',
@@ -77,7 +83,7 @@ export const BarNeutral: StoryObj<typeof SentimentBar> = {
     },
 }
 
-export const BarFullWidth: StoryObj<typeof SentimentBar> = {
+export const BarFullWidth: StoryObj<SentimentBarProps> = {
     render: renderSentimentBar,
     args: {
         label: 'positive',
@@ -86,7 +92,7 @@ export const BarFullWidth: StoryObj<typeof SentimentBar> = {
     },
 }
 
-export const BarWithTickMarks: StoryObj<typeof SentimentBar> = {
+export const BarWithTickMarks: StoryObj<SentimentBarProps> = {
     render: renderSentimentBar,
     args: {
         label: 'positive',
@@ -100,7 +106,7 @@ export const BarWithTickMarks: StoryObj<typeof SentimentBar> = {
     },
 }
 
-export const BarLoading: StoryObj<typeof SentimentBar> = {
+export const BarLoading: StoryObj<SentimentBarProps> = {
     render: renderSentimentBar,
     args: {
         label: 'positive',
@@ -108,7 +114,7 @@ export const BarLoading: StoryObj<typeof SentimentBar> = {
     },
 }
 
-export const BarLoadingFullWidth: StoryObj<typeof SentimentBar> = {
+export const BarLoadingFullWidth: StoryObj<SentimentBarProps> = {
     render: renderSentimentBar,
     args: {
         label: 'positive',
@@ -119,21 +125,21 @@ export const BarLoadingFullWidth: StoryObj<typeof SentimentBar> = {
 
 // -- MessageSentimentBar --
 
-export const MessageBarPositive: StoryObj<typeof MessageSentimentBar> = {
+export const MessageBarPositive: StoryObj<MessageSentimentBarProps> = {
     render: (args) => <MessageSentimentBar {...args} />,
     args: {
         sentiment: { label: 'positive', score: 0.9 },
     },
 }
 
-export const MessageBarNegative: StoryObj<typeof MessageSentimentBar> = {
+export const MessageBarNegative: StoryObj<MessageSentimentBarProps> = {
     render: (args) => <MessageSentimentBar {...args} />,
     args: {
         sentiment: { label: 'negative', score: 0.8 },
     },
 }
 
-export const MessageBarNeutral: StoryObj<typeof MessageSentimentBar> = {
+export const MessageBarNeutral: StoryObj<MessageSentimentBarProps> = {
     render: (args) => <MessageSentimentBar {...args} />,
     args: {
         sentiment: { label: 'neutral', score: 0.65 },

@@ -3,16 +3,16 @@ import { useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { LemonDrawer } from './LemonDrawer'
+import { LemonDrawer, LemonDrawerProps } from './LemonDrawer'
 
-const meta: Meta<typeof LemonDrawer> = {
+const meta: Meta<LemonDrawerProps> = {
     title: 'Lemon UI/Lemon Drawer',
     component: LemonDrawer,
     tags: ['autodocs'],
 }
 export default meta
 
-export const _LemonDrawer: StoryFn<typeof LemonDrawer> = () => {
+export const _LemonDrawer: StoryFn<LemonDrawerProps> = () => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <>
@@ -46,7 +46,7 @@ export const _LemonDrawer: StoryFn<typeof LemonDrawer> = () => {
     )
 }
 
-export const TransparentOverlay: StoryFn<typeof LemonDrawer> = () => {
+export const TransparentOverlay: StoryFn<LemonDrawerProps> = () => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <>
@@ -66,7 +66,7 @@ export const TransparentOverlay: StoryFn<typeof LemonDrawer> = () => {
     )
 }
 
-export const CustomWidth: StoryFn<typeof LemonDrawer> = () => {
+export const CustomWidth: StoryFn<LemonDrawerProps> = () => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <>
@@ -80,7 +80,7 @@ export const CustomWidth: StoryFn<typeof LemonDrawer> = () => {
     )
 }
 
-export const WithCustomContent: StoryFn<typeof LemonDrawer> = () => {
+export const WithCustomContent: StoryFn<LemonDrawerProps> = () => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <>

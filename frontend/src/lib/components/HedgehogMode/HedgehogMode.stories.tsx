@@ -7,9 +7,9 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { MinimalHedgehogConfig } from '~/types'
 
 import { HedgehogMode } from './HedgehogMode'
-import { HedgehogModeStatic } from './HedgehogModeStatic'
+import { HedgehogModeStatic, HedgehogModeStaticProps } from './HedgehogModeStatic'
 
-const meta: Meta<typeof HedgehogModeStatic> = {
+const meta: Meta<HedgehogModeStaticProps> = {
     title: 'Components/HedgehogMode',
     component: HedgehogModeStatic,
     tags: ['autodocs'],

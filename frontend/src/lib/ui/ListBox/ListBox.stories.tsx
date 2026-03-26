@@ -5,15 +5,15 @@ import { useRef, useState } from 'react'
 import { Link } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { ListBox, ListBoxHandle } from './ListBox'
+import { ListBox, ListBoxHandle, ListBoxProps } from './ListBox'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof ListBox> = {
+type Story = StoryObj<ListBoxProps>
+const meta: Meta<ListBoxProps> = {
     title: 'UI/List Box',
-    component: ListBox,
+    component: ListBox as any,
     args: {},
     tags: ['autodocs'],
-    render: (props: React.ComponentProps<typeof ListBox>) => {
+    render: (props) => {
         const [expandedItemIds, setExpandedItemIds] = useState<string[]>([])
         const ref = useRef<ListBoxHandle>(null)
 

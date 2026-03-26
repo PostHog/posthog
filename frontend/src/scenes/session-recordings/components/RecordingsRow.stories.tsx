@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
+import { RecordingRow, RecordingRowProps } from 'scenes/session-recordings/components/RecordingRow'
 
 import { SessionRecordingType } from '~/types'
 
@@ -29,7 +29,7 @@ function asRecording(param: Partial<SessionRecordingType>): SessionRecordingType
     }
 }
 
-const meta: Meta<typeof RecordingRow> = {
+const meta: Meta<RecordingRowProps> = {
     title: 'Home/RecordingRow',
     component: RecordingRow,
     parameters: {
@@ -40,7 +40,7 @@ const meta: Meta<typeof RecordingRow> = {
 }
 export default meta
 
-export const Default: StoryFn<typeof RecordingRow> = () => {
+export const Default: StoryFn<RecordingRowProps> = () => {
     const recordings = [
         { activity_score: 99 },
         { activity_score: 75 },

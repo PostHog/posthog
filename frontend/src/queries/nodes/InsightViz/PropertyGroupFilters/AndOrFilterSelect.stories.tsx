@@ -3,10 +3,10 @@ import { useState } from 'react'
 
 import { FilterLogicalOperator } from '~/types'
 
-import { AndOrFilterSelect } from './AndOrFilterSelect'
+import { AndOrFilterSelect, AndOrFilterSelectProps } from './AndOrFilterSelect'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof AndOrFilterSelect> = {
+type Story = StoryObj<AndOrFilterSelectProps>
+const meta: Meta<AndOrFilterSelectProps> = {
     title: 'Filters/PropertyGroupFilters (Data Exploration)/AndOrFilterSelect',
     component: AndOrFilterSelect,
     argTypes: {

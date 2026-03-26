@@ -7,8 +7,9 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { PropertyDefinitionType } from '~/types'
 
 import { PropertiesTable as PropertiesTableComponent } from '.'
+import { PropertiesTableProps } from './PropertiesTable'
 
-const meta: Meta<typeof PropertiesTableComponent> = {
+const meta: Meta<PropertiesTableProps> = {
     title: 'Components/Properties Table',
     component: PropertiesTableComponent,
 }

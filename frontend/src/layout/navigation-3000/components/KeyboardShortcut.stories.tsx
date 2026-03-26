@@ -3,9 +3,9 @@ import { Meta, StoryFn } from '@storybook/react'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from './KeyboardShortcut'
+import { KeyboardShortcut, KeyboardShortcutProps } from './KeyboardShortcut'
 
-const meta: Meta<typeof KeyboardShortcut> = {
+const meta: Meta<KeyboardShortcutProps> = {
     title: 'PostHog 3000/Keyboard Shortcut',
     component: KeyboardShortcut,
     tags: ['autodocs'],

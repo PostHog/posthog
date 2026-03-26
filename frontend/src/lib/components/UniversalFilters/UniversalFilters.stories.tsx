@@ -7,11 +7,11 @@ import { cohortsModel } from '~/models/cohortsModel'
 
 import { taxonomicFilterMocksDecorator } from '../TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import UniversalFilters from './UniversalFilters'
+import UniversalFilters, { UniversalFiltersProps } from './UniversalFilters'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER, universalFiltersLogic } from './universalFiltersLogic'
 import { isUniversalGroupFilterLike } from './utils'
 
-const meta: Meta<typeof UniversalFilters> = {
+const meta: Meta<UniversalFiltersProps> = {
     title: 'Filters/Universal Filters',
     component: UniversalFilters,
     decorators: [taxonomicFilterMocksDecorator],
@@ -47,7 +47,7 @@ const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
     )
 }
 
-export const Default: StoryFn<typeof UniversalFilters> = ({ group }) => {
+export const Default: StoryFn<UniversalFiltersProps> = ({ group }) => {
     const [filterGroup, setFilterGroup] = useState(group)
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)

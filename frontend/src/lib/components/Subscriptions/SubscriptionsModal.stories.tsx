@@ -12,7 +12,7 @@ import { AvailableFeature, InsightShortId, Realm } from '~/types'
 
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
-const meta: Meta<typeof SubscriptionsModal> = {
+const meta: Meta<SubscriptionsModalProps> = {
     title: 'Components/Subscriptions',
     component: SubscriptionsModal,
     parameters: {

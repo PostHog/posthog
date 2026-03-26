@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { ImageCarousel } from './ImageCarousel'
+import { ImageCarousel, ImageCarouselProps } from './ImageCarousel'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof ImageCarousel> = {
+type Story = StoryObj<ImageCarouselProps>
+const meta: Meta<ImageCarouselProps> = {
     title: 'Lemon UI/Image Carousel',
     component: ImageCarousel,
     tags: ['autodocs'],

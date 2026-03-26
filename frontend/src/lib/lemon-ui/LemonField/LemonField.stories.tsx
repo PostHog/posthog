@@ -4,10 +4,10 @@ import { Form, forms } from 'kea-forms'
 
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
-import { LemonField } from './LemonField'
+import { LemonField, LemonFieldProps } from './LemonField'
 import type { formLogicType } from './LemonField.storiesType'
 
-const meta: Meta<typeof LemonField> = {
+const meta: Meta<LemonFieldProps> = {
     title: 'Lemon UI/Lemon Field',
     component: LemonField,
     parameters: {

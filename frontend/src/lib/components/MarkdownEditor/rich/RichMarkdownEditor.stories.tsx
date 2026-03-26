@@ -9,7 +9,7 @@ import {
 } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import { RichMarkdownEditor } from './RichMarkdownEditor'
+import { RichMarkdownEditor, type RichMarkdownEditorProps } from './RichMarkdownEditor'
 
 /** Same stack as dashboard text cards: markdown round-trip + placeholder. */
 const TEXT_CARD_LIKE_EXTENSIONS = [
@@ -25,9 +25,9 @@ const storyDefaults = {
     dataAttr: 'story-rich-markdown-editor',
 }
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<RichMarkdownEditorProps>
 
-const meta: Meta<typeof RichMarkdownEditor> = {
+const meta: Meta<RichMarkdownEditorProps> = {
     title: 'Components/Markdown editor/Rich',
     component: RichMarkdownEditor,
     tags: ['autodocs'],

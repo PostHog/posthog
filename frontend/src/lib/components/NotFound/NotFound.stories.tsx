@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { NotFound } from './index'
+import { NotFound, NotFoundProps } from './index'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof NotFound> = {
+type Story = StoryObj<NotFoundProps>
+const meta: Meta<NotFoundProps> = {
     title: 'Components/Not Found',
     component: NotFound,
 }

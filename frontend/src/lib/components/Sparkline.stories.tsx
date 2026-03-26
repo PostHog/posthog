@@ -2,10 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
 
-import { AnyScaleOptions, Sparkline } from './Sparkline'
+import { AnyScaleOptions, Sparkline, SparklineProps } from './Sparkline'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof Sparkline> = {
+type Story = StoryObj<SparklineProps>
+const meta: Meta<SparklineProps> = {
     title: 'Components/Sparkline',
     component: Sparkline,
     render: (args) => {

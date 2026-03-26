@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay, LemonMenuOverlayProps } from 'lib/lemon-ui/LemonMenu'
 
 import { mswDecorator } from '~/mocks/browser'
 import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
@@ -54,7 +54,7 @@ const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; f
     },
 }
 
-const meta: Meta<typeof LemonMenuOverlay> = {
+const meta: Meta<LemonMenuOverlayProps> = {
     title: 'Scenes-App/Marketing Analytics/Cell Actions',
     component: LemonMenuOverlay,
     decorators: [

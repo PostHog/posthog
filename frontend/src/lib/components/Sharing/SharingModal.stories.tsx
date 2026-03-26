@@ -18,7 +18,7 @@ const fakeInsight: Partial<QueryBasedInsightModel> = {
     query: examples.InsightTrendsQuery,
 }
 
-const meta: Meta<typeof SharingModal> = {
+const meta: Meta<SharingModalProps> = {
     title: 'Components/Sharing',
     component: SharingModal,
     parameters: {

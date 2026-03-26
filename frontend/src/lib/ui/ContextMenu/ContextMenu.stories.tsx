@@ -16,13 +16,15 @@ import {
     ContextMenuTrigger,
 } from './ContextMenu'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof ContextMenu> = {
+type ContextMenuProps = React.ComponentProps<typeof ContextMenu>
+
+type Story = StoryObj<ContextMenuProps>
+const meta: Meta<ContextMenuProps> = {
     title: 'UI/Context Menu',
     component: ContextMenu,
     args: {},
     tags: ['autodocs'],
-    render: (props: React.ComponentProps<typeof ContextMenu>) => {
+    render: (props) => {
         return (
             <ContextMenu {...props}>
                 <ContextMenuTrigger className="flex h-[150px] w-[300px] items-center justify-center rounded-md border border-dashed text-sm">
