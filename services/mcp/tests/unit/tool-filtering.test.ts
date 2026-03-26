@@ -96,13 +96,13 @@ describe('Tool Filtering - Features', () => {
             }
         })
 
-        it('should not expose annotation list/get tools in v2', () => {
+        it('should expose all annotation tools in v2', () => {
             const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
 
             expect(tools).toContain('annotation-create')
             expect(tools).toContain('annotation-delete')
-            expect(tools).not.toContain('annotations-list')
-            expect(tools).not.toContain('annotation-retrieve')
+            expect(tools).toContain('annotations-list')
+            expect(tools).toContain('annotation-retrieve')
         })
     })
 })
