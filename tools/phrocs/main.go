@@ -65,17 +65,10 @@ func main() {
 		}
 	}
 
-	if configPath == "" {
-		if info, err := os.Stat("mprocs.yaml"); err == nil && info.Mode().IsRegular() {
-			configPath = "mprocs.yaml"
-		} else if os.IsNotExist(err) {
-			fmt.Fprintln(os.Stderr, "usage: phrocs [--debug] [--config <config.yaml>]")
-			fmt.Fprintln(os.Stderr, "       (or place an mprocs.yaml in the current directory)")
-			os.Exit(1)
-		} else {
-			fmt.Fprintf(os.Stderr, "phrocs: stat mprocs.yaml: %v\n", err)
-			os.Exit(1)
-		}
+	configPath, err := config.ResolveConfigPath(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
+		os.Exit(1)
 	}
 
 	cfg, err := config.Load(configPath)
