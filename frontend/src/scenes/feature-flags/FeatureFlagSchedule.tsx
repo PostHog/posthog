@@ -436,20 +436,28 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </div>
                         <div className="flex flex-col gap-1">
                             <label className="text-xs font-medium text-muted">
-                                {repeatsValue === 'cron' ? 'Next run' : 'Date and time'}
+                                {repeatsValue === 'cron' ? (
+                                    <Tooltip title="Time is computed from the cron expression">
+                                        <span>Next run</span>
+                                    </Tooltip>
+                                ) : (
+                                    'Date and time'
+                                )}
                             </label>
                             <LemonCalendarSelectInput
                                 value={scheduleDateMarker}
-                                onChange={(value) => setScheduleDateMarker(value)}
-                                placeholder={repeatsValue === 'cron' ? 'Computed from cron' : 'Select date'}
+                                onChange={(value) => {
+                                    setScheduleDateMarker(value)
+                                    if (repeatsValue === 'cron' && cronExpression && value) {
+                                        // Re-snap to the next cron match from the newly picked date
+                                        setCronExpression(cronExpression)
+                                    }
+                                }}
+                                placeholder="Select date"
                                 selectionPeriod="upcoming"
-                                granularity="minute"
-                                clearable={repeatsValue !== 'cron'}
-                                buttonProps={
-                                    repeatsValue === 'cron'
-                                        ? { disabledReason: 'Computed from the cron expression' }
-                                        : undefined
-                                }
+                                granularity={repeatsValue === 'cron' ? 'day' : 'minute'}
+                                format={repeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
+                                clearable
                             />
                         </div>
                         {supportsRecurring && (
