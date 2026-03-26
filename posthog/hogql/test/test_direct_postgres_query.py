@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.query import (
     HogQLQueryExecutor,
     LenientDirectPostgresDateLoader,
@@ -18,7 +19,6 @@ from posthog.hogql.query import (
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
-    quote_postgres_identifier,
 )
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
@@ -57,19 +57,19 @@ class TestDirectPostgresQuery(APIBaseTest):
     def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
         self.assertEqual(
             direct_postgres_session_setup_sql("ph3"),
-            'SET search_path TO "ph3"',
+            "SET search_path TO ph3",
         )
 
     def test_direct_postgres_session_setup_sql_uses_use_for_duckdb(self):
         self.assertEqual(
             direct_postgres_session_setup_sql("posthog", {"engine": "duckdb"}),
-            'USE "posthog"',
+            "USE posthog",
         )
 
     def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self):
         self.assertEqual(
             direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com"),
-            'USE "posthog"',
+            "USE posthog",
         )
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
@@ -636,7 +636,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         response = executor.execute()
 
         self.assertEqual(response.results, [(date(2026, 3, 26),)])
-        mocked_connection.execute.assert_called_once_with('USE "ph3"')
+        mocked_connection.execute.assert_called_once_with(
+            f"USE {escape_postgres_identifier(source.job_inputs['schema'])}"
+        )
         mocked_connection.adapters.register_loader.assert_any_call("date", LenientDirectPostgresDateLoader)
 
     @patch("posthog.hogql.query.capture_exception")
@@ -685,7 +687,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.columns, ["value"])
         self.assertIsNotNone(response.hogql)
         mocked_connection.execute.assert_called_once_with(
-            f"SET search_path TO {quote_postgres_identifier(source.job_inputs['schema'])}"
+            f"SET search_path TO {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
         mock_capture_exception.assert_not_called()

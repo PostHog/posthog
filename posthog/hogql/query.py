@@ -31,6 +31,7 @@ from posthog.hogql.direct_connection import (
     validate_direct_postgres_source_config,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -133,16 +134,12 @@ def postgres_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
-def quote_postgres_identifier(identifier: str) -> str:
-    return '"' + identifier.replace('"', '""') + '"'
-
-
 def direct_postgres_session_setup_sql(
     schema: str,
     connection_metadata: dict[str, object] | None = None,
     host: str | None = None,
 ) -> str:
-    quoted_schema = quote_postgres_identifier(schema)
+    quoted_schema = escape_postgres_identifier(schema)
     engine = connection_metadata.get("engine") if isinstance(connection_metadata, dict) else None
 
     if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
