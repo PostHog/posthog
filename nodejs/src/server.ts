@@ -170,9 +170,24 @@ export class PluginServer {
             }
 
             // 3. Ingestion-specific services (cookieless, group type, clickhouse groups)
+            // Producer creation blocks until the broker is reachable (rdkafka retries
+            // indefinitely), so the server will hang here if a broker is down.
             let ingestionServices: ReturnType<typeof this.createIngestionServices> | undefined
+            let ingestionOutputs: Awaited<ReturnType<typeof resolveIngestionOutputs>> | undefined
             if (needsIngestion) {
-                ingestionServices = this.createIngestionServices(teamManager, ingestionCdpServices!.groupRepository)
+                this.ingestionProducerRegistry = new KafkaProducerRegistry(
+                    this.config.KAFKA_CLIENT_RACK,
+                    PRODUCER_CONFIG_MAP
+                )
+                ingestionOutputs = await resolveIngestionOutputs(
+                    this.ingestionProducerRegistry,
+                    INGESTION_OUTPUT_DEFINITIONS
+                )
+                ingestionServices = this.createIngestionServices(
+                    teamManager,
+                    ingestionCdpServices!.groupRepository,
+                    ingestionOutputs
+                )
             }
 
             // 4. CDP + Logs services (posthog redis, quota limiting)
@@ -212,19 +227,6 @@ export class PluginServer {
                 : undefined
 
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
-
-            // Resolve ingestion outputs — producer creation blocks until the broker
-            // is reachable (rdkafka retries indefinitely), so the server will hang
-            // here if a broker is down and the pod never becomes healthy.
-            if (needsIngestion) {
-                this.ingestionProducerRegistry = new KafkaProducerRegistry(
-                    this.config.KAFKA_CLIENT_RACK,
-                    PRODUCER_CONFIG_MAP
-                )
-            }
-            const ingestionOutputs = this.ingestionProducerRegistry
-                ? await resolveIngestionOutputs(this.ingestionProducerRegistry, INGESTION_OUTPUT_DEFINITIONS)
-                : undefined
 
             if (capabilities.ingestionV2Combined) {
                 // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
@@ -633,7 +635,8 @@ export class PluginServer {
 
     private createIngestionServices(
         teamManager: TeamManager,
-        groupRepository: PostgresGroupRepository
+        groupRepository: PostgresGroupRepository,
+        outputs: IngestionConsumerDeps['outputs']
     ): {
         groupTypeManager: GroupTypeManager
         clickhouseGroupRepository: ClickhouseGroupRepository
@@ -648,7 +651,7 @@ export class PluginServer {
 
         this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
-        const clickhouseGroupRepository = new ClickhouseGroupRepository(this.kafkaProducer!)
+        const clickhouseGroupRepository = new ClickhouseGroupRepository(outputs)
 
         return { groupTypeManager, clickhouseGroupRepository }
     }
