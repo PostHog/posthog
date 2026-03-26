@@ -35,6 +35,7 @@ class Product(StrEnum):
     REPLAY = "replay"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
+    SIGNALS = "signals"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -349,6 +350,8 @@ _SOURCE_SKIP_PREFIXES: tuple[str, ...] = (
     os.path.join(_PROJECT_ROOT, "posthog", "clickhouse", "client") + os.sep,
     _THIS_FILE,
     os.path.join(_PROJECT_ROOT, "posthog", "hogql", "query.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql_queries", "insights", "paginators.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "queries", "insight.py"),
     os.path.join(_PROJECT_ROOT, "posthog", "utils.py"),
 )
 

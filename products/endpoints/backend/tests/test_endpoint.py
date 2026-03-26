@@ -13,10 +13,10 @@ from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version

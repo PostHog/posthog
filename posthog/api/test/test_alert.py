@@ -13,9 +13,9 @@ from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
