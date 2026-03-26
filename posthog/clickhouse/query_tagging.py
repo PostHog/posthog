@@ -39,17 +39,24 @@ class Product(StrEnum):
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
+    INTERNAL = "internal"  # for internal use only
+
 
 class Feature(StrEnum):
+    BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
-    QUERY = "query"
+    QUERY = "query"  # user-facing queries only
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    PREAGGREGATION = "preaggregation"
+    DATA_DELETION = "data_deletion"
+    SCHEMA_INTROSPECTION = "schema_introspection"
+    USAGE_REPORT = "usage_report"
 
 
 class TemporalTags(BaseModel):

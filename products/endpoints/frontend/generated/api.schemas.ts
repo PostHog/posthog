@@ -846,6 +846,11 @@ export interface HogQLQueryApi {
     name?: string | null
     query: string
     response?: HogQLQueryResponseApi | null
+    /**
+     * Run the selected connection query directly without translating it through HogQL first
+     * @nullable
+     */
+    sendRawQuery?: boolean | null
     tags?: QueryLogTagsApi | null
     /**
      * Constant values that can be referenced with the {placeholder} syntax in the query

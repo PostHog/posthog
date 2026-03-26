@@ -43,7 +43,7 @@ tools:
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/workflow-list.html
     hog-flows-create:
         operation: hog_flows_create
@@ -62,7 +62,7 @@ tools:
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
             condition, and variables.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/workflow.html
     hog-flows-update:
         operation: hog_flows_update
