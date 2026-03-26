@@ -119,15 +119,28 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                         placeholder="Auto-generated from name"
                         data-attr="duplicate-experiment-flag-key"
                     />
-                    <div className="text-xs text-muted mt-1">
-                        {flagKey
-                            ? isExistingFlag
+                    {flagKey && (
+                        <div className="text-xs text-muted mt-1">
+                            {isExistingFlag
                                 ? flagKey === experiment.feature_flag?.key
                                     ? 'This experiment will reuse the same flag as the original'
                                     : 'This experiment will use an existing flag'
-                                : 'A new flag will be created with this key'
-                            : 'Type an experiment name above to fill this automatically, or enter a custom key'}
-                    </div>
+                                : 'A new flag will be created with this key'}
+                        </div>
+                    )}
+                    {isExistingFlag &&
+                        (getExperimentStatus(experiment) === ExperimentStatus.Running ? (
+                            <LemonBanner type="warning" className="mt-2">
+                                This experiment is still running. Reusing its flag in a new experiment will cause data
+                                contamination, since both will count the same exposures and events. To re-run this
+                                experiment, use {resetAnalysisLink} instead.
+                            </LemonBanner>
+                        ) : (
+                            <LemonBanner type="info" className="mt-2">
+                                Each experiment should have its own flag to avoid data contamination. To re-run an
+                                experiment with the same flag, use {resetAnalysisLink} instead.
+                            </LemonBanner>
+                        ))}
                 </div>
 
                 {!showReuseFlag ? (
@@ -156,20 +169,6 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                                 Select
                             </LemonButton>
                         </div>
-                        {flagKey === experiment.feature_flag?.key &&
-                            (getExperimentStatus(experiment) === ExperimentStatus.Running ? (
-                                <LemonBanner type="warning" className="mb-3">
-                                    This experiment is still running. Reusing its flag in a new experiment will cause
-                                    data contamination, since both will count the same exposures and events. To re-run
-                                    this experiment, use {resetAnalysisLink} instead.
-                                </LemonBanner>
-                            ) : (
-                                <LemonBanner type="info" className="mb-3">
-                                    Each experiment should have its own flag to avoid data contamination. To re-run an
-                                    experiment with the same flag, use {resetAnalysisLink} instead.
-                                </LemonBanner>
-                            ))}
-
                         <div className="font-semibold mb-2">Choose an existing flag</div>
                         <FeatureFlagFiltersSection
                             filters={featureFlagModalFilters}
