@@ -1,12 +1,5 @@
 from rest_framework import serializers
 
-from products.notifications.backend.facade.enums import NotificationType, Priority
-
-
-class SendTestNotificationSerializer(serializers.Serializer):
-    notification_type = serializers.ChoiceField(choices=[(t.value, t.name) for t in NotificationType])
-    priority = serializers.ChoiceField(choices=[(p.value, p.name) for p in Priority], default=Priority.NORMAL.value)
-
 
 class NotificationEventSerializer(serializers.Serializer):
     id = serializers.UUIDField()

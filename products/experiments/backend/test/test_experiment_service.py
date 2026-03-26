@@ -1751,7 +1751,7 @@ class TestExperimentService(APIBaseTest):
         assert result["count"] == 2
         assert [flag.key for flag in result["results"]] == ["search-beta"]
 
-    def test_get_eligible_feature_flags_filters_by_evaluation_tags(self) -> None:
+    def test_get_eligible_feature_flags_filters_by_evaluation_contexts(self) -> None:
         flag_with_tags = self._create_flag(key="flag-with-tags")
         self._create_flag(key="flag-without-tags")
         evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
@@ -1759,8 +1759,8 @@ class TestExperimentService(APIBaseTest):
 
         service = self._service()
 
-        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_tags="true", order="key")
-        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_tags="false", order="key")
+        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_contexts="true", order="key")
+        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_contexts="false", order="key")
 
         assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
         assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
