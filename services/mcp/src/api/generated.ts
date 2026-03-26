@@ -17976,6 +17976,21 @@ export namespace Schemas {
     }
 
     /**
+     * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+     * @nullable
+     */
+    export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null | null;
+
+    export interface MaterializationPreviewRequest {
+      version?: number;
+      /**
+       * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+       * @nullable
+       */
+      bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
+    }
+
+    /**
      * * `1` - event
     * `2` - person
     * `3` - group
