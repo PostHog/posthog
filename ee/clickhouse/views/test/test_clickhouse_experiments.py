@@ -3753,6 +3753,52 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_end_experiment_endpoint(self):
+        data = self._create_running_experiment(name="End Endpoint", flag_key="end-endpoint-flag")
+        experiment_id = data["id"]
+
+        end_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            {"conclusion": "won", "conclusion_comment": "Test variant won"},
+            format="json",
+        )
+        self.assertEqual(end_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(end_response.json()["status"], "stopped")
+        self.assertIsNotNone(end_response.json()["end_date"])
+        self.assertEqual(end_response.json()["conclusion"], "won")
+        self.assertEqual(end_response.json()["conclusion_comment"], "Test variant won")
+        # Flag should remain active
+        self.assertTrue(end_response.json()["feature_flag"]["active"])
+
+    def test_end_experiment_invalid_conclusion_returns_400(self):
+        data = self._create_running_experiment(name="End Invalid Conclusion", flag_key="end-invalid-conclusion-flag")
+        experiment_id = data["id"]
+
+        end_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            {"conclusion": "amazing"},
+            format="json",
+        )
+        self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_end_experiment_draft_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "End Draft",
+                "feature_flag_key": "end-draft-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        end_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            format="json",
+        )
+        self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):

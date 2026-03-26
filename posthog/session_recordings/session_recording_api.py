@@ -64,7 +64,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SharingAccessTokenAuthentication,
 )
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
@@ -728,7 +728,7 @@ class SessionRecordingViewSet(
         return super().get_throttles()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         user_distinct_id = cast(User, request.user).distinct_id
         auth_type = _request_auth_type(request)
 
@@ -804,7 +804,7 @@ class SessionRecordingViewSet(
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
 
@@ -841,7 +841,7 @@ class SessionRecordingViewSet(
     )
     @action(methods=["GET"], detail=True)
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         recording: SessionRecording = self.get_object()
 
         if not request.user.is_anonymous:
@@ -855,7 +855,7 @@ class SessionRecordingViewSet(
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
 
         with tracer.start_as_current_span("retrieve_recording", kind=trace.SpanKind.SERVER):
             with tracer.start_as_current_span("get_recording_object"):
@@ -882,7 +882,7 @@ class SessionRecordingViewSet(
                 return Response(serializer.data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         recording = self.get_object()
         loaded = recording.load_metadata()
 
@@ -1156,7 +1156,7 @@ class SessionRecordingViewSet(
         And then once for each source in the returned list to get the actual snapshots.
         """
 
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         timer = ServerTimingsGathered()
 
         with timer("get_recording"):
@@ -1421,7 +1421,7 @@ class SessionRecordingViewSet(
     def summarize(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
 
         user = cast(User, request.user)
 

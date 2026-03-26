@@ -43,7 +43,6 @@ env:
     # Database names passed to the plugins Docker service via env var substitution
     POSTHOG_DB_NAME: posthog_e2e_test
     POSTHOG_PERSONS_DB_NAME: posthog_persons_e2e_test
-    PLUGIN_SERVER_MODE: ingestion-v2
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -376,13 +375,32 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
+            - name: Resolve Node.js container image tag
+              id: node-image
+              run: |
+                  # ci-nodejs-container.yml tags images as pr-<number> for PRs
+                  if [ -n "${{ github.event.pull_request.number }}" ]; then
+                    TAG="pr-${{ github.event.pull_request.number }}"
+                  else
+                    TAG="${{ github.sha }}"
+                  fi
+                  if docker manifest inspect "ghcr.io/posthog/posthog-node:${TAG}" > /dev/null 2>&1; then
+                    echo "posthog-node image found: ${TAG}"
+                    echo "POSTHOG_NODE_TAG=${TAG}" >> "$GITHUB_ENV"
+                  else
+                    echo "posthog-node image not found for ${TAG}, using master"
+                    echo "POSTHOG_NODE_TAG=master" >> "$GITHUB_ENV"
+                  fi
+
             - name: Start PostHog web, Celery worker & ingestion
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
-                  # Start the Node.js ingestion container now that the database exists and migrations have run.
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins
+                  # Start the Node.js containers now that the database exists and migrations have run.
+                  # plugins: CDP, recordings, logs, error tracking (no mode = default capabilities)
+                  # ingestion-general: event ingestion (ingestion-v2-combined mode)
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -396,11 +414,11 @@ jobs:
                   interval: 2000
                   verbose: true
 
-            - name: Wait for ingestion service to be ready
+            - name: Wait for node services to be ready
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins
+              run: bin/ci-wait-for-docker wait plugins ingestion-general
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -505,6 +523,7 @@ jobs:
                   docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
                   docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
                   docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
+                  docker logs posthog-ingestion-general-1 > playwright/test-results/docker-ingestion-general.log 2>&1 || echo "No ingestion-general container" > playwright/test-results/docker-ingestion-general.log
 
             - name: Archive test artifacts
               if: always()
