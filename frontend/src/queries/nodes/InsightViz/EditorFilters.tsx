@@ -279,11 +279,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: editorPanelsEnabled
-                ? isFunnels
-                    ? 'Funnel settings'
-                    : isPaths
-                      ? 'Path settings'
-                      : 'Advanced options'
+                ? (isFunnels && 'Funnel settings') || (isPaths && 'Path settings') || 'Advanced options'
                 : 'Advanced options',
             ...(editorPanelsEnabled ? { defaultExpanded: false } : {}),
             editorFilters: filterFalsy([
@@ -483,25 +479,14 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             : null,
     ].filter((group): group is InsightEditorFilterGroup => group !== null)
 
+    const nonEmpty = (groups: InsightEditorFilterGroup[]): InsightEditorFilterGroup[] =>
+        groups.filter((g) => g.editorFilters.length > 0)
+
     const filterGroupsGroups = editorPanelsEnabled
-        ? [
-              {
-                  title: 'single',
-                  editorFilterGroups: [
-                      ...leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
-                      ...rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
-                  ],
-              },
-          ]
+        ? [{ title: 'single', editorFilterGroups: nonEmpty([...leftEditorFilterGroups, ...rightEditorFilterGroups]) }]
         : [
-              {
-                  title: 'left',
-                  editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
-              },
-              {
-                  title: 'right',
-                  editorFilterGroups: rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
-              },
+              { title: 'left', editorFilterGroups: nonEmpty(leftEditorFilterGroups) },
+              { title: 'right', editorFilterGroups: nonEmpty(rightEditorFilterGroups) },
           ]
 
     const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon

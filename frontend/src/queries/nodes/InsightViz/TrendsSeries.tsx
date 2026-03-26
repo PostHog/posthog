@@ -128,13 +128,7 @@ export function TrendsSeries(): JSX.Element | null {
                     }
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                buttonCopy={
-                    editorPanelsEnabled
-                        ? hasFormula
-                            ? 'Variable'
-                            : 'Series'
-                        : `Add graph ${hasFormula ? 'variable' : 'series'}`
-                }
+                buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
