@@ -676,6 +676,7 @@ function getFiltersSummary(properties: AnyPropertyFilter[] | PropertyGroupFilter
 function getBreakdownSummary(
     breakdownFilter: {
         breakdown?: string | number | (string | number)[] | null
+        breakdown_type?: string | null
         breakdowns?: { property?: string }[]
     } | null
 ): string | null {
@@ -689,7 +690,12 @@ function getBreakdownSummary(
     }
     if (breakdownFilter.breakdown) {
         const bd = breakdownFilter.breakdown
-        return Array.isArray(bd) ? bd.join(', ') : String(bd)
+        if (typeof bd === 'string') {
+            return bd
+        }
+        // Numeric values (e.g. cohort IDs) aren't meaningful to display
+        const count = Array.isArray(bd) ? bd.length : 1
+        return pluralize(count, 'breakdown')
     }
     return null
 }
