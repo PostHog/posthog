@@ -8,10 +8,7 @@ use tracing::Level;
 
 use crate::v1::context::Context;
 
-use crate::v1::analytics::header::{
-    ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS, WWW_AUTHENTICATE_INVALID,
-    WWW_AUTHENTICATE_MISSING,
-};
+use crate::v1::analytics::header::{ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS};
 
 const ERROR_METRIC_KEY: &str = "capture_v1_analytics_error";
 const CAPTURE_V1_UNKNOWN_PATH: &str = "unknown";
@@ -68,8 +65,6 @@ pub enum Error {
     MalformedEventProperties,
 
     // 401 - authentication_error
-    #[error("request is missing an API token")]
-    MissingApiToken,
     #[error("API token is not valid: {0}")]
     InvalidApiToken(String),
 
@@ -94,8 +89,6 @@ pub enum Error {
     BillingLimitExceeded,
     #[error("rate limited: {0}")]
     RateLimited(String),
-    #[error("event rate limited: {0}")]
-    RateLimitedEvent(String),
 
     // 500 - server_error
     #[error("internal server error: {0}")]
@@ -130,14 +123,12 @@ impl Error {
             Self::MalformedEventProperties => "malformed_event_properties",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
-            Self::MissingApiToken => "missing_api_token",
             Self::InvalidApiToken(_) => "invalid_api_token",
             Self::PayloadTooLarge(_) => "payload_too_large",
             Self::UnsupportedContentType(_) => "unsupported_content_type",
             Self::UnsupportedEncoding(_) => "unsupported_encoding",
             Self::BillingLimitExceeded => "billing_limit_exceeded",
             Self::RateLimited(_) => "rate_limited",
-            Self::RateLimitedEvent(_) => "rate_limited_event",
             Self::InternalError(_) => "internal_error",
             Self::ServiceUnavailable(_) => "service_unavailable",
             Self::GatewayTimeout => "gateway_timeout",
@@ -150,7 +141,6 @@ impl Error {
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
             Self::RateLimited(_) => "Rate limit exceeded.".to_string(),
-            Self::RateLimitedEvent(_) => "Distinct ID rate limit exceeded.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
                 .canonical_reason()
@@ -184,14 +174,12 @@ impl Error {
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
             | Self::RequestTimeout
-            | Self::MissingApiToken
             | Self::InvalidApiToken(_)
             | Self::PayloadTooLarge(_)
             | Self::UnsupportedContentType(_)
             | Self::UnsupportedEncoding(_)
             | Self::BillingLimitExceeded
-            | Self::RateLimited(_)
-            | Self::RateLimitedEvent(_) => Level::WARN,
+            | Self::RateLimited(_) => Level::WARN,
 
             // body read timeout: error-level despite being 4xx
             Self::BodyReadTimeout(_) => Level::ERROR,
@@ -245,7 +233,7 @@ impl Error {
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
-            Self::MissingApiToken | Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
+            Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
 
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
 
@@ -253,9 +241,7 @@ impl Error {
                 StatusCode::UNSUPPORTED_MEDIA_TYPE
             }
 
-            Self::BillingLimitExceeded | Self::RateLimited(_) | Self::RateLimitedEvent(_) => {
-                StatusCode::TOO_MANY_REQUESTS
-            }
+            Self::BillingLimitExceeded | Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
 
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
@@ -271,13 +257,7 @@ impl Error {
         headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
         match self {
-            Self::MissingApiToken => {
-                headers.insert(header::WWW_AUTHENTICATE, WWW_AUTHENTICATE_MISSING);
-            }
-            Self::InvalidApiToken(_) => {
-                headers.insert(header::WWW_AUTHENTICATE, WWW_AUTHENTICATE_INVALID);
-            }
-            Self::BillingLimitExceeded | Self::RateLimited(_) | Self::RateLimitedEvent(_) => {
+            Self::BillingLimitExceeded | Self::RateLimited(_) => {
                 headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
             }
             Self::InternalError(_) | Self::ServiceUnavailable(_) => {
