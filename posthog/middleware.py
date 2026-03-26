@@ -2,6 +2,7 @@ import re
 import json
 import time
 import uuid
+import posixpath
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -750,7 +751,8 @@ class OAuthCoopMiddleware:
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         elif request.path == "/login" or request.path == "/login/":
             next_url = request.GET.get("next", "")
-            if any(next_url.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
+            normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
+            if any(normalized.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
                 response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
