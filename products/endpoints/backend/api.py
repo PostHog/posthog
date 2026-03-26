@@ -1151,12 +1151,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def _get_materialized_variables(self, version: EndpointVersion) -> builtins.list:
         """Return the materializable variable infos for an endpoint query."""
-        if not version.query or not version.query.get("variables"):
+        query = version.query
+        if not query or not query.get("variables"):
             return []
 
         try:
             can_materialize, _, variable_infos = analyze_variables_for_materialization(
-                version.query, bucket_overrides=version.bucket_overrides
+                query, bucket_overrides=version.bucket_overrides
             )
             return variable_infos if can_materialize else []
         except Exception:
