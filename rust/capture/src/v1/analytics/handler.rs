@@ -11,6 +11,8 @@ use crate::global_rate_limiter::GlobalRateLimitKey;
 use crate::v1::context::Context;
 use crate::{log_stat_error, router, v1};
 
+pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
+
 pub async fn handle_request(
     state: State<router::State>,
     headers: HeaderMap,
@@ -64,18 +66,7 @@ pub async fn handle_request(
     }
 
     if let Some(ref limiter) = state.global_rate_limiter_token {
-        let cache_key = GlobalRateLimitKey::Token(&context.api_token).to_cache_key();
-        if let Some(limited) = limiter
-            .is_limited(&cache_key, batch.batch.len() as u64)
-            .await
-        {
-            let err = v1::Error::RateLimited(format!(
-                "token rate limit exceeded (count={}, threshold={}, interval={:?})",
-                limited.current_count as u64, limited.threshold, limited.window_interval,
-            ));
-            log_stat_error!(err, ctx = &context);
-            return Err(err);
-        }
+        check_token_rate_limit(limiter, &context, batch.batch.len() as u64).await?;
     }
 
     match super::process::process_batch(&state, &mut context, batch).await {
@@ -119,6 +110,42 @@ fn log_and_return_header_error(
         path = %path.as_str(),
     );
     err
+}
+
+async fn check_token_rate_limit(
+    limiter: &crate::global_rate_limiter::GlobalRateLimiter,
+    context: &Context,
+    event_count: u64,
+) -> Result<(), v1::Error> {
+    let cache_key = GlobalRateLimitKey::Token(&context.api_token).to_cache_key();
+    if let Some(limited) = limiter.is_limited(&cache_key, event_count).await {
+        metrics::counter!(
+            CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token",
+            "outcome" => "limited",
+        )
+        .increment(1);
+        tracing::warn!(
+            token = %context.api_token,
+            request_id = %context.request_id,
+            sdk_info = %context.sdk_info,
+            count = limited.current_count as u64,
+            threshold = limited.threshold,
+            interval = ?limited.window_interval,
+            "token rate limit exceeded"
+        );
+        Err(v1::Error::RateLimited(
+            "token rate limit exceeded".to_string(),
+        ))
+    } else {
+        metrics::counter!(
+            CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token",
+            "outcome" => "allowed",
+        )
+        .increment(1);
+        Ok(())
+    }
 }
 
 fn raw_header_str<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {

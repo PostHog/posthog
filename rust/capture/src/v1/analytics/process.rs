@@ -42,7 +42,7 @@ pub async fn process_batch(
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
 
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-        apply_token_distinct_id_limits(limiter, &context.api_token, &mut events).await;
+        apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
 
     unimplemented!()
@@ -266,26 +266,69 @@ async fn apply_restrictions(
     }
 }
 
-const CAPTURE_V1_EVENTS_RATE_LIMITED: &str = "capture_v1_events_rate_limited";
-
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
-    token: &str,
+    context: &Context,
     events: &mut [WrappedEvent],
 ) {
+    let mut limited_distinct_ids: Vec<&str> = Vec::new();
+    let mut allowed_count: u64 = 0;
+
     for event in events.iter_mut() {
         if event.result != EventResult::Ok {
             continue;
         }
-        let cache_key =
-            GlobalRateLimitKey::TokenDistinctId(token, &event.event.metadata.distinct_id)
-                .to_cache_key();
+        let cache_key = GlobalRateLimitKey::TokenDistinctId(
+            &context.api_token,
+            &event.event.metadata.distinct_id,
+        )
+        .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
             event.result = EventResult::Limited;
             event.destination = Destination::Drop;
-            metrics::counter!(CAPTURE_V1_EVENTS_RATE_LIMITED, "reason" => "token_distinct_id")
-                .increment(1);
+            event.details = Some("event rate limited by distinct_id");
+            let did = event.event.metadata.distinct_id.as_str();
+            if !limited_distinct_ids.contains(&did) {
+                limited_distinct_ids.push(did);
+            }
+        } else {
+            allowed_count += 1;
         }
+    }
+
+    if allowed_count > 0 {
+        metrics::counter!(
+            super::handler::CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token_distinct_id",
+            "outcome" => "allowed",
+        )
+        .increment(allowed_count);
+    }
+
+    if !limited_distinct_ids.is_empty() {
+        let limited_count = limited_distinct_ids.len();
+        let preview: String = if limited_distinct_ids.len() > 10 {
+            let first_ten: Vec<&str> = limited_distinct_ids[..10].to_vec();
+            format!("{}...", first_ten.join(", "))
+        } else {
+            limited_distinct_ids.join(", ")
+        };
+
+        metrics::counter!(
+            super::handler::CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token_distinct_id",
+            "outcome" => "limited",
+        )
+        .increment(limited_count as u64);
+
+        tracing::warn!(
+            token = %context.api_token,
+            request_id = %context.request_id,
+            sdk_info = %context.sdk_info,
+            limited_count = limited_count,
+            distinct_ids = %preview,
+            "events rate limited by distinct_id"
+        );
     }
 }
 
@@ -993,59 +1036,74 @@ mod tests {
         GlobalRateLimiter::new_with(MockLimiter::new(keys))
     }
 
+    fn td_context() -> Context {
+        let mut ctx = test_context(false);
+        ctx.api_token = "phc_tok".to_string();
+        ctx
+    }
+
     #[tokio::test]
     async fn td_limits_under_limit_all_pass() {
         let limiter = mock_limiter(vec![]);
+        let ctx = td_context();
         let mut events = vec![
             wrapped_event(0, "$pageview", "user-1"),
             wrapped_event(1, "$identify", "user-2"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(events[0].details.is_none());
         assert_eq!(events[1].result, EventResult::Ok);
         assert_eq!(events[1].destination, Destination::AnalyticsMain);
+        assert!(events[1].details.is_none());
     }
 
     #[tokio::test]
     async fn td_limits_one_distinct_id_over_limit() {
         let limiter = mock_limiter(vec!["phc_tok:user-2"]);
+        let ctx = td_context();
         let mut events = vec![
             wrapped_event(0, "$pageview", "user-1"),
             wrapped_event(1, "$identify", "user-2"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(events[0].details.is_none());
         assert_eq!(events[1].result, EventResult::Limited);
         assert_eq!(events[1].destination, Destination::Drop);
+        assert_eq!(events[1].details, Some("event rate limited by distinct_id"));
     }
 
     #[tokio::test]
     async fn td_limits_skips_already_invalid_events() {
         let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let ctx = td_context();
         let mut events = vec![malformed_wrapped_event(0)];
 
-        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::default());
+        assert!(events[0].details.is_some());
     }
 
     #[tokio::test]
     async fn td_limits_multiple_events_same_distinct_id_all_limited() {
         let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let ctx = td_context();
         let mut events = vec![
             wrapped_event(0, "$pageview", "user-1"),
             wrapped_event(1, "$identify", "user-1"),
             wrapped_event(2, "$click", "user-1"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         for (i, event) in events.iter().enumerate() {
             assert_eq!(
@@ -1058,12 +1116,18 @@ mod tests {
                 Destination::Drop,
                 "event {i} should be Drop"
             );
+            assert_eq!(
+                event.details,
+                Some("event rate limited by distinct_id"),
+                "event {i} should have details"
+            );
         }
     }
 
     #[tokio::test]
     async fn td_limits_mixed_valid_and_pre_dropped_events() {
         let limiter = mock_limiter(vec!["phc_tok:user-2"]);
+        let ctx = td_context();
         let mut events = vec![
             wrapped_event(0, "$pageview", "user-1"),
             wrapped_event(1, "$identify", "user-2"),
@@ -1072,7 +1136,7 @@ mod tests {
         events[0].result = EventResult::Drop;
         events[0].destination = Destination::Drop;
 
-        apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         // Event 0 untouched (was already Drop)
         assert_eq!(events[0].result, EventResult::Drop);
@@ -1080,6 +1144,7 @@ mod tests {
         // Event 1 rate-limited
         assert_eq!(events[1].result, EventResult::Limited);
         assert_eq!(events[1].destination, Destination::Drop);
+        assert_eq!(events[1].details, Some("event rate limited by distinct_id"));
     }
 
     // --- apply_historical_rerouting ---

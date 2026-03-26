@@ -6,12 +6,15 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::Level;
 
+use crate::v1::context::Context;
+
 use crate::v1::analytics::header::{
     ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS, WWW_AUTHENTICATE_INVALID,
     WWW_AUTHENTICATE_MISSING,
 };
 
 const ERROR_METRIC_KEY: &str = "capture_v1_analytics_error";
+const CAPTURE_V1_UNKNOWN_PATH: &str = "unknown";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorResponse {
@@ -91,6 +94,8 @@ pub enum Error {
     BillingLimitExceeded,
     #[error("rate limited: {0}")]
     RateLimited(String),
+    #[error("event rate limited: {0}")]
+    RateLimitedEvent(String),
 
     // 500 - server_error
     #[error("internal server error: {0}")]
@@ -132,6 +137,7 @@ impl Error {
             Self::UnsupportedEncoding(_) => "unsupported_encoding",
             Self::BillingLimitExceeded => "billing_limit_exceeded",
             Self::RateLimited(_) => "rate_limited",
+            Self::RateLimitedEvent(_) => "rate_limited_event",
             Self::InternalError(_) => "internal_error",
             Self::ServiceUnavailable(_) => "service_unavailable",
             Self::GatewayTimeout => "gateway_timeout",
@@ -142,10 +148,9 @@ impl Error {
         match self {
             Self::RequestDecodingError(_) => "Failed to decode request body.".to_string(),
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
-            Self::InvalidApiToken(_) => {
-                "The provided API token is not valid or has been revoked.".to_string()
-            }
+            Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
             Self::RateLimited(_) => "Rate limit exceeded.".to_string(),
+            Self::RateLimitedEvent(_) => "Distinct ID rate limit exceeded.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
                 .canonical_reason()
@@ -185,7 +190,8 @@ impl Error {
             | Self::UnsupportedContentType(_)
             | Self::UnsupportedEncoding(_)
             | Self::BillingLimitExceeded
-            | Self::RateLimited(_) => Level::WARN,
+            | Self::RateLimited(_)
+            | Self::RateLimitedEvent(_) => Level::WARN,
 
             // body read timeout: error-level despite being 4xx
             Self::BodyReadTimeout(_) => Level::ERROR,
@@ -204,9 +210,19 @@ impl Error {
         }
     }
 
-    pub(crate) fn stat_error(&self) {
-        let tags = [("error", self.tag()), ("level", self.level_tag())];
-        counter!(ERROR_METRIC_KEY, &tags).increment(1);
+    pub(crate) fn stat_error(&self, ctx: Option<&Context>) {
+        let path = ctx
+            .map(|c| c.path.clone())
+            .unwrap_or_else(|| CAPTURE_V1_UNKNOWN_PATH.to_owned());
+        let status = self.status_code().as_str().to_owned();
+        counter!(
+            ERROR_METRIC_KEY,
+            "error" => self.tag(),
+            "level" => self.level_tag(),
+            "path" => path,
+            "status_code" => status,
+        )
+        .increment(1);
     }
 
     pub fn status_code(&self) -> StatusCode {
@@ -237,7 +253,9 @@ impl Error {
                 StatusCode::UNSUPPORTED_MEDIA_TYPE
             }
 
-            Self::BillingLimitExceeded | Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
+            Self::BillingLimitExceeded | Self::RateLimited(_) | Self::RateLimitedEvent(_) => {
+                StatusCode::TOO_MANY_REQUESTS
+            }
 
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
@@ -259,7 +277,7 @@ impl Error {
             Self::InvalidApiToken(_) => {
                 headers.insert(header::WWW_AUTHENTICATE, WWW_AUTHENTICATE_INVALID);
             }
-            Self::BillingLimitExceeded | Self::RateLimited(_) => {
+            Self::BillingLimitExceeded | Self::RateLimited(_) | Self::RateLimitedEvent(_) => {
                 headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
             }
             Self::InternalError(_) | Self::ServiceUnavailable(_) => {
@@ -306,7 +324,7 @@ macro_rules! log_stat_error {
             ::tracing::Level::WARN => ::tracing::warn!($($fields)* "{}", msg),
             _ => ::tracing::error!($($fields)* "{}", msg),
         }
-        err.stat_error();
+        err.stat_error(None::<&Context>);
     }};
     // Internal: emit with Context auto-expansion
     (@emit_ctx $err:expr, $ctx:expr, $($extra:tt)*) => {{
@@ -349,7 +367,7 @@ macro_rules! log_stat_error {
                 "{}", msg
             ),
         }
-        err.stat_error();
+        err.stat_error(Some(ctx));
     }};
 }
 
