@@ -2153,6 +2153,25 @@ class TestPrinter(BaseTest):
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_assume_not_null_prevents_ifnull_wrapping_in_comparison(self):
+        # base64Encode has no type signatures → returns UnknownType(nullable=True)
+        # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
+        sql_without = self._expr("event = base64Encode('test')")
+        self.assertIn("ifNull(", sql_without)
+
+        # assumeNotNull forces nullable=False → both sides non-nullable → no wrapping
+        sql_with = self._expr("event = assumeNotNull(base64Encode('test'))")
+        self.assertNotIn("ifNull(", sql_with)
+        self.assertTrue(sql_with.startswith("equals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_not_equals(self):
+        sql_without = self._expr("event != base64Encode('test')")
+        self.assertIn("ifNull(", sql_without)
+
+        sql_with = self._expr("event != assumeNotNull(base64Encode('test'))")
+        self.assertNotIn("ifNull(", sql_with)
+        self.assertTrue(sql_with.startswith("notEquals("))
+
     def test_field_nullable_boolean(self):
         PropertyDefinition.objects.create(
             team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT

@@ -639,6 +639,27 @@ export const externalDataSourcesCreateWebhookCreate = async (
 /**
  * Create, Read, Update and Delete External data Sources.
  */
+export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/delete_webhook/`
+}
+
+export const externalDataSourcesDeleteWebhookCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
 export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
 }

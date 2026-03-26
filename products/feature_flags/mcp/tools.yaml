@@ -62,7 +62,7 @@ tools:
             - filters
             - active
             - tags
-            - evaluation_tags
+            - evaluation_contexts
     update-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
@@ -82,7 +82,7 @@ tools:
             - filters
             - active
             - tags
-            - evaluation_tags
+            - evaluation_contexts
     delete-feature-flag:
         operation: feature_flags_destroy
         enabled: true

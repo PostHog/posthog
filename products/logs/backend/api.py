@@ -17,7 +17,7 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQu
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.event_usage import get_request_analytics_properties
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
@@ -216,6 +216,23 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             }
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
 
+        if not live_logs_checkpoint:
+            report_user_action(
+                request.user,
+                "logs query executed",
+                {
+                    "results_count": len(results),
+                    "has_more": has_more,
+                    "has_search_term": bool(query_data.get("searchTerm")),
+                    "has_filter_group": bool(query_data.get("filterGroup")),
+                    "severity_levels_count": len(query_data.get("severityLevels", [])),
+                    "service_names_count": len(query_data.get("serviceNames", [])),
+                    "is_paginated": bool(after_cursor),
+                },
+                team=self.team,
+                request=request,
+            )
+
         return Response(
             {
                 "query": query,
@@ -247,6 +264,21 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             analytics_props=get_request_analytics_properties(request),
         )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs sparkline queried",
+            {
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+                "breakdown_by": query_data.get("sparklineBreakdownBy"),
+            },
+            team=self.team,
+            request=request,
+        )
+
         return Response(response.results, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
@@ -366,6 +398,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         cache_key = f"team:{self.team.id}:has_logs"
         cached = cache.get(cache_key)
         if cached is True:
+            report_user_action(
+                request.user,
+                "logs has_logs checked",
+                {"has_logs": True},
+                team=self.team,
+                request=request,
+            )
             return Response({"hasLogs": True}, status=status.HTTP_200_OK)
 
         runner = HasLogsQueryRunner(self.team)
@@ -374,6 +413,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Only cache positive results (once you have logs, you always have logs)
         if has_logs:
             cache.set(cache_key, True, int(dt.timedelta(days=7).total_seconds()))
+
+        report_user_action(
+            request.user,
+            "logs has_logs checked",
+            {"has_logs": has_logs},
+            team=self.team,
+            request=request,
+        )
 
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)
 
@@ -399,6 +446,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         export_asset.delay(asset.id)
+
+        report_user_action(
+            request.user,
+            "logs export requested",
+            {
+                "export_id": asset.id,
+                "columns_count": len(columns),
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             {

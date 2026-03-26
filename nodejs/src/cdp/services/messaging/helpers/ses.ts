@@ -143,16 +143,15 @@ const SesEventBatchSchema = z.array(SesEventRecordSchema)
 
 export type SesEventRecord = z.infer<typeof SesEventRecordSchema>
 
-const EVENT_TYPE_TO_METRIC_NAME: Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']> = {
+// email_sent is recorded synchronously in email.service.ts when the email is sent,
+// so we don't record it again from SES Send/Delivery webhooks to avoid double counting.
+const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']>> = {
     Open: 'email_opened',
     Click: 'email_link_clicked',
-    // Delivery: 'email_sent',
     Bounce: 'email_bounced',
     Complaint: 'email_blocked',
     RenderingFailure: 'email_failed',
-    Send: 'email_sent',
     Reject: 'email_failed',
-    Delivery: 'email_sent',
 }
 
 export class SesWebhookHandler {
@@ -384,7 +383,9 @@ export class SesWebhookHandler {
             }
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
-            metrics.push({ functionId, invocationId, actionId, metricName })
+            if (metricName) {
+                metrics.push({ functionId, invocationId, actionId, metricName })
+            }
 
             // Opt out recipients on permanent bounces
             if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {

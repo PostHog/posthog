@@ -389,6 +389,19 @@ export interface NotificationSettings {
     materialized_view_sync_failed?: boolean
 }
 
+export interface InAppNotification {
+    id: string
+    notification_type: string
+    priority: string
+    title: string
+    body: string
+    read: boolean
+    read_at: string | null
+    resource_type: string | null
+    source_url: string
+    created_at: string
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean
@@ -2389,6 +2402,8 @@ export interface DashboardTemplateType<T = InsightModel> {
     image_url?: string
     scope?: DashboardTemplateScope
     availability_contexts?: TemplateAvailabilityContext[]
+    /** Manually curated highlight flag. */
+    is_featured?: boolean
 }
 
 export interface MonacoMarker {
@@ -3921,7 +3936,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     surveys: Survey[] | null
     can_edit: boolean
     tags: string[]
-    evaluation_tags: string[]
     evaluation_contexts: string[]
     usage_dashboard?: number
     has_enriched_analytics?: boolean
