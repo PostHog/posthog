@@ -76,7 +76,7 @@ class HogbotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         "filesystem_list",
         "filesystem_content",
         "files",
-        "read_file",
+        "files_read",
         "logs",
         "admin_logs",
         "research_logs",

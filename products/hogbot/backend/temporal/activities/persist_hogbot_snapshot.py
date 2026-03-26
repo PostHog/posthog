@@ -13,7 +13,7 @@ class PersistHogbotSnapshotInput:
     snapshot_external_id: str
 
 
-@activity.defn
+@activity.defn(name="hogbot_persist_snapshot")
 @asyncify
 def persist_hogbot_snapshot(input: PersistHogbotSnapshotInput) -> None:
     runtime, _ = HogbotRuntime.objects.get_or_create(team_id=input.team_id)

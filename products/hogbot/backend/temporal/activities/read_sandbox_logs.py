@@ -18,7 +18,7 @@ class ReadSandboxLogsInput:
     sandbox_id: str
 
 
-@activity.defn
+@activity.defn(name="hogbot_read_sandbox_logs")
 @asyncify
 def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
     """Read hogbot server logs from the sandbox before it's destroyed."""

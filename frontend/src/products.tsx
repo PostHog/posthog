@@ -1407,6 +1407,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Hogbot',
+        intents: [],
         category: 'Unreleased',
         href: urls.hogbotChat(),
         sceneKey: 'HogbotScene',

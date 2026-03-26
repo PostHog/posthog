@@ -22,11 +22,11 @@ from products.hogbot.backend import logic
 from products.hogbot.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.hogbot.backend.tests.test_connection_token import TEST_RSA_PRIVATE_KEY
 
-POSTHOG_ROOT = Path("/Users/js/dev/ph/posthog")
+POSTHOG_ROOT = Path(__file__).resolve().parents[4]
 HOGBOT_ROOT = POSTHOG_ROOT / "products" / "hogbot"
 SERVER_DIST_BIN = HOGBOT_ROOT / "server" / "dist" / "bin.js"
-TSUP_CLI = Path("/Users/js/dev/ph/code/node_modules/tsup/dist/cli-default.js")
-CODE_NODE_MODULES = Path("/Users/js/dev/ph/code/node_modules")
+TSUP_CLI = POSTHOG_ROOT.parent / "code" / "node_modules" / "tsup" / "dist" / "cli-default.js"
+CODE_NODE_MODULES = POSTHOG_ROOT.parent / "code" / "node_modules"
 SDK_FIXTURES = HOGBOT_ROOT / "server" / "src" / "__tests__" / "fixtures"
 
 

@@ -16,7 +16,7 @@ class TrackWorkflowEventInput:
     properties: dict[str, Any]
 
 
-@activity.defn
+@activity.defn(name="hogbot_track_workflow_event")
 def track_workflow_event(input: TrackWorkflowEventInput) -> None:
     """Track workflow-level events to PostHog."""
     try:

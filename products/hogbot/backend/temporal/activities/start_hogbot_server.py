@@ -111,7 +111,7 @@ def _build_server_launcher_command(server_command: str) -> str:
     )
 
 
-@activity.defn
+@activity.defn(name="hogbot_start_server")
 @asyncify
 def start_hogbot_server(input: StartHogbotServerInput) -> StartHogbotServerOutput:
     with log_activity_execution(

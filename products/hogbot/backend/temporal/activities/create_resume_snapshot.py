@@ -21,7 +21,7 @@ class CreateResumeSnapshotOutput:
     error: str | None = None
 
 
-@activity.defn
+@activity.defn(name="hogbot_create_resume_snapshot")
 @asyncify
 def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnapshotOutput:
     """Create a filesystem snapshot of the sandbox for later resume."""

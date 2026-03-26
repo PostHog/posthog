@@ -44,7 +44,7 @@ def _make_mock_activities(
             connect_token=None,
         )
 
-    @activity.defn(name="create_resume_snapshot")
+    @activity.defn(name="hogbot_create_resume_snapshot")
     async def mock_create_resume_snapshot(_input) -> CreateResumeSnapshotOutput:
         nonlocal snapshot_calls
         snapshot_calls += 1
@@ -62,11 +62,11 @@ def _make_mock_activities(
             await release_server.wait()
         return wait_output
 
-    @activity.defn(name="read_sandbox_logs")
+    @activity.defn(name="hogbot_read_sandbox_logs")
     async def mock_read_sandbox_logs(_input) -> str:
         return "ok"
 
-    @activity.defn(name="cleanup_sandbox")
+    @activity.defn(name="hogbot_cleanup_sandbox")
     async def mock_cleanup_sandbox(_input) -> None:
         return None
 

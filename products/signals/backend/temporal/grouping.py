@@ -24,6 +24,8 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_HOGBOT_SIGNALS_TOPIC
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -57,6 +59,28 @@ logger = structlog.get_logger(__name__)
 
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
+
+
+def _emit_signal_to_kafka(input: "AssignAndEmitSignalInput") -> None:
+    try:
+        producer = KafkaProducer()
+        producer.produce(
+            topic=KAFKA_HOGBOT_SIGNALS_TOPIC,
+            data={
+                "signal_id": input.signal_id,
+                "team_id": input.team_id,
+                "source_product": input.source_product,
+                "source_type": input.source_type,
+                "source_id": input.source_id,
+                "description": input.description,
+                "weight": input.weight,
+                "extra": input.extra,
+            },
+            key=str(input.team_id),
+        )
+        producer.flush()
+    except Exception:
+        logger.exception("Failed to emit signal to Kafka", team_id=input.team_id, signal_id=input.signal_id)
 
 
 @dataclass
@@ -910,6 +934,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         report_id, promoted, ts, matched_deleted = await database_sync_to_async(
             do_assign_and_emit, thread_sensitive=False
         )()
+        _emit_signal_to_kafka(input)
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report

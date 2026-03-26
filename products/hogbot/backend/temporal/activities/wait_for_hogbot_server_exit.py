@@ -63,7 +63,7 @@ def _parse_status_output(stdout: str, stderr: str) -> WaitForHogbotServerExitOut
     return WaitForHogbotServerExitOutput(status=status, exit_code=exit_code, error=error)
 
 
-@activity.defn
+@activity.defn(name="hogbot_wait_for_server_exit")
 async def wait_for_hogbot_server_exit(input: WaitForHogbotServerExitInput) -> WaitForHogbotServerExitOutput:
     with log_activity_execution(
         "wait_for_hogbot_server_exit",

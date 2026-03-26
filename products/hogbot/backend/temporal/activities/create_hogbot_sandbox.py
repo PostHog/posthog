@@ -98,7 +98,7 @@ def _checkout_branch(
         raise RuntimeError(f"Failed to checkout branch {branch}: {result.stderr}")
 
 
-@activity.defn
+@activity.defn(name="hogbot_create_sandbox")
 @asyncify
 def create_hogbot_sandbox(input: CreateHogbotSandboxInput) -> CreateHogbotSandboxOutput:
     runtime, _ = HogbotRuntime.objects.get_or_create(team_id=input.team_id)
