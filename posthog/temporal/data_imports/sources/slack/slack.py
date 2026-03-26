@@ -1,6 +1,6 @@
 import datetime
 from collections.abc import Callable, Iterable, Iterator
-from typing import Any
+from typing import Any, Optional
 
 import requests
 import structlog
@@ -72,7 +72,7 @@ class SlackCursorPaginator(BasePaginator):
             request.params = {**(request.params or {}), "cursor": self._next_cursor}
 
 
-def get_resource(name: str) -> EndpointResource:
+def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     if name == "$channels":
         return {
             "name": "$channels",
@@ -145,6 +145,7 @@ def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
 def _fetch_messages_for_channel(
     access_token: str,
     channel_id: str,
+    oldest_ts: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     has_more = True
     cursor: str | None = None
@@ -156,6 +157,8 @@ def _fetch_messages_for_channel(
             "channel": channel_id,
             "limit": 999,
         }
+        if oldest_ts:
+            params["oldest"] = oldest_ts
         if cursor:
             params["cursor"] = cursor
 
@@ -233,8 +236,9 @@ def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
 def _channel_messages_generator(
     access_token: str,
     channel_id: str,
+    oldest_ts: str | None = None,
 ) -> Iterator[dict[str, Any]]:
-    for msg in _fetch_messages_for_channel(access_token, channel_id):
+    for msg in _fetch_messages_for_channel(access_token, channel_id, oldest_ts=oldest_ts):
         yield _add_timestamp(msg)
         if msg.get("reply_count", 0) > 0:
             for reply in _fetch_thread_replies(access_token, channel_id, msg["ts"]):
@@ -246,6 +250,9 @@ def slack_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
     channel_id: str | None = None,
 ) -> SourceResponse:
     items: Callable[[], Iterable[Any]]
@@ -264,7 +271,7 @@ def slack_source(
                 "primary_key": "id",
                 "write_disposition": "replace",
             },
-            "resources": [get_resource(endpoint)],
+            "resources": [get_resource(endpoint, should_use_incremental_field)],
         }
 
         resources = rest_api_resources(config, team_id, job_id, None)
@@ -279,7 +286,17 @@ def slack_source(
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
 
-        items = lambda: _channel_messages_generator(access_token, channel_id)
+        oldest_ts: str | None = None
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
+            # Known limitation: incremental polling only fetches thread replies for parent messages
+            # returned by conversations.history in this window. Replies added to older parent threads
+            # (parent ts < oldest_ts) are intentionally not captured here and are expected to be
+            # addressed by webhook sources.
+            oldest_ts = str(db_incremental_field_last_value.timestamp())
+
+        resolved_id = channel_id
+        resolved_oldest_ts = oldest_ts
+        items = lambda: _channel_messages_generator(access_token, resolved_id, oldest_ts=resolved_oldest_ts)
 
     return SourceResponse(
         name=endpoint,

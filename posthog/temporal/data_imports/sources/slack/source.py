@@ -12,7 +12,7 @@ from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SlackSourceConfig
-from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS
+from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 from posthog.temporal.data_imports.sources.slack.slack import (
     get_channels,
     slack_source,
@@ -69,10 +69,11 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
         schemas: list[SourceSchema] = [
             SourceSchema(
                 name=name,
-                supports_incremental=False,
-                supports_append=False,
+                supports_incremental=len(endpoint_config.incremental_fields) > 0,
+                supports_append=len(endpoint_config.incremental_fields) > 0,
+                incremental_fields=endpoint_config.incremental_fields,
             )
-            for name in ENDPOINTS
+            for name, endpoint_config in ENDPOINTS.items()
         ]
 
         integration = self.get_oauth_integration(config.slack_integration_id, team_id)
@@ -80,6 +81,7 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
         if not access_token:
             raise ValueError("Slack access token not found")
 
+        msg_config = messages_endpoint_config()
         channels = get_channels(access_token)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
@@ -88,8 +90,9 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
                 SourceSchema(
                     name=ch["id"],
                     label=ch["name"],
-                    supports_incremental=False,
-                    supports_append=False,
+                    supports_incremental=len(msg_config.incremental_fields) > 0,
+                    supports_append=len(msg_config.incremental_fields) > 0,
+                    incremental_fields=msg_config.incremental_fields,
                 )
             )
 
@@ -127,5 +130,10 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            incremental_field=inputs.incremental_field,
             channel_id=channel_id,
         )
