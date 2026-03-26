@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCheckCircle, IconRevert, IconSort, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconSort, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonDialog,
     LemonSegmentedButton,
     LemonTable,
@@ -15,12 +16,11 @@ import {
 
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
 
 import { SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
-import { UploadModal } from './UploadModal'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
     {
@@ -68,17 +68,52 @@ export function SymbolSets(): JSX.Element {
                 </div>
                 <SymbolSetTable />
             </div>
-            <UploadModal />
         </div>
     )
 }
 
 const SymbolSetTable = (): JSX.Element => {
     // @ts-expect-error: automagical typing does not work here for some obscure reason
-    const { pagination, symbolSets, symbolSetResponseLoading, symbolSetOrder } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setUploadSymbolSetId, setSymbolSetOrder } = useActions(symbolSetLogic)
+    const {
+        pagination,
+        symbolSets,
+        symbolSetResponseLoading,
+        symbolSetOrder,
+        selectedSymbolSetIds,
+        deleteSymbolSetResponseLoading,
+    } = useValues(symbolSetLogic)
+    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, bulkDeleteSymbolSets } =
+        useActions(symbolSetLogic)
+
+    const allSelected = symbolSets.length > 0 && selectedSymbolSetIds.length === symbolSets.length
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
+        {
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={allSelected}
+                    onChange={() =>
+                        allSelected
+                            ? setSelectedSymbolSetIds([])
+                            : setSelectedSymbolSetIds(symbolSets.map((s: ErrorTrackingSymbolSet) => s.id))
+                    }
+                />
+            ),
+            render: (_, { id }) => {
+                const checked = selectedSymbolSetIds.includes(id)
+                return (
+                    <LemonCheckbox
+                        checked={checked}
+                        onChange={() =>
+                            checked
+                                ? setSelectedSymbolSetIds(selectedSymbolSetIds.filter((i: string) => i !== id))
+                                : setSelectedSymbolSetIds([...selectedSymbolSetIds, id])
+                        }
+                    />
+                )
+            },
+        },
         {
             title: 'Reference',
             width: 200,
@@ -136,16 +171,9 @@ const SymbolSetTable = (): JSX.Element => {
             dataIndex: 'id',
             align: 'right',
 
-            render: (_, { id, failure_reason }) => {
+            render: (_, { id }) => {
                 return (
                     <div className="flex justify-end items-center gap-1">
-                        <LemonButton
-                            type={failure_reason ? 'primary' : 'tertiary'}
-                            size="xsmall"
-                            tooltip={failure_reason ? 'Upload symbol set' : 'Replace symbol set'}
-                            icon={failure_reason ? <IconUpload /> : <IconRevert />}
-                            onClick={() => setUploadSymbolSetId(id)}
-                        />
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
@@ -184,14 +212,46 @@ const SymbolSetTable = (): JSX.Element => {
     )
 
     return (
-        <LemonTable
-            id="symbol-sets"
-            pagination={pagination}
-            columns={columns}
-            loading={symbolSetResponseLoading}
-            dataSource={symbolSets}
-            emptyState={!symbolSetResponseLoading ? emptyState : undefined}
-        />
+        <div className="space-y-2">
+            {selectedSymbolSetIds.length > 0 && (
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        size="small"
+                        icon={<IconTrash />}
+                        loading={deleteSymbolSetResponseLoading}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: 'Delete symbol sets',
+                                description: `Are you sure you want to delete ${pluralize(selectedSymbolSetIds.length, 'symbol set', 'symbol sets')}?`,
+                                secondaryButton: {
+                                    type: 'secondary',
+                                    children: 'Cancel',
+                                },
+                                primaryButton: {
+                                    type: 'primary',
+                                    status: 'danger',
+                                    onClick: () => bulkDeleteSymbolSets(),
+                                    children: 'Delete',
+                                },
+                            })
+                        }
+                    >
+                        Delete
+                    </LemonButton>
+                    <span className="text-sm font-medium">{selectedSymbolSetIds.length} selected</span>
+                </div>
+            )}
+            <LemonTable
+                id="symbol-sets"
+                pagination={pagination}
+                columns={columns}
+                loading={symbolSetResponseLoading || deleteSymbolSetResponseLoading}
+                dataSource={symbolSets}
+                emptyState={!symbolSetResponseLoading ? emptyState : undefined}
+            />
+        </div>
     )
 }
 
