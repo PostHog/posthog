@@ -161,8 +161,6 @@ class TestResolver(BaseTest):
         if isinstance(left, ast.Alias):
             left = left.expr
         assert isinstance(left, ast.Field)
-        assert not isinstance(left, ast.Keyword)
-        assert not (isinstance(left, ast.Call) and left.name == "current_date")
 
     @parameterized.expand(
         [
