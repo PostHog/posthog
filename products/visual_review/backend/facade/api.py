@@ -165,6 +165,7 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         baseline_hashes=input.baseline_hashes,
         unchanged_count=input.unchanged_count,
         removed_identifiers=list(input.removed_identifiers),
+        purpose=input.purpose,
         metadata=dict(input.metadata) if input.metadata else {},
     )
 

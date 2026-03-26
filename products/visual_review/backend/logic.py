@@ -17,7 +17,7 @@ from django.utils import timezone
 
 import structlog
 
-from .facade.enums import ReviewState, RunStatus, SnapshotResult
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
 from .models import Artifact, Repo, Run, RunSnapshot
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -213,7 +213,12 @@ _ON_PR = Q(pr_number__isnull=False)
 
 REVIEW_STATE_FILTERS: dict[str, Q] = {
     # Only PR runs need human review — master/branch pushes without a PR are just drift
-    "needs_review": Q(status=RunStatus.COMPLETED) & _HAS_CHANGES & Q(approved=False) & _CURRENT & _ON_PR,
+    "needs_review": Q(status=RunStatus.COMPLETED)
+    & _HAS_CHANGES
+    & Q(approved=False)
+    & _CURRENT
+    & _ON_PR
+    & Q(purpose=RunPurpose.REVIEW),
     "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES) | Q(approved=True),
     "processing": Q(status__in=[RunStatus.PENDING, RunStatus.PROCESSING]) & _CURRENT,
     "stale": Q(superseded_by__isnull=False) & Q(approved=False) & _HAS_CHANGES,
@@ -308,6 +313,7 @@ def create_run(
     baseline_hashes: dict[str, str],
     unchanged_count: int = 0,
     removed_identifiers: list[str] | None = None,
+    purpose: str = RunPurpose.REVIEW,
     metadata: dict | None = None,
 ) -> tuple[Run, list[dict]]:
     """
@@ -350,6 +356,7 @@ def create_run(
         commit_sha=commit_sha,
         branch=branch,
         pr_number=pr_number,
+        purpose=purpose,
         total_snapshots=total,
         metadata=metadata or {},
     )
@@ -939,6 +946,8 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
             approved_snapshots=needs_approval,
             commit_to_github=False,
         )
+        # Override to AUTO_APPROVED (approve_run sets HUMAN_APPROVED)
+        Run.objects.filter(id=run_id).update(review_decision=ReviewDecision.AUTO_APPROVED)
         run = get_run_with_snapshots(run_id)
 
     snapshots = list(run.snapshots.all().order_by("identifier"))
@@ -972,6 +981,9 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     """
     run = get_run(run_id)
     repo = run.repo
+
+    if run.purpose == RunPurpose.OBSERVE:
+        raise ValueError("Observational runs cannot be approved")
 
     if is_run_stale(run):
         raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
@@ -1017,9 +1029,10 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
 
     # Mark run approved
     run.approved = True
+    run.review_decision = ReviewDecision.HUMAN_APPROVED
     run.approved_at = timezone.now()
     run.approved_by_id = user_id
-    run.save(update_fields=["approved", "approved_at", "approved_by_id"])
+    run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
 
     _post_commit_status(run, repo, "success", "Visual changes approved")
 
