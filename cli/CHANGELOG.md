@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.7.4
+
+- fix: create per-UUID ZIP for dSYM uploads
+
 # 0.7.3
 
 - feat: enable symbol set compression

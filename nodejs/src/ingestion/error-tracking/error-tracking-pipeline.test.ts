@@ -242,6 +242,7 @@ describe('ErrorTrackingPipeline', () => {
             transformEventAndProduceMessages: jest
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
+            processInvocationResults: jest.fn().mockResolvedValue(undefined),
         }
 
         mockCymbalClient = {

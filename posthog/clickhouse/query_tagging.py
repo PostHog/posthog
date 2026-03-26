@@ -39,6 +39,8 @@ class Product(StrEnum):
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
+    INTERNAL = "internal"  # for internal use only
+
 
 class Feature(StrEnum):
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
@@ -50,6 +52,7 @@ class Feature(StrEnum):
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    DATA_DELETION = "data_deletion"
 
 
 class TemporalTags(BaseModel):
@@ -99,7 +102,7 @@ class QueryTags(BaseModel):
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
     id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
+    session_id: Optional[str] = None
 
     # temporalio tags
     temporal: Optional[TemporalTags] = None

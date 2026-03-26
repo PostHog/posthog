@@ -3845,7 +3845,15 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort' | 'revenue_analytics'
+    | 'person'
+    | 'event'
+    | 'event_metadata'
+    | 'group'
+    | 'session'
+    | 'hogql'
+    | 'cohort'
+    | 'revenue_analytics'
+    | 'data_warehouse_person_property'
 >
 
 export interface Breakdown {
@@ -4013,6 +4021,8 @@ export interface ECODDetectorConfig {
     type: 'ecod'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4021,6 +4031,8 @@ export interface COPODDetectorConfig {
     type: 'copod'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4031,6 +4043,8 @@ export interface IsolationForestDetectorConfig {
     threshold?: number
     /** Number of trees in the forest (default: 100) */
     n_estimators?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4043,6 +4057,8 @@ export interface KNNDetectorConfig {
     n_neighbors?: integer
     /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
     method?: 'largest' | 'mean' | 'median'
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4053,6 +4069,8 @@ export interface HBOSDetectorConfig {
     threshold?: number
     /** Number of histogram bins (default: 10) */
     n_bins?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4063,6 +4081,8 @@ export interface LOFDetectorConfig {
     threshold?: number
     /** Number of neighbors for LOF (default: 20) */
     n_neighbors?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4075,6 +4095,8 @@ export interface OCSVMDetectorConfig {
     kernel?: string
     /** Upper bound on training errors fraction (default: 0.1) */
     nu?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4083,6 +4105,8 @@ export interface PCADetectorConfig {
     type: 'pca'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -5309,6 +5333,7 @@ export const externalDataSources = [
     'Postmark',
     'Granola',
     'BuildBetter',
+    'Convex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

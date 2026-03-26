@@ -1,5 +1,4 @@
 import io
-import os
 import json
 import time
 import typing
@@ -366,16 +365,13 @@ class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
         )
 
     def get_aws_region(self, context, request) -> str:
-        """Similar to the default implementation, but without a fallback request."""
-        env_aws_region = os.environ.get("AWS_REGION")
-        if env_aws_region is not None:
-            return env_aws_region
+        """Return AWS region from boto3 session."""
+        region_name = self.session.region_name
 
-        env_aws_region = os.environ.get("AWS_DEFAULT_REGION")
-        if env_aws_region is not None:
-            return env_aws_region
+        if not region_name:
+            raise google.auth.exceptions.RefreshError("AWS region not populated", retryable=False)
 
-        raise google.auth.exceptions.RefreshError("AWS region not populated", retryable=False)
+        return region_name
 
 
 class ServiceAccountNotFoundError(Exception):
@@ -1338,7 +1334,22 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     google_cloud_integration.service_account_email, inputs.team_id
                 )
                 await ensure_our_google_cloud_credentials_are_valid()
-            bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            try:
+                bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            except Exception:
+                LOGGER.exception("Initialize client from service account failed")
+                # TODO: Migrate everyone and remove this
+                if (
+                    inputs.private_key is None
+                    or inputs.private_key_id is None
+                    or inputs.token_uri is None
+                    or inputs.client_email is None
+                ):
+                    # We cannot fallback to using inputs
+                    raise
+                bq_client = BigQueryClient.from_service_account_inputs(
+                    inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
+                )
 
         else:
             # TODO: Migrate everyone and remove this

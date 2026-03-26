@@ -1,6 +1,7 @@
 import typing
 import collections.abc
 
+import google.auth.transport.requests
 from google.api_core.exceptions import NotFound, PermissionDenied
 from google.cloud import bigquery, iam_admin_v1
 
@@ -67,22 +68,21 @@ class BigQueryImpersonateServiceAccountTestStep(DestinationTestStep):
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
-        if self.project_id is None or self.integration is None:
+        if self.project_id is None:
             return False
         return True
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        assert self.integration is not None
+        if self.integration is None or self.integration.has_key():
+            return DestinationTestStepResult(
+                status=Status.SKIPPED, message="Using credentials without impersonation, skipping test"
+            )
 
         try:
             their_credentials = impersonate_service_account(self.integration)
-            client = bigquery.Client(
-                project=self.integration.project_id,
-                credentials=their_credentials,
-            )
             # This triggers an actual credential refresh
-            list(client.query("SELECT 1").result())
+            their_credentials.refresh(google.auth.transport.requests.Request())
 
         except NotFound:
             service_account_email = self.integration.service_account_email
@@ -130,13 +130,21 @@ class BigQueryVerifyServiceAccountOwnershipTestStep(DestinationTestStep):
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
-        if self.project_id is None or self.integration is None or self.organization_id is None:
+        if self.project_id is None:
             return False
+
+        if self.integration is not None and not self.integration.has_key() and self.organization_id is None:
+            # Only when we actually need to verify ownership is organization_id required
+            return False
+
         return True
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        assert self.integration is not None
+        if self.integration is None or self.integration.has_key():
+            return DestinationTestStepResult(
+                status=Status.SKIPPED, message="Using credentials without impersonation, ownership is assumed"
+            )
 
         service_account_email = self.integration.service_account_email
 
@@ -347,7 +355,6 @@ class BigQueryTableTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from google.api_core.exceptions import BadRequest
-        from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
 
         client = get_client(self.project_id, self.integration, self.service_account_info)
@@ -446,23 +453,13 @@ class BigQueryDestinationTest(DestinationTest):
     @property
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
         """Sequence of test steps that make up this destination test."""
-        if self.integration is not None and self.service_account_info is None:
-            # If no service account information is set, then that's the same as
-            # asserting the integration has no keys, so we can check impersonation and
-            # ownership.
-            base_steps: tuple[DestinationTestStep, ...] = (
-                BigQueryImpersonateServiceAccountTestStep(project_id=self.project_id, integration=self.integration),
-                BigQueryVerifyServiceAccountOwnershipTestStep(
-                    project_id=self.project_id,
-                    integration=self.integration,
-                    organization_id=str(self.integration.integration.team.organization_id),
-                ),
-            )
-        else:
-            base_steps = ()
-
         return [
-            *base_steps,
+            BigQueryImpersonateServiceAccountTestStep(project_id=self.project_id, integration=self.integration),
+            BigQueryVerifyServiceAccountOwnershipTestStep(
+                project_id=self.project_id,
+                integration=self.integration,
+                organization_id=str(self.integration.integration.team.organization_id) if self.integration else None,
+            ),
             BigQueryProjectTestStep(
                 project_id=self.project_id,
                 integration=self.integration,

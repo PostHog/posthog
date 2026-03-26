@@ -17,4 +17,4 @@ class COPODDetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": DetectorType.COPOD.value, "threshold": 0.9}
+        return {"type": DetectorType.COPOD.value, "threshold": cls.DEFAULT_THRESHOLD}

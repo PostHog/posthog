@@ -93,6 +93,13 @@ def test_failure_on_incorrect_type():
     assert get_query_tags() == create_base_tags()
 
 
+def test_session_id_accepts_non_uuid_strings():
+    reset_query_tags()
+    tag_queries(session_id="not-a-uuid-but-valid-string")
+    tags = get_query_tags()
+    assert tags.session_id == "not-a-uuid-but-valid-string"
+
+
 def test_clear_tag():
     reset_query_tags()
     clear_tag("team_id")

@@ -3,7 +3,7 @@ use std::string::FromUtf8Error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 pub enum Error {
     #[error("Wrong version: {0}, expected {1}")]
     WrongVersion(u32, u32),

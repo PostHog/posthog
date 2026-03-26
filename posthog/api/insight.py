@@ -542,6 +542,14 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
+
+        # Legacy insights, some API callers (e.g. MCP),
+        # and insights created from a template may have saved=False.
+        # The saved field is a vestige of a removed "insight history" feature (2020).
+        # Some functionalities (like search) depend on saved=True, so ensure any
+        # update corrects this for older records.
+        validated_data.setdefault("saved", True)
+
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
@@ -1732,14 +1740,12 @@ When set, the specified dashboard's filters and date range override will be appl
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        item_id = kwargs["pk"]
-        if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="Insight",
             team_id=self.team_id,
-            item_ids=[str(item_id)],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )

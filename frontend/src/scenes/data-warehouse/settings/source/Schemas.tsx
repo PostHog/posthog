@@ -232,10 +232,10 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                             const nameContent =
                                 isDirectQuerySource && schema.table ? (
                                     <Link to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}>
-                                        {schema.name}
+                                        {schema.label ?? schema.name}
                                     </Link>
                                 ) : (
-                                    <span>{schema.name}</span>
+                                    <span>{schema.label ?? schema.name}</span>
                                 )
                             return (
                                 <div className="flex items-center gap-1">
@@ -631,7 +631,10 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         <LemonModal
             title={
                 <>
-                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                    Sync method for{' '}
+                    <span className="font-mono">
+                        {currentSyncMethodModalSchema.label ?? currentSyncMethodModalSchema.name}
+                    </span>
                 </>
             }
             isOpen={syncMethodModalIsOpen}
@@ -657,6 +660,8 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                     schema={{
                         table: currentSyncMethodModalSchema.name,
                         should_sync: currentSyncMethodModalSchema.should_sync,
+                        description: currentSyncMethodModalSchema.description,
+                        should_sync_default: currentSyncMethodModalSchema.should_sync_default ?? true,
                         sync_type: currentSyncMethodModalSchema.sync_type,
                         sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,

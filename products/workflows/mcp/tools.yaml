@@ -8,30 +8,6 @@ category: Workflows
 feature: workflows
 url_prefix: /pipeline/destinations
 tools:
-    messaging-categories-list:
-        operation: messaging_categories_list
-        enabled: false
-    messaging-categories-create:
-        operation: messaging_categories_create
-        enabled: false
-    messaging-categories-import-from-customerio-create:
-        operation: messaging_categories_import_from_customerio_create
-        enabled: false
-    messaging-categories-import-preferences-csv-create:
-        operation: messaging_categories_import_preferences_csv_create
-        enabled: false
-    messaging-preferences-generate-link-create:
-        operation: messaging_preferences_generate_link_create
-        enabled: false
-    messaging-preferences-opt-outs-retrieve:
-        operation: messaging_preferences_opt_outs_retrieve
-        enabled: false
-    messaging-templates-list:
-        operation: messaging_templates_list
-        enabled: false
-    messaging-templates-create:
-        operation: messaging_templates_create
-        enabled: false
     hog-flow-templates-list:
         operation: hog_flow_templates_list
         enabled: false
@@ -67,7 +43,7 @@ tools:
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/workflow-list.html
     hog-flows-create:
         operation: hog_flows_create
@@ -86,7 +62,7 @@ tools:
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
             condition, and variables.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/workflow.html
     hog-flows-update:
         operation: hog_flows_update

@@ -116,6 +116,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                         return { ...updatedAction }
                     }
+                    if (response.code === 'blank' && response.attr === 'name') {
+                        lemonToast.error('Action name cannot be empty.')
+                        return { ...updatedAction }
+                    }
                     throw response
                 }
 
