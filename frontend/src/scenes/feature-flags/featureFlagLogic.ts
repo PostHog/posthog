@@ -2115,7 +2115,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     return cronstrue.toString(cronExpression)
                 } catch {
-                    return cronExpression
+                    return 'Invalid cron expression'
                 }
             },
         ],

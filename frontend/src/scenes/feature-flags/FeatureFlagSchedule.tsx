@@ -219,7 +219,7 @@ function describeCron(expr: string): string {
     try {
         return cronstrue.toString(expr)
     } catch {
-        return expr
+        return 'Invalid cron expression'
     }
 }
 

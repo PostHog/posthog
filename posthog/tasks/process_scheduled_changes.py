@@ -186,6 +186,20 @@ def process_scheduled_changes() -> None:
                                 next_run = compute_next_run(next_run, scheduled_change.recurrence_interval)
                             skipped_count += 1
 
+                        # If we hit the cap and next_run is still in the past, jump directly
+                        # to the first occurrence after now to prevent an infinite re-execution loop.
+                        if next_run <= now:
+                            logger.error(
+                                "Recurring schedule hit catch-up cap; jumping to next occurrence after now",
+                                scheduled_change_id=scheduled_change.id,
+                                skipped_count=skipped_count,
+                                interval=interval_label,
+                            )
+                            if scheduled_change.cron_expression:
+                                next_run = compute_next_run_cron(scheduled_change.cron_expression, now)
+                            else:
+                                next_run = compute_next_run(now, scheduled_change.recurrence_interval)
+
                         # Log and track if we skipped executions due to delayed processing
                         # (skipped_count > 1 means we skipped more than just advancing to the next run)
                         if skipped_count > 1:
