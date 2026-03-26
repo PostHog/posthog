@@ -27,7 +27,7 @@
  */
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
-import { createContext, createOkContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineResult, isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
 
@@ -67,7 +67,7 @@ describe('Side Effects Basics', () => {
 
         const pipeline = newPipelineBuilder<Input>().pipe(createProcessWithLoggingStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ value: 'hello' })))
+        const result = await pipeline.process(createOkContext({ value: 'hello' }, {}))
 
         expect(isOkResult(result.result)).toBe(true)
 
@@ -113,7 +113,7 @@ describe('Side Effects Basics', () => {
 
         const pipeline = newPipelineBuilder<Input>().pipe(createStep1()).pipe(createStep2()).pipe(createStep3()).build()
 
-        const result = await pipeline.process(createContext(ok({ value: 5 })))
+        const result = await pipeline.process(createOkContext({ value: 5 }, {}))
 
         // All three side effects are collected
         expect(result.context.sideEffects).toHaveLength(3)
@@ -161,7 +161,7 @@ describe('Side Effects Basics', () => {
 
         const pipeline = newPipelineBuilder<Event>().pipe(createProcessEventStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ type: 'purchase', userId: 'user-1' })))
+        const result = await pipeline.process(createOkContext({ type: 'purchase', userId: 'user-1' }, {}))
 
         // Three side effects registered
         expect(result.context.sideEffects).toHaveLength(3)

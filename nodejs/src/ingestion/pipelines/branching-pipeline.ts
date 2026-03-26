@@ -1,4 +1,4 @@
-import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { dlq, isOkResult } from './results'
 
 export type BranchDecisionFn<TIntermediate, TBranch extends string> = (value: TIntermediate) => TBranch
@@ -28,16 +28,9 @@ export class BranchingPipeline<
     ) {}
 
     async process(
-        input: PipelineResultWithContext<TInput, C, RPrev | RBranch>
+        input: OkResultWithContext<TInput, C>
     ): Promise<PipelineResultWithContext<TOutput, C, RPrev | RBranch>> {
-        if (!isOkResult(input.result)) {
-            return { result: input.result, context: input.context }
-        }
-
-        const previousResultWithContext = await this.previousPipeline.process({
-            result: input.result,
-            context: input.context,
-        })
+        const previousResultWithContext = await this.previousPipeline.process(input)
 
         if (!isOkResult(previousResultWithContext.result)) {
             return {

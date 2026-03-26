@@ -1,6 +1,6 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
 import { pipelineStepDurationHistogram } from './metrics'
-import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, PipelineResultType, isOkResult } from './results'
 import { ProcessingStep } from './steps'
 
@@ -23,17 +23,9 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
     }
 
     async process(
-        input: PipelineResultWithContext<TInput, C, RPrev | RStep>
+        input: OkResultWithContext<TInput, C>
     ): Promise<PipelineResultWithContext<TOutput, C, RPrev | RStep>> {
-        // Short-circuit non-OK inputs — they pass through without processing
-        if (!isOkResult(input.result)) {
-            return { result: input.result, context: input.context }
-        }
-
-        const previousResultWithContext = await this.previousPipeline.process({
-            result: input.result,
-            context: input.context,
-        })
+        const previousResultWithContext = await this.previousPipeline.process(input)
 
         const previousResult = previousResultWithContext.result
         if (!isOkResult(previousResult)) {

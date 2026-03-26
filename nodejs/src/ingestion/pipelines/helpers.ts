@@ -80,7 +80,7 @@ export function createContext<
 /**
  * Create an OK result with context, suitable for feeding into a pipeline via feed().
  */
-export function createOkContext<T, C extends Record<string, unknown>>(
+export function createOkContext<T, C extends Record<string, unknown> = Record<string, never>>(
     value: T,
     partialContext: C & BasePipelineContext
 ): OkResultWithContext<T, C> {

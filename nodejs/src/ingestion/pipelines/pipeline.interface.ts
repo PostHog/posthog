@@ -41,5 +41,5 @@ export interface OkResultWithContext<T, C = { message: Message }> {
  *   Defaults to `never` (no redirects). Widens as steps that redirect are composed in.
  */
 export interface Pipeline<TInput, TOutput, C = { message: Message }, R extends string = never> {
-    process(input: PipelineResultWithContext<TInput, C, R>): Promise<PipelineResultWithContext<TOutput, C, R>>
+    process(input: OkResultWithContext<TInput, C>): Promise<PipelineResultWithContext<TOutput, C, R>>
 }

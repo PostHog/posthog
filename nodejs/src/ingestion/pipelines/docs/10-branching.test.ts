@@ -19,7 +19,7 @@
  * - Feature flags: Route to different implementations
  */
 import { newPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { isDlqResult, isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
 
@@ -76,8 +76,8 @@ describe('Branching', () => {
             .build()
 
         // Process items through different branches
-        const pageviewResult = await pipeline.process(createContext(ok<Event>({ type: 'pageview', data: 'home' })))
-        const clickResult = await pipeline.process(createContext(ok<Event>({ type: 'click', data: 'button' })))
+        const pageviewResult = await pipeline.process(createOkContext<Event>({ type: 'pageview', data: 'home' }, {}))
+        const clickResult = await pipeline.process(createOkContext<Event>({ type: 'click', data: 'button' }, {}))
 
         // Each branch applies its own processing logic
         expect(isOkResult(pageviewResult.result) && pageviewResult.result.value.data).toBe('PAGE: home')
@@ -107,7 +107,7 @@ describe('Branching', () => {
             )
             .build()
 
-        const result = await pipeline.process(createContext(ok<FlexibleEvent>({ type: 'unknown', data: 'test' })))
+        const result = await pipeline.process(createOkContext({ type: 'unknown', data: 'test' }, {}))
 
         expect(isDlqResult(result.result)).toBe(true)
     })
@@ -144,8 +144,8 @@ describe('Branching', () => {
             )
             .build()
 
-        const numberResult = await pipeline.process(createContext(ok<Input>({ branch: 'toNumber', input: '42' })))
-        const stringResult = await pipeline.process(createContext(ok<Input>({ branch: 'toString', input: 'hello' })))
+        const numberResult = await pipeline.process(createOkContext<Input>({ branch: 'toNumber', input: '42' }, {}))
+        const stringResult = await pipeline.process(createOkContext<Input>({ branch: 'toString', input: 'hello' }, {}))
 
         expect(isOkResult(numberResult.result) && numberResult.result.value).toEqual({ kind: 'number', value: 42 })
         expect(isOkResult(stringResult.result) && stringResult.result.value).toEqual({ kind: 'string', value: 'HELLO' })
