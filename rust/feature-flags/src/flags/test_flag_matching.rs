@@ -10436,4 +10436,109 @@ mod tests {
             "Scenario '{scenario}': expected matches={expected_match}"
         );
     }
+
+    /// Regression test: when a condition has an explicitly typed group filter for one index
+    /// and an untyped filter that falls back to the condition's aggregation index, properties
+    /// for the aggregation index must still be loaded.
+    #[tokio::test]
+    async fn test_mixed_typed_and_untyped_filters_loads_aggregation_properties() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Condition aggregates on group index 1 (project), has an explicitly typed
+        // group filter for index 0 (company), plus an untyped filter that should
+        // resolve against index 1 via the aggregation fallback.
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("mixed-typed-untyped".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "size".to_string(),
+                            value: Some(json!("enterprise")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(0),
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                        // Untyped filter — resolve_for_filter falls back to aggregation index (1)
+                        PropertyFilter {
+                            key: "tier".to_string(),
+                            value: Some(json!("premium")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(Some(1)),
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache = mock_group_type_cache(
+            [("company".to_string(), 0), ("project".to_string(), 1)]
+                .into_iter()
+                .collect(),
+        );
+
+        let groups = HashMap::from([
+            ("company".to_string(), json!("acme")),
+            ("project".to_string(), json!("proj-1")),
+        ]);
+        let group_overrides = HashMap::from([
+            (
+                "company".to_string(),
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            ),
+            (
+                "project".to_string(),
+                HashMap::from([("tier".to_string(), json!("premium"))]),
+            ),
+        ]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, None, Some(&group_overrides), None, &None)
+            .unwrap();
+
+        assert!(
+            result.matches,
+            "Both filters should match: typed filter against index 0, untyped filter against aggregation index 1"
+        );
+    }
 }

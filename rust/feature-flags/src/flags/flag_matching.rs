@@ -1378,30 +1378,23 @@ impl FeatureFlagMatcher {
                     }
                 }
 
-                // Backwards compat: if no filters explicitly typed as person or group,
-                // fall back to loading based on aggregation (legacy flags may omit types).
-                if !needs_person && needed_group_types.is_empty() {
-                    match aggregation {
-                        Some(group_type_index) => {
-                            if let std::collections::hash_map::Entry::Vacant(e) =
-                                cached_group_properties.entry(group_type_index)
-                            {
-                                let group_overrides = self.resolve_group_overrides(
-                                    group_type_index,
-                                    group_property_overrides,
-                                );
-                                let group_props =
-                                    self.get_group_properties(group_type_index, group_overrides)?;
-                                e.insert(group_props);
-                            }
-                        }
-                        None => {
-                            if cached_person_properties.is_none() {
-                                cached_person_properties =
-                                    Some(self.get_person_properties(person_property_overrides)?);
-                            }
-                        }
+                // Always ensure properties for the aggregation index are loaded.
+                // Untyped/legacy filters fall back to the aggregation index in
+                // resolve_for_filter, so its properties must be available even when
+                // some filters are explicitly typed.
+                if let Some(group_type_index) = aggregation {
+                    if let std::collections::hash_map::Entry::Vacant(e) =
+                        cached_group_properties.entry(group_type_index)
+                    {
+                        let group_overrides = self
+                            .resolve_group_overrides(group_type_index, group_property_overrides);
+                        let group_props =
+                            self.get_group_properties(group_type_index, group_overrides)?;
+                        e.insert(group_props);
                     }
+                } else if cached_person_properties.is_none() {
+                    cached_person_properties =
+                        Some(self.get_person_properties(person_property_overrides)?);
                 }
             }
 
