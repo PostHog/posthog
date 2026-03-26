@@ -2,6 +2,7 @@ from typing import Optional
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import User
@@ -143,6 +144,49 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert duplicate_response.status_code == status.HTTP_201_CREATED, duplicate_response
         assert DashboardTemplate.objects_including_soft_deleted.count() == 4  # including 2 default ones
+
+    @parameterized.expand(
+        [
+            ("team", "Featured team template"),
+            ("global", "Featured global template"),
+        ]
+    )
+    def test_is_featured_can_be_set_on_creation(self, scope: str, template_name: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": template_name, "scope": scope, "is_featured": True},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+        assert response.json()["is_featured"] is True
+        assert response.json()["scope"] == scope
+
+    def test_is_featured_defaults_to_false_when_omitted(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Template without is_featured"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+        assert response.json()["is_featured"] is False
+
+    def test_is_featured_persists_when_scope_changes_to_team(self) -> None:
+        global_featured = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {
+                **variable_template,
+                "template_name": "Featured global then team scope",
+                "scope": "global",
+                "is_featured": True,
+            },
+        )
+        assert global_featured.status_code == status.HTTP_201_CREATED, global_featured
+        assert global_featured.json()["is_featured"] is True
+
+        patch = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{global_featured.json()['id']}",
+            {"scope": "team"},
+        )
+        assert patch.status_code == status.HTTP_200_OK, patch
+        assert patch.json()["is_featured"] is True
 
     def test_staff_can_make_dashboard_template_public(self) -> None:
         assert self.team.pk is not None
@@ -446,6 +490,10 @@ class TestDashboardTemplates(APIBaseTest):
                     "description": "The tags of the dashboard template",
                     "type": "array",
                     "items": {"type": "string"},
+                },
+                "is_featured": {
+                    "description": "Whether this template is manually marked as featured in the UI",
+                    "type": "boolean",
                 },
             },
         }

@@ -144,16 +144,19 @@ export function SourcesList(): JSX.Element {
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
+        errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
+        isErrorTrackingToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
         openSessionAnalysisSetup,
         clearSessionAnalysisFilters,
         initiateDataWarehouseSourceToggle,
+        toggleErrorTracking,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -186,6 +189,20 @@ export function SourcesList(): JSX.Element {
                 }}
                 onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
                 statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
+            />
+
+            <Source
+                icon={
+                    <div className="flex *:text-xl group/colorful-product-icons colorful-product-icons-true">
+                        {iconForType('error_tracking')}
+                    </div>
+                }
+                title="PostHog Error Tracking"
+                description="New issues, reopenings, and volume spikes → Signals"
+                variant="available"
+                checked={errorTrackingIsFullyEnabled}
+                loading={isErrorTrackingToggling}
+                onToggle={() => toggleErrorTracking()}
             />
 
             <Source

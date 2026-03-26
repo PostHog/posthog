@@ -53,6 +53,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "team_id",
             "scope",
             "availability_contexts",
+            "is_featured",
         ]
 
     def _handle_integrity_error(self, exc: IntegrityError) -> NoReturn:
