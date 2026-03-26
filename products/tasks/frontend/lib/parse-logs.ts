@@ -149,7 +149,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     toolName: update._meta?.claudeCode?.toolName || update.title || 'Unknown Tool',
                     toolCallId,
                     toolStatus: normalizeToolStatus(update.status),
-                    toolArgs: update.rawInput,
+                    toolArgs: update.rawInput && Object.keys(update.rawInput).length > 0 ? update.rawInput : undefined,
                 }
                 toolMap.set(toolCallId, entry)
                 return entry
@@ -161,6 +161,9 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     const existing = toolMap.get(toolCallId)
                     if (existing) {
                         existing.toolStatus = normalizeToolStatus(update.status)
+                        if (update.rawInput && Object.keys(update.rawInput).length > 0) {
+                            existing.toolArgs = update.rawInput
+                        }
                         if (update._meta?.claudeCode?.toolResponse !== undefined) {
                             existing.toolResult = update._meta.claudeCode.toolResponse
                         } else if (update.rawOutput !== undefined) {
