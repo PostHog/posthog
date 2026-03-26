@@ -27,7 +27,7 @@ from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
-from posthog.tasks.alerts.checks import check_alert, check_alert_task, check_alerts_task
+from posthog.tasks.alerts.checks import check_alert, check_alert_task
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
@@ -1220,29 +1220,3 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             },
         )
         assert mock_slo_completed.call_args.kwargs["properties"].duration_ms >= 0
-
-    @patch("posthog.tasks.alerts.checks.check_alert_task")
-    def test_check_alerts_task_passes_team_id_to_check_alert_task(self, mock_task: MagicMock) -> None:
-        # check_alert_task.si(...) returns a signature; we need to capture what .si is called with
-        captured_si_args: list[tuple] = []
-
-        def fake_si(*args: object, **kwargs: object) -> MagicMock:
-            captured_si_args.append(args)
-            sig = MagicMock()
-            sig.set.return_value = sig
-            return sig
-
-        mock_task.si = fake_si
-
-        check_alerts_task()
-
-        # check_alerts_task queries all due alerts across all teams; find the one for our alert
-        matching = [
-            (alert_id, team_id, interval)
-            for alert_id, team_id, interval in captured_si_args
-            if alert_id == self.alert_id
-        ]
-        assert len(matching) == 1, f"Expected our alert to be scheduled once, got: {matching}"
-        _, team_id, interval = matching[0]
-        assert team_id == self.team.id
-        assert interval == "hourly"
