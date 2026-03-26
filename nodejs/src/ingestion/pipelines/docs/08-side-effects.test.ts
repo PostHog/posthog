@@ -27,7 +27,7 @@
  */
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createContext, createOkContext } from '../helpers'
 import { PipelineResult, isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
 
@@ -235,7 +235,7 @@ describe('Handling Side Effects', () => {
             .build()
 
         const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
-        const batch = items.map((item) => createContext(ok(item)))
+        const batch = items.map((item) => createOkContext(item, {}))
         pipeline.feed(batch)
 
         const nextPromise = pipeline.next()
@@ -316,7 +316,7 @@ describe('Handling Side Effects', () => {
             .build()
 
         const items = [{ id: 'x' }, { id: 'y' }]
-        const batch = items.map((item) => createContext(ok(item)))
+        const batch = items.map((item) => createOkContext(item, {}))
         pipeline.feed(batch)
 
         await pipeline.next()

@@ -27,7 +27,7 @@
  * ```
  */
 import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createContext, createOkContext } from '../helpers'
 import { PipelineResult, dlq, drop, isOkResult, ok, redirect } from '../results'
 import { ProcessingStep } from '../steps'
 
@@ -279,18 +279,19 @@ describe('Pipeline Fundamentals', () => {
     })
 
     /**
-     * A step can return REDIRECT to send an item to a different destination
-     * (e.g., a different Kafka topic) instead of continuing through the pipeline.
+     * A step can return REDIRECT to send an item to a named output
+     * (e.g., overflow) instead of continuing through the pipeline.
      */
     it('a step can return REDIRECT to send an item elsewhere', async () => {
         interface PriorityEvent {
             priority: string
         }
 
-        function createRouteByPriorityStep(): ProcessingStep<PriorityEvent, PriorityEvent> {
+        function createRouteByPriorityStep(): ProcessingStep<PriorityEvent, PriorityEvent, 'high_priority'> {
             return function routeByPriorityStep(event) {
                 if (event.priority === 'high') {
-                    return Promise.resolve(redirect('High priority event', 'high-priority-topic'))
+                    const HIGH_PRIORITY_OUTPUT = 'high_priority' as const
+                    return Promise.resolve(redirect('High priority event', HIGH_PRIORITY_OUTPUT))
                 }
                 return Promise.resolve(ok(event))
             }
@@ -312,7 +313,7 @@ describe('Pipeline Fundamentals', () => {
         type Input = { action: 'ok' | 'dlq' | 'drop' | 'redirect' }
         type Output = { action: string; processed: true }
 
-        function createDecisionStep(): ProcessingStep<Input, Input> {
+        function createDecisionStep(): ProcessingStep<Input, Input, 'other'> {
             return function decisionStep(input) {
                 if (input.action === 'dlq') {
                     return Promise.resolve(dlq('Error condition'))
@@ -321,7 +322,8 @@ describe('Pipeline Fundamentals', () => {
                     return Promise.resolve(drop('Filtered out'))
                 }
                 if (input.action === 'redirect') {
-                    return Promise.resolve(redirect('Redirecting', 'other-topic'))
+                    const OTHER_OUTPUT = 'other' as const
+                    return Promise.resolve(redirect('Redirecting', OTHER_OUTPUT))
                 }
                 return Promise.resolve(ok(input))
             }
@@ -376,7 +378,7 @@ describe('Batch Pipelines', () => {
 
         const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createUppercaseBatchStep()).build()
 
-        const batch = ['a', 'b', 'c'].map((s) => createContext(ok(s)))
+        const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -402,7 +404,7 @@ describe('Batch Pipelines', () => {
 
         const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBatchEnrichStep()).build()
 
-        const batch = [1, 2, 3, 4, 5].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         await pipeline.next()
@@ -425,7 +427,7 @@ describe('Batch Pipelines', () => {
 
         const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createPassthroughStep()).build()
 
-        const batch = ['x', 'y'].map((s) => createContext(ok(s)))
+        const batch = ['x', 'y'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
 
         const results1 = await pipeline.next()

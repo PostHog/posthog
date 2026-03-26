@@ -3,10 +3,10 @@ import { Message } from 'node-rdkafka'
 import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { DlqOutput, IngestionWarningsOutput, RedirectOutput } from '../common/outputs'
+import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
-import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
+import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 import { EventOutput, HeatmapsOutput } from './outputs'
@@ -23,7 +23,7 @@ import { createTestingPreTeamPreprocessingSubpipeline } from './testing-pre-team
 
 export interface TestingJoinedIngestionPipelineConfig {
     groupId: string
-    outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput | DlqOutput | RedirectOutput>
+    outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput | DlqOutput>
 }
 
 export interface TestingJoinedIngestionPipelineDeps {

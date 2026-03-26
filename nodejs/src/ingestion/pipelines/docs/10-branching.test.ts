@@ -67,12 +67,11 @@ describe('Branching', () => {
         const pipeline = newPipelineBuilder<Event>()
             .branching<Event['type'], ProcessedEvent>(
                 (event) => event.type,
-                (builder) => {
+                (builder) =>
                     builder
                         .branch('pageview', (b) => b.pipe(createPageviewStep()))
                         .branch('click', (b) => b.pipe(createClickStep()))
                         .branch('custom', (b) => b.pipe(createCustomStep()))
-                }
             )
             .build()
 
@@ -104,9 +103,7 @@ describe('Branching', () => {
         const pipeline = newPipelineBuilder<FlexibleEvent>()
             .branching<string, ProcessedEvent>(
                 (event) => event.type,
-                (builder) => {
-                    builder.branch('pageview', (b) => b.pipe(createPageviewStep()))
-                }
+                (builder) => builder.branch('pageview', (b) => b.pipe(createPageviewStep()))
             )
             .build()
 
@@ -140,11 +137,10 @@ describe('Branching', () => {
         const pipeline = newPipelineBuilder<Input>()
             .branching<Input['branch'], Output>(
                 (input) => input.branch,
-                (builder) => {
+                (builder) =>
                     builder
                         .branch('toNumber', (b) => b.pipe(createToNumberStep()))
                         .branch('toString', (b) => b.pipe(createToStringStep()))
-                }
             )
             .build()
 

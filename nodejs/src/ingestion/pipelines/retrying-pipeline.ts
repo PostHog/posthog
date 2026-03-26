@@ -12,13 +12,13 @@ export interface RetryingPipelineOptions {
 /**
  * A pipeline that wraps another pipeline with retry logic
  */
-export class RetryingPipeline<TInput, TOutput, C> implements Pipeline<TInput, TOutput, C> {
+export class RetryingPipeline<TInput, TOutput, C, R extends string = never> implements Pipeline<TInput, TOutput, C, R> {
     constructor(
-        private readonly innerPipeline: Pipeline<TInput, TOutput, C>,
+        private readonly innerPipeline: Pipeline<TInput, TOutput, C, R>,
         private readonly options: RetryingPipelineOptions = {}
     ) {}
 
-    async process(input: PipelineResultWithContext<TInput, C>): Promise<PipelineResultWithContext<TOutput, C>> {
+    async process(input: PipelineResultWithContext<TInput, C, R>): Promise<PipelineResultWithContext<TOutput, C, R>> {
         try {
             const result = await retryIfRetriable(
                 async () => {

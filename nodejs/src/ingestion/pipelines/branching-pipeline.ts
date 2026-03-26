@@ -7,18 +7,37 @@ export type BranchDecisionFn<TIntermediate, TBranch extends string> = (value: TI
  * Pipeline that routes processing to different branch pipelines based on a decision function.
  * First processes through the previous pipeline, then evaluates the decision function to get a branch name,
  * and finally processes through that branch's pipeline.
+ *
+ * RPrev is the redirect type from the previous pipeline.
+ * RBranch is the union of redirect types from all branches.
  */
-export class BranchingPipeline<TInput, TIntermediate, TOutput, C, TBranch extends string>
-    implements Pipeline<TInput, TOutput, C>
+export class BranchingPipeline<
+    TInput,
+    TIntermediate,
+    TOutput,
+    C,
+    TBranch extends string,
+    RPrev extends string = never,
+    RBranch extends string = never,
+> implements Pipeline<TInput, TOutput, C, RPrev | RBranch>
 {
     constructor(
         private decisionFn: BranchDecisionFn<TIntermediate, TBranch>,
-        private branches: Record<TBranch, Pipeline<TIntermediate, TOutput, C>>,
-        private previousPipeline: Pipeline<TInput, TIntermediate, C>
+        private branches: Record<TBranch, Pipeline<TIntermediate, TOutput, C, RBranch>>,
+        private previousPipeline: Pipeline<TInput, TIntermediate, C, RPrev>
     ) {}
 
-    async process(input: PipelineResultWithContext<TInput, C>): Promise<PipelineResultWithContext<TOutput, C>> {
-        const previousResultWithContext = await this.previousPipeline.process(input)
+    async process(
+        input: PipelineResultWithContext<TInput, C, RPrev | RBranch>
+    ): Promise<PipelineResultWithContext<TOutput, C, RPrev | RBranch>> {
+        if (!isOkResult(input.result)) {
+            return { result: input.result, context: input.context }
+        }
+
+        const previousResultWithContext = await this.previousPipeline.process({
+            result: input.result,
+            context: input.context,
+        })
 
         if (!isOkResult(previousResultWithContext.result)) {
             return {
@@ -40,6 +59,9 @@ export class BranchingPipeline<TInput, TIntermediate, TOutput, C, TBranch extend
             }
         }
 
-        return await branchPipeline.process(previousResultWithContext)
+        return branchPipeline.process({
+            result: previousResultWithContext.result,
+            context: previousResultWithContext.context,
+        })
     }
 }

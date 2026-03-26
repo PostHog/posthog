@@ -14,8 +14,8 @@ import {
     DlqOutput,
     INGESTION_WARNINGS_OUTPUT,
     IngestionWarningsOutput,
-    REDIRECT_OUTPUT,
-    RedirectOutput,
+    OVERFLOW_OUTPUT,
+    OverflowOutput,
 } from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
@@ -68,7 +68,12 @@ export interface SessionReplayPipelineConfig {
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }> {
+): BatchPipelineUnwrapper<
+    SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
+    { message: Message },
+    OverflowOutput
+> {
     const {
         kafkaProducer,
         eventIngestionRestrictionManager,
@@ -83,7 +88,7 @@ export function createSessionReplayPipeline(
         isDebugLoggingEnabled,
     } = config
 
-    const outputs = new IngestionOutputs<IngestionWarningsOutput | DlqOutput | RedirectOutput>({
+    const outputs = new IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>({
         [INGESTION_WARNINGS_OUTPUT]: {
             topic: KAFKA_INGESTION_WARNINGS,
             producer: ingestionWarningProducer,
@@ -92,13 +97,13 @@ export function createSessionReplayPipeline(
             topic: dlqTopic,
             producer: kafkaProducer,
         },
-        [REDIRECT_OUTPUT]: {
-            topic: '', // redirect topic comes from the pipeline result
+        [OVERFLOW_OUTPUT]: {
+            topic: overflowTopic,
             producer: kafkaProducer,
         },
     })
 
-    const pipelineConfig: PipelineConfig = {
+    const pipelineConfig: PipelineConfig<OverflowOutput> = {
         outputs,
         promiseScheduler,
     }
@@ -115,7 +120,6 @@ export function createSessionReplayPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                overflowTopic,
                                 preservePartitionLocality: true, // Sessions must stay on the same partition
                             })
                         )
@@ -192,7 +196,12 @@ export function createSessionReplayPipeline(
  * In future commits, the pipeline will handle all processing internally.
  */
 export async function runSessionReplayPipeline(
-    pipeline: BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }>,
+    pipeline: BatchPipelineUnwrapper<
+        SessionReplayPipelineInput,
+        SessionReplayPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >,
     messages: Message[]
 ): Promise<SessionReplayPipelineOutput[]> {
     if (messages.length === 0) {

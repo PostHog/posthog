@@ -38,11 +38,11 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, REDIRECT_OUTPUT } from '../../common/outputs'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
 import { PipelineBuilder, StartPipelineBuilder } from '../builders/pipeline-builders'
-import { createContext } from '../helpers'
+import { createContext, createOkContext } from '../helpers'
 import { PipelineConfig } from '../result-handling-pipeline'
 import { dlq, isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
@@ -453,7 +453,7 @@ describe('Pipeline Phases', () => {
         const pipelineConfig: PipelineConfig = {
             outputs: new IngestionOutputs({
                 [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockKafkaProducer },
-                [REDIRECT_OUTPUT]: { topic: '', producer: mockKafkaProducer },
+                [OVERFLOW_OUTPUT]: { topic: '', producer: mockKafkaProducer },
                 [INGESTION_WARNINGS_OUTPUT]: { topic: 'warnings_test', producer: mockKafkaProducer },
             }),
             promiseScheduler,
@@ -498,7 +498,7 @@ describe('Pipeline Phases', () => {
 
         const pipeline = createPipeline()
         const message = createTestMessage({ value: Buffer.from(JSON.stringify({ teamId: 42, eventName: 'pageview' })) })
-        const batch = [createContext(ok<RawInput>({ message }), { message })]
+        const batch = [createOkContext({ message } as RawInput, { message })]
         pipeline.feed(batch)
         const results = await pipeline.next()
 

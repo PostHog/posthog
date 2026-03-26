@@ -236,7 +236,7 @@ describe('topHog wrapper', () => {
                 topHog(step, [
                     sumResult(
                         'total_bytes',
-                        (_result: PipelineResult<unknown>, input) => ({ team_id: String(input.teamId) }),
+                        (_result: PipelineResult<unknown, string>, input) => ({ team_id: String(input.teamId) }),
                         () => 100
                     ),
                 ])
@@ -322,7 +322,7 @@ describe('topHog wrapper', () => {
         const pipeline = newPipelineBuilder<{ teamId: number }>()
             .pipe(
                 topHog(step, [
-                    countResult('processed', (_result: PipelineResult<unknown>, input) => ({
+                    countResult('processed', (_result: PipelineResult<unknown, string>, input) => ({
                         team_id: String(input.teamId),
                     })),
                 ])
@@ -430,8 +430,8 @@ describe('topHog wrapper', () => {
                 topHog(step, [
                     averageResult(
                         'avg_size',
-                        (_result: PipelineResult<unknown>, input) => ({ team_id: String(input.teamId) }),
-                        (_result: PipelineResult<unknown>, input) => input.size
+                        (_result: PipelineResult<unknown, string>, input) => ({ team_id: String(input.teamId) }),
+                        (_result: PipelineResult<unknown, string>, input) => input.size
                     ),
                 ])
             )
@@ -552,8 +552,8 @@ describe('topHog wrapper', () => {
                 topHog(step, [
                     maxResult(
                         'max_size',
-                        (_result: PipelineResult<unknown>, input) => ({ team_id: String(input.teamId) }),
-                        (_result: PipelineResult<unknown>, input) => input.size
+                        (_result: PipelineResult<unknown, string>, input) => ({ team_id: String(input.teamId) }),
+                        (_result: PipelineResult<unknown, string>, input) => input.size
                     ),
                 ])
             )

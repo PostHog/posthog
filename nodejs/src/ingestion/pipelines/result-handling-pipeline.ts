@@ -2,10 +2,14 @@ import { Message } from 'node-rdkafka'
 
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { logDroppedMessage, produceMessageToDLQ, redirectMessageToTopic } from '../../worker/ingestion/pipeline-helpers'
-import { DlqOutput, IngestionWarningsOutput, REDIRECT_OUTPUT, RedirectOutput } from '../common/outputs'
-import { IngestionOutput, IngestionOutputs } from '../outputs/ingestion-outputs'
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import {
+    logDroppedMessage,
+    produceMessageToDLQ,
+    redirectMessageToOutput,
+} from '../../worker/ingestion/pipeline-helpers'
+import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import {
     PipelineResult,
     PipelineResultRedirect,
@@ -16,43 +20,43 @@ import {
     isRedirectResult,
 } from './results'
 
-export type PipelineConfig = {
-    outputs: IngestionOutputs<DlqOutput | RedirectOutput | IngestionWarningsOutput>
+export type PipelineConfig<R extends string = never> = {
+    outputs: IngestionOutputs<DlqOutput | IngestionWarningsOutput | R>
     promiseScheduler: PromiseScheduler
 }
 
 /**
  * Unified result handling pipeline that wraps any BatchProcessingPipeline and handles
  * non-success results (DLQ, DROP, REDIRECT) by adding side effects.
+ *
+ * The redirect type R flows through — redirect results are kept in the output
+ * with the redirect side effect attached.
  */
 export class ResultHandlingPipeline<
     TInput,
     TOutput,
     CInput extends { message: Message },
     COutput extends { message: Message } = CInput,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput>
+    R extends string = never,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
 {
-    private redirectOutput: IngestionOutput
-
     constructor(
-        private pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
-        private config: PipelineConfig
-    ) {
-        this.redirectOutput = config.outputs.resolve(REDIRECT_OUTPUT)
-    }
+        private pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
+        private config: PipelineConfig<R>
+    ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
+    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.pipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
         const results = await this.pipeline.next()
 
         if (results === null) {
             return null
         }
 
-        const processedResults: BatchPipelineResultWithContext<TOutput, COutput> = []
+        const processedResults: BatchPipelineResultWithContext<TOutput, COutput, R> = []
 
         for (const resultWithContext of results) {
             const stepName = resultWithContext.context.lastStep || 'unknown'
@@ -67,7 +71,7 @@ export class ResultHandlingPipeline<
                 const sideEffects = this.handleNonSuccessResult(result, originalMessage, stepName)
 
                 processedResults.push({
-                    result: resultWithContext.result,
+                    result,
                     context: {
                         ...resultWithContext.context,
                         sideEffects: [...resultWithContext.context.sideEffects, ...sideEffects],
@@ -80,7 +84,7 @@ export class ResultHandlingPipeline<
     }
 
     private handleNonSuccessResult(
-        result: PipelineResult<TOutput>,
+        result: PipelineResult<TOutput, R>,
         originalMessage: Message,
         stepName: string
     ): Promise<unknown>[] {
@@ -97,11 +101,11 @@ export class ResultHandlingPipeline<
         } else if (isDropResult(result)) {
             logDroppedMessage(originalMessage, result.reason, stepName)
         } else if (isRedirectResult(result)) {
-            const redirectPromise = redirectMessageToTopic(
-                this.redirectOutput.producer,
+            const redirectPromise = redirectMessageToOutput(
+                this.config.outputs,
+                result.output,
                 this.config.promiseScheduler,
                 originalMessage,
-                result.topic,
                 stepName,
                 result.preserveKey ?? true,
                 result.awaitAck ?? true
@@ -113,12 +117,12 @@ export class ResultHandlingPipeline<
     }
 }
 
-function redirectDetails(result: PipelineResultRedirect): string {
+function redirectDetails<R extends string>(result: PipelineResultRedirect<R>): string {
     const preserveKey = result.preserveKey ?? true
-    return `${result.topic}(preserve_key=${preserveKey})`
+    return `${result.output}(preserve_key=${preserveKey})`
 }
 
-function resultDetails<T>(result: PipelineResult<T>): { result: string; details: string } {
+function resultDetails<T, R extends string>(result: PipelineResult<T, R>): { result: string; details: string } {
     switch (result.type) {
         case PipelineResultType.OK:
             return { result: 'ok', details: '' }

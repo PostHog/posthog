@@ -70,7 +70,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: true,
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
             PERSON_MERGE_ASYNC_ENABLED: false,
-            PERSON_MERGE_ASYNC_TOPIC: '',
             PERSON_MERGE_SYNC_BATCH_SIZE: 0,
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,

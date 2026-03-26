@@ -15,8 +15,8 @@ import {
     EventOutput,
     INGESTION_WARNINGS_OUTPUT,
     IngestionWarningsOutput,
-    REDIRECT_OUTPUT,
-    RedirectOutput,
+    OVERFLOW_OUTPUT,
+    OverflowOutput,
 } from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
@@ -100,7 +100,12 @@ export interface ErrorTrackingPipelineConfig {
  */
 export function createErrorTrackingPipeline(
     config: ErrorTrackingPipelineConfig
-): BatchPipelineUnwrapper<ErrorTrackingPipelineInput, ErrorTrackingPipelineOutput, { message: Message }> {
+): BatchPipelineUnwrapper<
+    ErrorTrackingPipelineInput,
+    ErrorTrackingPipelineOutput,
+    { message: Message },
+    OverflowOutput
+> {
     const {
         kafkaProducer,
         dlqTopic,
@@ -124,7 +129,7 @@ export function createErrorTrackingPipeline(
     const topHogWrapper = createTopHogWrapper(topHog)
 
     // Create outputs configuration for the emit step
-    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | RedirectOutput>({
+    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput>({
         [EVENTS_OUTPUT]: {
             topic: outputTopic,
             producer: kafkaProducer,
@@ -137,13 +142,13 @@ export function createErrorTrackingPipeline(
             topic: dlqTopic,
             producer: kafkaProducer,
         },
-        [REDIRECT_OUTPUT]: {
-            topic: '', // redirect topic comes from the pipeline result
+        [OVERFLOW_OUTPUT]: {
+            topic: overflowTopic,
             producer: kafkaProducer,
         },
     })
 
-    const pipelineConfig: PipelineConfig = {
+    const pipelineConfig: PipelineConfig<OverflowOutput> = {
         outputs,
         promiseScheduler,
     }
@@ -159,7 +164,6 @@ export function createErrorTrackingPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                overflowTopic,
                                 preservePartitionLocality: false,
                             })
                         )
@@ -191,7 +195,6 @@ export function createErrorTrackingPipeline(
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
-                                            overflowTopic,
                                             false, // preservePartitionLocality
                                             overflowRedirectService
                                         )
@@ -254,7 +257,12 @@ export function createErrorTrackingPipeline(
  * handled by the result handling pipeline (DLQ, drop, redirect).
  */
 export async function runErrorTrackingPipeline(
-    pipeline: BatchPipelineUnwrapper<ErrorTrackingPipelineInput, ErrorTrackingPipelineOutput, { message: Message }>,
+    pipeline: BatchPipelineUnwrapper<
+        ErrorTrackingPipelineInput,
+        ErrorTrackingPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >,
     messages: Message[]
 ): Promise<void> {
     if (messages.length === 0) {

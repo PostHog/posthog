@@ -5,6 +5,8 @@ import { dlq, drop, ok, redirect } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 
+const TEST_REDIRECT_OUTPUT = 'test_redirect' as const
+
 describe('StartPipeline', () => {
     it('should process single item through pipeline with success result', async () => {
         const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
@@ -45,12 +47,12 @@ describe('StartPipeline', () => {
         const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
         const pipeline = new StartPipeline<{ data: string }, unknown>().pipe((_input) => {
-            return Promise.resolve(redirect('redirect item', 'retry-topic'))
+            return Promise.resolve(redirect('redirect item', TEST_REDIRECT_OUTPUT))
         })
 
         const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
         expect(result).toEqual(
-            createContext(redirect('redirect item', 'retry-topic'), { message, lastStep: 'anonymousStep' })
+            createContext(redirect('redirect item', TEST_REDIRECT_OUTPUT), { message, lastStep: 'anonymousStep' })
         )
     })
 
