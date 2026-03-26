@@ -1,10 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import api from 'lib/api'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
@@ -19,6 +23,19 @@ export interface LayoutState {
     mode: HomepageMode
     animationPhase: AnimationPhase
 }
+
+export type HomepageGridItemKind = 'dashboard' | 'recent' | 'starred'
+
+export interface HomepageGridItem {
+    id: string
+    label: string
+    icon?: React.ReactNode
+    href?: string
+    kind: HomepageGridItemKind
+    itemType?: string | null
+}
+
+const GRID_LIMIT = 5
 
 const PREVIOUS_HOMEPAGE_KEY = 'ai-first-previous-homepage'
 
@@ -70,10 +87,43 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         enterAiMode: (trigger: string) => ({ trigger }),
         setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
-        setHoveredSuggestion: (suggestion: string | null) => ({ suggestion }),
         returnToIdle: true,
         setPreviousHomepage: (tab: SceneTab | null) => ({ tab }),
         revertToPreviousHomepage: true,
+    }),
+
+    loaders({
+        pinnedDashboards: [
+            [] as FileSystemEntry[],
+            {
+                loadPinnedDashboards: async () => {
+                    const response = await api.fileSystemShortcuts.list()
+                    return response.results.filter((entry) => entry.type === 'dashboard').slice(0, GRID_LIMIT)
+                },
+            },
+        ],
+        recentItems: [
+            [] as FileSystemEntry[],
+            {
+                loadRecentItems: async () => {
+                    const response = await api.fileSystem.list({
+                        limit: GRID_LIMIT,
+                        orderBy: '-last_viewed_at',
+                        notType: 'folder',
+                    })
+                    return response.results.slice(0, GRID_LIMIT)
+                },
+            },
+        ],
+        starredItems: [
+            [] as FileSystemEntry[],
+            {
+                loadStarredItems: async () => {
+                    const response = await api.fileSystemShortcuts.list()
+                    return response.results.filter((entry) => entry.type !== 'folder').slice(0, GRID_LIMIT)
+                },
+            },
+        ],
     }),
 
     reducers({
@@ -115,12 +165,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 returnToIdle: () => false,
             },
         ],
-        hoveredSuggestion: [
-            null as string | null,
-            {
-                setHoveredSuggestion: (_, { suggestion }) => suggestion,
-            },
-        ],
         previousHomepage: [
             null as SceneTab | null,
             {
@@ -132,9 +176,26 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     selectors({
         mode: [(s) => [s.layoutState], (layoutState): HomepageMode => layoutState.mode],
         animationPhase: [(s) => [s.layoutState], (layoutState): AnimationPhase => layoutState.animationPhase],
-        placeholder: [
-            (s) => [s.hoveredSuggestion],
-            (hoveredSuggestion): string => hoveredSuggestion ?? 'What can I help you with?',
+        placeholder: [() => [], (): string => 'What can I help you with?'],
+        gridItems: [
+            (s) => [s.pinnedDashboards, s.recentItems, s.starredItems],
+            (pinnedDashboards, recentItems, starredItems): HomepageGridItem[] => {
+                const toGridItem = (entry: FileSystemEntry, kind: HomepageGridItemKind): HomepageGridItem => {
+                    const name = splitPath(entry.path).pop()
+                    return {
+                        id: `${kind}-${entry.id}`,
+                        label: name ? unescapePath(name) : entry.path,
+                        href: entry.href || '#',
+                        kind,
+                        itemType: entry.type ?? null,
+                    }
+                }
+                return [
+                    ...pinnedDashboards.map((e: FileSystemEntry) => toGridItem(e, 'dashboard')),
+                    ...recentItems.map((e: FileSystemEntry) => toGridItem(e, 'recent')),
+                    ...starredItems.map((e: FileSystemEntry) => toGridItem(e, 'starred')),
+                ]
+            },
         ],
     }),
 
@@ -224,6 +285,11 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
+        // Load grid data
+        actions.loadPinnedDashboards()
+        actions.loadRecentItems()
+        actions.loadStarredItems()
+
         // Capture the previous homepage on first visit so we can revert later
         const stored = loadPreviousHomepage()
         if (stored) {
