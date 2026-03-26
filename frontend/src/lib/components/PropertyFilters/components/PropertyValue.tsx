@@ -125,7 +125,6 @@ export function PropertyValue({
         [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames]
     )
 
-    const optionsLoadedAt = useRef<number | null>(null)
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     // preload values if preloadValues prop is set
@@ -154,13 +153,6 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, isAssigneeProperty, load, propertyOptions?.status])
 
-    // track when options finish loading so time_to_select_ms reflects the most recent load
-    useEffect(() => {
-        if (propertyOptions?.status === 'loaded' && propertyOptions?.values) {
-            optionsLoadedAt.current = performance.now()
-        }
-    }, [propertyOptions?.status, propertyOptions?.values])
-
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)
     useEffect(() => {
@@ -185,7 +177,6 @@ export function PropertyValue({
     // reset initial suggested values when propertyKey changes
     useEffect(() => {
         setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
-        optionsLoadedAt.current = null
     }, [propertyKey])
 
     // show suggested values first, then any other available options that aren't in the suggested list
@@ -422,9 +413,6 @@ export function PropertyValue({
                             property_type: type,
                             from_suggestion: fromSuggestion,
                             options_count: displayOptions.length,
-                            time_to_select_ms: optionsLoadedAt.current
-                                ? Math.floor(performance.now() - optionsLoadedAt.current)
-                                : null,
                             had_search_input: currentSearchInput.current !== '',
                         })
                     }
