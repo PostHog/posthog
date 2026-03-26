@@ -2,6 +2,8 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
+import { PRODUCTS_WITH_SETUP } from 'lib/components/ProductSetup/productSetupRegistry'
+
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { PostOnboardingModal } from './PostOnboardingModal'
@@ -13,6 +15,12 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         chromatic: { disableSnapshot: true },
+    },
+    argTypes: {
+        productKey: {
+            control: 'select',
+            options: PRODUCTS_WITH_SETUP,
+        },
     },
 }
 export default meta
