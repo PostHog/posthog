@@ -173,7 +173,7 @@ class TestVisitor(BaseTest):
         ]
     )
     def test_order_expr_accepts_valid_directions(self, _name: str, direction: str):
-        expr = ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)
+        expr = ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
         self.assertEqual(expr.order, direction)
 
     @parameterized.expand(
@@ -185,4 +185,4 @@ class TestVisitor(BaseTest):
     )
     def test_order_expr_rejects_invalid_direction(self, _name: str, direction: str):
         with self.assertRaises(ValueError):
-            ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)
+            ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
