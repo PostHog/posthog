@@ -1,47 +1,44 @@
 import { InsightPage } from '../../../page-models/insightPage'
+import { randomString } from '../../../utils'
+import { customEventsWithBreakdown, pageviews } from '../../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
-test.describe('Trends insights', () => {
-    test.setTimeout(60_000) // Many parallel tests doing /query calls ist just slow, we need to allow more time.
+const events = [...pageviews.events, ...customEventsWithBreakdown.events]
 
+test.describe('Trends insights', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            no_demo_data: true,
+            events,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('Create and save a new insight', async ({ page }) => {
+    test('View default pageview trends and verify daily totals', async ({ page }) => {
         const insight = new InsightPage(page)
 
-        await test.step('navigate to insights list', async () => {
-            await insight.goToList()
-            await expect(page.locator('table')).toBeVisible()
+        await test.step('navigate to new trends insight', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
         })
 
-        await test.step('create new Trends insight and verify defaults', async () => {
-            await page.getByTestId('saved-insights-new-insight-button').click()
-            await expect(insight.activeTab).toContainText('Trends')
-            await insight.trends.waitForChart()
+        await test.step('verify defaults are Pageview, Total count, Last 7 days', async () => {
             await expect(insight.trends.firstSeries).toHaveText('Pageview')
             await expect(page.getByText('Total count')).toBeVisible()
             await expect(page.getByText('Last 7 days')).toBeVisible()
-            await expect(page.getByText('Line chart')).toBeVisible()
-            await expect(page.getByText('No comparison')).toBeVisible()
         })
 
-        await test.step('set name and description, then save', async () => {
-            await insight.editName('User Signups')
-            const descriptionField = page.getByTestId('scene-description-textarea')
-            await descriptionField.click()
-            await descriptionField.fill('Tracking daily user signups')
-            await descriptionField.blur()
-            await insight.save()
-            await expect(insight.editButton).toBeVisible()
-            expect(page.url()).not.toContain('/new')
+        await test.step('verify total pageview count in details table', async () => {
+            await insight.trends.waitForDetailsTable()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([pageviews.expected.total])
         })
     })
 
@@ -50,180 +47,114 @@ test.describe('Trends insights', () => {
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
 
-        await test.step('change event on first series', async () => {
-            await insight.trends.selectEvent(0, 'downloaded_file')
+        await test.step('change event to custom event and verify total', async () => {
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([customEventsWithBreakdown.expected.total])
         })
 
-        await test.step('add second series and verify both appear', async () => {
+        await test.step('add second series with pageview and verify both totals', async () => {
             await insight.trends.addSeries()
-            await insight.trends.selectEvent(1, 'Pageleave')
+            await insight.trends.selectEvent(1, 'Pageview')
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
-            await expect(insight.trends.detailsLabels).toHaveCount(2)
-        })
-
-        await test.step('add second series via Actions tab', async () => {
-            await insight.trends.addSeries()
-            await insight.trends.seriesEventButton(2).click()
-            await insight.trends.selectTaxonomicTab('actions')
-            await insight.trends.taxonomicResults().first().click()
-            await insight.trends.waitForChart()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([customEventsWithBreakdown.expected.total, pageviews.expected.total])
         })
 
         await test.step('duplicate first series', async () => {
             await insight.trends.duplicateSeries(0)
-            await expect(page.getByTestId('trend-element-subject-3')).toBeVisible()
+            await expect(page.getByTestId('trend-element-subject-2')).toBeVisible()
         })
 
-        await test.step('delete first series', async () => {
+        await test.step('delete first series and verify count drops to two', async () => {
             await insight.trends.deleteSeries(0)
+            await expect(page.getByTestId('trend-element-subject-2')).not.toBeVisible()
+            await expect(page.getByTestId('trend-element-subject-1')).toBeVisible()
         })
     })
 
-    test('Switch between aggregation methods', async ({ page }) => {
+    test('Switch aggregation to verify unique users and property value sums', async ({ page }) => {
+        const insight = new InsightPage(page)
+
+        await test.step('switch to custom event', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
+            await insight.trends.waitForChart()
+        })
+
+        await test.step('set property value sum of amount and verify total = 35', async () => {
+            await insight.trends.selectMathWithAggregation(0, /property value/, 'sum')
+            await insight.trends.selectMathProperty('amount')
+            await insight.trends.selectChartType(/^Number/)
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.amountSum)
+        })
+
+        await test.step('switch to unique users and verify bold number = 5', async () => {
+            await insight.trends.selectMath(0, 'Unique users')
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.uniqueUsers)
+        })
+
+        await test.step('switch to total count and verify bold number = 8', async () => {
+            await insight.trends.selectMath(0, 'Total count')
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.total)
+        })
+    })
+
+    test('View data as Number chart, cumulative line, and table', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
 
-        await test.step('change to Unique users', async () => {
-            await insight.trends.mathSelector(0).click()
-            const uniqueUsersOption = page.getByRole('menuitem', { name: 'Unique users' })
-            await uniqueUsersOption.waitFor({ state: 'visible' })
-            await uniqueUsersOption.click()
-            await insight.trends.waitForChart()
-            await expect(page.getByText('Unique users').first()).toBeVisible()
+        await test.step('cumulative line chart shows total in details table', async () => {
+            await insight.trends.selectChartType(/^Line chart \(cumulative\)/)
+            await insight.trends.waitForDetailsTable()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([pageviews.expected.total])
         })
 
-        await test.step('change to Count per user with median', async () => {
-            await insight.trends.mathSelector(0).click()
-            const countPerUserItem = page.getByRole('menuitem', { name: /event count per user/ })
-            await countPerUserItem.waitFor({ state: 'visible' })
-            await countPerUserItem.getByRole('button').click()
-            await page.getByRole('menuitem', { name: 'median' }).click()
-            await insight.trends.waitForChart()
-            await page.keyboard.press('Escape')
+        await test.step('Number chart shows bold number = 38', async () => {
+            await insight.trends.selectChartType(/^Number/)
+            await expect(insight.trends.boldNumber).toBeVisible()
+            await expect(insight.trends.boldNumber).toContainText(pageviews.expected.total)
         })
 
-        await test.step('change to Property value with sum', async () => {
-            await insight.trends.mathSelector(0).click()
-            const propertyValueItem = page.getByRole('menuitem', { name: /property value/ })
-            await propertyValueItem.waitFor({ state: 'visible' })
-            await propertyValueItem.getByRole('button').click()
-            await page.getByRole('menuitem', { name: 'sum' }).click()
-            await insight.trends.waitForChart()
-            await page.keyboard.press('Escape')
-        })
-
-        await test.step('change to Weekly then Monthly active users', async () => {
-            await insight.trends.mathSelector(0).click()
-            const weeklyOption = page.getByRole('menuitem', { name: /Weekly active users/ })
-            await weeklyOption.waitFor({ state: 'visible' })
-            await weeklyOption.click()
-            await insight.trends.waitForChart()
-
-            await insight.trends.mathSelector(0).click()
-            await page.getByRole('menuitem', { name: /Monthly active users/ }).click()
-            await insight.trends.waitForChart()
-            await expect(insight.trends.chart).toBeVisible()
+        await test.step('enable comparison and verify no NaN', async () => {
+            await insight.trends.selectComparison('Compare to previous period')
+            await expect(insight.trends.boldNumberComparison).toBeVisible()
+            const comparisonText = await insight.trends.boldNumberComparison.textContent()
+            expect(comparisonText).not.toContain('NaN')
+            expect(comparisonText).not.toContain('undefined')
         })
     })
 
-    test('Switch between chart types', async ({ page }) => {
+    test('Filter by date range and verify totals change', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
 
-        const chartTypes = [
-            { name: /^Bar chart Trends over time/, label: 'Bar chart' },
-            { name: /^Number/, label: 'Number' },
-            { name: /^Area chart/, label: 'Area chart' },
-            { name: /^Stacked bar chart/, label: 'Stacked bar chart' },
-            { name: /^Line chart \(cumulative\)/, label: 'Line chart (cumulative)' },
-            { name: /^Table/, label: 'Table' },
-        ]
-
-        for (const chartType of chartTypes) {
-            await test.step(`select ${chartType.label}`, async () => {
-                await insight.trends.selectChartType(chartType.name)
-                await expect(insight.trends.chartTypeButton).toContainText(chartType.label)
-            })
-        }
-
-        await test.step('select Pie chart with breakdown', async () => {
-            await insight.trends.selectChartType(/^Line chart Trends/)
-            await insight.trends.addBreakdown('Browser')
-            await insight.trends.waitForChart()
-            await insight.trends.selectChartType(/^Pie chart/)
-            await expect(insight.trends.chartTypeButton).toContainText('Pie chart')
+        await test.step('Last 7 days shows total = 38', async () => {
+            await insight.trends.waitForDetailsTable()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([pageviews.expected.total])
         })
 
-        await test.step('select World map with country breakdown', async () => {
-            await insight.trends.selectChartType(/^Line chart Trends/)
-            await insight.trends.addBreakdown('Country code')
-            await insight.trends.waitForChart()
-            await insight.trends.chartTypeButton.click()
-            const worldMapItem = page.getByRole('menuitem', { name: /Visualize data by country/ })
-            await worldMapItem.scrollIntoViewIfNeeded()
-            await worldMapItem.click()
-            await insight.trends.waitForChart()
-            await expect(insight.trends.chartTypeButton).toContainText('World map')
-        })
-    })
-
-    test('Change date ranges, intervals, and comparison', async ({ page }) => {
-        const insight = new InsightPage(page)
-        await insight.goToNewTrends()
-        await insight.trends.waitForChart()
-
-        await test.step('select Last 30 days', async () => {
-            await insight.trends.selectDateRange('Last 30 days')
-            await expect(insight.trends.dateRangeButton).toContainText('Last 30 days')
-        })
-
-        await test.step('use custom fixed date range', async () => {
-            await insight.trends.dateRangeButton.click()
-            await page.getByText('Custom fixed date range').click()
-            // In LemonCalendarRange, click start date then end date directly (no Start:/End: buttons)
-            await page.locator('.LemonCalendar').getByRole('button', { name: '1', exact: true }).first().click()
-            await page.locator('.LemonCalendar').getByRole('button', { name: '15', exact: true }).first().click()
-            await page.getByRole('button', { name: 'Apply' }).click()
-            await insight.trends.waitForChart()
-            await expect(insight.trends.chart).toBeVisible()
-        })
-
-        await test.step('select All time', async () => {
-            await insight.trends.selectDateRange('All time')
-            await expect(insight.trends.dateRangeButton).toContainText('All time')
-        })
-
-        await test.step('use rolling date range with custom value', async () => {
-            await insight.trends.dateRangeButton.click()
-            const numberInput = page.locator('input[type="number"]').first()
-            await numberInput.fill('14')
-            await numberInput.press('Enter')
-            await insight.trends.waitForChart()
-            await expect(insight.trends.dateRangeButton).toContainText('14')
-        })
-
-        await test.step('change interval to week with Last 90 days', async () => {
-            await insight.trends.selectDateRange('Last 90 days')
-            await insight.trends.selectInterval('week')
-        })
-
-        await test.step('change to hourly interval with Last 24 hours', async () => {
+        await test.step('Last 24 hours shows total = 2', async () => {
             await insight.trends.selectDateRange('Last 24 hours')
-            await insight.trends.unpinInterval()
-            await insight.trends.selectInterval('hour')
-            await expect(insight.trends.chart).toBeVisible()
+            await insight.trends.waitForDetailsTable()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual(['2'])
         })
 
-        await test.step('enable comparison to previous period', async () => {
-            await insight.trends.selectDateRange('Last 7 days')
-            await expect(insight.trends.comparisonButton).toContainText('No comparison')
+        await test.step('enable comparison and verify no NaN', async () => {
             await insight.trends.selectComparison('Compare to previous period')
             await expect(insight.trends.comparisonButton).toContainText('Previous period')
+            await insight.trends.waitForDetailsTable()
+            const tableText = await insight.trends.detailsTable.textContent()
+            expect(tableText).not.toContain('NaN')
         })
 
         await test.step('disable comparison', async () => {
@@ -232,78 +163,55 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('Add and remove breakdowns', async ({ page }) => {
+    test('Break down custom events by browser and verify per-browser totals', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
 
-        await test.step('add breakdown by Browser', async () => {
+        await test.step('add Browser breakdown and switch to custom event', async () => {
             await insight.trends.addBreakdown('Browser')
             await insight.trends.waitForChart()
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
+            await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
-            const rowCount = await insight.trends.detailsLabels.count()
-            expect(rowCount).toBeGreaterThanOrEqual(1)
         })
 
-        await test.step('add second breakdown by OS', async () => {
-            await insight.trends.addBreakdown('OS')
-            await insight.trends.waitForChart()
-            await expect(insight.trends.chart).toBeVisible()
+        await test.step('verify Chrome = 5 and Firefox = 3', async () => {
+            const chromeTotal = await insight.trends.details.row('Chrome').column('Total')
+            const firefoxTotal = await insight.trends.details.row('Firefox').column('Total')
+            expect(chromeTotal).toEqual(customEventsWithBreakdown.expected.chromeCount)
+            expect(firefoxTotal).toEqual(customEventsWithBreakdown.expected.firefoxCount)
         })
 
-        await test.step('remove a breakdown', async () => {
+        await test.step('remove breakdown and verify single total returns', async () => {
             await insight.trends.removeBreakdown()
-            await expect(insight.trends.chart).toBeVisible()
-        })
-
-        await test.step('add breakdown by Person property', async () => {
-            await insight.trends.removeBreakdown()
-            await insight.trends.breakdownButton.click()
-            await insight.trends.selectTaxonomicTab('person_properties')
-            await insight.trends.taxonomicResults().first().click()
             await insight.trends.waitForChart()
-            await expect(insight.trends.chart).toBeVisible()
+            await insight.trends.waitForDetailsTable()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([customEventsWithBreakdown.expected.total])
         })
     })
 
-    test('Add filter groups and toggle internal users filter', async ({ page }) => {
+    test('Combine two series with a formula and verify computed total', async ({ page }) => {
         const insight = new InsightPage(page)
-        await insight.goToNewTrends()
-        await insight.trends.waitForChart()
 
-        await test.step('add a global filter group with Browser property', async () => {
-            await page.getByRole('button', { name: 'Add filter group' }).click()
-            await page.getByRole('button', { name: 'Filter', exact: true }).click()
-            const searchField = page.getByTestId('taxonomic-filter-searchfield')
-            await searchField.waitFor({ state: 'visible' })
-            await searchField.fill('Browser')
-            await insight.trends.taxonomicResults().first().click()
+        await test.step('add pageview and custom event as two series', async () => {
+            await insight.goToNewTrends()
             await insight.trends.waitForChart()
-            await expect(insight.trends.chart).toBeVisible()
+            await insight.trends.addSeries()
+            await insight.trends.selectEvent(1, customEventsWithBreakdown.eventName)
+            await insight.trends.waitForChart()
         })
 
-        await test.step('toggle filter out internal and test users', async () => {
-            const filterSwitch = page.getByRole('switch', { name: 'Filter out internal and test users' })
-            await filterSwitch.click()
-            await insight.trends.waitForChart()
-            await expect(insight.trends.chart).toBeVisible()
-        })
-    })
-
-    test('Enable and disable formula mode', async ({ page }) => {
-        const insight = new InsightPage(page)
-        await insight.goToNewTrends()
-        await insight.trends.addSeries()
-        await expect(insight.trends.secondSeries).toBeVisible()
-
-        await test.step('enable formula and enter expression', async () => {
+        await test.step('enable formula A + B and verify computed total', async () => {
             await insight.trends.setFormula('A + B')
-            await expect(insight.trends.formulaInput.first()).toHaveValue('A + B')
             await insight.trends.waitForChart()
-            await expect(insight.trends.detailsTable).toBeVisible()
+            await insight.trends.waitForDetailsTable()
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual(['46'])
         })
 
-        await test.step('disable formula mode', async () => {
+        await test.step('disable formula mode and verify both series return', async () => {
             await insight.trends.formulaSwitch.click()
             await expect(insight.trends.formulaInput).not.toBeVisible()
             await expect(insight.trends.firstSeries).toBeVisible()
@@ -311,95 +219,176 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('Configure display options and goal lines', async ({ page }) => {
+    test('Display negative values and formatted numbers correctly in details table', async ({ page }) => {
         const insight = new InsightPage(page)
-        await insight.goToNewTrends()
-        await insight.trends.waitForChart()
 
-        await test.step('toggle show values on series', async () => {
+        await test.step('set up custom event with browser breakdown and property sum', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.trends.addBreakdown('Browser')
+            await insight.trends.waitForChart()
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
+            await insight.trends.waitForChart()
+            await insight.trends.selectMathWithAggregation(0, /property value/, 'sum')
+            await insight.trends.selectMathProperty('amount')
+            await insight.trends.waitForDetailsTable()
+        })
+
+        await test.step('verify Chrome row totals 50 and Firefox row totals -15', async () => {
+            const rows = insight.trends.detailsTable.locator('tbody tr')
+            const chromeRow = rows.filter({ hasText: 'Chrome' })
+            const firefoxRow = rows.filter({ hasText: 'Firefox' })
+            await expect(chromeRow).toContainText(customEventsWithBreakdown.expected.chromeAmountSum)
+            await expect(firefoxRow).toContainText(customEventsWithBreakdown.expected.firefoxAmountSum)
+        })
+
+        await test.step('switch to Number chart and verify bold number shows net sum of 35', async () => {
+            await insight.trends.selectChartType(/^Number/)
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.amountSum)
+        })
+
+        await test.step('switch to line chart and set axis format to Percentage to verify % in details', async () => {
+            await insight.trends.selectChartType(/^Line chart(?! \()/)
+            await insight.trends.waitForDetailsTable()
             await insight.trends.openOptionsPanel()
-            await page.getByText('Show values on series').click()
-            await expect(page.getByRole('checkbox', { name: 'Show values on series' })).toBeChecked()
-            await page.getByText('Show values on series').click()
-            await expect(page.getByRole('checkbox', { name: 'Show values on series' })).not.toBeChecked()
+            const formatPicker = page.getByTestId('chart-aggregation-axis-format')
+            await formatPicker.waitFor({ state: 'visible' })
+            await formatPicker.click()
+            await page.getByRole('button', { name: 'Percent (0-100)' }).click()
+            await page.keyboard.press('Escape')
+            await expect(insight.trends.detailsTable).toContainText('35%')
+            await expect(insight.trends.detailsTable).toContainText('50%')
+            await expect(insight.trends.detailsTable).toContainText('-15%')
         })
 
-        await test.step('enable trend lines', async () => {
-            await page.getByText('Show trend lines').click()
-            await expect(page.getByRole('checkbox', { name: 'Show trend lines' })).toBeChecked()
-        })
-
-        await test.step('change y-axis scale to Logarithmic and back', async () => {
-            await page.getByRole('button', { name: 'Logarithmic' }).click()
-            await page.getByRole('button', { name: 'Linear' }).click()
-        })
-
-        await test.step('set y-axis unit to Duration', async () => {
-            const unitPicker = page.getByTestId('chart-aggregation-axis-format')
-            await unitPicker.click()
-            await page.locator('.Popover__content').getByRole('button', { name: 'Duration (s)', exact: true }).click()
-        })
-
-        await test.step('enable confidence intervals and moving average', async () => {
-            const unitPicker = page.getByTestId('chart-aggregation-axis-format')
-            await unitPicker.waitFor({ state: 'visible' })
-            await unitPicker.click()
-            const unitPopover = page.locator('.Popover__content').filter({ hasText: 'None' })
-            await unitPopover.waitFor({ state: 'visible' })
-            await unitPopover.getByRole('button', { name: 'None', exact: true }).click()
-
-            const ciToggle = page.getByRole('switch', { name: 'Show confidence intervals' })
-            await expect(ciToggle).toBeEnabled({ timeout: 10000 })
-            await ciToggle.click()
-            await expect(ciToggle.locator('..')).toHaveClass(/LemonSwitch--checked/)
-
-            const maToggle = page.getByRole('switch', { name: 'Show moving average' })
-            await expect(maToggle).toBeVisible()
-            await maToggle.click()
-            await expect(maToggle.locator('..')).toHaveClass(/LemonSwitch--checked/)
-        })
-
-        await test.step('add a goal line with value and label', async () => {
-            await page.getByText('Advanced options').click()
-            await page.getByRole('button', { name: 'Add goal line' }).click()
-            await page.locator('input[type="number"]').last().fill('100')
-            await page.getByPlaceholder('Label').last().fill('Target')
-            await expect(page.locator('input[type="number"]').last()).toHaveValue('100')
-            await expect(page.getByPlaceholder('Label').last()).toHaveValue('Target')
-        })
-
-        await test.step('remove the goal line', async () => {
-            await page.getByRole('button', { name: 'Delete goal line' }).click()
-            await expect(page.locator('input[type="number"]')).toHaveCount(0)
+        await test.step('set axis format back to None and verify formatting is removed', async () => {
+            await insight.trends.openOptionsPanel()
+            const formatPicker = page.getByTestId('chart-aggregation-axis-format')
+            await formatPicker.waitFor({ state: 'visible' })
+            await formatPicker.click()
+            await page.getByRole('button', { name: 'None' }).click()
+            await page.keyboard.press('Escape')
+            await expect(insight.trends.detailsTable).not.toContainText('35%')
         })
     })
 
-    test('Edit saved insight and save as new', async ({ page }) => {
-        test.setTimeout(45000)
+    test('Hover chart to see tooltip with data point values', async ({ page }) => {
         const insight = new InsightPage(page)
 
-        await test.step('create and save insight', async () => {
+        await test.step('create trends insight with pageviews', async () => {
             await insight.goToNewTrends()
-            await insight.editName('Download Activity')
-            await expect(insight.topBarName).toContainText('Download Activity', { timeout: 10000 })
+            await insight.trends.waitForChart()
+        })
+
+        await test.step('hover chart and verify tooltip appears with digits', async () => {
+            await insight.trends.hoverChartAt(0.3, 0.5)
+            const tooltipText = await insight.trends.tooltip.textContent()
+            expect(tooltipText).not.toContain('NaN')
+            expect(tooltipText).toMatch(/\d+/)
+        })
+
+        await test.step('move away and verify tooltip hides', async () => {
+            await insight.trends.hoverAway()
+            const wrapper = page.getByTestId('insight-tooltip-wrapper')
+            await expect(wrapper).toHaveCSS('opacity', '0')
+        })
+
+        await test.step('hover again and scroll to dismiss', async () => {
+            await insight.trends.hoverChartAt(0.5, 0.5)
+            await page.mouse.wheel(0, 200)
+            const wrapper = page.getByTestId('insight-tooltip-wrapper')
+            await expect(wrapper).toHaveCSS('opacity', '0')
+        })
+
+        await test.step('add breakdown and verify tooltip shows Chrome and Firefox', async () => {
+            await insight.trends.addBreakdown('Browser')
+            await insight.trends.waitForChart()
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
+            await insight.trends.waitForChart()
+            await insight.trends.hoverChartAt(0.5, 0.5)
+            const multiText = await insight.trends.tooltip.textContent()
+            expect(multiText).toContain('Chrome')
+            expect(multiText).toContain('Firefox')
+        })
+
+        await test.step('navigate away and verify no orphaned tooltip', async () => {
+            await insight.goToList()
+            await expect(page.locator('table')).toBeVisible()
+            await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
+        })
+    })
+
+    test('Save an insight, make changes, discard them, and save a copy', async ({ page }) => {
+        test.setTimeout(90_000)
+        const insight = new InsightPage(page)
+        const name = randomString('lifecycle')
+
+        await test.step('create and save an insight', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.editName(name)
             await insight.save()
+        })
+
+        await test.step('enter edit mode and verify button states', async () => {
+            await insight.edit()
+            await expect(insight.saveButton).toBeVisible()
+            await expect(insight.saveButton).toBeDisabled()
+            await expect(insight.editButton).not.toBeVisible()
+        })
+
+        await test.step('change date range then discard and verify revert', async () => {
+            await insight.trends.selectDateRange('Last 30 days')
+            await expect(insight.trends.dateRangeButton).toContainText('Last 30 days')
+            await expect(insight.saveButton).toBeEnabled()
+            await insight.discard()
+            await insight.trends.waitForChart()
+            await expect(insight.trends.dateRangeButton).toContainText('Last 7 days')
             await expect(insight.editButton).toBeVisible()
         })
 
-        await test.step('save as new insight', async () => {
+        await test.step('edit again, make a change, and save', async () => {
             await insight.edit()
-            await insight.saveAsNew('Copied Activity')
-            await expect(insight.topBarName).toContainText('Copied Activity', { timeout: 10000 })
+            await insight.trends.selectDateRange('Last 14 days')
+            await insight.save()
+            await expect(insight.trends.dateRangeButton).toContainText('Last 14 days')
+        })
+
+        await test.step('switch insight type to Funnels and back, then discard', async () => {
+            await insight.edit()
+            await page.locator('[data-attr="insight-funnels-tab"]').click()
+            await expect(insight.activeTab).toContainText('Funnels')
+            await page.locator('[data-attr="insight-trends-tab"]').click()
+            await expect(insight.activeTab).toContainText('Trends')
+            await insight.trends.waitForChart()
+            await expect(insight.trends.dateRangeButton).toContainText('Last 14 days')
+            await insight.discard()
+        })
+
+        const copyName = randomString('copy')
+        await test.step('save as new and verify URL changes', async () => {
+            const originalUrl = page.url()
+            await insight.edit()
+            await insight.saveAsNew(copyName)
+            expect(page.url()).not.toBe(originalUrl)
+            await expect(insight.topBarName).toContainText(copyName, { timeout: 10000 })
+        })
+
+        await test.step('navigate to list and verify both insights exist', async () => {
+            await insight.goToList()
+            await expect(page.locator('table')).toBeVisible()
+            await expect(page.getByRole('link', { name })).toBeVisible()
+            await expect(page.getByRole('link', { name: copyName })).toBeVisible()
         })
     })
 
-    test('Export as CSV and XLSX', async ({ page }) => {
+    test('Export insight data as CSV and XLSX', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
         await insight.trends.waitForDetailsTable()
 
-        await test.step('exports as CSV', async () => {
+        await test.step('export as CSV', async () => {
             await page.getByTestId('export-button').click()
             const csvDownload = page.waitForEvent('download')
             await page.getByTestId('export-button-csv').click()

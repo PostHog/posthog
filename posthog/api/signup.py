@@ -1,11 +1,12 @@
 import json
 import uuid as uuid_module
 from typing import Any, Optional, Union, cast
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
+from django.contrib.sessions.backends.base import SessionBase, UpdateError
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
@@ -42,6 +43,15 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 logger = structlog.get_logger(__name__)
 
 
+def _save_session_with_recovery(session: SessionBase) -> None:
+    """Persist session state and recover from missing-row session races."""
+    try:
+        session.save()
+    except UpdateError:
+        # If another request deleted/recreated this session row, create a new row for this request.
+        session.create()
+
+
 def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         next_url = request.data.get("next_url") if request and request.data else None
@@ -69,7 +79,7 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
         redirect_url = "/verify_email/" + uuid
 
         if next_url:
-            redirect_url += "?next=" + next_url
+            redirect_url += "?next=" + quote(next_url, safe="")
 
         return redirect_url
 
@@ -80,7 +90,9 @@ class SignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
-    password: serializers.Field = serializers.CharField(allow_null=True, required=False, allow_blank=True)
+    password: serializers.Field = serializers.CharField(
+        max_length=72, allow_null=True, required=False, allow_blank=True
+    )
     organization_name: serializers.Field = serializers.CharField(max_length=64, required=False, allow_blank=True)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
@@ -165,7 +177,6 @@ class SignupSerializer(serializers.Serializer):
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
 
-        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
         auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
         evaluate_auth_attempt(
             request=request._request,
@@ -234,7 +245,7 @@ class SignupSerializer(serializers.Serializer):
             request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
-            request.session.save()
+            _save_session_with_recovery(request.session)
 
         user = self._user
 
@@ -329,7 +340,7 @@ class SignupViewset(generics.CreateAPIView):
 
 class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
-    password: serializers.Field = serializers.CharField(required=False)
+    password: serializers.Field = serializers.CharField(max_length=72, required=False)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
@@ -385,8 +396,6 @@ class InviteSignupSerializer(serializers.Serializer):
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
-        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
-        # Only for new users, not existing authenticated users
         if not user and invite.target_email:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
             evaluate_auth_attempt(
@@ -489,7 +498,7 @@ class InviteSignupSerializer(serializers.Serializer):
             request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
-            request.session.save()
+            _save_session_with_recovery(request.session)
 
         return user
 
@@ -632,7 +641,7 @@ def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[
 
 def process_social_invite_signup(
     strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
-) -> User:
+) -> Optional[User]:
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
@@ -642,11 +651,7 @@ def process_social_invite_signup(
         try:
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
-            raise ValidationError(
-                "Team does not exist",
-                code="invalid_invite",
-                params={"source": "social_create_user"},
-            )
+            return None
 
     if user:
         invite.validate(user=user, email=email)
@@ -803,6 +808,8 @@ def social_create_user(
     if invite_id:
         from_invite = True
         user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        if user is None:
+            return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?

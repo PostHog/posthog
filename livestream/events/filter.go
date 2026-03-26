@@ -105,13 +105,17 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 	return uuid.NewV5(personUUIDV5Namespace, input).String()
 }
 
+func logUnsubscribe(sub Subscription) {
+	if dropped := sub.DroppedEvents.Load(); dropped > 0 {
+		log.Printf("Team %d dropped %d events", sub.TeamId, dropped)
+	}
+	metrics.SubTotal.Dec()
+}
+
 func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 	for i, sub := range subs {
 		if subID == sub.SubID {
-			if dropped := sub.DroppedEvents.Load(); dropped > 0 {
-				log.Printf("Team %d dropped %d events", sub.TeamId, dropped)
-			}
-			metrics.SubTotal.Dec()
+			logUnsubscribe(sub)
 			return slices.Delete(subs, i, i+1)
 		}
 	}
@@ -127,50 +131,59 @@ func (c *Filter) Run() {
 		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:
-			var responseGeoEvent *ResponseGeoEvent
-
+			matching := make([]Subscription, 0, len(c.subs))
 			for _, sub := range c.subs {
-				if sub.ShouldClose.Load() {
-					continue
-				}
-
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
 				}
-
-				if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
-					continue
-				}
-
-				if len(sub.EventTypes) > 0 && !slices.Contains(sub.EventTypes, event.Event) {
-					continue
-				}
-
-				if sub.Geo {
-					if event.Lat != 0.0 {
-						if responseGeoEvent == nil {
-							responseGeoEvent = convertToResponseGeoEvent(event)
-						}
-
-						select {
-						case sub.EventChan <- *responseGeoEvent:
-						default:
-							sub.DroppedEvents.Add(1)
-							metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
-						}
-					}
-				} else {
-					responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns)
-
-					select {
-					case sub.EventChan <- *responseEvent:
-					default:
-						sub.DroppedEvents.Add(1)
-						metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
-					}
-				}
+				matching = append(matching, sub)
 			}
-
+			deliverEvent(event, matching)
 		}
 	}
 }
+
+// Routes a single event to all matching subscriptions.
+// Used by both Filter (in-memory path) and TokenRouter (Redis pub/sub path).
+func deliverEvent(event PostHogEvent, subs []Subscription) {
+	var responseGeoEvent *ResponseGeoEvent
+
+	for _, sub := range subs {
+		if sub.ShouldClose.Load() {
+			continue
+		}
+
+		if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
+			continue
+		}
+
+		if len(sub.EventTypes) > 0 && !slices.Contains(sub.EventTypes, event.Event) {
+			continue
+		}
+
+		if sub.Geo {
+			if event.Lat != 0.0 {
+				if responseGeoEvent == nil {
+					responseGeoEvent = convertToResponseGeoEvent(event)
+				}
+
+				select {
+				case sub.EventChan <- *responseGeoEvent:
+				default:
+					sub.DroppedEvents.Add(1)
+					metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
+				}
+			}
+		} else {
+			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns)
+
+			select {
+			case sub.EventChan <- *responseEvent:
+			default:
+				sub.DroppedEvents.Add(1)
+				metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
+			}
+		}
+	}
+}
+

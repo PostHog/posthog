@@ -4,8 +4,8 @@ import { dayjs } from 'lib/dayjs'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { humanFriendlyCurrency } from 'lib/utils'
 
-import { StripePortalButton } from './StripePortalButton'
 import { billingLogic } from './billingLogic'
+import { StripePortalButton } from './StripePortalButton'
 
 export const BillingSummary = (): JSX.Element => {
     const { billing } = useValues(billingLogic)

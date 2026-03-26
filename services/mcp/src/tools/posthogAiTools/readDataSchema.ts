@@ -9,7 +9,10 @@ const schema = ReadDataSchemaSchema
 
 type Params = z.infer<typeof schema>
 
-export const readDataSchemaHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const readDataSchemaHandler: ToolBase<typeof schema, string>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const result = await invokeMcpTool(context, 'read_taxonomy', {
         query: params.query,
     })
@@ -21,7 +24,7 @@ export const readDataSchemaHandler: ToolBase<typeof schema>['handler'] = async (
     return result.content
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, string> => ({
     name: 'read-data-schema',
     schema,
     handler: readDataSchemaHandler,

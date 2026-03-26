@@ -11,6 +11,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -78,6 +79,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
+        syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
         cancelChanges: true,
@@ -88,6 +90,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             null as Node | null,
             {
                 setQuery: (_, { query }) => query,
+                syncQueryFromProps: (_, { query }) => query,
             },
         ],
         showQueryEditor: [
@@ -105,22 +108,23 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     loaders(({ values }) => ({
-        generatedInsightName: [
-            null as string | null,
+        generatedInsightMetadata: [
+            null as { name: string; description: string } | null,
             {
-                generateInsightName: async () => {
+                generateInsightMetadata: async () => {
                     const insightQuery = values.insightQuery
                     if (!insightQuery) {
                         return null
                     }
+
                     try {
-                        const response = await api.insights.generateName({
+                        const response = await api.insights.generateMetadata({
                             kind: NodeKind.InsightVizNode,
                             source: insightQuery,
                         })
-                        return response.name
+                        return { name: response.name, description: response.description }
                     } catch (e) {
-                        lemonToast.error('Failed to generate name')
+                        lemonToast.error('Failed to generate name and description')
                         throw e
                     }
                 },
@@ -132,8 +136,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         query: [
             (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
-                propsQuery ||
                 internalQuery ||
+                propsQuery ||
                 insight.query ||
                 (isDataWarehouseQuery
                     ? examples.DataWarehouse
@@ -243,9 +247,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        generateInsightNameSuccess: ({ generatedInsightName }) => {
-            if (generatedInsightName) {
-                actions.setInsightMetadata({ name: generatedInsightName })
+        generateInsightMetadataSuccess: ({ generatedInsightMetadata }) => {
+            if (generatedInsightMetadata) {
+                actions.setInsightMetadata({
+                    name: generatedInsightMetadata.name,
+                    description: generatedInsightMetadata.description,
+                })
+                if (generatedInsightMetadata.description && !sceneLayoutLogic.values.showDescription) {
+                    sceneLayoutLogic.actions.toggleShowDescription()
+                }
             }
         },
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
@@ -313,8 +323,38 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
         },
     })),
-    propsChanged(({ actions, props, values }) => {
-        if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
+    propsChanged(({ actions, props, values }, oldProps) => {
+        // Uses syncQueryFromProps (not setQuery) to avoid triggering the
+        // insightVizDataLogic.setQuery listener which would loop back via props.setQuery.
+        // Guard must match propsQuery selector (only ad-hoc insights receive query via props).
+        if (props.dashboardItemId?.startsWith('new-AdHoc.') && props.query) {
+            try {
+                if (!objectsEqual(props.query, values.query)) {
+                    actions.syncQueryFromProps(props.query)
+                }
+            } catch {
+                actions.syncQueryFromProps(props.query)
+            }
+            return
+        }
+
+        if (!props.cachedInsight?.query) {
+            return
+        }
+
+        const cachedQueryChanged =
+            !oldProps?.cachedInsight?.query || !objectsEqual(oldProps.cachedInsight.query, props.cachedInsight.query)
+
+        if (!cachedQueryChanged) {
+            return
+        }
+        try {
+            if (!objectsEqual(props.cachedInsight.query, values.query)) {
+                actions.setQuery(props.cachedInsight.query)
+            }
+        } catch {
+            // values.query can throw if the logic's state isn't in the store yet
+            // (e.g. when InsightCard rebuilds the logic during navigation)
             actions.setQuery(props.cachedInsight.query)
         }
     }),

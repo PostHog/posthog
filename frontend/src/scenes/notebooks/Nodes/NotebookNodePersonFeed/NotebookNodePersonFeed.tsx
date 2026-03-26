@@ -16,8 +16,8 @@ import { customerProfileLogic } from 'products/customer_analytics/frontend/custo
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { AISessionSummary } from './AISessionSummary/AISessionSummary'
-import { Session } from './Session'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
+import { Session } from './Session'
 
 const FeedSkeleton = (): JSX.Element => (
     <div className="deprecated-space-y-4 p-4">

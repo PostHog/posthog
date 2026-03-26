@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Download and export the sentiment ONNX model for LLM Analytics."""
+
+import os
+import sys
+from pathlib import Path
+
+CACHE_DIR = Path(os.environ.get("POSTHOG_SENTIMENT_MODEL_CACHE", "/tmp/posthog-sentiment-onnx-cache"))
+REQUIRED_FILES = ("model.onnx", "tokenizer.json", "config.json")
+
+MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+MODEL_REVISION = "3216a57f2a0d9c45a2e6c20157c20c49fb4bf9c7"
+
+
+def main() -> None:
+    if all((CACHE_DIR / f).exists() for f in REQUIRED_FILES):
+        print(f"Sentiment ONNX model already exists at {CACHE_DIR}")
+        sys.exit(0)
+
+    print(f"Downloading and exporting sentiment ONNX model to {CACHE_DIR}...")
+
+    import torch
+    from optimum.onnxruntime import ORTModelForSequenceClassification
+    from transformers import AutoTokenizer, pipeline
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    print(f"Downloading {MODEL_NAME} (revision {MODEL_REVISION[:12]})")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
+
+    # PyTorch 2.9+ defaults torch.onnx.export to dynamo=True which breaks optimum
+    original_export = torch.onnx.export
+
+    def export_with_dynamo_disabled(*args, **kwargs):
+        kwargs.setdefault("dynamo", False)
+        return original_export(*args, **kwargs)
+
+    torch.onnx.export = export_with_dynamo_disabled
+
+    print("Exporting to ONNX...")
+    model = ORTModelForSequenceClassification.from_pretrained(MODEL_NAME, revision=MODEL_REVISION, export=True)
+    torch.onnx.export = original_export
+
+    model.save_pretrained(CACHE_DIR)
+    tokenizer.save_pretrained(CACHE_DIR)
+
+    print("Running smoke test...")
+    pipe = pipeline(
+        "sentiment-analysis", model=model, tokenizer=tokenizer, top_k=None, truncation=True, max_length=512
+    )
+    result = pipe("I love this product")[0]
+    labels = {r["label"]: r["score"] for r in result}
+    assert labels.get("positive", 0) > 0.5, f"Smoke test failed: expected positive > 0.5, got {labels}"
+    print(f"Smoke test passed: positive={labels['positive']:.4f}")
+    print(f"Model saved to {CACHE_DIR}")
+
+
+if __name__ == "__main__":
+    main()

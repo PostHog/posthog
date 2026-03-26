@@ -7,6 +7,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
 import * as incidentIoStatusPageWarning from '~/mocks/fixtures/_incident_io_status_page_warning.json'
@@ -14,7 +15,6 @@ import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@cu
 import { SidePanelTab } from '~/types'
 
 import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
-import { INCIDENT_IO_STATUS_PAGE_BASE } from './panels/sidePanelStatusIncidentIoLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
@@ -34,7 +34,7 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
-                '/api/organizations/@current/pipeline_destinations/': { results: [] },
+                '/api/organizations/:organization_id/pipeline_destinations/': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs/': { results: [] },
                 '/api/projects/:id/batch_exports/': { results: [] },
                 '/api/projects/:id/surveys/': { results: [] },
@@ -84,10 +84,6 @@ export const SidePanelNotebooks: StoryFn = () => {
 
 export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
-}
-
-export const SidePanelSdkDoctor: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
 }
 
 export const SidePanelActivity: StoryFn = () => {

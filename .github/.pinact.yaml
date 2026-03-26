@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/suzuki-shunsuke/pinact/refs/heads/main/json-schema/pinact.json
+# pinact - https://github.com/suzuki-shunsuke/pinact
+# Run with pinact run --config .github/.pinact.yaml
+version: 3
+# files:
+#   - pattern: action.yaml
+#   - pattern: */action.yaml
+
+# separator: "  # "
+
+ignore_actions:
+    - name: actions/.*
+      ref: .*
+    - name: github/.*
+      ref: .*
+    - name: PostHog/.*
+      ref: .*

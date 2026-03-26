@@ -14,17 +14,19 @@ import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
 interface CompactListProps {
     title?: string | JSX.Element
     viewAllURL?: string
+    viewAllDataAttr?: string
     loading: boolean
     items: any[]
     emptyMessage?: EmptyMessageProps
     renderRow: (rowData: any, index: number) => JSX.Element
     /** Whether the content should have a fixed height or shrink to fit the content, with a max of the fixed height. Defaults to 'fixed'. */
-    contentHeightBehavior?: 'fixed' | 'shrink'
+    contentHeightBehavior?: 'fixed' | 'shrink' | 'fit-content'
 }
 
 export function CompactList({
     title,
     viewAllURL,
+    viewAllDataAttr,
     loading,
     items,
     emptyMessage,
@@ -44,7 +46,11 @@ export function CompactList({
                         <h3 className="px-2 truncate" title={typeof title === 'string' ? title : undefined}>
                             {title}
                         </h3>
-                        {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
+                        {viewAllURL && (
+                            <LemonButton to={viewAllURL} data-attr={viewAllDataAttr}>
+                                View all
+                            </LemonButton>
+                        )}
                     </div>
                     <div className="mx-2">
                         {/* This divider has to be within a div, because otherwise horizontal margin ADDS to the width */}
@@ -52,7 +58,12 @@ export function CompactList({
                     </div>
                 </>
             )}
-            <div className={clsx('CompactList__content', contentHeightBehavior === 'shrink' && 'max-h-[16rem] h-auto')}>
+            <div
+                className={clsx('CompactList__content', {
+                    'max-h-[16rem] h-auto': contentHeightBehavior === 'shrink',
+                    'h-auto': contentHeightBehavior === 'fit-content',
+                })}
+            >
                 {loading ? (
                     <div className="p-2 deprecated-space-y-6">
                         {Array.from({ length: 6 }, (_, index) => (

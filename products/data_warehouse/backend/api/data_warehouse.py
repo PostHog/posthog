@@ -18,13 +18,17 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import BatchExportRun
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.utils import convert_property_value, flatten
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
 from ee.billing.billing_manager import BillingManager
@@ -94,12 +98,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit=ast.Constant(value=10),
         )
 
+        tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
         result = execute_hogql_query(query, team=self.team)
 
         values = [row[0] for row in result.results]
-        response = Response([{"name": convert_property_value(value)} for value in flatten(values)])
-        response["Cache-Control"] = "max-age=10"
-        return response
+        resp = Response(
+            {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
+        )
+        resp["Cache-Control"] = "max-age=10"
+        return resp
 
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
@@ -530,11 +537,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = []
 
             # Get failed materializations from DataWarehouseSavedQuery
+            # Only show views that are actively materialized but failing
             failed_materializations = DataWarehouseSavedQuery.objects.filter(
                 team_id=self.team_id,
                 deleted=False,
-            ).filter(
-                Q(status=DataWarehouseSavedQuery.Status.FAILED) | Q(is_materialized=False, latest_error__isnull=False)
+                is_materialized=True,
+                status=DataWarehouseSavedQuery.Status.FAILED,
             )
 
             for query in failed_materializations:
@@ -550,15 +558,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
                 )
 
-            # Get failed or disabled syncs from ExternalDataSchema
+            # Get failed syncs from ExternalDataSchema
+            # Only show syncs that are actively enabled but failing
             problem_syncs = (
                 ExternalDataSchema.objects.filter(
                     team_id=self.team_id,
                     deleted=False,
+                    should_sync=True,
                 )
                 .filter(
                     Q(status=ExternalDataSchema.Status.FAILED)
-                    | Q(should_sync=False, latest_error__isnull=False)
                     | Q(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
                 )
                 .select_related("source")
@@ -566,9 +575,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             for schema in problem_syncs:
                 sync_status = "failed"
-                if not schema.should_sync:
-                    sync_status = "disabled"
-                elif schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+                if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
                     sync_status = "billing_limit"
 
                 results.append(
@@ -607,10 +614,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             # Get failed batch exports
             # get latest run per export, then filter for failures
+            # Exclude paused exports since their last failure is no longer actionable
             latest_run_ids = (
                 BatchExportRun.objects.filter(
                     batch_export__team_id=self.team_id,
                     batch_export__deleted=False,
+                    batch_export__paused=False,
                 )
                 .order_by("batch_export_id", "-created_at")
                 .distinct("batch_export_id")
@@ -743,3 +752,24 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "An error occurred retrieving data health issues"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(methods=["GET"], detail=False)
+    def data_ops_dashboard(self, request: Request, **kwargs) -> Response:
+        """
+        Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
+        """
+        from django.db import transaction
+
+        config = get_or_create_team_extension(self.team, TeamDataWarehouseConfig)
+
+        if not config.overview_dashboards.exists():
+            with transaction.atomic():
+                config = TeamDataWarehouseConfig.objects.select_for_update().get(team=self.team)
+                if not config.overview_dashboards.exists():
+                    dashboard = create_data_ops_dashboard(self.team, request.user)
+                    config.overview_dashboards.add(dashboard)
+
+        # TODO: In the future this endpoint will return multiple dashboards (one per use-case).
+        # For now we only expose the first one (by creation order) to keep the UI simple.
+        first_dashboard = config.overview_dashboards.order_by("id").first()
+        return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})

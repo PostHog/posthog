@@ -4,11 +4,17 @@ mod feature_flag;
 mod group;
 mod person;
 
+use std::time::Instant;
+
+use sqlx::pool::PoolConnection;
 use sqlx::postgres::PgPool;
+use sqlx::Postgres;
 
 use super::error::StorageError;
 
 pub(crate) const DB_QUERY_DURATION: &str = "personhog_replica_db_query_duration_ms";
+pub(crate) const DB_POOL_ACQUIRE_DURATION: &str = "personhog_replica_db_pool_acquire_duration_ms";
+pub(crate) const DB_ROWS_RETURNED: &str = "personhog_replica_db_rows_returned";
 
 /// Consistency level for read operations
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -24,9 +30,9 @@ pub enum ConsistencyLevel {
 /// for primary (strong consistency) and replica (eventual consistency) databases.
 pub struct PostgresStorage {
     /// Connection pool for the primary database (writes + strong consistency reads)
-    pub(crate) primary_pool: PgPool,
+    pub primary_pool: PgPool,
     /// Connection pool for the replica database (eventual consistency reads)
-    pub(crate) replica_pool: PgPool,
+    pub replica_pool: PgPool,
 }
 
 impl PostgresStorage {
@@ -55,6 +61,31 @@ impl PostgresStorage {
             ConsistencyLevel::Strong => &self.primary_pool,
             ConsistencyLevel::Eventual => &self.replica_pool,
         }
+    }
+
+    /// Returns the pool label for the given consistency level.
+    pub(crate) fn pool_label(consistency: ConsistencyLevel) -> &'static str {
+        match consistency {
+            ConsistencyLevel::Strong => "primary",
+            ConsistencyLevel::Eventual => "replica",
+        }
+    }
+
+    /// Acquire a connection from the given pool, recording the acquisition time
+    /// as `personhog_replica_db_pool_acquire_duration_ms` with a `pool` label.
+    pub(crate) async fn acquire_timed(
+        pool: &PgPool,
+        pool_label: &str,
+    ) -> Result<PoolConnection<Postgres>, StorageError> {
+        let start = Instant::now();
+        let conn = pool.acquire().await.map_err(StorageError::from)?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        common_metrics::histogram(
+            DB_POOL_ACQUIRE_DURATION,
+            &[("pool".to_string(), pool_label.to_string())],
+            elapsed_ms,
+        );
+        Ok(conn)
     }
 
     /// Get the primary pool (for writes).

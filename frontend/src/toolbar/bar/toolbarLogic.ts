@@ -15,6 +15,8 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 
@@ -72,7 +74,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
         actions: [
             toolbarConfigLogic,
-            ['logout'],
+            ['logout', 'setOAuthTokens'],
             actionsTabLogic,
             [
                 'showButtonActions',
@@ -436,7 +438,19 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        setVisibleMenu: ({ visibleMenu }) => {
+        setOAuthTokens: () => {
+            if (values.minimized) {
+                actions.toggleMinimized(false)
+            }
+        },
+        setVisibleMenu: ({ visibleMenu }, _, __, previousState) => {
+            const previousMenu = toolbarLogic.selectors.visibleMenu(previousState)
+            if (visibleMenu !== 'none') {
+                toolbarPosthogJS.capture('toolbar menu opened', { menu: visibleMenu, previous_menu: previousMenu })
+            } else if (previousMenu !== 'none') {
+                toolbarPosthogJS.capture('toolbar menu closed', { menu: previousMenu })
+            }
+
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
@@ -512,7 +526,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     values.element?.removeEventListener('touchmove', onMove)
                     values.element?.removeEventListener('touchend', onTouchEnd)
                 }
-                values.element.addEventListener('touchmove', onMove)
+                values.element.addEventListener('touchmove', onMove, { passive: true })
                 values.element.addEventListener('touchend', onTouchEnd)
             } else {
                 const onMouseUp = (e: MouseEvent): void => {
@@ -630,7 +644,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
             const clickListener = (e: MouseEvent): void => {
                 const target = e.target as HTMLElement
                 const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
-                if (!clickIsInToolbar && !values.isBlurred) {
+                // Don't blur when the debugger is open — it needs to stay pinned
+                // so users can interact with the page while watching events
+                if (!clickIsInToolbar && !values.isBlurred && values.visibleMenu !== 'debugger') {
                     actions.setIsBlurred(true)
                 }
             }
@@ -718,7 +734,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
                             return
                         default:
-                            console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+                            toolbarLogger.warn('iframe', `Received unknown parent window message: ${type}`)
                     }
                 }
                 window.addEventListener('message', iframeEventListener, false)

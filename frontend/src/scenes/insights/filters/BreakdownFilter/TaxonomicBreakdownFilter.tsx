@@ -18,6 +18,7 @@ export interface TaxonomicBreakdownFilterProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
+    isFunnels: boolean
     disabledReason?: string
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
@@ -31,6 +32,7 @@ export function TaxonomicBreakdownFilter({
     breakdownFilter,
     display,
     isTrends,
+    isFunnels,
     disabledReason,
     updateBreakdownFilter,
     updateDisplay,
@@ -41,6 +43,7 @@ export function TaxonomicBreakdownFilter({
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
         insightProps,
         isTrends,
+        isFunnels,
         display,
         breakdownFilter: breakdownFilter || {},
         updateBreakdownFilter,
@@ -76,7 +79,7 @@ export function TaxonomicBreakdownFilter({
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             {(showLabel || isMultipleBreakdownsEnabled) && (
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
                     {showLabel && (
                         <LemonLabel info="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited.">
                             Breakdown by

@@ -1,3 +1,4 @@
+// Loads and manages batch export backfills — listing, cancellation, and polling for estimates.
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -10,7 +11,7 @@ import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
@@ -21,16 +22,11 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillsLogic', key]),
     connect((props: BatchExportBackfillsLogicProps) => ({
-        values: [
-            teamLogic(),
-            ['currentTeamId'],
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig'],
+        values: [teamLogic(), ['currentTeamId'], batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
+        actions: [
+            batchExportBackfillModalLogic(props),
+            ['submitBackfillFormSuccess', 'openBackfillModal', 'backfillCreated'],
         ],
-        actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
     })),
     actions({
         loadBackfills: true,
@@ -116,6 +112,50 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             setTimeout(() => {
                 actions.loadBackfills()
             }, 1000)
+        },
+        backfillCreated: async ({ backfillId }, breakpoint) => {
+            const MAX_POLL_ATTEMPTS = 10
+            const POLL_INTERVAL_MS = 1000
+
+            for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+                await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+                // Abort if the logic was unmounted or a newer backfillCreated action fired
+                breakpoint()
+
+                try {
+                    const backfill = await api.batchExports.getBackfill(props.id, backfillId)
+
+                    if (backfill?.total_records_count != null) {
+                        if (backfill.total_records_count === 0) {
+                            lemonToast.warning(
+                                'No rows found to export for the selected time range. The backfill will finish with nothing to export.'
+                            )
+                        } else {
+                            lemonToast.info(
+                                `Estimated ~${backfill.total_records_count.toLocaleString()} rows to export`,
+                                {
+                                    button: {
+                                        label: 'Cancel backfill',
+                                        action: async () => {
+                                            try {
+                                                await api.batchExports.cancelBackfill(props.id, backfill.id)
+                                                lemonToast.success('Backfill cancelled')
+                                                actions.loadBackfills()
+                                            } catch {
+                                                lemonToast.error('Failed to cancel backfill')
+                                            }
+                                        },
+                                    },
+                                }
+                            )
+                        }
+                        actions.loadBackfills()
+                        return
+                    }
+                } catch (e) {
+                    console.warn('Failed to poll for backfill estimate', e)
+                }
+            }
         },
     })),
     afterMount(({ actions }) => {

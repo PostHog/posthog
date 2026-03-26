@@ -155,6 +155,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
                     .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .filter((x) => x.type !== 'source_webhook' || !!featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES])
+                    .filter(
+                        (x) =>
+                            x.id !== 'template-source-vercel-log-drain' ||
+                            !!featureFlags[FEATURE_FLAGS.CDP_VERCEL_LOG_DRAIN]
+                    )
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],

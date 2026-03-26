@@ -214,6 +214,47 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
     assert runs.exists()
 
 
+@pytest.mark.parametrize(
+    "ai_consent,source_config_enabled,expected",
+    [
+        (True, True, True),
+        (True, False, False),
+        (True, None, False),
+        (False, True, False),
+        (None, True, False),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_emit_signals_respects_ai_consent(
+    activity_environment, team, organization, ai_consent, source_config_enabled, expected
+):
+    from products.signals.backend.models import SignalSourceConfig
+
+    organization.is_ai_data_processing_approved = ai_consent
+    organization.save()
+    if source_config_enabled is not None:
+        SignalSourceConfig.objects.create(
+            team=team,
+            source_product="zendesk",
+            source_type="ticket",
+            enabled=source_config_enabled,
+        )
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Zendesk",
+    )
+    schema = _create_schema("tickets", new_source, team)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    assert result.emit_signals_enabled is expected
+
+
 @pytest.mark.django_db(transaction=True)
 def test_create_external_job_activity_update_schemas(activity_environment, team, **kwargs):
     new_source = ExternalDataSource.objects.create(

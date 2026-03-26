@@ -2,7 +2,6 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
-use health::HealthStrategy;
 use tracing::Level;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -59,6 +58,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub print_sink: bool,
 
+    #[envconfig(default = "false")]
+    pub noop_sink: bool,
+
     #[envconfig(default = "127.0.0.1:3000")]
     pub address: SocketAddr,
 
@@ -73,23 +75,53 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub global_rate_limit_enabled: bool,
 
-    /// Rate limiting keys associated with this or more events
-    /// per window interval will be rate limited
-    #[envconfig(default = "1000000")]
-    pub global_rate_limit_threshold: u64,
-
     /// Sliding window interval to apply global rate limiting threshold to
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,
 
-    /// CSV list of key=value pairs assigning custom global rate limit thresholds
-    /// for particular keys.
-    pub global_rate_limit_overrides_csv: Option<String>,
+    /// Max staleness before re-sync with Redis (seconds)
+    #[envconfig(default = "15")]
+    pub global_rate_limit_sync_interval_secs: u64,
+
+    /// Background task cadence for pipeline reads + writes (milliseconds)
+    #[envconfig(default = "1000")]
+    pub global_rate_limit_tick_interval_ms: u64,
+
+    // --- Token+DistinctId limiter config ---
+    /// Per-(token, distinct_id) rate limit threshold per window interval
+    /// Note: default is too high to trigger limiting in production
+    #[envconfig(default = "300000")]
+    pub global_rate_limit_token_distinctid_threshold: u64,
+
+    /// CSV list of key=value pairs for custom per-(token, distinct_id) thresholds
+    pub global_rate_limit_token_distinctid_overrides_csv: Option<String>,
+
+    /// Max local cache entries for the per-(token, distinct_id) limiter
+    #[envconfig(default = "5000000")]
+    pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
+
+    // --- Token-only limiter config ---
+    /// Per-token rate limit threshold per window interval
+    /// Note: default is too high to trigger limiting in production
+    #[envconfig(default = "5000000")]
+    pub global_rate_limit_token_threshold: u64,
+
+    /// CSV list of key=value pairs for custom per-token thresholds
+    pub global_rate_limit_token_overrides_csv: Option<String>,
+
+    /// Max local cache entries for the per-token limiter
+    #[envconfig(default = "300000")]
+    pub global_rate_limit_token_local_cache_max_entries: u64,
 
     /// Optional dedicated Redis URL for global rate limiter.
     /// If set, creates a separate Redis client for the limiter.
     /// Falls back to the shared redis_url if unset.
     pub global_rate_limit_redis_url: Option<String>,
+
+    /// Optional Redis reader URL for global rate limiter (replica).
+    /// When set alongside global_rate_limit_redis_url, creates a ReadWriteClient
+    /// that routes reads to replicas and writes to the primary.
+    pub global_rate_limit_redis_reader_url: Option<String>,
 
     /// Response timeout for dedicated global rate limiter Redis (milliseconds).
     /// Defaults to redis_response_timeout_ms if unset.
@@ -163,9 +195,6 @@ pub struct Config {
     #[envconfig(default = "")]
     pub s3_fallback_prefix: String,
 
-    #[envconfig(default = "ALL")]
-    pub healthcheck_strategy: HealthStrategy,
-
     #[envconfig(default = "false")]
     pub is_mirror_deploy: bool,
 
@@ -209,6 +238,15 @@ pub struct Config {
     #[envconfig(default = "256")]
     pub body_read_chunk_size_kb: usize,
 
+    /// Enable dual-write of exception events to the error tracking pipeline.
+    #[envconfig(default = "false")]
+    pub error_tracking_dual_write_enabled: bool,
+
+    /// Sample rate for error tracking dual-write (0.0 to 100.0).
+    /// Only applies when dual-write is enabled.
+    #[envconfig(default = "0.0")]
+    pub error_tracking_dual_write_sample_rate: f64,
+
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 }
@@ -228,6 +266,8 @@ pub struct KafkaConfig {
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
+    #[envconfig(default = "ingestion-traces")]
+    pub kafka_traces_topic: String,
     #[envconfig(default = "events_plugin_ingestion_overflow")]
     pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
@@ -236,6 +276,8 @@ pub struct KafkaConfig {
     pub kafka_client_ingestion_warning_topic: String,
     #[envconfig(default = "exceptions_ingestion")]
     pub kafka_exceptions_topic: String,
+    #[envconfig(default = "error_tracking_events")]
+    pub kafka_error_tracking_topic: String,
     #[envconfig(default = "heatmaps_ingestion")]
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]

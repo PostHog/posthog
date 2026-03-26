@@ -11,14 +11,14 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
-import { commonActionFilterProps } from '../Metrics/Selectors'
 import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
+import { commonActionFilterProps } from '../Metrics/Selectors'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
 export function LegacySharedTrendsMetricForm(): JSX.Element {

@@ -15,12 +15,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ExporterFormat } from '~/types'
 
+import { buildBillingCsv } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { BillingNoAccess } from './BillingNoAccess'
-import { buildBillingCsv } from './billing-utils'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
 

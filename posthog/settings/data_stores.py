@@ -1,6 +1,9 @@
 import os
 import json
+import time
 from contextlib import suppress
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -8,6 +11,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 
+from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils import str_to_int_set
@@ -172,6 +176,65 @@ if persons_db_writer_url:
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
+
+product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
+configured_product_databases: set[str] = set()
+
+for route in product_routes:
+    if route.database in configured_product_databases:
+        continue
+
+    db = route.database
+    writer_env = f"PRODUCT_DB_{db.upper()}_WRITER_URL"
+    reader_env = f"PRODUCT_DB_{db.upper()}_READER_URL"
+    writer_alias = f"{db}_db_writer"
+    reader_alias = f"{db}_db_reader"
+
+    writer_url = os.getenv(writer_env)
+    if not writer_url and DEBUG and not TEST:
+        writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog_{db}"
+    elif not writer_url and TEST:
+        writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}_{db}"
+
+    if not writer_url:
+        continue
+
+    DATABASES[writer_alias] = dj_database_url.parse(writer_url, conn_max_age=0)
+    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+
+    reader_url = os.getenv(reader_env, writer_url)
+    DATABASES[reader_alias] = dj_database_url.parse(reader_url, conn_max_age=0)
+    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+
+    if TEST:
+        # Tell Django's test runner to create an independent test database and run
+        # migrations (via the router). Without this, test databases are created
+        # but left empty. Reader shares the writer's test database so reads inside
+        # a write transaction see uncommitted data.
+        DATABASES[writer_alias]["TEST"] = {"DEPENDENCIES": []}
+        DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
+
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES[writer_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES[reader_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    # Direct connection for migrations (bypasses PgBouncer). Only registered
+    # when the env var is explicitly set — in dev/test there's no PgBouncer,
+    # so migrations use the writer alias directly.
+    direct_env = f"PRODUCT_DB_{db.upper()}_DIRECT_URL"
+    direct_url = os.getenv(direct_env)
+    if direct_url:
+        direct_alias = f"{db}_db_direct"
+        DATABASES[direct_alias] = dj_database_url.parse(direct_url, conn_max_age=0)
+        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        if DISABLE_SERVER_SIDE_CURSORS:
+            DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    configured_product_databases.add(db)
+
+if configured_product_databases:
+    DATABASE_ROUTERS.insert(0, "posthog.product_db_router.ProductDBRouter")
+
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
 # Immediately reading after writing may not return consistent data if done in <100ms
@@ -206,6 +269,7 @@ elif TEST:
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_LOGS_HOST: str = os.getenv("CLICKHOUSE_LOGS_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
 CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
@@ -274,6 +338,20 @@ try:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
+
+
+def is_enable_analyzer_team(team_id: int | None) -> bool:
+    if team_id is None:
+        return False
+    return team_id in _get_enable_analyzer_teams(round(time.time() / 120))
+
+
+@lru_cache(maxsize=1)
+def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
+    from posthog.models.instance_setting import get_instance_setting
+
+    return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+
 
 # Set of teams querying the data before we switched to new limits
 API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
@@ -430,7 +508,8 @@ if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
 # Shared secret for internal API authentication between Django and Node.js services
-INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", "")
+LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
+INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -448,6 +527,8 @@ FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://local
 
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
+LLM_PROMPTS_CACHE_TTL = int(os.getenv("LLM_PROMPTS_CACHE_TTL", str(60 * 60 * 24)))  # 1 day
+LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 * 5)))  # 5 minutes
 
 CACHES = {
     "default": {
@@ -476,6 +557,20 @@ if FLAGS_REDIS_URL:
         "LOCATION": FLAGS_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+QUERY_CACHE_REDIS_CLUSTER_URL: str | None = os.getenv("QUERY_CACHE_REDIS_CLUSTER_URL", None)
+
+if QUERY_CACHE_REDIS_CLUSTER_URL:
+    CACHES["query_cache"] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": QUERY_CACHE_REDIS_CLUSTER_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_FACTORY": "posthog.caching.redis_cluster_connection_factory.RedisClusterConnectionFactory",
             "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
         },
         "KEY_PREFIX": "posthog",

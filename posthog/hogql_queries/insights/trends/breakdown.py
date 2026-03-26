@@ -278,7 +278,7 @@ class Breakdown:
 
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
-        if breakdown_type == "hogql":
+        if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             left = parse_expr(breakdown_value)
         else:
             left = ast.Field(

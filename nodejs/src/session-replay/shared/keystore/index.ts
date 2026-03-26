@@ -4,7 +4,6 @@ import { KMSClient } from '@aws-sdk/client-kms'
 import { isCloud } from '../../../utils/env-utils'
 import { logger } from '../../../utils/logger'
 import { RetentionService } from '../retention/retention-service'
-import { TeamService } from '../teams/team-service'
 import { KeyStore } from '../types'
 import { CleartextKeyStore } from './cleartext-keystore'
 import { DynamoDBKeyStore } from './dynamodb-keystore'
@@ -19,12 +18,7 @@ export interface KeyStoreConfig {
     dynamoDBEndpoint?: string
 }
 
-export function getKeyStore(
-    teamService: TeamService,
-    retentionService: RetentionService,
-    region: string,
-    config?: KeyStoreConfig
-): KeyStore {
+export function getKeyStore(retentionService: RetentionService, region: string, config?: KeyStoreConfig): KeyStore {
     if (isCloud()) {
         logger.info('[KeyStore] Creating DynamoDBKeyStore with AWS clients', {
             region,
@@ -41,7 +35,7 @@ export function getKeyStore(
             endpoint: config?.dynamoDBEndpoint,
         })
 
-        return new DynamoDBKeyStore(dynamoDBClient, kmsClient, retentionService, teamService)
+        return new DynamoDBKeyStore(dynamoDBClient, kmsClient, retentionService)
     }
     logger.info('[KeyStore] Creating CleartextKeyStore (not running on cloud)')
     return new CleartextKeyStore()

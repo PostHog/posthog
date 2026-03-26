@@ -5,7 +5,10 @@ from typing import Optional
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
+
+COMMON_EVENTS = ["$pageview", "$pageleave", "$autocapture", "$screen"]
 
 
 def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
@@ -23,6 +26,9 @@ def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
         batch_size=1000,
         ignore_conflicts=True,
     )
+    for event_name in COMMON_EVENTS:
+        if event_name not in events_last_seen_at:
+            EventDefinition.objects.get_or_create(team_id=team_id, name=event_name)
 
     # Property definitions, with types
     property_types = _get_property_types(team_id)

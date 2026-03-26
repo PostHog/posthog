@@ -1,4 +1,4 @@
-import { Layout } from 'react-grid-layout'
+import { Layout, LayoutItem } from 'react-grid-layout'
 
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
@@ -20,12 +20,12 @@ describe('calculating tile layouts', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({
                 sm: { i: '1', x: 0, y: 0, w: 1, h: 1 },
-                xs: { i: '1', x: 0, y: 0, w: 1, h: 1 },
-            }),
+            } as Record<DashboardLayoutSize, TileLayout>),
         ]
         expect(calculateLayouts(tiles)).toEqual({
             sm: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
-            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
+            // xs layout uses default height of 2 for text tiles (since no stored layout)
+            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 2, minW: 1, minH: 1 }],
         })
     })
 
@@ -63,7 +63,7 @@ describe('calculating tile layouts', () => {
 })
 
 describe('calculateDuplicateLayout', () => {
-    const smLayout = (i: string, x: number, y: number, w: number, h: number): Layout => ({ i, x, y, w, h })
+    const smLayout = (i: string, x: number, y: number, w: number, h: number): LayoutItem => ({ i, x, y, w, h })
 
     it.each([
         {
@@ -101,7 +101,7 @@ describe('calculateDuplicateLayout', () => {
             tileId: 1,
             expected: {
                 duplicateLayouts: { sm: { x: 0, y: 5, w: 6, h: 5 } },
-                tilesToUpdate: [{ id: 3, layouts: { sm: { x: 0, y: 10, w: 6, h: 5 }, xs: undefined } }],
+                tilesToUpdate: [{ id: 3, layouts: { sm: { x: 0, y: 10, w: 6, h: 5 } } }],
             },
         },
         {
@@ -117,24 +117,21 @@ describe('calculateDuplicateLayout', () => {
             expected: { duplicateLayouts: {}, tilesToUpdate: [] },
         },
     ])('$name', ({ layouts, tileId, expected }) => {
-        const result = calculateDuplicateLayout(
-            layouts as Partial<Record<DashboardLayoutSize, Layout[]>> | null,
-            tileId
-        )
+        const result = calculateDuplicateLayout(layouts as Partial<Record<DashboardLayoutSize, Layout>> | null, tileId)
 
         expect(result.duplicateLayouts).toEqual(expected.duplicateLayouts)
         expect(result.tilesToUpdate).toEqual(expected.tilesToUpdate)
     })
 
-    it('includes xs layout for duplicate when original has xs layout', () => {
+    it('only includes sm layout for duplicate (xs is derived)', () => {
         const layouts = {
             sm: [smLayout('1', 0, 0, 6, 5)],
-            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 5 } as Layout],
+            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 5 } as LayoutItem],
         }
 
         const result = calculateDuplicateLayout(layouts, 1)
 
         expect(result.duplicateLayouts.sm).toEqual({ x: 6, y: 0, w: 6, h: 5 })
-        expect(result.duplicateLayouts.xs).toEqual({ x: 0, y: 5, w: 1, h: 5 })
+        expect((result.duplicateLayouts as any).xs).toBeUndefined()
     })
 })

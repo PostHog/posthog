@@ -1,28 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFilter } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonDivider,
-    LemonTable,
-    LemonTag,
-    LemonTagType,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { NODE_TYPE_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
+import { urls } from 'scenes/urls'
 
 import { DataModelingNode, DataModelingNodeType } from '~/types'
 
 import { dataModelingLogic } from '../dataModelingLogic'
 import { PAGE_SIZE } from './constants'
-
-const NODE_TYPE_TAG_SETTINGS: Record<DataModelingNodeType, { label: string; type: LemonTagType }> = {
-    table: { label: 'Table', type: 'default' },
-    view: { label: 'View', type: 'primary' },
-    matview: { label: 'Materialized view', type: 'success' },
-}
 
 function NodeDependencyCount({ count, loading }: { count?: number; loading?: boolean }): JSX.Element {
     if (loading || count === undefined) {
@@ -67,7 +55,11 @@ export function TableView(): JSX.Element {
                 {
                     title: 'Name',
                     key: 'name',
-                    render: (_, node: DataModelingNode) => <span className="font-bold text-primary">{node.name}</span>,
+                    render: (_, node: DataModelingNode) => (
+                        <Link to={node.type === 'endpoint' ? urls.endpoint(node.name) : urls.nodeDetail(node.id)}>
+                            <span className="font-bold text-primary">{node.name}</span>
+                        </Link>
+                    ),
                 },
                 {
                     title: 'Type',

@@ -11,6 +11,7 @@ export function TeamSettingToggle({
     label,
     invert,
     onChange,
+    disabledReason,
 }: {
     field: keyof TeamType
     label: string
@@ -18,6 +19,7 @@ export function TeamSettingToggle({
     invert?: boolean
     /** Optional callback after the team is updated */
     onChange?: (checked: boolean) => void
+    disabledReason?: string | null
 }): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -34,6 +36,7 @@ export function TeamSettingToggle({
             }}
             checked={displayChecked}
             disabled={currentTeamLoading}
+            disabledReason={disabledReason}
             label={label}
             bordered
         />

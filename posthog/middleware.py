@@ -32,6 +32,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -132,6 +133,49 @@ class AllowIPMiddleware:
             "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.",
             status=403,
         )
+
+
+_OAUTH_CORS_PATHS = frozenset(
+    {
+        "/oauth/token",
+        "/oauth/token/",
+        "/toolbar_oauth/check",
+        "/toolbar_oauth/check/",
+    }
+)
+
+
+class OAuthCorsPreflightMiddleware:
+    """Echo back all requested headers for OAuth CORS preflights.
+
+    The toolbar runs inside the customer's page and calls ``window.fetch``.
+    Customer code may monkey-patch ``fetch`` to inject custom headers
+    (e.g. ``x-app-version``).  If those headers aren't in our CORS
+    ``Access-Control-Allow-Headers``, the browser blocks the request.
+
+    For OAuth endpoints we simply echo back whatever
+    ``Access-Control-Request-Headers`` the browser asks for.
+    This is safe because the endpoints are auth-protected via Bearer
+    tokens (not cookies), so no credentials header is needed.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        origin = request.headers.get("Origin")
+        if request.method == "OPTIONS" and origin and request.path in _OAUTH_CORS_PATHS:
+            response = HttpResponse(status=200)
+            response["Access-Control-Allow-Origin"] = origin
+            response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            requested_headers = request.headers.get("Access-Control-Request-Headers", "")
+            if requested_headers:
+                response["Access-Control-Allow-Headers"] = requested_headers
+            response["Access-Control-Max-Age"] = "86400"
+            response["Vary"] = "Origin"
+            return response
+
+        return self.get_response(request)
 
 
 class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
@@ -254,7 +298,7 @@ class AutoProjectMiddleware:
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+                    return FeatureFlag.objects.filter(id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():
@@ -339,6 +383,8 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
+            source=get_event_source(request),
+            **get_mcp_properties(request),
         )
 
         try:
@@ -673,6 +719,41 @@ class Fix204Middleware:
         return response
 
 
+class OAuthCoopMiddleware:
+    """
+    Override Cross-Origin-Opener-Policy for OAuth pages that need cross-origin communication.
+
+    Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
+    window.opener when a cross-origin popup navigates to our pages — breaking
+    popup-based OAuth flows that rely on the opener reference to detect completion.
+
+    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
+    reference is preserved.
+    """
+
+    OAUTH_PATH_PREFIXES = (
+        "/toolbar_oauth/",
+        "/oauth/",
+        "/connect/vercel/",
+        "/login/vercel/",
+        "/api/agentic/authorize",
+        "/api/agentic/oauth/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if any(request.path.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
+            response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        elif request.path == "/login" or request.path == "/login/":
+            next_url = request.GET.get("next", "")
+            if any(next_url.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
+                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        return response
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -707,6 +788,12 @@ class CSPMiddleware:
 
         # nonce must be added to request (above) before generating response
         response = self.get_response(request)
+
+        content_type = response.get("Content-Type", "")
+        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
+        if "text/html" not in content_type:
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
 
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
@@ -860,6 +947,8 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
+    # POST but read-only: loads stack frame records (source context) for error tracking UI
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
 ]

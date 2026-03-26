@@ -253,6 +253,25 @@ export const SnacksModeWithSortable: Story = {
     },
 }
 
+export const PrefilledSingleValue: Story = {
+    args: {
+        mode: 'single',
+        allowCustomValues: true,
+        placeholder: 'Pick one email',
+        value: ['user-0'],
+    },
+}
+
+export const PrefilledSingleValueAsSnack: Story = {
+    args: {
+        mode: 'single',
+        singleValueAsSnack: true,
+        allowCustomValues: true,
+        placeholder: 'Pick one email',
+        value: ['user-0'],
+    },
+}
+
 // New stories showcasing typed values support
 export const TypedValuesBooleanExample: StoryObj = {
     render: () => {

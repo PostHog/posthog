@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 
 import { QUERY_RESULTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -10,7 +11,9 @@ const schema = InsightQueryInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const queryHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { query: unknown; insight: Insight & { url: string }; results: unknown; _posthogUrl: string }
+
+export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { insightId } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -62,7 +65,7 @@ export const queryHandler: ToolBase<typeof schema>['handler'] = async (context: 
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'insight-query',
     schema,
     handler: queryHandler,

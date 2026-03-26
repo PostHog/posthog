@@ -28,6 +28,7 @@ describe('Experiments', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
     const createdExperiments: number[] = []
 
@@ -87,7 +88,7 @@ describe('Experiments', { concurrent: false }, () => {
             expect(experiment.name).toBe(params.name)
             expect(experiment.feature_flag_key).toBe(params.feature_flag_key)
             expect(experiment.start_date).toBeNull() // Draft experiments have no start date
-            expect(experiment.url).toContain('/experiments/')
+            expect(experiment._posthogUrl).toContain('/experiments/')
         })
 
         it('should create an experiment with description and type', async () => {
@@ -329,13 +330,11 @@ describe('Experiments', { concurrent: false }, () => {
             // Get all experiments
             const result = await getAllTool.handler(context, {})
             const allExperiments = parseToolResponse(result)
-
-            expect(Array.isArray(allExperiments)).toBe(true)
-            expect(allExperiments.length).toBeGreaterThanOrEqual(3)
+            expect(allExperiments.results.length).toBeGreaterThanOrEqual(3)
 
             // Verify our test experiments are in the list
             for (const testExp of testExperiments) {
-                const found = allExperiments.find((e: any) => e.id === testExp.id)
+                const found = allExperiments.results.find((e: any) => e.id === testExp.id)
                 expect(found).toBeTruthy()
             }
         })
@@ -344,8 +343,8 @@ describe('Experiments', { concurrent: false }, () => {
             const result = await getAllTool.handler(context, {})
             const experiments = parseToolResponse(result)
 
-            if (experiments.length > 0) {
-                const experiment = experiments[0]
+            if (experiments.results.length > 0) {
+                const experiment = experiments.results[0]
                 expect(experiment).toHaveProperty('id')
                 expect(experiment).toHaveProperty('name')
                 expect(experiment).toHaveProperty('feature_flag_key')
@@ -355,25 +354,25 @@ describe('Experiments', { concurrent: false }, () => {
         it('should respect limit parameter', async () => {
             const result = await getAllTool.handler(context, { data: { limit: 2 } })
             const experiments = parseToolResponse(result)
-            expect(experiments.length).toBeLessThanOrEqual(2)
+            expect(experiments.results.length).toBeLessThanOrEqual(2)
         })
 
         it('should respect offset parameter', async () => {
             const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
             const allExperiments = parseToolResponse(allResult)
 
-            if (allExperiments.length > 1) {
+            if (allExperiments.results.length > 1) {
                 const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
                 const offsetExperiments = parseToolResponse(offsetResult)
                 // Verify offset is working by checking first result is different from original first result
-                expect(offsetExperiments[0].id).not.toBe(allExperiments[0].id)
+                expect(offsetExperiments.results[0].id).not.toBe(allExperiments.results[0].id)
             }
         })
 
         it('should use default limit when not specified', async () => {
             const result = await getAllTool.handler(context, {})
             const experiments = parseToolResponse(result)
-            expect(experiments.length).toBeLessThanOrEqual(50)
+            expect(experiments.results.length).toBeLessThanOrEqual(50)
         })
     })
 
@@ -552,7 +551,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Verify it appears in list
             const listResult = await getAllTool.handler(context, {})
             const allExperiments = parseToolResponse(listResult)
-            const found = allExperiments.find((e: any) => e.id === createdExperiment.id)
+            const found = allExperiments.results.find((e: any) => e.id === createdExperiment.id)
             expect(found).toBeTruthy()
         })
 
@@ -916,7 +915,7 @@ describe('Experiments', { concurrent: false }, () => {
 
             expect(updatedExperiment.name).toBe('Updated Name')
             expect(updatedExperiment.description).toBe('Updated description with new hypothesis')
-            expect(updatedExperiment.url).toContain('/experiments/')
+            expect(updatedExperiment._posthogUrl).toContain('/experiments/')
             expect(updatedExperiment.start_date).toBeNull() // Draft experiments have no start date
         })
 

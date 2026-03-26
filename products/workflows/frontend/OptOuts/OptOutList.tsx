@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,7 +14,8 @@ import { OptOutEntry, optOutListLogic } from './optOutListLogic'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
-    const { setSelectedIdentifier, openPreferencesPage, loadNextPage, loadPreviousPage } = useActions(logic)
+    const { setSelectedIdentifier, openPreferencesPage, loadNextPage, loadPreviousPage, loadOptOutPersons } =
+        useActions(logic)
     const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading, currentPage } =
         useValues(logic)
 
@@ -83,6 +84,17 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
 
     return (
         <>
+            <div className="flex justify-end mb-2 mt-[-3rem]">
+                <LemonButton
+                    icon={<IconRefresh />}
+                    size="small"
+                    type="secondary"
+                    onClick={loadOptOutPersons}
+                    loading={optOutPersonsLoading}
+                >
+                    Reload
+                </LemonButton>
+            </div>
             <div className="max-h-64 overflow-y-auto">
                 <LemonTable
                     columns={columns}

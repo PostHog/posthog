@@ -1,17 +1,18 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Team } from '../../types'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { TeamIdContext } from './builders/batch-pipeline-builders'
 
 export class IngestionWarningHandlingBatchPipeline<
     TInput,
     TOutput,
-    CInput extends { team: Team },
-    COutput extends { team: Team } = CInput,
+    CInput extends TeamIdContext,
+    COutput extends TeamIdContext = CInput,
 > implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
     constructor(
-        private kafkaProducer: KafkaProducerWrapper,
+        private outputs: IngestionOutputs<IngestionWarningsOutput>,
         private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>
     ) {}
 
@@ -28,8 +29,8 @@ export class IngestionWarningHandlingBatchPipeline<
         return results.map((resultWithContext) => {
             if (resultWithContext.context.warnings && resultWithContext.context.warnings.length > 0) {
                 const warningPromises = resultWithContext.context.warnings.map((warning) =>
-                    captureIngestionWarning(
-                        this.kafkaProducer,
+                    emitIngestionWarning(
+                        this.outputs,
                         resultWithContext.context.team.id,
                         warning.type,
                         warning.details,

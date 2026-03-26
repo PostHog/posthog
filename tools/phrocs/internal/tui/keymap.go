@@ -1,0 +1,139 @@
+package tui
+
+import "charm.land/bubbles/v2/key"
+
+type keyMap struct {
+	PrevProc   key.Binding
+	NextProc   key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
+	GotoTop    key.Binding
+	GotoBottom key.Binding
+	NextPane   key.Binding
+	PrevPane   key.Binding
+	Restart    key.Binding
+	Stop       key.Binding
+	CopyMode   key.Binding
+	Search     key.Binding
+	SearchNext key.Binding
+	SearchPrev key.Binding
+	Quit       key.Binding
+	Help       key.Binding
+	Backspace  key.Binding
+	Hedgehog   key.Binding
+	Info       key.Binding
+	Sort       key.Binding
+	LazyDocker key.Binding
+	ProcViewer key.Binding
+}
+
+func defaultKeyMap() keyMap {
+	return keyMap{
+		PrevProc: key.NewBinding(
+			key.WithKeys("k", "up"),
+			key.WithHelp("↑:", "prev"),
+		),
+		NextProc: key.NewBinding(
+			key.WithKeys("j", "down"),
+			key.WithHelp("↓:", "next"),
+		),
+		ScrollUp: key.NewBinding(
+			key.WithKeys("pgup"),
+			key.WithHelp("pgup:", "↥"),
+		),
+		ScrollDown: key.NewBinding(
+			key.WithKeys("pgdn"),
+			key.WithHelp("pgdn:", "↧"),
+		),
+		GotoTop: key.NewBinding(
+			key.WithKeys("home"),
+			key.WithHelp("home:", "⤒"),
+		),
+		GotoBottom: key.NewBinding(
+			key.WithKeys("end"),
+			key.WithHelp("end:", "⤓"),
+		),
+		NextPane: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("↹:", "next pane"),
+		),
+		PrevPane: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("⇧↹:", "prev pane"),
+		),
+		Restart: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r:", "restart"),
+		),
+		Stop: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s:", "stop"),
+		),
+		CopyMode: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c:", "copy"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/:", "search"),
+		),
+		SearchNext: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("↵:", "next match"),
+		),
+		SearchPrev: key.NewBinding(
+			key.WithKeys("shift+enter"),
+			key.WithHelp("⇧↵:", "prev match"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("q", "ctrl+c"),
+			key.WithHelp("q:", "quit"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?:", "help"),
+		),
+		Backspace: key.NewBinding(
+			key.WithKeys("backspace"),
+			key.WithHelp("⌫:", "del char"),
+		),
+		Hedgehog: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h:", "hedgehog"),
+		),
+		Info: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i:", "info"),
+		),
+		Sort: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o:", "sort"),
+		),
+		LazyDocker: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d:", "lazydocker"),
+			key.WithDisabled(),
+		),
+		ProcViewer: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p:", "htop"),
+			key.WithDisabled(),
+		),
+	}
+}
+
+func (k keyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.NextProc, k.NextPane, k.Search, k.CopyMode, k.Sort, k.Restart, k.Stop, k.Quit, k.Help}
+}
+
+func (k keyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.NextProc, k.PrevProc, k.Sort},
+		{k.ScrollUp, k.ScrollDown},
+		{k.GotoTop, k.GotoBottom},
+		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
+		{k.Restart, k.Stop, k.Info},
+		{k.Search, k.SearchNext, k.SearchPrev},
+		{k.CopyMode, k.Quit, k.Help},
+	}
+}

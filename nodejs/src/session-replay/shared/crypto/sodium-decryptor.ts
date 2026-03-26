@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { KeyStore, RecordingDecryptor, SessionKey, SessionKeyDeletedError } from '../types'
+import { DecryptResult, KeyStore, RecordingDecryptor, SessionKey, SessionKeyDeletedError } from '../types'
 
 export class SodiumRecordingDecryptor implements RecordingDecryptor {
     constructor(private keyStore: KeyStore) {}
@@ -9,18 +9,18 @@ export class SodiumRecordingDecryptor implements RecordingDecryptor {
         await sodium.ready
     }
 
-    async decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer> {
+    async decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<DecryptResult> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         return this.decryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
     }
 
-    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer {
+    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): DecryptResult {
         if (sessionKey.sessionState === 'deleted') {
-            throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt)
+            throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt, sessionKey.deletedBy)
         }
 
         if (sessionKey.sessionState === 'cleartext') {
-            return blockData // Session is stored in cleartext, do not decrypt
+            return { data: blockData, sessionState: 'cleartext' }
         }
 
         // Extract nonce from the beginning of the block (prepended during encryption)
@@ -28,6 +28,6 @@ export class SodiumRecordingDecryptor implements RecordingDecryptor {
         const cipherText = blockData.subarray(sodium.crypto_secretbox_NONCEBYTES)
 
         const clearText = sodium.crypto_secretbox_open_easy(cipherText, nonce, sessionKey.plaintextKey)
-        return Buffer.from(clearText)
+        return { data: Buffer.from(clearText), sessionState: 'ciphertext' }
     }
 }

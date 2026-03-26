@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import asyncpg
 
 from llm_gateway.auth.models import AuthenticatedUser, has_required_scope
+from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import acquire_connection
 
 
@@ -15,6 +16,12 @@ class Authenticator(ABC):
     @abstractmethod
     def auth_type(self) -> str:
         """Identifier for this auth type (used in metrics)."""
+        ...
+
+    @property
+    @abstractmethod
+    def cache_ttl(self) -> int:
+        """How long successful auth results should be cached (seconds)."""
         ...
 
     @abstractmethod
@@ -39,6 +46,10 @@ class PersonalApiKeyAuthenticator(Authenticator):
     @property
     def auth_type(self) -> str:
         return "personal_api_key"
+
+    @property
+    def cache_ttl(self) -> int:
+        return get_settings().auth_cache_ttl
 
     def matches(self, token: str) -> bool:
         return token.startswith("phx_")
@@ -81,6 +92,10 @@ class OAuthAccessTokenAuthenticator(Authenticator):
     @property
     def auth_type(self) -> str:
         return "oauth_access_token"
+
+    @property
+    def cache_ttl(self) -> int:
+        return get_settings().auth_cache_ttl_oauth
 
     def matches(self, token: str) -> bool:
         return token.startswith("pha_")

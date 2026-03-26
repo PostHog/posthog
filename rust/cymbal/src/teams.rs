@@ -12,7 +12,10 @@ use crate::{
     fingerprinting::grouping_rules::GroupingRule,
     metric_consts::ANCILLARY_CACHE,
     pipeline::IncomingEvent,
-    sanitize_string, WithIndices,
+    sanitize_string,
+    spike_config::SpikeDetectionConfig,
+    suppression_rules::SuppressionRule,
+    WithIndices,
 };
 
 #[derive(Clone)]
@@ -20,7 +23,9 @@ pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
     pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
+    pub suppression_rules: Cache<TeamId, Vec<SuppressionRule>>,
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
+    pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
 }
 
 impl TeamManager {
@@ -51,11 +56,26 @@ impl TeamManager {
             })
             .build();
 
+        let suppression_rules = CacheBuilder::new(config.max_suppression_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.suppression_rule_cache_ttl_secs))
+            .weigher(|_, v: &Vec<SuppressionRule>| {
+                v.iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
+        let spike_detection_configs = CacheBuilder::new(config.max_team_cache_size)
+            .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
+            .build();
+
         Self {
             token_cache: cache,
             assignment_rules,
             grouping_rules,
+            suppression_rules,
             group_type_indices,
+            spike_detection_configs,
         }
     }
 
@@ -124,6 +144,79 @@ impl TeamManager {
         let rules = GroupingRule::load_for_team(e, team_id).await?;
         self.grouping_rules.insert(team_id, rules.clone());
         Ok(rules)
+    }
+
+    pub async fn get_suppression_rules<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Vec<SuppressionRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.suppression_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "suppression_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "suppression_rules", "outcome" => "miss")
+            .increment(1);
+        let rules = SuppressionRule::load_for_team(e, team_id).await?;
+        self.suppression_rules.insert(team_id, rules.clone());
+        Ok(rules)
+    }
+
+    pub async fn get_spike_detection_config<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<SpikeDetectionConfig, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(cached) = self.spike_detection_configs.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "spike_detection_config", "outcome" => "hit")
+                .increment(1);
+            return Ok(cached.unwrap_or_default());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "spike_detection_config", "outcome" => "miss")
+            .increment(1);
+        let config = SpikeDetectionConfig::load_for_team(e, team_id).await?;
+        self.spike_detection_configs.insert(team_id, config.clone());
+        Ok(config.unwrap_or_default())
+    }
+
+    pub async fn get_spike_detection_configs(
+        &self,
+        pool: &sqlx::PgPool,
+        team_ids: impl IntoIterator<Item = i32>,
+    ) -> HashMap<TeamId, SpikeDetectionConfig> {
+        let unique_ids: std::collections::HashSet<i32> = team_ids.into_iter().collect();
+
+        let tasks: Vec<(i32, _)> = unique_ids
+            .into_iter()
+            .map(|team_id| {
+                let manager = self.clone();
+                let pool = pool.clone();
+                let task = tokio::spawn(async move {
+                    manager.get_spike_detection_config(&pool, team_id).await
+                });
+                (team_id, task)
+            })
+            .collect();
+
+        let mut result = HashMap::new();
+        for (team_id, task) in tasks {
+            let config = match task.await.expect("Task was not cancelled") {
+                Ok(config) => config,
+                Err(e) => {
+                    warn!("Failed to load spike detection config for team {team_id}, using defaults: {e}");
+                    SpikeDetectionConfig::default()
+                }
+            };
+            result.insert(team_id, config);
+        }
+        result
     }
 
     pub async fn get_group_types<'c, E>(

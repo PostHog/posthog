@@ -1,10 +1,11 @@
-import { EventType } from '@posthog/rrweb-types'
+import { LoadBatch, SnapshotStore } from '@posthog/replay-shared'
+import { EventType, IncrementalSource } from '@posthog/rrweb-types'
 
-import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
+import { RecordingSegment, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
+import { convertSegmentKinds } from '../utils/segment-kind-conversion'
+import { createSegments, mapSnapshotsToWindowId } from '../utils/segmenter'
 import { LoadingScheduler } from './LoadingScheduler'
-import { SnapshotStore } from './SnapshotStore'
-import { LoadBatch } from './types'
 
 // Each source represents 1 minute of recording
 function makeSources(count: number): SessionRecordingSnapshotSource[] {
@@ -362,5 +363,133 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         expect(batch?.reason).toBe('buffer_ahead')
         expect(batch?.sourceIndices[0]).toBe(0)
         expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
+    })
+
+    describe('SnapshotStore + segment conversion', () => {
+        function makeActiveSnapshot(timestamp: number, windowId: number = 1): RecordingSnapshot {
+            return {
+                timestamp,
+                windowId,
+                type: EventType.IncrementalSnapshot,
+                data: { source: IncrementalSource.MouseMove },
+            } as unknown as RecordingSnapshot
+        }
+
+        function buildSegments(store: SnapshotStore, sourceCount: number): RecordingSegment[] {
+            const snapshots = store.getAllLoadedSnapshots()
+            const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
+            const start = { valueOf: () => tsForMinute(0) } as any
+            const end = { valueOf: () => tsForMinute(sourceCount) } as any
+            return createSegments(snapshots, start, end, undefined, snapshotsByWindowId)
+        }
+
+        it('forward seek leaves unloaded region — gaps convert to buffer', () => {
+            const store = new SnapshotStore()
+            const scheduler = new LoadingScheduler()
+            store.setSources(makeSources(50))
+
+            // Seek to minute 30, loading sources around it
+            scheduler.seekTo(tsForMinute(30))
+            runLoadingLoop(store, scheduler, {
+                snapshotFactory: (i) =>
+                    i === 28
+                        ? [makeFullSnapshot(tsForMinute(i)), makeActiveSnapshot(tsForMinute(i) + 100)]
+                        : [makeActiveSnapshot(tsForMinute(i))],
+                batchSize: 10,
+            })
+
+            const rawSegments = buildSegments(store, 50)
+            const converted = convertSegmentKinds(rawSegments, store, false)
+
+            // Segments covering the unloaded region (minutes 0-27) should be buffer, not gap
+            const earlySegments = converted.filter((s) => s.startTimestamp < tsForMinute(27))
+            for (const seg of earlySegments) {
+                if (seg.kind === 'gap') {
+                    // A gap in the unloaded region means the player would skip —
+                    // it should have been converted to buffer
+                    expect(seg.kind).not.toBe('gap')
+                }
+            }
+            // At least one buffer segment exists in the unloaded region
+            expect(earlySegments.some((s) => s.kind === 'buffer')).toBe(true)
+        })
+
+        it('all sources loaded — trailing buffer converts to gap', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(10))
+
+            for (let i = 0; i < 10; i++) {
+                store.markLoaded(i, [i === 0 ? makeFullSnapshot(tsForMinute(i)) : makeActiveSnapshot(tsForMinute(i))])
+            }
+
+            const rawSegments = buildSegments(store, 10)
+            const converted = convertSegmentKinds(rawSegments, store, false)
+
+            // No buffer segments should remain — everything is loaded
+            expect(converted.some((s) => s.kind === 'buffer')).toBe(false)
+        })
+
+        it('new sources arrive — new region is buffer, old region unchanged', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(10))
+
+            // Load all 10 sources
+            for (let i = 0; i < 10; i++) {
+                store.markLoaded(i, [i === 0 ? makeFullSnapshot(tsForMinute(i)) : makeActiveSnapshot(tsForMinute(i))])
+            }
+
+            const beforeGrowth = convertSegmentKinds(buildSegments(store, 10), store, false)
+            expect(beforeGrowth.some((s) => s.kind === 'buffer')).toBe(false)
+
+            // Live growth: 5 new sources arrive
+            store.setSources(makeSources(15))
+            const afterGrowth = convertSegmentKinds(buildSegments(store, 15), store, true)
+
+            // The new region (minutes 10-14) should have buffer segments
+            const newRegionSegments = afterGrowth.filter((s) => s.endTimestamp > tsForMinute(10))
+            expect(newRegionSegments.some((s) => s.kind === 'buffer')).toBe(true)
+        })
+    })
+
+    describe('getUnloadedIndicesInRange detects gaps for segment conversion', () => {
+        it('reports unloaded sources in a region skipped by forward seek', () => {
+            const store = new SnapshotStore()
+            const scheduler = new LoadingScheduler()
+            store.setSources(makeSources(50))
+
+            // Seek forward to minute 30, loading sources 27-49
+            scheduler.seekTo(tsForMinute(30))
+            runLoadingLoop(store, scheduler, {
+                snapshotFactory: (i) =>
+                    i === 28
+                        ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
+                        : [makeSnapshot(tsForMinute(i))],
+                batchSize: 10,
+            })
+
+            // Sources 0-26 are still unloaded — this is the gap the user would seek back into
+            const startIdx = store.getSourceIndexForTimestamp(tsForMinute(5))
+            const endIdx = store.getSourceIndexForTimestamp(tsForMinute(20))
+            const unloaded = store.getUnloadedIndicesInRange(startIdx, endIdx)
+            expect(unloaded.length).toBeGreaterThan(0)
+
+            // The coordinator's segment selector uses this to convert gap → buffer,
+            // ensuring the player pauses instead of skipping over unloaded data
+        })
+
+        it('reports no unloaded sources in a fully-loaded region', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(10))
+
+            // Load all sources
+            for (let i = 0; i < 10; i++) {
+                store.markLoaded(i, [i === 0 ? makeFullSnapshot(tsForMinute(i)) : makeSnapshot(tsForMinute(i))])
+            }
+
+            // All loaded — gaps here are real inactivity, not pending data
+            const startIdx = store.getSourceIndexForTimestamp(tsForMinute(3))
+            const endIdx = store.getSourceIndexForTimestamp(tsForMinute(7))
+            expect(store.getUnloadedIndicesInRange(startIdx, endIdx).length).toBe(0)
+        })
     })
 })

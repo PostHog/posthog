@@ -1,6 +1,6 @@
 {
     "$schema": "./node_modules/oxlint/configuration_schema.json",
-    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc"],
+    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc", "import"],
     "env": {
         "builtin": true
     },
@@ -228,6 +228,12 @@
         "no-constant-binary-expression": "error",
         "no-useless-rename": "error",
         "no-useless-call": "error",
+        "import/no-cycle": [
+            "error",
+            {
+                "maxDepth": 10
+            }
+        ],
         "jest/no-restricted-matchers": [
             "error",
             {
@@ -243,7 +249,7 @@
             }
         },
         {
-            "files": ["services/mcp/src/ui-apps/**/*.ts"],
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
             "rules": {
                 "no-console": [
                     "error",
@@ -255,6 +261,24 @@
         },
         {
             "files": ["docs/onboarding/**/*.tsx"],
+            "rules": {
+                "react/forbid-elements": "off"
+            }
+        },
+        {
+            "files": ["services/stripe-app/src/**/*.{ts,tsx}"],
+            "rules": {
+                "react/forbid-elements": "off",
+                "react/forbid-dom-props": "off",
+                "no-restricted-imports": "off"
+            }
+        },
+        {
+            "files": [
+                "common/mosaic/**/*.{ts,tsx}",
+                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
+                "products/**/frontend/mcp-apps/**/*.{ts,tsx}"
+            ],
             "rules": {
                 "react/forbid-elements": "off"
             }

@@ -73,7 +73,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     return []
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data = 'results' in response ? response.results : 'result' in response ? response.result : []
 
                 const column = columns.find((n) => n.name === breakdownColumn)
                 if (!column) {
@@ -81,7 +81,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 }
 
                 // return list of unique column values
-                return Array.from(new Set(data.map((n) => n[column.dataIndex])))
+                return Array.from(new Set(data.map((n: any) => n[column.dataIndex])))
             },
         ],
         seriesBreakdownData: [
@@ -132,7 +132,12 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     return createEmptyBreakdownSeriesWithError('Too many breakdown values (max 50)')
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data: any[] =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
 
                 // xData is unique x values
                 const xData = Array.from(new Set(data.map((n) => n[xColumn.dataIndex])))

@@ -1,0 +1,155 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style nonce="{{ request.csp_nonce }}">
+    .form-row { margin-bottom: 15px; margin-top: 15px; }
+    .help { font-size: 11px; color: #666; }
+    .submit-row { margin-top: 20px; }
+    .email-list { margin-top: 20px; }
+    .email-list table { width: 100%; border-collapse: collapse; }
+    .email-list th, .email-list td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    .email-list th { background: #f8f8f8; font-weight: bold; }
+    .remove-btn { color: #ba2121; cursor: pointer; background: none; border: none; text-decoration: underline; }
+    .remove-btn:hover { color: #a41515; }
+    .empty-state { color: #666; font-style: italic; padding: 12px 0; }
+    .msg-success { background: #dfd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
+    .msg-error { background: #fdd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div id="messages"></div>
+
+<div class="email-list">
+    <fieldset class="module aligned">
+        <h2>Bypassed emails (<span id="email-count">{{ bypass_emails|length }}</span>)</h2>
+
+        <table id="email-table" {% if not bypass_emails %}style="display:none"{% endif %}>
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="email-list-body">
+                {% for email in bypass_emails %}
+                <tr data-email="{{ email }}">
+                    <td>{{ email }}</td>
+                    <td>
+                        <button type="button" class="remove-btn">Remove</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p id="empty-state" class="empty-state" {% if bypass_emails %}style="display:none"{% endif %}>No emails are currently bypassed.</p>
+    </fieldset>
+</div>
+
+<form id="add-form" style="margin-top: 30px;">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+        <h2>Add email</h2>
+
+        <div class="form-row">
+            <label for="id_email">Email:</label>
+            <input type="email" name="email" id="id_email" required />
+            <p class="help">Email address to bypass suspicious signup checks</p>
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Add to bypass list" class="default" />
+    </div>
+</form>
+
+<script nonce="{{ request.csp_nonce }}">
+const API_BASE = '/api/admin/radar-bypass/';
+
+function getCSRFToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]').value;
+}
+
+function showMessage(text, isError) {
+    const el = document.getElementById('messages');
+    el.textContent = '';
+    const div = document.createElement('div');
+    div.className = 'msg-' + (isError ? 'error' : 'success');
+    div.textContent = text;
+    el.appendChild(div);
+    setTimeout(() => { el.textContent = ''; }, 4000);
+}
+
+function updateCount() {
+    const rows = document.querySelectorAll('#email-list-body tr');
+    document.getElementById('email-count').textContent = rows.length;
+    document.getElementById('email-table').style.display = rows.length ? '' : 'none';
+    document.getElementById('empty-state').style.display = rows.length ? 'none' : '';
+}
+
+function removeEmail(email) {
+    if (!confirm('Remove ' + email + ' from bypass list?')) return;
+
+    fetch(API_BASE + encodeURIComponent(email) + '/', {
+        method: 'DELETE',
+        headers: {'X-CSRFToken': getCSRFToken()},
+    }).then(r => {
+        if (r.ok || r.status === 204) {
+            const row = document.querySelector('[data-email="' + CSS.escape(email) + '"]');
+            if (row) row.remove();
+            updateCount();
+            showMessage('Removed ' + email + ' from bypass list.', false);
+        } else {
+            showMessage('Failed to remove email.', true);
+        }
+    });
+}
+
+function addEmail(e) {
+    e.preventDefault();
+    const input = document.getElementById('id_email');
+    const email = input.value.trim();
+    if (!email) return;
+
+    fetch(API_BASE, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
+        body: JSON.stringify({email: email})
+    }).then(r => {
+        if (r.ok) {
+            const tbody = document.getElementById('email-list-body');
+            const tr = document.createElement('tr');
+            tr.dataset.email = email;
+            const td1 = document.createElement('td');
+            td1.textContent = email;
+            const td2 = document.createElement('td');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'remove-btn';
+            btn.textContent = 'Remove';
+            td2.appendChild(btn);
+            tr.appendChild(td1);
+            tr.appendChild(td2);
+            tbody.appendChild(tr);
+            input.value = '';
+            updateCount();
+            showMessage('Added ' + email + ' to bypass list.', false);
+        } else {
+            r.json().then(d => showMessage(d.email ? d.email[0] : 'Failed to add email.', true));
+        }
+    });
+}
+
+document.getElementById('add-form').addEventListener('submit', addEmail);
+
+document.getElementById('email-list-body').addEventListener('click', function(e) {
+    const btn = e.target.closest('.remove-btn');
+    if (!btn) return;
+    const row = btn.closest('tr');
+    if (row) removeEmail(row.dataset.email);
+});
+</script>
+{% endblock %}

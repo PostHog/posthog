@@ -4,11 +4,14 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
+from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError
+from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
+from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.process_task.utils import get_sandbox_mcp_configs
 
 from .get_task_processing_context import TaskProcessingContext
 
@@ -19,6 +22,9 @@ logger = get_logger(__name__)
 class StartAgentServerInput:
     context: TaskProcessingContext
     sandbox_id: str
+    sandbox_url: str
+    sandbox_connect_token: str | None = None
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only"
 
 
 @dataclass
@@ -32,8 +38,8 @@ class StartAgentServerOutput:
 def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """Start the agent-server HTTP server in the sandbox.
 
-    Credentials (sandbox_url, connect_token) must already be stored in TaskRun state
-    by get_sandbox_for_repository before calling this activity.
+    Sandbox credentials (sandbox_url, connect_token) are passed directly via input
+    from get_sandbox_for_repository output.
     """
     ctx = input.context
 
@@ -42,26 +48,32 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        task_run = TaskRun.objects.get(id=ctx.run_id)
-        state = task_run.state or {}
-
-        sandbox_url = state.get("sandbox_url")
-        connect_token = state.get("sandbox_connect_token")
-
-        if not sandbox_url:
-            raise SandboxExecutionError(
-                "Sandbox URL not found in TaskRun state - get_sandbox_for_repository must be called first",
-                {
-                    "task_id": ctx.task_id,
-                    "sandbox_id": input.sandbox_id,
-                    "run_id": ctx.run_id,
-                },
-                cause=RuntimeError("Sandbox URL not found in TaskRun state"),
-            )
+        sandbox_url = input.sandbox_url
+        connect_token = input.sandbox_connect_token
 
         emit_agent_log(ctx.run_id, "info", "Starting agent server in development environment")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
+
+        scopes: PosthogMcpScopes = input.posthog_mcp_scopes
+
+        try:
+            task = Task.objects.select_related("created_by").get(id=ctx.task_id)
+            access_token = create_oauth_access_token(task, scopes=scopes)
+        except OAuthTokenError:
+            raise
+        except Exception as e:
+            raise OAuthTokenError(
+                f"Failed to create OAuth access token for MCP auth in task {ctx.task_id}",
+                {"task_id": ctx.task_id, "error": str(e)},
+                cause=e,
+            )
+
+        mcp_configs = get_sandbox_mcp_configs(
+            token=access_token,
+            project_id=ctx.team_id,
+            scopes=scopes,
+        )
 
         try:
             sandbox.start_agent_server(
@@ -69,6 +81,9 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 task_id=ctx.task_id,
                 run_id=ctx.run_id,
                 mode=ctx.mode,
+                interaction_origin=ctx.interaction_origin,
+                branch=ctx.branch,
+                mcp_configs=mcp_configs or None,
             )
         except Exception as e:
             raise SandboxExecutionError(

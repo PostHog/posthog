@@ -11,13 +11,12 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateMappingOption, OrganizationType } from '~/types'
 
-import type { BillingPeriodMarker } from './BillingLineGraph'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
@@ -25,6 +24,7 @@ import {
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
+import type { BillingPeriodMarker } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
 import type { BillingFilters } from './types'

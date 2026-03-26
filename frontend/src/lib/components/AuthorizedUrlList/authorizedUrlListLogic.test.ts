@@ -13,6 +13,7 @@ import {
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
+    directToolbarUrl,
     filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
@@ -47,7 +48,7 @@ describe('the authorized urls list logic', () => {
 
     it('encodes an app url correctly', () => {
         expect(appEditorUrl('http://127.0.0.1:8000')).toEqual(
-            '/api/user/redirect_to_site/?userIntent=add-action&apiURL=http%3A%2F%2Flocalhost&appUrl=http%3A%2F%2F127.0.0.1%3A8000'
+            '/api/user/redirect_to_site/?userIntent=add-action&uiHost=http%3A%2F%2Flocalhost&appUrl=http%3A%2F%2F127.0.0.1%3A8000'
         )
     })
 
@@ -182,6 +183,102 @@ describe('the authorized urls list logic', () => {
                     expect(validateProposedUrl(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
                 })
             })
+        })
+    })
+
+    describe('directToolbarUrl', () => {
+        const parseHash = (url: string): Record<string, unknown> => {
+            const hash = url.split('#__posthog=')[1]
+            return JSON.parse(decodeURIComponent(hash))
+        }
+
+        it('always includes uiHost from window.location.origin', () => {
+            // JSDOM sets window.location.origin to 'http://localhost'
+            const params = parseHash(directToolbarUrl('https://example.com'))
+            expect(params.uiHost).toBe('http://localhost')
+        })
+
+        it('does not include apiURL', () => {
+            const params = parseHash(directToolbarUrl('https://example.com'))
+            expect(params.apiURL).toBeUndefined()
+        })
+
+        it('sets required action fields', () => {
+            const params = parseHash(directToolbarUrl('https://example.com', { token: 'phc_abc' }))
+            expect(params.action).toBe('ph_authorize')
+            expect(params.toolbarVersion).toBe('toolbar')
+            expect(params.instrument).toBe(true)
+            expect(params.token).toBe('phc_abc')
+        })
+
+        it('includes user identity fields', () => {
+            const params = parseHash(
+                directToolbarUrl('https://example.com', {
+                    userEmail: 'user@example.com',
+                    distinctId: 'distinct_123',
+                })
+            )
+            expect(params.userEmail).toBe('user@example.com')
+            expect(params.distinctId).toBe('distinct_123')
+        })
+
+        it('sets userIntent to add-action when no specific intent', () => {
+            const params = parseHash(directToolbarUrl('https://example.com'))
+            expect(params.userIntent).toBe('add-action')
+        })
+
+        it('sets userIntent to edit-action when actionId is provided', () => {
+            const params = parseHash(directToolbarUrl('https://example.com', { actionId: 42 }))
+            expect(params.userIntent).toBe('edit-action')
+            expect(params.actionId).toBe(42)
+        })
+
+        it('sets userIntent to edit-experiment when experimentId is provided', () => {
+            const params = parseHash(directToolbarUrl('https://example.com', { experimentId: 99 }))
+            expect(params.userIntent).toBe('edit-experiment')
+            expect(params.experimentId).toBe(99)
+        })
+
+        it('sets userIntent to edit-product-tour when productTourId is provided', () => {
+            const params = parseHash(directToolbarUrl('https://example.com', { productTourId: 'tour_1' }))
+            expect(params.userIntent).toBe('edit-product-tour')
+            expect(params.productTourId).toBe('tour_1')
+        })
+
+        it('sets userIntent to add-product-tour when productTourId is "new"', () => {
+            const params = parseHash(directToolbarUrl('https://example.com', { productTourId: 'new' }))
+            expect(params.userIntent).toBe('add-product-tour')
+            expect(params.productTourId).toBeUndefined()
+        })
+
+        it('includes dataAttributes when provided', () => {
+            const params = parseHash(
+                directToolbarUrl('https://example.com', { dataAttributes: ['data-id', 'data-attr'] })
+            )
+            expect(params.dataAttributes).toEqual(['data-id', 'data-attr'])
+        })
+
+        it('puts params in the hash fragment of appUrl', () => {
+            const url = directToolbarUrl('https://mysite.com/page?q=1')
+            expect(url.startsWith('https://mysite.com/page?q=1#__posthog=')).toBe(true)
+        })
+
+        it('uiHost is window.location.origin regardless of apiURL option', () => {
+            // Simulates reverse proxy customer: their api_host is their proxy,
+            // but uiHost should always be window.location.origin (the PostHog app)
+            const params = parseHash(directToolbarUrl('https://customer.com'))
+            expect(params.uiHost).toBe('http://localhost')
+            expect(params.apiURL).toBeUndefined()
+        })
+
+        it('does not include toolbarFlagsKey when not provided', () => {
+            const params = parseHash(directToolbarUrl('https://example.com'))
+            expect(params.toolbarFlagsKey).toBeUndefined()
+        })
+
+        it('includes toolbarFlagsKey when provided', () => {
+            const params = parseHash(directToolbarUrl('https://example.com', { toolbarFlagsKey: 'flags_key_xyz' }))
+            expect(params.toolbarFlagsKey).toBe('flags_key_xyz')
         })
     })
 

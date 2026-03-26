@@ -8,9 +8,10 @@ on:
             - '.github/workflows/ci-cli.yml'
 
 jobs:
-    check-lockfile:
-        name: Check lockfile is up to date
+    tests:
+        name: Run tests
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         defaults:
             run:
                 working-directory: cli
@@ -27,26 +28,13 @@ jobs:
                   cargo update --workspace --locked
                   git diff --exit-code Cargo.lock
 
-    tests:
-        name: Run tests
-        runs-on: ubuntu-latest
-        defaults:
-            run:
-                working-directory: cli
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
-              with:
-                  toolchain: 1.91.1
-
             - name: Run tests
               run: cargo test --all-features
 
     clippy:
         name: Clippy
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         defaults:
             run:
                 working-directory: cli
@@ -65,6 +53,7 @@ jobs:
     format:
         name: Format
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         defaults:
             run:
                 working-directory: cli

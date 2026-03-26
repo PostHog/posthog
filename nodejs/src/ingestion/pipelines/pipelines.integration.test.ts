@@ -1,7 +1,9 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ProjectId, Team } from '../../types'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { BatchProcessingStep } from './base-batch-pipeline'
 import { newBatchPipelineBuilder } from './builders'
 import { createBatch, createNewPipeline, createUnwrapper } from './helpers'
@@ -17,6 +19,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     name: 'Test Team',
     anonymize_ips: false,
     api_token: 'test-api-token',
+    secret_api_token: null,
     slack_incoming_webhook: null,
     session_recording_opt_in: true,
     person_processing_opt_out: null,
@@ -28,6 +31,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
+    extra_settings: null,
     ...overrides,
 })
 
@@ -1794,7 +1798,7 @@ describe('Pipeline Integration Tests', () => {
                                             .gather()
                                             .pipeBatch(batchStep)
                                     )
-                                    .handleIngestionWarnings(mockKafkaProducer)
+                                    .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
                         )
                 )
                 .handleResults(pipelineConfig)

@@ -5,8 +5,8 @@ import { IconCode, IconCopy, IconFilter, IconRefresh, IconX } from '@posthog/ico
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { allOperatorsMapping } from 'lib/utils'
@@ -27,8 +27,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { SurveySQLHelper } from './SurveySQLHelper'
 import { surveyLogic } from './surveyLogic'
+import { SurveySQLHelper } from './SurveySQLHelper'
 
 type OperatorOption = { label: string; value: PropertyOperator }
 

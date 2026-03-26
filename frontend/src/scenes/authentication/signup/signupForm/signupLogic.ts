@@ -13,8 +13,8 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
+import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
 
 import type { signupLogicType } from './signupLogicType'
@@ -355,8 +355,7 @@ export const signupLogic = kea<signupLogicType>([
             (s) => [s.signupPanelAuth, s.signupPanel1],
             (signupPanelAuth, signupPanel1): ValidatedPasswordResult => {
                 // Use new form if available, fallback to legacy
-                const password = signupPanelAuth.password || signupPanel1.password
-                return validatePassword(password)
+                return validatePassword(signupPanelAuth.password || signupPanel1.password)
             },
         ],
         emailCaseNotice: [

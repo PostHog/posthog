@@ -5,7 +5,7 @@ import { invokeMcpTool } from './invokeTool'
 
 const schema = ReadDataWarehouseSchemaSchema
 
-export const readDataWarehouseSchemaHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
+export const readDataWarehouseSchemaHandler: ToolBase<typeof schema, string>['handler'] = async (context: Context) => {
     const result = await invokeMcpTool(context, 'read_data_warehouse_schema', {
         query: { kind: 'data_warehouse_schema' },
     })
@@ -17,7 +17,7 @@ export const readDataWarehouseSchemaHandler: ToolBase<typeof schema>['handler'] 
     return result.content
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, string> => ({
     name: 'read-data-warehouse-schema',
     schema,
     handler: readDataWarehouseSchemaHandler,

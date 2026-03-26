@@ -1,4 +1,4 @@
-import { HogExecutorServiceHub } from './services/hog-executor.service'
+import { TeamManager } from '../utils/team-manager'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -9,7 +9,8 @@ import {
 export type AsyncFunctionContext = {
     invocation: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>['invocation']
     globals: HogFunctionInvocationGlobalsWithInputs
-    hub: HogExecutorServiceHub
+    teamManager: TeamManager
+    siteUrl: string
 }
 
 export type AsyncFunctionHandler = {

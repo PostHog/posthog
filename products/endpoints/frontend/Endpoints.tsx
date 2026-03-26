@@ -8,19 +8,18 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { isHogQLQuery } from '~/queries/utils'
 import { EndpointType } from '~/types'
 
-import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { humanizeQueryKind } from './common'
+import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
@@ -78,7 +77,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
 
     const handleDuplicate = (endpoint: EndpointType): void => {
         if (isHogQLQuery(endpoint.query)) {
-            router.actions.push(urls.sqlEditor({ query: endpoint.query.query, outputTab: OutputTab.Endpoint }))
+            router.actions.push(urls.sqlEditor({ query: endpoint.query.query }))
         } else {
             setDuplicateEndpoint(endpoint)
         }
@@ -236,8 +235,6 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             />
             {duplicateEndpoint && (
                 <EndpointFromInsightModal
-                    isOpen={!!duplicateEndpoint}
-                    closeModal={() => setDuplicateEndpoint(null)}
                     tabId={tabId}
                     insightQuery={duplicateEndpoint.query}
                     insightShortId={duplicateEndpoint.derived_from_insight ?? undefined}

@@ -1,6 +1,5 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PluginEvent } from '~/plugin-scaffold'
 import { Team } from '~/types'
 
 import { PersonsStore } from '../../../../src/worker/ingestion/persons/persons-store'

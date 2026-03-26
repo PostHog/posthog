@@ -10,7 +10,6 @@ import {
     ProductPricingTierSubrows,
 } from '~/types'
 
-import { getTierDescription } from './BillingProduct'
 import {
     createProductValueFormatter,
     formatWithDecimals,
@@ -18,6 +17,7 @@ import {
     isProductVariantPrimary,
 } from './billing-utils'
 import { billingLogic } from './billingLogic'
+import { getTierDescription } from './BillingProduct'
 import { billingProductLogic } from './billingProductLogic'
 
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {

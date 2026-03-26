@@ -1,171 +1,140 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconChevronRight, IconExpand } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    IconArrowLeft,
+    IconBug,
+    IconCheck,
+    IconChevronRight,
+    IconFilter,
+    IconGear,
+    IconInfo,
+    IconNotification,
+    IconRefresh,
+    IconSearch,
+    IconSparkles,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonInput,
+    LemonMenuOverlay,
+    LemonSkeleton,
+    LemonTabs,
+    LemonTag,
+    Link,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import { GraphsHog, PopUpBinocularsHog } from 'lib/components/hedgehogs'
+import { NotFound } from 'lib/components/NotFound'
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { IconArrowDown } from 'lib/lemon-ui/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { statusBadgeColor } from 'scenes/debug/signals/helpers'
+import type { SignalNode } from 'scenes/debug/signals/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { SignalReport, SignalReportArtefact } from './types'
+import { SignalCard } from './SignalCard'
+import { SignalGraphTab } from './SignalGraphTab'
+import { signalSourcesLogic } from './signalSourcesLogic'
+import { SourcesModal } from './SourcesModal'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
     logic: inboxSceneLogic,
 }
 
-function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Element {
-    const content = artefact.content
+function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
+    const { selectedReportId } = useValues(inboxSceneLogic)
+    const { setSelectedReportId } = useActions(inboxSceneLogic)
+
+    const isSelected = selectedReportId === report.id
+
     return (
-        <div className="border rounded p-3 bg-surface-primary">
-            <div className="flex items-center gap-2 mb-1">
-                <LemonTag size="small">{artefact.type}</LemonTag>
-                <TZLabel time={artefact.created_at} />
-                {artefact.type === 'video_segment' && content.session_id && (
-                    <ViewRecordingButton
-                        sessionId={content.session_id}
-                        timestamp={content.start_time}
-                        size="xsmall"
-                        type="secondary"
-                        label="Play"
-                    />
-                )}
-            </div>
-            {content.session_id && (
-                <p className="text-sm text-secondary m-0 mt-1 truncate">
-                    Session: <span className="font-mono text-xs">{content.session_id}</span>
-                </p>
-            )}
-            {content.summary && <p className="text-sm text-secondary m-0 mt-1">{content.summary}</p>}
-        </div>
-    )
-}
-
-function ReportRow({ report }: { report: SignalReport }): JSX.Element {
-    const { expandedReportId, artefacts, artefactsLoading } = useValues(inboxSceneLogic)
-    const { setExpandedReportId, loadArtefacts } = useActions(inboxSceneLogic)
-
-    const isExpanded = expandedReportId === report.id
-    const reportArtefacts = artefacts[report.id]
-
-    const handleToggle = (): void => {
-        if (isExpanded) {
-            setExpandedReportId(null)
-        } else {
-            setExpandedReportId(report.id)
-            if (!artefacts[report.id]) {
-                loadArtefacts({ reportId: report.id })
+        <Link
+            to={urls.inbox(report.id)}
+            onClick={
+                isSelected
+                    ? (e) => {
+                          e.preventDefault()
+                          setSelectedReportId(null)
+                      }
+                    : undefined
             }
-        }
-    }
+            className={clsx(
+                `w-full text-left px-3 py-2.5 flex items-start gap-2 cursor-pointer rounded border border-primary overflow-hidden`,
+                isSelected ? 'bg-surface-primary' : 'bg-surface-secondary hover:bg-surface-tertiary'
+            )}
+        >
+            <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-medium m-0 truncate flex-1">{report.title || <i>Untitled report</i>}</h4>
 
-    return (
-        <div className="border rounded-lg bg-surface-primary overflow-hidden">
-            <button
-                type="button"
-                className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-surface-secondary transition-colors cursor-pointer bg-transparent border-none"
-                onClick={handleToggle}
-            >
-                <div className="flex-shrink-0 mt-0.5">
-                    <IconChevronRight
-                        className={`size-4 text-tertiary transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                    />
-                </div>
+                {report.summary && (
+                    <p
+                        className={clsx(
+                            'text-xs mt-0.5 m-0 line-clamp-2',
+                            selectedReportId === report.id ? 'text-secondary' : 'text-tertiary'
+                        )}
+                    >
+                        {report.summary}
+                    </p>
+                )}
 
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                        <LemonTag size="small">Weight: {report.total_weight.toFixed(2)}</LemonTag>
-                        <h3 className="text-sm font-semibold m-0 truncate flex-1">
-                            {report.title || 'Untitled report'}
-                        </h3>
-                    </div>
-                    {report.summary && <p className="text-sm text-secondary m-0 mt-1 line-clamp-2">{report.summary}</p>}
-                </div>
-
-                <div className="flex items-center gap-4 flex-shrink-0 text-xs text-tertiary">
+                <div className="flex items-center gap-2 mt-1.5 text-xs text-tertiary whitespace-nowrap">
                     {report.relevant_user_count !== null && report.relevant_user_count > 0 && (
-                        <span title="Affected users">
+                        <span>
                             {report.relevant_user_count} {report.relevant_user_count === 1 ? 'user' : 'users'}
                         </span>
                     )}
                     {report.signal_count > 0 && (
-                        <span title="Number of signals">
+                        <span>
                             {report.signal_count} {report.signal_count === 1 ? 'signal' : 'signals'}
                         </span>
                     )}
-                    {report.artefact_count > 0 && (
-                        <LemonBadge.Number count={report.artefact_count} maxDigits={3} size="small" />
-                    )}
-                    <TZLabel time={report.updated_at} />
-                </div>
-            </button>
+                    <LemonTag size="small">Weight: {report.total_weight.toFixed(1)}</LemonTag>
 
-            {isExpanded && (
-                <div className="border-t px-4 py-3 bg-surface-secondary">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="text-xs text-tertiary space-x-4">
-                            <span>
-                                Weight: <strong>{report.total_weight.toFixed(2)}</strong>
-                            </span>
-                            <span>Created {humanFriendlyDetailedTime(report.created_at)}</span>
-                        </div>
-                    </div>
-
-                    <div>
-                        <h4 className="text-xs font-semibold text-tertiary uppercase tracking-wide mb-2">Artefacts</h4>
-                        {artefactsLoading && !reportArtefacts ? (
-                            <div className="flex items-center gap-2 text-sm text-tertiary py-2">
-                                <Spinner className="size-4" />
-                                Loading artefacts...
-                            </div>
-                        ) : reportArtefacts && reportArtefacts.length > 0 ? (
-                            <div className="space-y-2">
-                                {reportArtefacts.map((artefact) => (
-                                    <ArtefactCard key={artefact.id} artefact={artefact} />
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-sm text-tertiary m-0">No artefacts yet.</p>
-                        )}
-                    </div>
+                    <span className="grow shrink-0 flex justify-end">
+                        <TZLabel title="Report last updated at" time={report.updated_at} />
+                    </span>
                 </div>
-            )}
-        </div>
+            </div>
+        </Link>
     )
 }
 
-function EmptyInbox(): JSX.Element {
+function ReportListSkeleton({ active = true }: { active?: boolean }): JSX.Element {
     return (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-            <IconExpand className="size-12 text-tertiary mb-4" />
-            <h3 className="text-lg font-semibold mb-1">Your inbox is empty</h3>
-            <p className="text-sm text-secondary max-w-md">
-                PostHog automatically analyzes user sessions and surfaces actionable reports here. Reports will appear
-                as patterns are detected.
-            </p>
-        </div>
-    )
-}
-
-function InboxSkeleton(): JSX.Element {
-    return (
-        <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="border rounded-lg px-4 py-3 bg-surface-primary">
-                    <div className="flex items-center gap-3">
-                        <LemonSkeleton className="w-4 h-4" />
-                        <div className="flex-1">
-                            <LemonSkeleton className="w-1/3 h-4 mb-2" />
-                            <LemonSkeleton className="w-2/3 h-3" />
-                        </div>
-                        <LemonSkeleton className="w-16 h-3" />
+        <div className="flex flex-col gap-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="px-3 py-2.5 rounded border border-primary">
+                    <LemonSkeleton className="w-3/5 h-4" active={active} />
+                    <LemonSkeleton className="w-full h-3 mt-1" active={active} />
+                    <LemonSkeleton className="w-4/5 h-3 mt-0.5" active={active} />
+                    <div className="flex items-center gap-2 mt-1.5">
+                        <LemonSkeleton className="w-12 h-3" active={active} />
+                        <LemonSkeleton className="w-14 h-3" active={active} />
+                        <LemonSkeleton className="w-16 h-5 rounded-sm" active={active} />
+                        <LemonSkeleton className="w-20 h-3 ml-auto" active={active} />
                     </div>
                 </div>
             ))}
@@ -173,21 +142,539 @@ function InboxSkeleton(): JSX.Element {
     )
 }
 
+const STATUS_OPTIONS = Object.values(SignalReportStatus)
+
+const STATUS_LABELS: Record<SignalReportStatus, string> = {
+    [SignalReportStatus.POTENTIAL]: 'Potential',
+    [SignalReportStatus.CANDIDATE]: 'Candidate',
+    [SignalReportStatus.IN_PROGRESS]: 'In progress',
+    [SignalReportStatus.PENDING_INPUT]: 'Pending input',
+    [SignalReportStatus.READY]: 'Ready',
+    [SignalReportStatus.FAILED]: 'Failed',
+}
+
+function StatusFilter(): JSX.Element {
+    const { statusFilters } = useValues(inboxSceneLogic)
+    const { setStatusFilters } = useActions(inboxSceneLogic)
+    const [showPopover, setShowPopover] = useState(false)
+
+    const isAllSelected = statusFilters.length === STATUS_OPTIONS.length
+    const isSomeSelected = statusFilters.length > 0 && statusFilters.length < STATUS_OPTIONS.length
+
+    const handleToggleAll = (): void => {
+        if (isAllSelected || isSomeSelected) {
+            setStatusFilters([])
+        } else {
+            setStatusFilters([...STATUS_OPTIONS])
+        }
+    }
+
+    const handleToggleStatus = (status: SignalReportStatus): void => {
+        const newStatuses = statusFilters.includes(status)
+            ? statusFilters.filter((s) => s !== status)
+            : [...statusFilters, status]
+        setStatusFilters(newStatuses)
+    }
+
+    const displayValue = (): string => {
+        if (statusFilters.length === 0 || isAllSelected) {
+            return 'All statuses'
+        }
+        if (statusFilters.length === 1) {
+            return STATUS_LABELS[statusFilters[0]]
+        }
+        return `${statusFilters.length} statuses`
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            visible={showPopover}
+            matchWidth={false}
+            actionable
+            onVisibilityChange={setShowPopover}
+            overlay={
+                <div className="max-w-60 space-y-px p-1">
+                    <LemonButton fullWidth size="small" onClick={handleToggleAll} className="justify-start">
+                        <span className="flex items-center gap-2">
+                            <LemonCheckbox checked={isAllSelected} className="pointer-events-none" />
+                            <span className="font-semibold">
+                                {isAllSelected || isSomeSelected ? 'Clear all' : 'Select all'}
+                            </span>
+                        </span>
+                    </LemonButton>
+                    <div className="border-t border-border my-1" />
+                    {STATUS_OPTIONS.map((status) => (
+                        <LemonButton
+                            key={status}
+                            fullWidth
+                            size="small"
+                            onClick={() => handleToggleStatus(status)}
+                            className="justify-start"
+                        >
+                            <span className="flex items-center gap-2">
+                                <LemonCheckbox
+                                    checked={statusFilters.includes(status)}
+                                    className="pointer-events-none"
+                                />
+                                <span className={clsx('w-2 h-2 rounded-full shrink-0', statusBadgeColor(status))} />
+                                <span>{STATUS_LABELS[status]}</span>
+                            </span>
+                        </LemonButton>
+                    ))}
+                </div>
+            }
+        >
+            <LemonButton type="secondary" size="small" icon={<IconFilter />} className="bg-surface-primary">
+                {displayValue()}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function ReportListPane(): JSX.Element {
+    const {
+        filteredReports,
+        reportsLoading,
+        searchQuery,
+        reports,
+        selectedReportId,
+        shouldShowEnablingCtaOnMobile,
+        statusFilters,
+        reportsHasMore,
+    } = useValues(inboxSceneLogic)
+    const { hasNoSources } = useValues(signalSourcesLogic)
+    const { setSearchQuery, loadMoreReports, loadReports } = useActions(inboxSceneLogic)
+    const { openSourcesModal } = useActions(signalSourcesLogic)
+    const scrollRef = useRef<HTMLDivElement>(null)
+    const [isScrollable, setIsScrollable] = useState(false)
+
+    useEffect(() => {
+        const el = scrollRef.current
+        if (!el) {
+            return
+        }
+        const scrollabilityCheck = (): void => setIsScrollable(el.scrollHeight > el.clientHeight)
+        scrollabilityCheck()
+        const observer = new ResizeObserver(scrollabilityCheck)
+        observer.observe(el)
+        return () => observer.disconnect()
+    }, [filteredReports.length])
+
+    return (
+        <ResizableElement
+            defaultWidth={420}
+            minWidth={280}
+            maxWidth={600}
+            borderPosition="right"
+            onResize={() => {}}
+            className={clsx(
+                'flex-shrink-0 h-full',
+                '@3xl/main-content-container:max-w-[50%] @3xl/main-content-container:border-r border-primary',
+                (selectedReportId != null || shouldShowEnablingCtaOnMobile) &&
+                    'hidden @3xl/main-content-container:block'
+            )}
+        >
+            <div ref={scrollRef} className="h-full p-3 overflow-y-auto">
+                <div className="flex gap-2 sticky top-0 z-10 mb-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search reports..."
+                        prefix={<IconSearch />}
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        size="small"
+                        fullWidth
+                        disabledReason={
+                            reportsLoading && reports.length === 0 && !searchQuery ? 'Loading reports...' : null
+                        }
+                    />
+                    <StatusFilter />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        loading={reportsLoading}
+                        onClick={() => loadReports()}
+                        tooltip="Refresh reports"
+                    />
+                </div>
+                {hasNoSources && filteredReports.length > 0 && (
+                    <LemonBanner
+                        type="info"
+                        action={{ children: 'Set up sources now', onClick: openSourcesModal, icon: <IconGear /> }}
+                        className="mb-2"
+                    >
+                        No signal sources enabled currently.
+                        <br />
+                        Set up sources to get new reports automatically.
+                    </LemonBanner>
+                )}
+                <div className="flex flex-col gap-2">
+                    {reportsLoading && reports.length === 0 ? (
+                        <div className="relative overflow-hidden max-h-[calc(100vh-14rem)]">
+                            <ReportListSkeleton />
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
+                        </div>
+                    ) : filteredReports.length === 0 ? (
+                        <div className="relative overflow-hidden max-h-[calc(100vh-14rem)]">
+                            <ReportListSkeleton active={false} />
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <p className="text-sm text-secondary font-medium m-0 cursor-default">
+                                    {searchQuery || statusFilters.length > 0
+                                        ? 'No reports matching filters.'
+                                        : 'No reports yet.'}
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            {filteredReports.map((report: SignalReport) => (
+                                <ReportListItem key={report.id} report={report} />
+                            ))}
+                            {reportsHasMore && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    fullWidth
+                                    center
+                                    loading={reportsLoading}
+                                    onClick={() => loadMoreReports()}
+                                    className="mt-1"
+                                >
+                                    Load more
+                                </LemonButton>
+                            )}
+                            {isScrollable && filteredReports.length > 0 && !reportsHasMore && (
+                                <Tooltip title="You've reached the end, friend." delayMs={0} placement="right">
+                                    <PopUpBinocularsHog className="-mb-3.5 mt-1 w-16 self-center h-auto object-bottom" />
+                                </Tooltip>
+                            )}
+                        </>
+                    )}
+                </div>
+            </div>
+        </ResizableElement>
+    )
+}
+
+function JudgmentBadges({ artefacts }: { artefacts: SignalReportArtefact[] }): JSX.Element | null {
+    const [expanded, setExpanded] = useState(false)
+
+    const safetyArtefact = artefacts.find((a) => a.type === 'safety_judgment')
+    const actionabilityArtefact = artefacts.find((a) => a.type === 'actionability_judgment')
+
+    if (!safetyArtefact && !actionabilityArtefact) {
+        return null
+    }
+
+    const safetyContent = safetyArtefact?.content as Record<string, unknown> | undefined
+    const actionabilityContent = actionabilityArtefact?.content as Record<string, unknown> | undefined
+
+    const isSafe = safetyContent?.safe === true || safetyContent?.judgment === 'safe'
+    const actionabilityJudgment = (actionabilityContent?.judgment as string) ?? ''
+
+    return (
+        <div className="border rounded bg-surface-primary mb-3">
+            <button
+                type="button"
+                className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer hover:bg-surface-tertiary rounded"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <span className="text-xs font-medium text-tertiary shrink-0">LLM judgment:</span>
+                <div className="flex items-center gap-1.5 flex-wrap flex-1">
+                    {safetyArtefact && (
+                        <LemonTag size="small" type={isSafe ? 'success' : 'danger'}>
+                            {isSafe ? <IconCheck className="size-3" /> : <IconWarning className="size-3" />}
+                            <span className="ml-0.5">{isSafe ? 'Safe' : 'Unsafe'}</span>
+                        </LemonTag>
+                    )}
+                    {actionabilityArtefact && (
+                        <LemonTag
+                            size="small"
+                            type={
+                                actionabilityJudgment === 'immediately_actionable'
+                                    ? 'success'
+                                    : actionabilityJudgment === 'requires_human_input'
+                                      ? 'caution'
+                                      : 'muted'
+                            }
+                        >
+                            {actionabilityJudgment === 'immediately_actionable' ? (
+                                <IconCheck className="size-3" />
+                            ) : actionabilityJudgment === 'requires_human_input' ? (
+                                <IconWarning className="size-3" />
+                            ) : (
+                                <IconX className="size-3" />
+                            )}
+                            <span className="ml-0.5">
+                                {actionabilityJudgment === 'immediately_actionable'
+                                    ? 'Immediately actionable'
+                                    : actionabilityJudgment === 'requires_human_input'
+                                      ? 'Requires human input'
+                                      : 'Not actionable'}
+                            </span>
+                        </LemonTag>
+                    )}
+                </div>
+                <IconChevronRight
+                    className={clsx('size-4 text-tertiary transition-transform shrink-0', expanded && 'rotate-90')}
+                />
+            </button>
+            {expanded && (
+                <div className="px-3 pb-3 space-y-2 text-sm text-secondary">
+                    {safetyContent?.explanation ? (
+                        <div>
+                            <span className="font-medium text-xs text-tertiary">Safety:</span>
+                            <LemonMarkdown className="mt-0.5">{String(safetyContent.explanation)}</LemonMarkdown>
+                        </div>
+                    ) : null}
+                    {actionabilityContent?.explanation ? (
+                        <div>
+                            <span className="font-medium text-xs text-tertiary">Actionability:</span>
+                            <LemonMarkdown className="mt-0.5">{String(actionabilityContent.explanation)}</LemonMarkdown>
+                        </div>
+                    ) : null}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function ReportDetailPane(): JSX.Element {
+    const {
+        selectedReport,
+        shouldShowEnablingCtaOnMobile,
+        artefacts,
+        activeDetailTab,
+        selectedReportSignals,
+        reportSignalsLoading,
+    } = useValues(inboxSceneLogic)
+    const { deleteReport, reingestReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const { user } = useValues(userLogic)
+    const { hasNoSources } = useValues(signalSourcesLogic)
+    const { openSourcesModal } = useActions(signalSourcesLogic)
+
+    const baseClasses = 'flex-1 p-4 min-w-0 h-full self-start bg-surface-primary flex flex-col overflow-y-auto'
+
+    if (!selectedReport) {
+        return (
+            <div
+                className={clsx(
+                    baseClasses,
+                    `items-center justify-center p-8 cursor-default overflow-y-auto`,
+                    // If user has no sources and no reports, always show the CTA area on mobile
+                    !shouldShowEnablingCtaOnMobile && 'hidden @3xl/main-content-container:flex'
+                )}
+            >
+                <GraphsHog className="w-36 mb-8" />
+                <h3 className="text-xl font-bold mb-4 text-center">
+                    Welcome to your Inbox
+                    <sup>
+                        <IconSparkles className="ml-0.5 text-ai" />
+                    </sup>
+                </h3>
+                <div className="flex flex-col items-center gap-1.5 text-center text-xs text-secondary max-w-md leading-normal">
+                    <div>
+                        <strong>Background analysis of your data - while you sleep.</strong>
+                        <br />
+                        Powerful new analysis of sessions watches every recording for you. Integrations with external
+                        sources on the way: issue trackers, support platforms, and more.
+                    </div>
+                    <IconArrowDown className="size-4 opacity-50" />
+                    <div>
+                        <strong>Inbox hands you ready-to-run fixes for real user problems.</strong>
+                        <br />
+                        Just execute the resulting prompt in your favorite coding agent. Each fix's report comes with
+                        hard evidence and impact numbers.
+                    </div>
+                </div>
+                {hasNoSources && (
+                    <LemonButton type="primary" onClick={openSourcesModal} icon={<IconNotification />} className="mt-4">
+                        Enable Inbox now
+                    </LemonButton>
+                )}
+            </div>
+        )
+    }
+
+    const reportArtefacts = artefacts[selectedReport.id]
+
+    return (
+        <div className={baseClasses} key={selectedReport.id}>
+            <div className="max-w-200 w-full border border-border-light rounded-lg mx-auto">
+                {/* Header — always visible above tabs */}
+                <div className="shrink-0 pt-6 pb-2 px-6">
+                    <Link
+                        to={urls.inbox()}
+                        className="inline-flex items-center gap-1 text-sm text-secondary mb-4 @3xl/main-content-container:hidden"
+                    >
+                        <IconArrowLeft className="size-4" />
+                        All reports
+                    </Link>
+                    <div>
+                        <h2 className="text-xl font-medium mb-4 flex-1 leading-tight">
+                            {selectedReport.title || 'Untitled report'}
+                        </h2>
+                        {selectedReport.summary && (
+                            <LemonMarkdown className="text-sm text-secondary mb-0 mt-2 leading-normal">
+                                {selectedReport.summary}
+                            </LemonMarkdown>
+                        )}
+                        <div className="flex items-center gap-4 mt-4 text-xs text-tertiary cursor-default">
+                            {selectedReport.relevant_user_count !== null && selectedReport.relevant_user_count > 0 && (
+                                <span>
+                                    {selectedReport.relevant_user_count}{' '}
+                                    {selectedReport.relevant_user_count === 1 ? 'user' : 'users'}
+                                </span>
+                            )}
+                            {selectedReport.signal_count > 0 && (
+                                <span>
+                                    {selectedReport.signal_count}{' '}
+                                    {selectedReport.signal_count === 1 ? 'signal' : 'signals'}
+                                </span>
+                            )}
+                            <Tooltip
+                                title="Each signal adds weight to the report, depending on the signal's value and confidence. When a report reaches weight >=1.0, it's investigated by an AI agent."
+                                delayMs={0}
+                            >
+                                Weight: {selectedReport.total_weight.toFixed(1)} <IconInfo className="size-3 ml-0.5" />
+                            </Tooltip>
+                            <span className="inline-flex items-center gap-1">
+                                Created: <TZLabel time={selectedReport.created_at} />
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                                Updated: <TZLabel time={selectedReport.updated_at} />
+                            </span>
+                            <More
+                                overlay={
+                                    <LemonMenuOverlay
+                                        items={[
+                                            ...(user?.is_staff
+                                                ? [
+                                                      {
+                                                          label: 'Re-ingest signals',
+                                                          onClick: () =>
+                                                              LemonDialog.open({
+                                                                  title: `Re-ingest signals from "${selectedReport.title}"?`,
+                                                                  className: 'max-w-120',
+                                                                  description:
+                                                                      'This will delete the report, then re-run all its signals through the grouping pipeline. Signals may end up in different reports.',
+                                                                  primaryButton: {
+                                                                      children: 'Re-ingest signals',
+                                                                      onClick: () => reingestReport(selectedReport.id),
+                                                                  },
+                                                                  secondaryButton: {
+                                                                      children: 'Cancel',
+                                                                  },
+                                                              }),
+                                                      },
+                                                  ]
+                                                : []),
+                                            {
+                                                label: 'Delete report & signals',
+                                                status: 'danger',
+                                                onClick: () =>
+                                                    LemonDialog.open({
+                                                        title: `Delete report "${selectedReport.title}"?`,
+                                                        className: 'max-w-120',
+                                                        description:
+                                                            'This will delete all signals in this report and remove the report. Report deletion cannot be undone.',
+                                                        primaryButton: {
+                                                            children: 'Delete report & signals',
+                                                            status: 'danger',
+                                                            onClick: () => deleteReport(selectedReport.id),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    }),
+                                            },
+                                        ]}
+                                    />
+                                }
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <LemonTabs
+                    activeKey={activeDetailTab}
+                    onChange={setActiveDetailTab}
+                    barClassName="px-6 mb-0 [--color-border-primary:var(--border-light)]"
+                    tabs={[
+                        {
+                            key: 'overview',
+                            label: 'Overview',
+                            content: (
+                                <div className="p-6 max-w-200 w-full">
+                                    {/* Judgment badges from artefacts */}
+                                    {reportArtefacts && reportArtefacts.length > 0 && (
+                                        <JudgmentBadges artefacts={reportArtefacts} />
+                                    )}
+
+                                    {/* Signal cards as primary content */}
+                                    {reportSignalsLoading && !selectedReportSignals ? (
+                                        <div className="items-center gap-2 text-sm text-tertiary py-4">
+                                            <Spinner className="size-4" />
+                                            Loading signals...
+                                        </div>
+                                    ) : selectedReportSignals && selectedReportSignals.length > 0 ? (
+                                        <div className="space-y-3">
+                                            {selectedReportSignals.map((signal: SignalNode) => (
+                                                <SignalCard key={signal.signal_id} signal={signal} />
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-tertiary m-0">No signals yet.</p>
+                                    )}
+                                </div>
+                            ),
+                        },
+                        {
+                            key: 'signals',
+                            label: `Signals graph`,
+                            content: (
+                                <div className="flex-1 overflow-hidden">
+                                    {reportSignalsLoading && !selectedReportSignals ? (
+                                        <div className="items-center justify-center h-full gap-2 text-sm text-tertiary">
+                                            <Spinner className="size-4" />
+                                            Loading signals...
+                                        </div>
+                                    ) : selectedReportSignals && selectedReportSignals.length > 0 ? (
+                                        <SignalGraphTab signals={selectedReportSignals} />
+                                    ) : (
+                                        <p className="text-sm text-tertiary m-0 p-6">No signals yet.</p>
+                                    )}
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
+            </div>
+        </div>
+    )
+}
+
 export function InboxScene(): JSX.Element {
-    const { reports, reportsLoading, isRunningSessionAnalysis } = useValues(inboxSceneLogic)
-    const { loadReports, runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { isRunningSessionAnalysis } = useValues(inboxSceneLogic)
+    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { enabledSourcesCount } = useValues(signalSourcesLogic)
+    const { openSourcesModal } = useActions(signalSourcesLogic)
     const { isDev } = useValues(preflightLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     if (!isProductAutonomyEnabled) {
-        return <></>
+        return <NotFound object="page" caption="Check back later." />
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="gap-y-0 border-b-0">
+            <SourcesModal />
             <SceneTitleSection
                 name="Inbox"
-                description="Actionable reports surfaced from automatic analysis of your product."
+                description={null}
                 resourceType={{ type: 'inbox' }}
                 actions={
                     <div className="flex items-center gap-2">
@@ -199,6 +686,8 @@ export function InboxScene(): JSX.Element {
                                     loading={isRunningSessionAnalysis}
                                     size="small"
                                     data-attr="run-session-analysis-button"
+                                    tooltip="DEBUG-only"
+                                    icon={<IconBug />}
                                 >
                                     Run session analysis
                                 </LemonButton>
@@ -206,27 +695,21 @@ export function InboxScene(): JSX.Element {
                         )}
                         <LemonButton
                             type="secondary"
-                            onClick={() => loadReports()}
-                            loading={reportsLoading}
                             size="small"
+                            icon={<IconGear />}
+                            onClick={openSourcesModal}
+                            sideIcon={<LemonBadge.Number count={enabledSourcesCount} status="muted" size="small" />}
                         >
-                            Refresh
+                            Edit sources
                         </LemonButton>
                     </div>
                 }
             />
 
-            {reportsLoading && reports.length === 0 ? (
-                <InboxSkeleton />
-            ) : reports.length === 0 ? (
-                <EmptyInbox />
-            ) : (
-                <div className="space-y-2">
-                    {reports.map((report) => (
-                        <ReportRow key={report.id} report={report} />
-                    ))}
-                </div>
-            )}
+            <div className="flex items-start -mx-4 h-[calc(100vh-6.375rem+1px)]">
+                <ReportListPane />
+                <ReportDetailPane />
+            </div>
         </SceneContent>
     )
 }

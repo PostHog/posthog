@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -35,8 +36,8 @@ describe('CdpCyclotronWorker', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorker(hub)
+        team = await getFirstTeam(hub.postgres)
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub))
 
         fn = await insertHogFunction(
             hub.postgres,
@@ -447,8 +448,7 @@ describe('CdpCyclotronWorker', () => {
                     })
                 )
 
-                hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS = blockTime
-                hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS = 0
+                processor.hogExecutor['config'].hogCostTimingUpperMs = blockTime
 
                 const numberToTest = 5
                 const invocations = Array.from({ length: numberToTest }, () =>

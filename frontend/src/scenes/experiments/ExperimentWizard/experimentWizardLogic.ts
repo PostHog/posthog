@@ -1,0 +1,325 @@
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import type { Experiment, FeatureFlagType } from '~/types'
+
+import { NEW_EXPERIMENT } from '../constants'
+import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
+import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
+import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
+import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
+import type { experimentWizardLogicType } from './experimentWizardLogicType'
+
+export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
+
+const SHOW_GUIDE_STORAGE_KEY = 'experiment-wizard-show-guide'
+const SHOW_GUIDE_DEFAULT = true
+
+const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
+
+export function stepStorageKey(tabId: string): string {
+    return `tab-${tabId}-experiment-wizard-step`
+}
+
+// Writing step to storage is needed to support multiple in-app tabs open
+// while keeping its step state isolated.
+function readStoredStep(tabId: string): ExperimentWizardStep {
+    try {
+        const stored = sessionStorage.getItem(stepStorageKey(tabId))
+        if (stored && WIZARD_STEPS.includes(stored as ExperimentWizardStep)) {
+            return stored as ExperimentWizardStep
+        }
+    } catch {
+        // ignore
+    }
+    return 'about'
+}
+
+export const STEP_ORDER: Record<ExperimentWizardStep, number> = {
+    about: 0,
+    variants: 1,
+    analytics: 2,
+}
+
+export interface ExperimentWizardLogicProps {
+    tabId: string
+}
+
+export const experimentWizardLogic = kea<experimentWizardLogicType>([
+    path(['scenes', 'experiments', 'wizard', 'experimentWizardLogic']),
+
+    props({} as ExperimentWizardLogicProps),
+
+    key((props) => `${props.tabId}-create-experiment`),
+
+    connect((props: ExperimentWizardLogicProps) => ({
+        values: [
+            createExperimentLogic({ tabId: props.tabId }),
+            [
+                'experiment',
+                'sharedMetrics',
+                'isExperimentSubmitting',
+                'featureFlagKeyValidation',
+                'featureFlagKeyValidationLoading',
+            ],
+        ],
+        actions: [
+            createExperimentLogic({ tabId: props.tabId }),
+            [
+                'setExperiment',
+                'setExperimentValue',
+                'setFeatureFlagConfig',
+                'setExposureCriteria',
+                'setSharedMetrics',
+                'saveExperiment',
+                'saveExperimentSuccess',
+            ],
+            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
+            ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
+            selectExistingFeatureFlagModalLogic,
+            ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
+            eventUsageLogic,
+            ['reportExperimentWizardStarted', 'reportExperimentWizardGuideToggled'],
+        ],
+    })),
+
+    actions({
+        // Public navigation actions — handled in listeners so we can
+        // capture the departing step before changing it.
+        setStep: (step: ExperimentWizardStep) => ({ step }),
+        nextStep: true,
+        prevStep: true,
+        // Internal: applies the step change after departure logic runs.
+        _applyStep: (step: ExperimentWizardStep) => ({ step }),
+        markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
+        resetWizard: true,
+        toggleGuide: true,
+        setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
+    }),
+
+    reducers(({ props }: { props: ExperimentWizardLogicProps }) => ({
+        // Tracks whether the initial flag auto-link check has been performed.
+        // Prevents repeated auto-linking when other tabs trigger loadFeatureFlagsSuccess
+        // on the shared selectExistingFeatureFlagModalLogic singleton.
+        initialFlagCheckDone: [
+            false,
+            {
+                loadFeatureFlagsSuccess: () => true,
+                resetWizard: () => false,
+                saveExperimentSuccess: () => false,
+            },
+        ],
+        showGuide: [
+            (() => {
+                try {
+                    const stored = localStorage.getItem(SHOW_GUIDE_STORAGE_KEY)
+                    return stored === null ? SHOW_GUIDE_DEFAULT : stored === 'true'
+                } catch {
+                    return SHOW_GUIDE_DEFAULT
+                }
+            })(),
+            {
+                toggleGuide: (state) => !state,
+            },
+        ],
+        currentStep: [
+            readStoredStep(props.tabId),
+            {
+                _applyStep: (_, { step }) => step,
+                resetWizard: () => 'about',
+                saveExperimentSuccess: () => 'about',
+            },
+        ],
+        linkedFeatureFlag: [
+            null as FeatureFlagType | null,
+            {
+                setLinkedFeatureFlag: (_, { flag }) => flag,
+                resetWizard: () => null,
+                saveExperimentSuccess: () => null,
+            },
+        ],
+        departedSteps: [
+            {} as Record<string, boolean>,
+            {
+                markStepDeparted: (state, { step }) => ({ ...state, [step]: true }),
+                resetWizard: () => ({}),
+                saveExperimentSuccess: () => ({}),
+            },
+        ],
+    })),
+
+    selectors({
+        stepNumber: [(s) => [s.currentStep], (currentStep: ExperimentWizardStep): number => STEP_ORDER[currentStep]],
+        isLastStep: [
+            (s) => [s.currentStep],
+            (currentStep: ExperimentWizardStep): boolean => currentStep === WIZARD_STEPS[WIZARD_STEPS.length - 1],
+        ],
+        isFirstStep: [
+            (s) => [s.currentStep],
+            (currentStep: ExperimentWizardStep): boolean => currentStep === WIZARD_STEPS[0],
+        ],
+        stepValidationErrors: [
+            (s) => [s.experiment, s.featureFlagKeyValidation, s.linkedFeatureFlag, s.departedSteps],
+            (
+                experiment: Experiment,
+                featureFlagKeyValidation: FeatureFlagKeyValidation | null,
+                linkedFeatureFlag: FeatureFlagType | null,
+                departedSteps: Record<string, boolean>
+            ): Record<ExperimentWizardStep, string[]> => {
+                const errors: Record<ExperimentWizardStep, string[]> = {
+                    about: [],
+                    variants: [],
+                    analytics: [],
+                }
+
+                // Required field errors — only shown after the user has navigated
+                // away from the step, so the form isn't red on first load.
+                if (departedSteps.about) {
+                    if (!experiment.name?.trim()) {
+                        errors.about.push('Name is required')
+                    }
+                    if (!experiment.feature_flag_key?.trim()) {
+                        errors.about.push('Feature flag key is required')
+                    }
+                }
+
+                // Active validation errors — always shown once triggered
+                if (!linkedFeatureFlag && featureFlagKeyValidation?.valid === false && featureFlagKeyValidation.error) {
+                    errors.about.push(featureFlagKeyValidation.error)
+                }
+
+                // Linked feature flags show variants read-only so we skip validations
+                if (!linkedFeatureFlag) {
+                    const variants = experiment.parameters?.feature_flag_variants ?? []
+                    const variantKeys = variants.map((v) => v.key)
+                    const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
+                    const hasEmptyKeys = variants.some((v) => !v.key || v.key.trim().length === 0)
+
+                    if (hasEmptyKeys) {
+                        errors.variants.push('All variants must have a key')
+                    }
+                    if (hasDuplicateKeys) {
+                        errors.variants.push('Variant keys must be unique')
+                    }
+
+                    const totalRollout = variants.reduce((sum, v) => sum + (v.rollout_percentage ?? 0), 0)
+                    if (variants.length >= 2 && totalRollout !== 100) {
+                        errors.variants.push('Variant percentages must sum to 100%')
+                    }
+                }
+
+                return errors
+            },
+        ],
+        currentStepHasErrors: [
+            (s) => [s.stepValidationErrors, s.currentStep],
+            (errors: Record<ExperimentWizardStep, string[]>, currentStep: ExperimentWizardStep): boolean => {
+                return errors[currentStep]?.length > 0
+            },
+        ],
+        hasFormErrors: [
+            (s) => [s.stepValidationErrors],
+            (errors: Record<ExperimentWizardStep, string[]>): boolean =>
+                WIZARD_STEPS.some((step) => errors[step]?.length > 0),
+        ],
+    }),
+
+    listeners(({ actions, props, values }) => ({
+        _applyStep: ({ step }) => {
+            try {
+                sessionStorage.setItem(stepStorageKey(props.tabId), step)
+            } catch {
+                // ignore
+            }
+        },
+        resetWizard: () => {
+            try {
+                sessionStorage.removeItem(stepStorageKey(props.tabId))
+            } catch {
+                // ignore
+            }
+        },
+        saveExperimentSuccess: () => {
+            try {
+                sessionStorage.removeItem(stepStorageKey(props.tabId))
+            } catch {
+                // ignore
+            }
+        },
+        toggleGuide: () => {
+            actions.reportExperimentWizardGuideToggled(values.showGuide, values.currentStep)
+            try {
+                localStorage.setItem(SHOW_GUIDE_STORAGE_KEY, JSON.stringify(values.showGuide))
+            } catch {
+                // Ignore localStorage errors
+            }
+        },
+        loadFeatureFlagsSuccess: ({
+            featureFlags,
+        }: {
+            featureFlags: { results: FeatureFlagType[]; count: number }
+        }) => {
+            // Only auto-link on the first load for this tab. The
+            // selectExistingFeatureFlagModalLogic is a singleton, so other
+            // tabs loading flags would otherwise trigger auto-linking here.
+            if (values.initialFlagCheckDone) {
+                return
+            }
+            const key = values.experiment?.feature_flag_key
+            if (key && !values.linkedFeatureFlag && featureFlags.results?.length) {
+                const match = featureFlags.results.find((f) => f.key === key)
+                if (match) {
+                    actions.setLinkedFeatureFlag(match)
+                    actions.setFeatureFlagConfig({
+                        feature_flag_key: match.key,
+                        feature_flag_variants: match.filters?.multivariate?.variants || [],
+                    })
+                }
+            }
+        },
+        nextStep: () => {
+            actions.markStepDeparted(values.currentStep)
+            const currentIndex = WIZARD_STEPS.indexOf(values.currentStep)
+            actions._applyStep(WIZARD_STEPS[Math.min(currentIndex + 1, WIZARD_STEPS.length - 1)])
+
+            const key = values.experiment?.feature_flag_key
+            if (key && !values.linkedFeatureFlag && values.featureFlagKeyValidation === null) {
+                actions.validateFeatureFlagKey(key)
+            }
+        },
+        prevStep: () => {
+            actions.markStepDeparted(values.currentStep)
+            const currentIndex = WIZARD_STEPS.indexOf(values.currentStep)
+            actions._applyStep(WIZARD_STEPS[Math.max(currentIndex - 1, 0)])
+        },
+        setStep: ({ step }) => {
+            actions.markStepDeparted(values.currentStep)
+            actions._applyStep(step)
+
+            const key = values.experiment?.feature_flag_key
+            if (key && !values.linkedFeatureFlag && values.featureFlagKeyValidation === null) {
+                actions.validateFeatureFlagKey(key)
+            }
+        },
+        saveExperiment: () => {
+            for (const step of WIZARD_STEPS) {
+                actions.markStepDeparted(step)
+            }
+        },
+    })),
+
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            actions.reportExperimentWizardStarted(values.showGuide)
+            actions.loadFeatureFlagsForAutocomplete()
+            // Re-validate the feature flag key if one is already set.
+            // The per-tab variantsPanelLogic unmounts when switching tabs,
+            // so validation state is lost and needs to be re-checked.
+            const key = values.experiment?.feature_flag_key
+            if (key) {
+                actions.validateFeatureFlagKey(key)
+            }
+        },
+    })),
+])

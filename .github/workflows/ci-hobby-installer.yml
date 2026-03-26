@@ -12,10 +12,11 @@ permissions:
 jobs:
     lint-and-test:
         runs-on: ubuntu-24.04
+        timeout-minutes: 10
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Set up Go
               uses: actions/setup-go@v6
@@ -34,6 +35,7 @@ jobs:
 
     build:
         runs-on: ${{ matrix.runner }}
+        timeout-minutes: 10
         strategy:
             matrix:
                 include:
@@ -44,7 +46,7 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Set up Go
               uses: actions/setup-go@v6

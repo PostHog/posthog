@@ -1213,6 +1213,24 @@ def get_safe_cache(cache_key: str):
     return None
 
 
+def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:
+    """Best-effort cache write. Logs a warning on failure so Redis blips
+    are visible during incidents without breaking the calling request."""
+    try:
+        cache.set(cache_key, value, timeout)
+    except Exception:
+        logger.warning("safe_cache_set_failure", cache_key=cache_key, exc_info=True)
+
+
+def safe_cache_delete(cache_key: str) -> None:
+    """Best-effort cache delete. Logs a warning on failure so Redis blips
+    are visible during incidents without breaking the calling request."""
+    try:
+        cache.delete(cache_key)
+    except Exception:
+        logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
+
+
 def is_anonymous_id(distinct_id: str) -> bool:
     # Our anonymous ids are _not_ uuids, but a random collection of strings
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))
@@ -1283,13 +1301,15 @@ def cache_requested_by_client(request: Request) -> bool | str:
 
 
 def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return dashboard_filters
 
     try:
@@ -1304,13 +1324,19 @@ def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+    if not raw_override or (
+        request
+        and isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
+    ):
         return map_stale_to_latest(dashboard_variables, variables)
 
     try:
@@ -1322,13 +1348,15 @@ def variables_override_requested_by_client(
 
 
 def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return tile_filters
 
     try:

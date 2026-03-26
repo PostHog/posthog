@@ -154,3 +154,8 @@
         }
     }
 }
+
+.Popover.definition-popover--data-warehouse-funnel-wide .definition-popover {
+    min-width: min(28rem, calc(100vw - 3rem));
+    max-width: min(34rem, calc(100vw - 3rem));
+}

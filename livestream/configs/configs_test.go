@@ -46,6 +46,11 @@ func TestLoadConfig(t *testing.T) {
 				SessionRecording: SessionRecordingConfig{
 					MaxLRUEntries: 2_000_000_000,
 				},
+				Redis: RedisConfig{
+					FlushIntervalMs:   500,
+					PublishBufferSize: 10000,
+					PublishWorkers:    256,
+				},
 			},
 			wantErr: false,
 		},

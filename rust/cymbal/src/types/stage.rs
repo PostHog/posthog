@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use crate::types::batch::Batch;
+use crate::{error::UnhandledError, types::batch::Batch};
 
 /// Stages are the building blocks of a pipeline.
 /// Each stage takes a batch of items as input and produces a batch of items as output.
@@ -8,15 +8,14 @@ use crate::types::batch::Batch;
 pub trait Stage {
     type Input;
     type Output;
-    type Error;
 
     fn name(&self) -> &'static str;
 
     fn process(
         self,
         batch: Batch<Self::Input>,
-    ) -> impl Future<Output = Result<Batch<Self::Output>, Self::Error>>;
+    ) -> impl Future<Output = Result<Batch<Self::Output>, UnhandledError>>;
 }
 
 #[allow(type_alias_bounds)]
-pub type StageResult<T: Stage> = Result<Batch<T::Output>, T::Error>;
+pub type StageResult<T: Stage> = Result<Batch<T::Output>, UnhandledError>;

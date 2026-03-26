@@ -1,0 +1,161 @@
+name: MCP UI Apps CI
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run UI Apps checks
+        outputs:
+            ui-apps: ${{ steps.filter.outputs.ui-apps || 'true' }}
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  filters: |
+                      ui-apps:
+                        - 'services/mcp/src/ui-apps/**'
+                        - 'services/mcp/vite.ui-apps.config.ts'
+                        - 'services/mcp/scripts/build-ui-apps.ts'
+                        - 'common/mosaic/**'
+                        - '.github/workflows/ci-mcp-ui-apps.yml'
+
+    build-and-report:
+        name: Build and validate UI Apps
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.ui-apps == 'true'
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            - name: Build UI Apps
+              run: cd services/mcp && pnpm run build:ui-apps
+
+            - name: Validate build output
+              run: |
+                  # Each app should produce main.js and styles.css
+                  missing=0
+                  for app_dir in services/mcp/public/ui-apps/*/; do
+                    app=$(basename "$app_dir")
+                    if [ ! -f "$app_dir/main.js" ]; then
+                      echo "::error::Missing main.js for $app"
+                      missing=1
+                    fi
+                    if [ ! -f "$app_dir/styles.css" ]; then
+                      echo "::error::Missing styles.css for $app"
+                      missing=1
+                    fi
+                  done
+                  if [ "$missing" -eq 1 ]; then
+                    exit 1
+                  fi
+                  echo "All UI Apps built successfully."
+
+            - name: Post size report comment
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const fs = require('fs');
+                      const path = require('path');
+                      const marker = '<!-- mcp-ui-apps-size-report -->';
+
+                      const distDir = 'services/mcp/public/ui-apps';
+                      const rows = [];
+
+                      for (const app of fs.readdirSync(distDir).sort()) {
+                          const appDir = path.join(distDir, app);
+                          if (!fs.statSync(appDir).isDirectory()) continue;
+                          const jsPath = path.join(appDir, 'main.js');
+                          const cssPath = path.join(appDir, 'styles.css');
+                          const jsSize = fs.existsSync(jsPath) ? (fs.statSync(jsPath).size / 1024).toFixed(1) : '—';
+                          const cssSize = fs.existsSync(cssPath) ? (fs.statSync(cssPath).size / 1024).toFixed(1) : '—';
+                          rows.push(`| ${app} | ${jsSize} KB | ${cssSize} KB |`);
+                      }
+
+                      if (rows.length === 0) return;
+
+                      const table = `| App | JS | CSS |\n|-----|-----|-----|\n${rows.join('\n')}`;
+                      const body = `${marker}\n### MCP UI Apps size report\n\n${table}`;
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      if (existing) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                              body,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body,
+                          });
+                      }
+
+    ci_mcp_ui_apps:
+        needs: [changes, build-and-report]
+        name: MCP UI Apps CI
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - name: Check results
+              run: |
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.ui-apps }}" != "true" ]]; then
+                    echo "UI Apps checks were skipped (no relevant changes)."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build-and-report.result }}" != "success" && "${{ needs.build-and-report.result }}" != "skipped" ]]; then
+                    echo "UI Apps build failed."
+                    exit 1
+                  fi
+
+                  echo "All MCP UI Apps checks passed."

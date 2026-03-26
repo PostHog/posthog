@@ -1,4 +1,4 @@
-import { KeyStore, RecordingDecryptor, SessionKey } from '../types'
+import { DecryptResult, KeyStore, RecordingDecryptor, SessionKey } from '../types'
 
 /**
  * Cleartext decryptor used for hobby deployments and local development instances.
@@ -11,11 +11,16 @@ export class CleartextRecordingDecryptor implements RecordingDecryptor {
         return Promise.resolve()
     }
 
-    decryptBlock(_sessionId: string, _teamId: number, blockData: Buffer): Promise<Buffer> {
-        return Promise.resolve(blockData)
+    decryptBlock(_sessionId: string, _teamId: number, blockData: Buffer): Promise<DecryptResult> {
+        return Promise.resolve({ data: blockData, sessionState: 'cleartext' })
     }
 
-    decryptBlockWithKey(_sessionId: string, _teamId: number, blockData: Buffer, _sessionKey: SessionKey): Buffer {
-        return blockData
+    decryptBlockWithKey(
+        _sessionId: string,
+        _teamId: number,
+        blockData: Buffer,
+        _sessionKey: SessionKey
+    ): DecryptResult {
+        return { data: blockData, sessionState: 'cleartext' }
     }
 }

@@ -20,7 +20,10 @@ def extract_data_center(api_key: str) -> str:
     """
     if "-" not in api_key:
         raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
-    return api_key.split("-")[-1]
+    dc = api_key.split("-")[-1]
+    if not dc.isalnum():
+        raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
+    return dc
 
 
 def _format_incremental_value(value: Any) -> str:

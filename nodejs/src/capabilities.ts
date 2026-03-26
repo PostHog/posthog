@@ -1,4 +1,7 @@
-import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
+import { CommonConfig } from './common/config'
+import { SessionRecordingConfig } from './session-recording/config'
+import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
+import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development
@@ -11,7 +14,6 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpPersonUpdates: true,
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
-    cdpCyclotronShadowWorker: true,
     cdpApi: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
@@ -23,6 +25,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
     cdpBatchHogFlow: true,
     cdpCyclotronWorkerHogFlow: true,
+    cdpCyclotronV2Janitor: isDevEnv(),
 }
 
 /** Realtime Cohorts - precalculated filters and cohort membership */
@@ -52,14 +55,19 @@ export const CAPABILITIES_LOGS: PluginServerCapabilities = {
     logsIngestion: true,
 }
 
+/** Error Tracking - exception event ingestion */
+export const CAPABILITIES_ERROR_TRACKING: PluginServerCapabilities = {
+    errorTrackingIngestion: true,
+}
+
+/** Traces - trace ingestion */
+export const CAPABILITIES_TRACES: PluginServerCapabilities = {
+    tracesIngestion: true,
+}
+
 /** Feature Flags - evaluation scheduler for flags and experiments */
 export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
     evaluationScheduler: true,
-}
-
-/** Ingestion Only - basic event ingestion without CDP processing */
-export const CAPABILITIES_INGESTION_ONLY: PluginServerCapabilities = {
-    ingestionV2Combined: true,
 }
 
 // =============================================================================
@@ -82,10 +90,16 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     session_replay: CAPABILITIES_SESSION_REPLAY,
     recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
+    error_tracking: CAPABILITIES_ERROR_TRACKING,
+    traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
-export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
+// TODO: SESSION_RECORDING_OVERFLOW_ENABLED leaks session recording config into capability resolution — remove once overflow is handled within the session recording consumer
+export function getPluginServerCapabilities(
+    config: Pick<CommonConfig, 'PLUGIN_SERVER_MODE' | 'NODEJS_CAPABILITY_GROUPS'> &
+        Pick<SessionRecordingConfig, 'SESSION_RECORDING_OVERFLOW_ENABLED'>
+): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
         : null
@@ -114,36 +128,27 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                     })
                 }
 
-                // Always include ingestion - it's required for all local dev scenarios
-                return mergeCapabilities(CAPABILITIES_INGESTION_ONLY, ...capabilities)
+                return mergeCapabilities(...capabilities)
             }
 
-            // Default local dev: run everything for full functionality
+            // Default local dev: run everything except ingestion (ingestion runs in a separate process)
             return mergeCapabilities(
-                CAPABILITIES_INGESTION_ONLY,
                 CAPABILITIES_CDP_WORKFLOWS,
                 CAPABILITIES_REALTIME_COHORTS,
                 CAPABILITIES_SESSION_REPLAY,
                 { sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED },
                 CAPABILITIES_RECORDING_API,
                 CAPABILITIES_LOGS,
+                CAPABILITIES_ERROR_TRACKING,
                 CAPABILITIES_FEATURE_FLAGS
             )
 
         case PluginServerMode.local_cdp:
-            // Local CDP development: CDP + workflows + realtime cohorts
-            return mergeCapabilities(
-                { ingestionV2: true }, // Use ingestionV2 instead of Combined
-                CAPABILITIES_CDP_WORKFLOWS,
-                CAPABILITIES_REALTIME_COHORTS,
-                { ingestionV2Combined: false } // Override to use ingestionV2
-            )
+            // Local CDP development: CDP + workflows + realtime cohorts (ingestion runs separately)
+            return mergeCapabilities(CAPABILITIES_CDP_WORKFLOWS, CAPABILITIES_REALTIME_COHORTS)
 
         // Production modes - granular control for dedicated pods
-        case PluginServerMode.ingestion_v2:
-            return {
-                ingestionV2: true,
-            }
+        // NOTE: ingestion_v2 and ingestion_v2_testing are handled by IngestionGeneralServer (see index.ts)
         case PluginServerMode.recordings_blob_ingestion_v2:
             return {
                 sessionRecordingBlobIngestionV2: true,
@@ -199,6 +204,14 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 logsIngestion: true,
             }
+        case PluginServerMode.ingestion_error_tracking:
+            return {
+                errorTrackingIngestion: true,
+            }
+        case PluginServerMode.ingestion_traces:
+            return {
+                tracesIngestion: true,
+            }
         case PluginServerMode.cdp_batch_hogflow_requests:
             return {
                 cdpBatchHogFlow: true,
@@ -207,13 +220,20 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpDataWarehouseEvents: true,
             }
-        case PluginServerMode.cdp_cyclotron_shadow_worker:
+        case PluginServerMode.cdp_cyclotron_v2_janitor:
             return {
-                cdpCyclotronShadowWorker: true,
+                cdpCyclotronV2Janitor: true,
             }
         case PluginServerMode.recording_api:
             return {
                 recordingApi: true,
             }
+
+        case PluginServerMode.ingestion_v2:
+        case PluginServerMode.ingestion_v2_testing:
+        case PluginServerMode.ingestion_v2_combined:
+            // These modes are handled by IngestionGeneralServer (see index.ts) and should
+            // never reach this function
+            throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
     }
 }

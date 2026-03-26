@@ -16,13 +16,17 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
-from posthog.tasks.email import send_hog_functions_daily_digest
+from posthog.tasks.email import send_error_tracking_weekly_digest, send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import (
+    cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
     compute_feature_flag_metrics,
+    refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
 )
 from posthog.tasks.hypercache_verification import (
+    verify_and_fix_flag_definitions_cache_task,
+    verify_and_fix_flag_definitions_without_cohorts_cache_task,
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
@@ -67,7 +71,6 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
-from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
@@ -78,6 +81,7 @@ TWENTY_FOUR_HOURS = 24 * 60 * 60
 # Organizations with delayed data ingestion that need delayed usage report re-runs
 # This is a temporary solution until we switch event usage queries from timestamp to created_at
 DELAYED_ORGS_EU: list[str] = [
+    "018beddd-5eb1-0000-7953-5a5b982e80bf",
     "01975ab3-7ec5-0000-9751-a89cbc971419",
 ]
 DELAYED_ORGS_US: list[str] = []
@@ -171,14 +175,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="schedule warming for largest teams",
     )
 
-    # Team access cache warming - every 10 minutes
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        warm_all_team_access_caches_task.s(),
-        name="warm team access caches",
-    )
-
     # Team metadata cache sync - hourly
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
@@ -214,8 +210,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="compute feature flag metrics",
     )
 
-    # HyperCache verification - split into separate tasks for independent time budgets
-    # Tasks have 1-hour time limits, so expiry must match
+    # Flag definitions cache refresh - hourly at minute 35
+    sender.add_periodic_task(
+        crontab(hour="*", minute="35"),
+        refresh_expiring_flag_definitions_cache_entries.s(),
+        name="refresh expiring flag definitions cache entries",
+    )
+
+    # Flag definitions cache expiry tracking cleanup - daily at 3:30 AM
+    sender.add_periodic_task(
+        crontab(hour="3", minute="30"),
+        cleanup_stale_flag_definitions_expiry_tracking_task.s(),
+        name="flag definitions cache expiry tracking cleanup",
+    )
+
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
@@ -233,6 +241,25 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         verify_and_fix_flags_cache_task.s(),
         name="verify and fix flags cache",
         expires_seconds=30 * 60,
+    )
+
+    # Verify flag definitions cache without cohorts - hourly at minute 10
+    # Minute 10 reduces the likelihood of overlapping with team_metadata verification at minute 20 and helps spread load.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="10"),
+        verify_and_fix_flag_definitions_without_cohorts_cache_task.s(),
+        name="verify and fix flag definitions cache (without cohorts)",
+        expires_seconds=60 * 60,
+    )
+
+    # Flag definitions cache verification (with cohorts) - hourly at minute 50
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="50"),
+        verify_and_fix_flag_definitions_cache_task.s(),
+        name="verify and fix flag definitions cache (with cohorts)",
+        expires_seconds=60 * 60,
     )
 
     # Update events table partitions twice a week
@@ -269,6 +296,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="30"),
         send_hog_functions_daily_digest.s(),
         name="send HogFunctions daily digest",
+    )
+
+    # Send Error Tracking weekly digest at 8:30 AM UTC on Monday
+    sender.add_periodic_task(
+        crontab(hour="8", minute="30", day_of_week="mon"),
+        send_error_tracking_weekly_digest.s(),
+        name="send Error Tracking weekly digest",
     )
 
     # PostHog Cloud cron jobs
@@ -491,6 +525,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(hour="0", minute=str(randrange(0, 40))),
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
+        )
+
+        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="0"),
+            cleanup_old_scim_request_logs.s(),
+            name="clean up old SCIM request logs",
         )
 
     # Check integrations to refresh every minute

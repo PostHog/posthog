@@ -371,18 +371,6 @@ describe('createDefaultPropertyFilter()', () => {
         )
     })
 
-    it('preserves originalQuery as value for standard filters', () => {
-        const result = createDefaultPropertyFilter(
-            null,
-            '$current_url',
-            PropertyFilterType.Event,
-            makeGroup(TaxonomicFilterGroupType.EventProperties),
-            noopDescribeProperty,
-            'https://example.com'
-        )
-        expect(result).toEqual(expect.objectContaining({ key: '$current_url', value: 'https://example.com' }))
-    })
-
     it('preserves existing operator from previous filter when valid', () => {
         const existingFilter: AnyPropertyFilter = {
             key: '$browser',

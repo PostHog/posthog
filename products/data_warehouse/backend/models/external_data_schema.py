@@ -25,6 +25,8 @@ from products.data_warehouse.backend.data_load.service import (
 from products.data_warehouse.backend.s3 import get_s3_client
 from products.data_warehouse.backend.types import IncrementalFieldType
 
+type IncrementalFieldValue = str | int | float | None
+
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
@@ -39,6 +41,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
         APPEND = "append", "append"
+        WEBHOOK = "webhook", "webhook"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -46,6 +49,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         MONTHLY = "month", "Monthly"
 
     name = models.CharField(max_length=400)
+    label = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     source = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
@@ -65,6 +69,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
+    initial_sync_complete = models.BooleanField(default=False)
+    description = models.CharField(max_length=1000, null=True, blank=True)
 
     __repr__ = sane_repr("name")
 
@@ -87,8 +93,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.sync_type == self.SyncType.APPEND
 
     @property
+    def is_webhook(self):
+        return self.sync_type == self.SyncType.WEBHOOK
+
+    @property
     def should_use_incremental_field(self):
-        return self.is_incremental or self.is_append
+        return self.is_incremental or self.is_append or self.is_webhook
 
     @property
     def incremental_field(self) -> str | None:
@@ -105,14 +115,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def incremental_field_last_value(self) -> str | None:
+    def incremental_field_last_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_last_value", None)
 
         return None
 
     @property
-    def incremental_field_earliest_value(self) -> str | None:
+    def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
 
@@ -185,6 +195,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         return None
 
+    @property
+    def schema_metadata(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            metadata = self.sync_type_config.get("schema_metadata")
+            if isinstance(metadata, dict):
+                return metadata
+        return None
+
+    @property
+    def foreign_keys(self) -> list[dict[str, str]] | None:
+        metadata = self.schema_metadata
+        if metadata:
+            foreign_keys = metadata.get("foreign_keys")
+            if isinstance(foreign_keys, list):
+                return foreign_keys
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
@@ -213,6 +240,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("backfilled_partition_format", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
+
+        self.initial_sync_complete = False
 
         self.save()
 
@@ -330,9 +359,12 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
-    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
+
+    if not schema.source.supports_scheduled_sync:
+        return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
 
@@ -353,18 +385,53 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
 
 
 def sync_old_schemas_with_new_schemas(
-    new_schemas: list[str], source_id: str, team_id: int
+    new_schemas: list[str],
+    source_id: str,
+    team_id: int,
+    descriptions: dict[str, str | None] | None = None,
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
+
+    if descriptions:
+        for old_schema in old_schemas:
+            new_description = descriptions.get(old_schema.name)
+            if old_schema.description != new_description:
+                old_schema.description = new_description
+                old_schema.save(update_fields=["description", "updated_at"])
 
     schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas_names]
 
     schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schemas]
     deleted_schemas: list[str] = []
+    actually_created: list[str] = []
 
     for schema in schemas_to_create:
-        ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+        deleted_obj = (
+            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
+            .order_by("-updated_at", "-created_at")
+            .first()
+        )
+        if deleted_obj is not None:
+            deleted_obj.deleted = False
+            deleted_obj.deleted_at = None
+            deleted_obj.description = descriptions.get(schema) if descriptions else None
+            deleted_obj.save(update_fields=["deleted", "deleted_at", "description", "updated_at"])
+            actually_created.append(schema)
+            continue
+
+        obj, created = ExternalDataSchema.objects.get_or_create(
+            team_id=team_id,
+            source_id=source_id,
+            name=schema,
+            deleted=False,
+            defaults={
+                "should_sync": False,
+                "description": descriptions.get(schema) if descriptions else None,
+            },
+        )
+        if created:
+            actually_created.append(schema)
 
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
@@ -380,7 +447,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return schemas_to_create, deleted_schemas
+    return actually_created, deleted_schemas
 
 
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
@@ -388,6 +455,8 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | Non
         return None
     if frequency == "5min":
         return timedelta(minutes=5)
+    if frequency == "15min":
+        return timedelta(minutes=15)
     if frequency == "30min":
         return timedelta(minutes=30)
     if frequency == "1hour":
@@ -411,6 +480,8 @@ def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta
         return None
     if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
+    if sync_frequency_interval == timedelta(minutes=15):
+        return "15min"
     if sync_frequency_interval == timedelta(minutes=30):
         return "30min"
     if sync_frequency_interval == timedelta(hours=1):

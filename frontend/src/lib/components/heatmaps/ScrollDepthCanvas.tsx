@@ -62,7 +62,7 @@ export function ScrollDepthMouseCanvas({
             <div className="border-b border-default w-full opacity-75" />
             <div
                 className={clsx(
-                    'bg-default whitespace-nowrap text-white rounded p-2 font-semibold opacity-75 hover:opacity-100 transition-all',
+                    'bg-default whitespace-nowrap text-primary-inverse rounded p-2 font-semibold opacity-75 hover:opacity-100 transition-all',
                     !shiftPressed ? 'pointer-events-auto' : 'pointer-events-none'
                 )}
             >

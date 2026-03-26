@@ -264,6 +264,43 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_recording_comments_scoped_to_current_project(self) -> None:
+        recording_id = "rec_123"
+        notebook_content = {
+            "content": [
+                {"type": "ph-recording", "attrs": {"id": recording_id}},
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "attrs": {
+                                "sessionRecordingId": recording_id,
+                                "playbackTime": 42,
+                            }
+                        },
+                        {"text": "a]comment"},
+                    ],
+                },
+            ]
+        }
+
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        Notebook.objects.create(
+            team=another_team,
+            title="Another notebook",
+            content=notebook_content,
+            text_content=f"recording:{recording_id}",
+            created_by=User.objects.create_and_join(another_org, "other@example.com", password=""),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/recording_comments",
+            data={"recording_id": recording_id},
+        )
+        assert response.status_code == 200
+        assert response.json()["results"] == []
+
     def test_responds_not_modified_if_versions_match(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
@@ -295,3 +332,38 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         fs_entry = FileSystem.objects.filter(team=self.team, ref=notebook_short_id, type="notebook").first()
         assert fs_entry is not None
         assert "Notebooks/Special Team Folder" in fs_entry.path
+
+    def test_create_notebook_with_custom_short_id(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "From Artifact", "short_id": "abcd"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["short_id"] == "abcd"
+
+        notebook = Notebook.objects.get(team=self.team, short_id="abcd")
+        assert notebook.title == "From Artifact"
+
+    def test_create_notebook_without_short_id_auto_generates(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Auto ID"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert len(response.json()["short_id"]) > 0
+
+    @parameterized.expand(
+        [
+            ("too long", "a" * 13),
+            ("non alphanumeric", "ab-cd!"),
+        ]
+    )
+    def test_create_notebook_rejects_invalid_short_id(self, _name, bad_id):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Bad ID", "short_id": bad_id},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -1,7 +1,7 @@
 {
     "id": 785,
     "short_id": "iw14ZE4w",
-    "name": "",
+    "name": null,
     "derived_name": "Pageview count by event's Country Code",
     "filters": {},
     "filters_hash": "cache_a2e54e38b1b584783d494e4311ebe466",

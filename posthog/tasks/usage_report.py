@@ -40,8 +40,6 @@ from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionTy
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.surveys.survey import Survey
-from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
@@ -56,6 +54,8 @@ from products.data_warehouse.backend.models import (
     ExternalDataSchema,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from products.surveys.backend.models import Survey
+from products.surveys.backend.util import get_unique_survey_event_uuids_sql_subquery
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -150,6 +150,7 @@ class UsageReportCounters:
     event_explorer_api_duration_ms: int
 
     # Surveys
+    survey_count: int
     survey_responses_count_in_period: int
 
     # Data Warehouse
@@ -710,6 +711,7 @@ def get_teams_with_recording_count_in_period(
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -751,6 +753,7 @@ def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end:
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -788,6 +791,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
             AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'))
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -1290,7 +1294,12 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             status=BatchExportRun.Status.COMPLETED,
             batch_export__deleted=False,
         )
-        .exclude(batch_export__destination__type=BatchExportDestination.Destination.HTTP)
+        .exclude(
+            batch_export__destination__type__in=[
+                BatchExportDestination.Destination.HTTP,
+                BatchExportDestination.Destination.WORKFLOWS,
+            ]
+        )
         .values(team_id=F("batch_export__team_id"))
         .annotate(total=Sum("records_completed"))
     )
@@ -1501,6 +1510,7 @@ def get_teams_with_recording_bytes_in_period(
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -1713,6 +1723,24 @@ def capture_report(
             properties={"error": str(err)},
         )
 
+    # Update organization group properties so they can be used for email campaigns
+    try:
+        pha_client.group_identify(
+            group_type="organization",
+            group_key=organization_id,
+            properties={
+                "member_count": full_report_dict.get("organization_user_count", 0),
+                "project_count": full_report_dict.get("team_count", 0),
+                "dashboard_count": full_report_dict.get("dashboard_count", 0),
+                "ff_count": full_report_dict.get("ff_count", 0),
+                "survey_count": full_report_dict.get("survey_count", 0),
+            },
+        )
+    except Exception as err:
+        logger.exception(
+            f"Failed to update organization group properties for {organization_id}: {str(err)}",
+        )
+
     # There are some billing-related flags we wanna set in customer.io
     # and for that to work properly we need to make sure we include that
     # for every single person in the organization, otherwise we might end up
@@ -1873,6 +1901,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_ff_count": list(
             FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
+        "teams_with_survey_count": list(
+            Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
         "teams_with_ff_active_count": list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
@@ -2103,6 +2134,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_bytes_read=all_data["teams_with_event_explorer_api_bytes_read"].get(team.id, 0),
         event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
+        survey_count=all_data["teams_with_survey_count"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
         free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(

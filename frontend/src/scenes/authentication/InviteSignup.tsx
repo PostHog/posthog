@@ -9,8 +9,8 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
+import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -24,9 +24,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PrevalidatedInvite } from '~/types'
 
-import { SupportModalButton } from './SupportModalButton'
 import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 import { loginLogic } from './loginLogic'
+import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: InviteSignup,

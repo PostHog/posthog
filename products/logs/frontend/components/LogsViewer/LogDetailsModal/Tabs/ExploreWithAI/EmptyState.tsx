@@ -22,6 +22,7 @@ export function EmptyState({ onGenerate, dataProcessingAccepted, loading }: Empt
                     type="primary"
                     onClick={dataProcessingAccepted ? onGenerate : undefined}
                     loading={loading}
+                    sideIcon={null}
                     disabledReason={
                         !dataProcessingAccepted ? 'AI data processing must be approved to generate analysis' : undefined
                     }

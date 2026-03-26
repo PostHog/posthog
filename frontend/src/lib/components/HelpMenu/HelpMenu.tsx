@@ -11,36 +11,35 @@ import {
     IconGear,
     IconLive,
     IconOpenSidebar,
-    IconQuestion,
     IconServer,
     IconShieldLock,
     IconSparkles,
-    IconSupport,
 } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { sidePanelOfframpLogic } from '~/layout/navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
+import { SidePanelQuestionIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelQuestionIcon'
+import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
+
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
+import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { ThemeMenu } from '../Menus/ThemeMenu'
@@ -55,8 +54,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { user } = useValues(userLogic)
     const { isCloud, preflight } = useValues(preflightLogic)
-    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
 
@@ -82,7 +79,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                         data-attr="help-menu-button"
                     >
                         <span className="flex text-secondary group-hover:text-primary">
-                            <IconQuestion className="size-[17px]" />
+                            <SidePanelQuestionIcon className="size-[17px]" />
                         </span>
                         {!iconOnly && (
                             <>
@@ -139,7 +136,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     onClick={() => openSidePanel(SidePanelTab.Support)}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="help-menu-support-button">
-                                            <IconSupport />
+                                            <SidePanelSupportIcon />
                                             Support
                                             <IconOpenSidebar className="size-3" />
                                         </ButtonPrimitive>
@@ -294,21 +291,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             </Menu.Positioner>
                                         </Menu.Portal>
                                     </Menu.SubmenuRoot>
-                                )}
-
-                                {isRemovingSidePanelFlag && (
-                                    <Menu.Item
-                                        onClick={() => {
-                                            showOfframpModal()
-                                            setHelpMenuOpen(false)
-                                        }}
-                                        render={
-                                            <ButtonPrimitive menuItem>
-                                                <IconBlank />
-                                                Where's the panel? 🤔
-                                            </ButtonPrimitive>
-                                        }
-                                    />
                                 )}
 
                                 <Menu.SubmenuRoot>

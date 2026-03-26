@@ -7,16 +7,27 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * @nullable
+ */
+export type ErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
 export interface ErrorTrackingAssignmentRuleApi {
     readonly id: string
     filters: unknown
-    readonly assignee: string
+    /** @nullable */
+    readonly assignee: ErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key: number
     disabled_data?: unknown | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingAssignmentRuleListApi {
@@ -28,105 +39,60 @@ export interface PaginatedErrorTrackingAssignmentRuleListApi {
     results: ErrorTrackingAssignmentRuleApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
 export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly id?: string
     filters?: unknown
-    readonly assignee?: string
+    /** @nullable */
+    readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key?: number
     disabled_data?: unknown | null
-}
-
-/**
- * * `web` - Web
- */
-export type LibraryEnumApi = (typeof LibraryEnumApi)[keyof typeof LibraryEnumApi]
-
-export const LibraryEnumApi = {
-    web: 'web',
-} as const
-
-/**
- * * `all` - All
- * `any` - Any
- */
-export type MatchTypeEnumApi = (typeof MatchTypeEnumApi)[keyof typeof MatchTypeEnumApi]
-
-export const MatchTypeEnumApi = {
-    all: 'all',
-    any: 'any',
-} as const
-
-export interface ErrorTrackingAutoCaptureControlsApi {
-    readonly id: string
-    readonly library: LibraryEnumApi
-    match_type?: MatchTypeEnumApi
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
-}
-
-export interface PaginatedErrorTrackingAutoCaptureControlsListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingAutoCaptureControlsApi[]
-}
-
-export interface PatchedErrorTrackingAutoCaptureControlsApi {
-    readonly id?: string
-    readonly library?: LibraryEnumApi
-    match_type?: MatchTypeEnumApi
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
 
 export const IntegrationKindApi = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    'linkedin-ads': 'linkedin-ads',
-    snapchat: 'snapchat',
-    intercom: 'intercom',
-    email: 'email',
-    twilio: 'twilio',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    clickup: 'clickup',
-    'reddit-ads': 'reddit-ads',
-    databricks: 'databricks',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    vercel: 'vercel',
-    'azure-blob': 'azure-blob',
-    firebase: 'firebase',
-    jira: 'jira',
+    Slack: 'slack',
+    SlackPosthogCode: 'slack-posthog-code',
+    Salesforce: 'salesforce',
+    Hubspot: 'hubspot',
+    GooglePubsub: 'google-pubsub',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GoogleAds: 'google-ads',
+    GoogleSheets: 'google-sheets',
+    LinkedinAds: 'linkedin-ads',
+    Snapchat: 'snapchat',
+    Intercom: 'intercom',
+    Email: 'email',
+    Twilio: 'twilio',
+    Linear: 'linear',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    MetaAds: 'meta-ads',
+    Clickup: 'clickup',
+    RedditAds: 'reddit-ads',
+    Databricks: 'databricks',
+    TiktokAds: 'tiktok-ads',
+    BingAds: 'bing-ads',
+    Vercel: 'vercel',
+    AzureBlob: 'azure-blob',
+    Firebase: 'firebase',
+    Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -174,16 +140,38 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     results: ErrorTrackingFingerprintApi[]
 }
 
+/**
+ * @nullable
+ */
+export type ErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
+/**
+ * Issue linked to this rule
+ * @nullable
+ */
+export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+
 export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
     filters: unknown
-    readonly assignee: string
+    /** @nullable */
+    readonly assignee: ErrorTrackingGroupingRuleApiAssignee
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    readonly issue: ErrorTrackingGroupingRuleApiIssue
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key: number
     disabled_data?: unknown | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingGroupingRuleListApi {
@@ -195,16 +183,38 @@ export interface PaginatedErrorTrackingGroupingRuleListApi {
     results: ErrorTrackingGroupingRuleApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
+/**
+ * Issue linked to this rule
+ * @nullable
+ */
+export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+
 export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
     filters?: unknown
-    readonly assignee?: string
+    /** @nullable */
+    readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     order_key?: number
     disabled_data?: unknown | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 /**
@@ -218,17 +228,25 @@ export type ErrorTrackingIssueFullStatusEnumApi =
     (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
 export const ErrorTrackingIssueFullStatusEnumApi = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
 } as const
 
 export interface ErrorTrackingIssueAssignmentApi {
-    readonly id: string
+    readonly id: number | string | null
     readonly type: string
 }
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
 
 export interface ErrorTrackingIssueFullApi {
     readonly id: string
@@ -240,7 +258,8 @@ export interface ErrorTrackingIssueFullApi {
     first_seen: string
     assignee: ErrorTrackingIssueAssignmentApi
     external_issues: ErrorTrackingExternalReferenceApi[]
-    readonly cohort: string
+    /** @nullable */
+    readonly cohort: ErrorTrackingIssueFullApiCohort
 }
 
 export interface PaginatedErrorTrackingIssueFullListApi {
@@ -252,6 +271,14 @@ export interface PaginatedErrorTrackingIssueFullListApi {
     results: ErrorTrackingIssueFullApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
+
 export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
     status?: ErrorTrackingIssueFullStatusEnumApi
@@ -262,7 +289,8 @@ export interface PatchedErrorTrackingIssueFullApi {
     first_seen?: string
     assignee?: ErrorTrackingIssueAssignmentApi
     external_issues?: ErrorTrackingExternalReferenceApi[]
-    readonly cohort?: string
+    /** @nullable */
+    readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
 }
 
 export interface ErrorTrackingReleaseApi {
@@ -294,8 +322,34 @@ export interface PatchedErrorTrackingReleaseApi {
     project?: string
 }
 
+export interface ErrorTrackingSpikeEventIssueApi {
+    readonly id: string
+    /** @nullable */
+    readonly name: string | null
+    /** @nullable */
+    readonly description: string | null
+}
+
+export interface ErrorTrackingSpikeEventApi {
+    readonly id: string
+    readonly issue: ErrorTrackingSpikeEventIssueApi
+    readonly detected_at: string
+    readonly computed_baseline: number
+    readonly current_bucket_value: number
+}
+
+export interface PaginatedErrorTrackingSpikeEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSpikeEventApi[]
+}
+
 export interface ErrorTrackingStackFrameApi {
     readonly id: string
+    /** Raw frame ID in 'hash/part' format */
     readonly raw_id: string
     readonly created_at: string
     contents: unknown
@@ -322,6 +376,10 @@ export interface ErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key: number
+    disabled_data?: unknown | null
+    sampling_rate?: number
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
@@ -341,7 +399,17 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
+    disabled_data?: unknown | null
+    sampling_rate?: number
+    readonly created_at?: string
+    readonly updated_at?: string
 }
+
+/**
+ * Release associated with this symbol set
+ * @nullable
+ */
+export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface ErrorTrackingSymbolSetApi {
     readonly id: string
@@ -354,7 +422,11 @@ export interface ErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
-    readonly release: string
+    /**
+     * Release associated with this symbol set
+     * @nullable
+     */
+    readonly release: ErrorTrackingSymbolSetApiRelease
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
@@ -365,6 +437,12 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
     previous?: string | null
     results: ErrorTrackingSymbolSetApi[]
 }
+
+/**
+ * Release associated with this symbol set
+ * @nullable
+ */
+export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface PatchedErrorTrackingSymbolSetApi {
     readonly id?: string
@@ -377,21 +455,14 @@ export interface PatchedErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
-    readonly release?: string
+    /**
+     * Release associated with this symbol set
+     * @nullable
+     */
+    readonly release?: PatchedErrorTrackingSymbolSetApiRelease
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingAutocaptureControlsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -447,6 +518,17 @@ export type ErrorTrackingIssuesListParams = {
 }
 
 export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
      */

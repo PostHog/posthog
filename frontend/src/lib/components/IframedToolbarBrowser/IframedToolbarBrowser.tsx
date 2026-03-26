@@ -55,6 +55,7 @@ export function IframedToolbarBrowser({
             <LoadingOverlay />
             <iframe
                 ref={iframeRef}
+                title="Toolbar browser preview"
                 className="w-full h-full bg-white"
                 src={appEditorUrl(browserUrl + '/' + initialPath, {
                     userIntent: userIntent,

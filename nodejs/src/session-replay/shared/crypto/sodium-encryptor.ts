@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { KeyStore, RecordingEncryptor, SessionKey, SessionKeyDeletedError } from '../types'
+import { EncryptResult, KeyStore, RecordingEncryptor, SessionKey, SessionKeyDeletedError } from '../types'
 
 export class SodiumRecordingEncryptor implements RecordingEncryptor {
     constructor(private keyStore: KeyStore) {}
@@ -9,18 +9,18 @@ export class SodiumRecordingEncryptor implements RecordingEncryptor {
         await sodium.ready
     }
 
-    async encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer> {
+    async encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<EncryptResult> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         return this.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
     }
 
-    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer {
+    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): EncryptResult {
         if (sessionKey.sessionState === 'deleted') {
             throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt)
         }
 
         if (sessionKey.sessionState === 'cleartext') {
-            return blockData // Session is stored in cleartext, do not encrypt
+            return { data: blockData, sessionState: 'cleartext' }
         }
 
         // Generate a unique nonce for this block
@@ -30,6 +30,6 @@ export class SodiumRecordingEncryptor implements RecordingEncryptor {
         const cipherText = sodium.crypto_secretbox_easy(blockData, nonce, sessionKey.plaintextKey)
 
         // Prepend nonce to the ciphertext
-        return Buffer.concat([Buffer.from(nonce), Buffer.from(cipherText)])
+        return { data: Buffer.concat([Buffer.from(nonce), Buffer.from(cipherText)]), sessionState: 'ciphertext' }
     }
 }

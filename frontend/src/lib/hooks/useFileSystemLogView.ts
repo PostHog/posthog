@@ -1,6 +1,6 @@
-import { DependencyList, useEffect } from 'react'
+import { useEffect } from 'react'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 
 type FileSystemLogViewType =
     | 'experiment'
@@ -23,20 +23,16 @@ interface TrackFileSystemLogViewOptions {
     enabled?: boolean
 }
 
-export interface UseFileSystemLogViewOptions extends TrackFileSystemLogViewOptions {
-    deps: DependencyList
-}
-
 export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
-    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined) {
+    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined || !ApiConfig.hasCurrentTeamId()) {
         return
     }
 
     void api.fileSystemLogView.create({ type, ref: String(ref) })
 }
 
-export function useFileSystemLogView({ deps, ...options }: UseFileSystemLogViewOptions): void {
+export function useFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
     useEffect(() => {
-        trackFileSystemLogView(options)
-    }, deps)
+        trackFileSystemLogView({ type, ref, enabled })
+    }, [type, ref, enabled])
 }

@@ -31,7 +31,6 @@ impl From<&Arc<AppContext>> for GroupingStage {
 impl Stage for GroupingStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         GROUPING_STAGE

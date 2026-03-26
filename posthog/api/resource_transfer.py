@@ -168,7 +168,6 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             user=user,
             organization_id=self.organization_id,
             destination_team=destination_team,
-            source_team=source_team,
             was_impersonated=was_impersonated,
         )
 
@@ -178,7 +177,6 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             user=user,
             organization_id=self.organization_id,
             source_team=source_team,
-            destination_team=destination_team,
             was_impersonated=was_impersonated,
         )
 
@@ -251,9 +249,15 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _get_team_in_org(self, team_id: int) -> Team:
         try:
-            return Team.objects.get(id=team_id, organization_id=self.organization_id)
+            team = Team.objects.get(id=team_id, organization_id=self.organization_id)
         except Team.DoesNotExist:
             raise exceptions.ValidationError(f"Team {team_id} not found in this organization")
+
+        uac = UserAccessControl(user=cast(User, self.request.user), team=team)
+        if not uac.check_access_level_for_object(team, required_level="member"):
+            raise exceptions.PermissionDenied("You don't have access to this project.")
+
+        return team
 
     def _get_source_resource(self, resource_kind: str, resource_id: str, source_team: Team) -> Any:
         visitor = ResourceTransferVisitor.get_visitor(resource_kind)
@@ -320,7 +324,6 @@ def _log_destination_activity(
     user: User,
     organization_id: Any,
     destination_team: Team,
-    source_team: Team,
     was_impersonated: bool,
 ) -> None:
     from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -352,8 +355,6 @@ def _log_destination_activity(
                     Change(
                         type=visitor.kind,
                         action="created",
-                        field="source_team_id",
-                        after=source_team.pk,
                     )
                 ],
             ),
@@ -367,7 +368,6 @@ def _log_source_activity(
     user: User,
     organization_id: Any,
     source_team: Team,
-    destination_team: Team,
     was_impersonated: bool,
 ) -> None:
     visitor = ResourceTransferVisitor.get_visitor(resource_kind)
@@ -387,9 +387,7 @@ def _log_source_activity(
             changes=[
                 Change(
                     type=visitor.kind,
-                    action="changed",
-                    field="destination_team_id",
-                    after=destination_team.pk,
+                    action="copied",
                 )
             ],
         ),

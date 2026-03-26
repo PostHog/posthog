@@ -40,9 +40,13 @@ def create_clickhouse_tables():
     def missing(queries):
         return [q for q in queries if get_table_name(q) not in existing_tables]
 
-    table_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES)))
-    if table_queries:
-        run_clickhouse_statement_in_parallel(table_queries)
+    mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
+    if mergetree_queries:
+        run_clickhouse_statement_in_parallel(mergetree_queries)
+
+    distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
+    if distributed_queries:
+        run_clickhouse_statement_in_parallel(distributed_queries)
 
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
@@ -225,6 +229,16 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
     settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
 
+    # Update product database NAMEs to use test-prefixed names
+    from posthog.product_db_config import load_product_db_routes
+
+    for route in load_product_db_routes(settings.BASE_DIR):
+        test_product_db_name = test_db_name + f"_{route.database}"
+        for suffix in ("_db_writer", "_db_reader", "_db_direct"):
+            alias = f"{route.database}{suffix}"
+            if alias in settings.DATABASES:
+                settings.DATABASES[alias]["NAME"] = test_product_db_name
+
     # Drop Person-related tables from default database and all FK constraints
     # These tables will exist in the persons_db_writer database via sqlx migrations
     with django_db_blocker.unblock():
@@ -280,6 +294,8 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
     )
 
     if not django_db_keepdb:

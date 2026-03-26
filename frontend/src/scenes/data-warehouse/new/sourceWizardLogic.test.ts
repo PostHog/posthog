@@ -174,6 +174,20 @@ describe('sourceWizardLogic', () => {
             expect(res.prefix).toBeTruthy()
         })
 
+        it('requires name for direct mode', () => {
+            const res = getErrorsForFields([], { prefix: '   ', payload: {}, access_method: 'direct' })
+            expect(res.prefix).toEqual('Please enter a name for this direct query source.')
+        })
+
+        it('allows non-prefix characters for direct mode name', () => {
+            const res = getErrorsForFields([], {
+                prefix: 'prod us-east (readonly)',
+                payload: {},
+                access_method: 'direct',
+            })
+            expect(res.prefix).toBeUndefined()
+        })
+
         it('returns errors for an empty required text field', () => {
             const res = getErrorsForFields(
                 [
@@ -413,6 +427,23 @@ describe('sourceWizardLogic', () => {
                 { prefix: '', payload: { test_field: { enabled: true, option_field: '' } } }
             )
             expect(res.payload.test_field.option_field).toBeTruthy()
+        })
+
+        it('allows empty password in edit mode validation', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'password',
+                        label: 'Password',
+                        type: 'password',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+                { prefix: 'prod-db', payload: { password: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.password).toBeUndefined()
         })
     })
 })

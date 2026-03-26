@@ -13,6 +13,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
@@ -73,30 +74,35 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
-            workflow_info = workflow.info()
-            capture_kwargs = {
-                "properties": {
-                    "temporal.execution_type": "workflow",
-                    "module": input.run_fn.__module__ + "." + input.run_fn.__qualname__,
-                    "temporal.workflow.task_queue": workflow_info.task_queue,
-                    "temporal.workflow.namespace": workflow_info.namespace,
-                    "temporal.workflow.run_id": workflow_info.run_id,
-                    "temporal.workflow.type": workflow_info.workflow_type,
-                    "temporal.workflow.id": workflow_info.workflow_id,
+            try:
+                workflow_info = workflow.info()
+                capture_kwargs = {
+                    "properties": {
+                        "temporal.execution_type": "workflow",
+                        "module": input.run_fn.__module__ + "." + input.run_fn.__qualname__,
+                        "temporal.workflow.task_queue": workflow_info.task_queue,
+                        "temporal.workflow.namespace": workflow_info.namespace,
+                        "temporal.workflow.run_id": workflow_info.run_id,
+                        "temporal.workflow.type": workflow_info.workflow_type,
+                        "temporal.workflow.id": workflow_info.workflow_id,
+                    }
                 }
-            }
-            await _add_inputs_to_capture_kwargs(capture_kwargs, input)
-            if api_key and not workflow.unsafe.is_replaying():
-                with workflow.unsafe.sandbox_unrestricted():
-                    try:
-                        capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
-                    except Exception as capture_error:
-                        await logger.awarning("Failed to capture exception", exc_info=capture_error)
+                await _add_inputs_to_capture_kwargs(capture_kwargs, input)
+                if api_key and not workflow.unsafe.is_replaying():
+                    with workflow.unsafe.sandbox_unrestricted():
+                        try:
+                            capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
+                        except Exception as capture_error:
+                            await logger.awarning("Failed to capture exception", exc_info=capture_error)
+            except Exception:
+                pass
             raise
 
 
 class PostHogClientInterceptor(Interceptor):
     """PostHog Interceptor class which will report workflow & activity exceptions to PostHog"""
+
+    task_queue = ALL_TASK_QUEUES
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         """Implementation of

@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { PipelineResult, dlq, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'

@@ -23,6 +23,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
     from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -180,6 +181,7 @@ def execute_process_query(
     query_json: dict,
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -225,6 +227,7 @@ def execute_process_query(
             dashboard_id=query_status.dashboard_id,
             user=user,
             is_query_service=is_query_service,
+            analytics_props=analytics_props,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -278,6 +281,7 @@ def enqueue_process_query_task(
     _test_only_bypass_celery: bool = False,
     is_query_service: bool = False,
     is_posthog_ai: bool = False,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -296,16 +300,24 @@ def enqueue_process_query_task(
             existing_query_id = manager.get_running_query_by_cache_key(cache_key)
             if existing_query_id:
                 query_status = get_query_status(team.id, existing_query_id)
-                posthoganalytics.capture(
-                    "query duplicate found",
-                    distinct_id=user_id,
-                    properties={
-                        "cache_key": cache_key,
-                        "query_id": existing_query_id,
-                        "query_json": query_json,
-                    },
-                )
-                return query_status
+                if not query_status.complete:
+                    # Only deduplicate against a query that is still in progress
+                    posthoganalytics.capture(
+                        "query duplicate found",
+                        distinct_id=user_id,
+                        properties={
+                            "cache_key": cache_key,
+                            "query_id": existing_query_id,
+                            "query_json": query_json,
+                        },
+                    )
+                    return query_status
+                # The previous task finished (or failed) — clean up the stale mapping and enqueue a new one
+                manager.unregister_cache_key_mapping(cache_key)
+    except QueryNotFoundError:
+        # The status for the mapped query_id expired before we could check it — clean up and re-enqueue
+        if cache_key:
+            manager.unregister_cache_key_mapping(cache_key)
     except Exception as e:
         capture_exception(e, {"cache_key": cache_key})
 
@@ -328,7 +340,14 @@ def enqueue_process_query_task(
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, query_tags, is_query_service, limit_context
+        team.id,
+        user_id,
+        query_id,
+        query_json,
+        query_tags,
+        is_query_service,
+        limit_context,
+        analytics_props=analytics_props,
     )
 
     if _test_only_bypass_celery:

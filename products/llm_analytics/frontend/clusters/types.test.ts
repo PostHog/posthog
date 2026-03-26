@@ -1,4 +1,4 @@
-import { getLevelFromRunId, getTimestampBoundsFromRunId } from './types'
+import { getJobIdFromRunId, getLevelFromRunId, getTimestampBoundsFromRunId } from './types'
 
 describe('getLevelFromRunId', () => {
     it.each([
@@ -43,5 +43,37 @@ describe('getTimestampBoundsFromRunId', () => {
         // Should return some valid date range (last 7 days fallback)
         expect(result.dayStart).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
         expect(result.dayEnd).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+    })
+})
+
+describe('getJobIdFromRunId', () => {
+    it.each([
+        {
+            runId: '2_trace_20260122_000043_019cb7f3-a123-7bde-b699-6fa50502196c',
+            expected: '019cb7f3-a123-7bde-b699-6fa50502196c',
+            description: 'returns UUID job_id',
+        },
+        {
+            runId: '2_generation_20260305_114422_019cb7f3-a126-7809-bffc-7f13bffe1325',
+            expected: '019cb7f3-a126-7809-bffc-7f13bffe1325',
+            description: 'returns UUID job_id for generation level',
+        },
+        {
+            runId: '2_trace_20260122_000043_019cb7f3-a123-7bde-b699-6fa50502196c_experiment',
+            expected: '019cb7f3-a123-7bde-b699-6fa50502196c',
+            description: 'extracts UUID job_id even with trailing run_label',
+        },
+        {
+            runId: '2_trace_20260122_000043',
+            expected: null,
+            description: 'returns null when no job_id present',
+        },
+        {
+            runId: '2_trace_20260122_000043_baseline',
+            expected: null,
+            description: 'returns null for non-UUID suffix',
+        },
+    ])('returns $expected for $description', ({ runId, expected }) => {
+        expect(getJobIdFromRunId(runId)).toBe(expected)
     })
 })

@@ -26,12 +26,19 @@ class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
-    _is_first_sync: bool = False
+    _is_first_sync: bool
 
-    def __init__(self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger) -> None:
+    def __init__(
+        self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
+    ) -> None:
         self._resource_name = resource_name
         self._job = job
         self._logger = logger
+        self._is_first_sync = is_first_sync
+
+    @property
+    def is_first_sync(self) -> bool:
+        return self._is_first_sync
 
     def _get_credentials(self):
         if settings.USE_LOCAL_SETUP:

@@ -3,6 +3,9 @@ import { sideEffectResultCounter } from './metrics'
 
 export interface PromiseSchedulerInterface {
     schedule<T>(promise: Promise<T>): Promise<T>
+    schedule<T extends readonly [Promise<unknown>, Promise<unknown>, ...Promise<unknown>[]]>(
+        ...promises: T
+    ): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }>
 }
 
 export type SideEffectHandlingConfig = {

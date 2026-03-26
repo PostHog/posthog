@@ -3,12 +3,19 @@ import type { TicketAssignee } from './components/Assignee'
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
+export type TicketChannelDetail =
+    | 'slack_channel_message'
+    | 'slack_bot_mention'
+    | 'slack_emoji_reaction'
+    | 'widget_embedded'
+    | 'widget_api'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
-export type SidePanelViewState = 'list' | 'ticket' | 'new'
+export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
+export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 export interface UserBasic {
@@ -38,6 +45,7 @@ export interface Ticket {
     priority?: TicketPriority
     assignee?: TicketAssignee
     channel_source: TicketChannel
+    channel_detail?: TicketChannelDetail | null
     anonymous_traits: Record<string, any>
     ai_resolved: boolean
     escalation_reason?: string
@@ -54,7 +62,14 @@ export interface Ticket {
         current_url?: string
         [key: string]: any
     }
+    sla_due_at?: string | null
+    slack_channel_id?: string | null
+    slack_thread_ts?: string | null
+    slack_team_id?: string | null
+    email_subject?: string | null
+    email_from?: string | null
     person?: TicketPerson | null
+    tags?: string[]
 }
 
 export interface ConversationTicket {

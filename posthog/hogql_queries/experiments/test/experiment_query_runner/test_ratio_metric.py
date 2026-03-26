@@ -6,6 +6,8 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     EventsNode,
@@ -25,10 +27,20 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
+    snapshot_replace_all_numbers = True
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_basic_ratio_metric(self):
+    def test_basic_ratio_metric(self, name, use_precomputation):
         """Test basic ratio metric functionality with revenue per purchase event"""
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -54,7 +66,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -135,7 +147,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -164,10 +178,18 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_different_math_types(self):
+    def test_ratio_metric_different_math_types(self, name, use_precomputation):
         """Test ratio metric with different math types for numerator and denominator"""
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -195,7 +217,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, session_id: str, purchase_amounts: list[int]) -> list[dict]:
             events = [
@@ -249,7 +271,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -269,10 +293,18 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 2)  # 2 unique sessions
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_with_conversion_window(self):
+    def test_ratio_metric_with_conversion_window(self, name, use_precomputation):
         """Test ratio metric with conversion window"""
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -302,7 +334,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, within_window: bool) -> list[dict]:
             # Events within or outside conversion window
@@ -356,7 +388,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -376,10 +410,18 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 3)
         self.assertEqual(test_variant.denominator_sum, 3)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_zero_denominator(self):
+    def test_ratio_metric_zero_denominator(self, name, use_precomputation):
         """Test ratio metric behavior when denominator is zero"""
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -407,7 +449,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, include_special_event: bool = True) -> list[dict]:
             events = [
@@ -457,7 +499,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -477,10 +521,18 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 2)  # 2 special_events
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_same_event_different_properties(self):
+    def test_ratio_metric_same_event_different_properties(self, name, use_precomputation):
         """Test ratio metric using the same event with different math properties"""
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -509,7 +561,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, purchases: list[dict]) -> list[dict]:
             events = [
@@ -575,7 +627,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -595,10 +649,18 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 19)  # 5 + 6 + 8
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_action_and_event_sources(self):
+    def test_ratio_metric_action_and_event_sources(self, name, use_precomputation):
         """Test ratio metric with action source numerator and event source denominator"""
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -633,7 +695,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(
             variant: str, user_id: str, purchase_amount: int, pageview_count: int
@@ -694,7 +756,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -720,9 +784,17 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
-    @snapshot_clickhouse_queries
-    def test_ratio_metric_with_data_warehouse_sources(self):
+    @parameterized.expand(
+        [
+            ("direct", False),
+            # Skip precomputed for data warehouse - not yet supported
+            # ("precomputed", True),
+        ]
+    )
+    def test_ratio_metric_with_data_warehouse_sources(self, name, use_precomputation):
         """Test ratio metric with ExperimentDataWarehouseNode for both numerator and denominator"""
+        self._setup_precomputation_test(use_precomputation)
+
         from datetime import datetime
 
         table_name = self.create_data_warehouse_table_with_usage()
@@ -765,7 +837,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         # Populate exposure events - these users correspond to data warehouse records
         for variant, count in [("control", 7), ("test", 9)]:
@@ -785,7 +857,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         with freeze_time("2023-01-07"):
             result = query_runner.calculate()
 
@@ -949,15 +1023,23 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_with_parametric_aggregation(self):
+    def test_ratio_metric_with_parametric_aggregation(self, name, use_precomputation):
         """Test parametric aggregations in ratio metrics.
 
         This test demonstrates the bug where parametric aggregations like
         quantile(0.95)(properties.amount) fail in ratio metric numerators
         because the query builder loses the parameter.
         """
+        self._setup_precomputation_test(use_precomputation)
+
         from datetime import datetime
 
         feature_flag = self.create_feature_flag()
@@ -992,7 +1074,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         # Create test data
         for variant, user_count in [("control", 5), ("test", 5)]:
@@ -1030,7 +1112,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         # This should not raise an error
         # Without the fix, this will fail with "Function 'quantile' requires at least 1 parameter"
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Verify the query was executed successfully

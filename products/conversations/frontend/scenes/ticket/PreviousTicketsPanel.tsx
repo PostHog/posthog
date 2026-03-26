@@ -40,7 +40,7 @@ export function PreviousTicketsPanel({
                                     {previousTickets.map((ticket) => (
                                         <Link
                                             key={ticket.id}
-                                            to={urls.supportTicketDetail(ticket.id)}
+                                            to={urls.supportTicketDetail(ticket.ticket_number)}
                                             className="block p-2 mb-2 rounded border border-primary hover:bg-accent-3000 transition-colors hover:border-secondary"
                                         >
                                             <div className="flex items-center justify-between mb-1">

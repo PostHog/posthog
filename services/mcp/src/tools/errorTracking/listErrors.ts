@@ -1,13 +1,17 @@
 import type { z } from 'zod'
 
+import { ERROR_ISSUE_LIST_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { ErrorTrackingListSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ErrorTrackingListSchema
-
 type Params = z.infer<typeof schema>
+type Result = any & { _posthogUrl: string }
 
-export const listErrorsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const listErrorsHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { orderBy, dateFrom, dateTo, orderDirection, filterTestAccounts, status } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -29,13 +33,21 @@ export const listErrorsHandler: ToolBase<typeof schema>['handler'] = async (cont
         throw new Error(`Failed to list errors: ${errorsResult.error.message}`)
     }
 
-    return errorsResult.data.results
+    return {
+        results: errorsResult.data.results,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking`,
+    }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'list-errors',
     schema,
     handler: listErrorsHandler,
+    _meta: {
+        ui: {
+            resourceUri: ERROR_ISSUE_LIST_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

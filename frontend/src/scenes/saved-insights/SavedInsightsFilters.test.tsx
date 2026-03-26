@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
@@ -19,7 +20,7 @@ describe('SavedInsightsFilters Created by dropdown', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/organizations/@current/members/': {
+                '/api/organizations/:organization_id/members/': {
                     results: [
                         {
                             id: '1',

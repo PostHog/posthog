@@ -1,35 +1,36 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
-import { IconDocument, IconEllipsis, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
+import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { WarningHog } from 'lib/components/hedgehogs'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
-import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
+import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
 import { createPlaylist } from './playlist/playlistUtils'
+import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -43,38 +44,26 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-    const newPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
-        reportRecordingPlaylistCreated('new')
-    })
+    const [loading, setLoading] = useState(false)
+    const handleNewPlaylist = async (): Promise<void> => {
+        setLoading(true)
+        try {
+            await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
+            reportRecordingPlaylistCreated('new')
+        } finally {
+            setLoading(false)
+        }
+    }
 
     return (
         <div className="flex items-center gap-2">
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
                     <LiveRecordingsCount />
-                    {!isRemovingSidePanelFlag && (
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Playback from PostHog JSON file',
-                                    to: urls.replayFilePlayback(),
-                                },
-                                {
-                                    label: 'Kiosk mode',
-                                    to: urls.replayKiosk(),
-                                },
-                            ]}
-                            placement="bottom-end"
-                        >
-                            <LemonButton icon={<IconEllipsis />} size="small" />
-                        </LemonMenu>
-                    )}
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
-                                to={urls.replaySettings()}
+                                to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
                                 }}
@@ -108,9 +97,9 @@ function Header(): JSX.Element {
                     >
                         <LemonButton
                             type="primary"
-                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                            onClick={handleNewPlaylist}
                             data-attr="save-recordings-playlist-button"
-                            loading={newPlaylistHandler.loading}
+                            loading={loading}
                             size="small"
                             tooltip="New collection"
                         >
@@ -191,6 +180,7 @@ function Warnings(): JSX.Element {
 
 function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
+    const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `scene-${tabId}`,
@@ -207,7 +197,11 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <SessionRecordingsPlaylist {...playlistLogicProps} />
+                    {isRedesignEnabled ? (
+                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                    ) : (
+                        <SessionRecordingsPlaylist {...playlistLogicProps} />
+                    )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />

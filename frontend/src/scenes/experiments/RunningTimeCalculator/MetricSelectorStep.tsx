@@ -9,12 +9,12 @@ import {
     isExperimentMeanMetric,
 } from '~/queries/schema/schema-general'
 
-import { MetricTitle } from '../MetricsView/shared/MetricTitle'
 import { experimentLogic } from '../experimentLogic'
+import { MetricTitle } from '../MetricsView/shared/MetricTitle'
 import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
-import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
 type MetricOption = {
     metric: ExperimentMetric

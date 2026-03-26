@@ -56,6 +56,14 @@ impl SingleTopicConsumer {
                 &consumer_config.kafka_consumer_offset_reset,
             );
 
+        if !common_config.kafka_client_rack.is_empty() {
+            client_config.set("client.rack", &common_config.kafka_client_rack);
+        }
+
+        if !common_config.kafka_client_id.is_empty() {
+            client_config.set("client.id", &common_config.kafka_client_id);
+        }
+
         // IMPORTANT: this means *by default* all consumers are
         // responsible for storing their own offsets, regardless
         // of whether automatic offset commit is enabled or disabled!

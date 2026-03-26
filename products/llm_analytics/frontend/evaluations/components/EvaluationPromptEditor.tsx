@@ -9,7 +9,7 @@ export function EvaluationPromptEditor(): JSX.Element {
     const { evaluation } = useValues(llmEvaluationLogic)
     const { setEvaluationPrompt } = useActions(llmEvaluationLogic)
 
-    if (!evaluation) {
+    if (!evaluation || evaluation.evaluation_type !== 'llm_judge') {
         return <div>Loading...</div>
     }
 

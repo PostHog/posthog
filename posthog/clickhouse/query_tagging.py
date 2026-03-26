@@ -1,5 +1,8 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
+import os
+import sys
 import uuid
+import types
 import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
@@ -33,18 +36,27 @@ class Product(StrEnum):
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
+    WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
+
+    INTERNAL = "internal"  # for internal use only
 
 
 class Feature(StrEnum):
+    BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
-    QUERY = "query"
+    QUERY = "query"  # user-facing queries only
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
+    HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    PREAGGREGATION = "preaggregation"
+    DATA_DELETION = "data_deletion"
+    SCHEMA_INTROSPECTION = "schema_introspection"
+    USAGE_REPORT = "usage_report"
 
 
 class TemporalTags(BaseModel):
@@ -94,7 +106,7 @@ class QueryTags(BaseModel):
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
     id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
+    session_id: Optional[str] = None
 
     # temporalio tags
     temporal: Optional[TemporalTags] = None
@@ -108,6 +120,7 @@ class QueryTags(BaseModel):
 
     rate_limit_bypass: Optional[int] = None
     rate_limit_wait_ms: Optional[int] = None
+    kill_switch: Optional[str] = None
 
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
@@ -164,6 +177,7 @@ class QueryTags(BaseModel):
     person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
 
     timings: Optional[dict[str, float]] = None
+    execution_mode: Optional[str] = None
     trigger: Optional[str] = None
 
     # used by billing
@@ -172,6 +186,18 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     is_impersonated: Optional[bool] = None
+
+    # request source and MCP metadata
+    source: Optional[str] = None
+    mcp_user_agent: Optional[str] = None
+    mcp_client_name: Optional[str] = None
+    mcp_client_version: Optional[str] = None
+    mcp_protocol_version: Optional[str] = None
+    mcp_oauth_client_name: Optional[str] = None
+
+    # caller source location (set automatically in sync_execute via stack inspection)
+    source_file: Optional[str] = None
+    source_line: Optional[int] = None
 
     # constant query tags
     git_commit: Optional[str] = None
@@ -311,3 +337,51 @@ def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
     finally:
         if tags_copy:
             query_tags.set(tags_copy)
+
+
+# Stack inspection for source_file / source_line tagging
+_THIS_FILE = os.path.abspath(__file__)
+_PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(_THIS_FILE), os.pardir, os.pardir))
+_PROJECT_ROOT_PREFIX = _PROJECT_ROOT + os.sep
+
+# Files/directories in the query execution infrastructure to skip when walking the stack
+_SOURCE_SKIP_PREFIXES: tuple[str, ...] = (
+    os.path.join(_PROJECT_ROOT, "posthog", "clickhouse", "client") + os.sep,
+    _THIS_FILE,
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql", "query.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "utils.py"),
+)
+
+_MAX_CALLER_STACK_DEPTH = 30
+
+
+def get_caller_source() -> tuple[Optional[str], Optional[int]]:
+    """Walk the call stack to find the first caller outside of query execution infrastructure.
+
+    Returns (source_file, source_line) where source_file is relative to the project root,
+    or (None, None) if no suitable caller is found.
+    """
+    try:
+        frame: Optional[types.FrameType] = sys._getframe(1)
+
+        for _ in range(_MAX_CALLER_STACK_DEPTH):
+            if frame is None:
+                break
+
+            filename = frame.f_code.co_filename
+
+            # Only consider frames within the project
+            if not filename.startswith(_PROJECT_ROOT_PREFIX):
+                frame = frame.f_back
+                continue
+
+            # Skip query execution infrastructure
+            if any(filename.startswith(prefix) for prefix in _SOURCE_SKIP_PREFIXES):
+                frame = frame.f_back
+                continue
+
+            return filename[len(_PROJECT_ROOT_PREFIX) :], frame.f_lineno
+
+        return None, None
+    except Exception:
+        return None, None

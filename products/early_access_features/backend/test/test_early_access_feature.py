@@ -6,6 +6,7 @@ from unittest.mock import ANY, patch
 from django.core.cache import cache
 from django.test.client import Client
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import FeatureFlag, Person
@@ -17,7 +18,8 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 class TestEarlyAccessFeature(APIBaseTest):
     maxDiff = None
 
-    def test_can_create_early_access_feature(self):
+    def test_can_create_early_access_feature_in_concept_stage(self):
+        """CONCEPT stage allows opt-in but does NOT enable the feature flag (no super_groups)."""
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -37,12 +39,42 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
-        assert response_data["feature_flag"]["filters"].get("super_groups", None)
+        # CONCEPT stage should NOT have super_groups or feature_enrollment
+        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
 
-    def test_promote_to_beta(self):
+    def test_can_create_early_access_feature_in_alpha_stage(self):
+        """ALPHA stage (and later) enables the feature flag for opted-in users."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "alpha",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["stage"] == "alpha"
+        # ALPHA stage should have super_groups and feature_enrollment - flag is enabled for opted-in users
+        assert response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
+
+    @parameterized.expand(
+        [
+            (EarlyAccessFeature.Stage.ALPHA,),
+            (EarlyAccessFeature.Stage.BETA,),
+            (EarlyAccessFeature.Stage.GENERAL_AVAILABILITY,),
+        ]
+    )
+    def test_promote_concept_to_active_stage_adds_super_groups(self, target_stage):
+        """Promoting from CONCEPT to any active stage should add super_groups."""
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -55,21 +87,103 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
         feature_id = response_data["id"]
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
             data={
-                "stage": EarlyAccessFeature.Stage.BETA,
+                "stage": target_stage,
             },
             format="json",
         )
         response_data = response.json()
 
         assert response.status_code == status.HTTP_200_OK, response_data
-        assert response_data["stage"] == EarlyAccessFeature.Stage.BETA
+        assert response_data["stage"] == target_stage
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
+
+    @parameterized.expand(
+        [
+            (
+                "with_rollout_to_all",
+                True,
+                False,
+                [{"properties": [], "rollout_percentage": 100}],
+            ),
+            ("without_rollout_to_all", False, True, None),
+        ]
+    )
+    def test_promote_to_ga_rollout_to_all(self, _name, rollout_to_all, expect_super_groups, expected_groups):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Hick bondoogling", "description": "Test feature", "stage": "beta"},
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
+
+        feature_id = response_data["id"]
+
+        patch_data: dict = {"stage": EarlyAccessFeature.Stage.GENERAL_AVAILABILITY}
+        if rollout_to_all:
+            patch_data["rollout_to_all"] = True
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data=patch_data,
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY
+        if expect_super_groups:
+            assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+            assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
+        else:
+            assert not response_data["feature_flag"]["filters"].get("super_groups")
+            assert not response_data["feature_flag"]["filters"].get("feature_enrollment")
+            assert response_data["feature_flag"]["filters"]["groups"] == expected_groups
+
+    def test_demote_alpha_to_concept_removes_super_groups(self):
+        """Demoting from ALPHA back to CONCEPT should remove super_groups."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "alpha",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
+
+        feature_id = response_data["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={
+                "stage": EarlyAccessFeature.Stage.CONCEPT,
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.CONCEPT
+        # CONCEPT should not have super_groups or feature_enrollment
+        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
     def test_archive(self):
         response = self.client.post(
@@ -85,6 +199,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
 
@@ -100,6 +215,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == EarlyAccessFeature.Stage.ARCHIVED
         assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
     def test_update_doesnt_remove_super_condition(self):
         response = self.client.post(
@@ -115,6 +231,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
 
@@ -131,6 +248,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == EarlyAccessFeature.Stage.BETA
         assert response_data["description"] == "Something else!"
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
     def test_we_dont_delete_existing_flag_information_when_creating_early_access_feature(self):
         flag = FeatureFlag.objects.create(
@@ -188,6 +306,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                         "rollout_percentage": 100,
                     }
                 ],
+                "feature_enrollment": True,
             },
         )
 
@@ -248,6 +367,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
@@ -299,6 +419,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     }
                 ],
                 "super_groups": None,
+                "feature_enrollment": None,
             },
         )
 
@@ -626,7 +747,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert {} in payloads
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_creation_context_is_set_to_early_access_features(self, mock_capture):
+    def test_creation_context_is_set_to_early_access_features(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -638,7 +759,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
         response_data = response.json()
         ff_instance = FeatureFlag.objects.get(id=response_data["feature_flag"]["id"])
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             ANY,
             "feature flag created",
             {
@@ -652,8 +773,9 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "early_access_features",
-                "source": "web",
             },
+            team=ANY,
+            request=ANY,
         )
 
     @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")
@@ -746,14 +868,12 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -818,7 +938,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -865,7 +984,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -909,21 +1027,18 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature_flag3 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket3",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -978,7 +1093,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 401)
             self.assertEqual(
                 response.json()["detail"],
-                "Project API key invalid. You can find your project API key in PostHog project settings.",
+                "Project token invalid. You can find your project token in PostHog project settings.",
             )
 
     def test_early_access_features_errors_out_on_no_token(self):
@@ -989,7 +1104,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 401)
             self.assertEqual(
                 response.json()["detail"],
-                "API key not provided. You can find your project API key in PostHog project settings.",
+                "Project token not provided. You can find your project token in PostHog project settings.",
             )
 
     @snapshot_postgres_queries
@@ -1004,7 +1119,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         payload = {"customKey": "customValue", "nested": {"data": 123}}

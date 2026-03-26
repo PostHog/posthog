@@ -35,9 +35,9 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
         }
 
     def get_schemas(
-        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False
+        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -46,6 +46,10 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
             )
             for endpoint in ENDPOINTS
         ]
+        if names:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     @property
     def get_source_config(self) -> SourceConfig:

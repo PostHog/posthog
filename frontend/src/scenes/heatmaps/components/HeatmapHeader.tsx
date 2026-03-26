@@ -7,7 +7,7 @@ import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
 export function HeatmapHeader(): JSX.Element {
     const { dataUrl, displayUrl, isBrowserUrlAuthorized, screenshotError } = useValues(heatmapLogic)
-    const { setDataUrl } = useActions(heatmapLogic)
+    const { setDataUrl, regenerateScreenshot } = useActions(heatmapLogic)
 
     return (
         <>
@@ -35,7 +35,15 @@ export function HeatmapHeader(): JSX.Element {
                         {/* Screenshot display section */}
                         {screenshotError && (
                             <div className="mt-2">
-                                <LemonBanner type="error">{screenshotError}</LemonBanner>
+                                <LemonBanner
+                                    type="error"
+                                    action={{
+                                        children: 'Retry',
+                                        onClick: regenerateScreenshot,
+                                    }}
+                                >
+                                    {screenshotError}
+                                </LemonBanner>
                             </div>
                         )}
                     </div>

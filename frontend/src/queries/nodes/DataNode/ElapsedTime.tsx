@@ -185,7 +185,7 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
         useValues(dataNodeLogic)
     const [, setTick] = useState(0)
 
-    if ('query' in query && query.query === '') {
+    if (!query || ('query' in query && query.query === '')) {
         return null
     }
 

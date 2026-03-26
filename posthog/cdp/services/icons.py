@@ -49,7 +49,7 @@ class CDPIconsService:
 
         res = requests.get(
             f"https://img.logo.dev/{id}",
-            {
+            params={
                 "token": settings.LOGO_DEV_TOKEN,
             },
         )

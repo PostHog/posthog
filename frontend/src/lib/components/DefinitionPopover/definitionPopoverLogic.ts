@@ -1,14 +1,16 @@
 import equal from 'fast-deep-equal'
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
+import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -28,6 +30,7 @@ export enum DefinitionPopoverState {
 export interface DefinitionPopoverLogicProps {
     /* String type accounts for types with `TaxonomicFilterGroupType.GroupsPrefix` prefix */
     type: TaxonomicFilterGroupType | string
+    selectedItemMeta?: Record<string, any> | null
     /* Callback to update specific item in in-memory list */
     updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
     onCancel?: () => void
@@ -40,8 +43,13 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    actions(({ values }) => ({
-        setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
+    connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
+    actions(({ values, props }) => ({
+        setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({
+            item,
+            isDataWarehouse: values.isDataWarehouse,
+            selectedItemMeta: props.selectedItemMeta,
+        }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopoverState: (state: DefinitionPopoverState) => ({ state }),
         handleCancel: true,
@@ -66,16 +74,22 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         if (values.isAction) {
                             // Action Definitions
                             const _action = definition as ActionType
-                            definition = await api.update(`api/projects/@current/actions/${_action.id}`, _action)
+                            definition = await api.update(
+                                `api/projects/${values.currentProjectId}/actions/${_action.id}`,
+                                _action
+                            )
                             actionsModel.findMounted()?.actions.updateAction(definition as ActionType)
                         } else if (values.isEvent) {
                             // Event Definitions
                             const _event = definition as EventDefinition
-                            definition = await api.update(`api/projects/@current/event_definitions/${_event.id}`, {
-                                ..._event,
-                                owner: _event.owner?.id ?? null,
-                                verified: !!_event.verified,
-                            })
+                            definition = await api.update(
+                                `api/projects/${values.currentProjectId}/event_definitions/${_event.id}`,
+                                {
+                                    ..._event,
+                                    owner: _event.owner?.id ?? null,
+                                    verified: !!_event.verified,
+                                }
+                            )
                         } else if (
                             values.type === TaxonomicFilterGroupType.EventProperties ||
                             values.type === TaxonomicFilterGroupType.EventFeatureFlags
@@ -83,7 +97,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                             // Event Property Definitions
                             const _eventProperty = definition as PropertyDefinition
                             definition = await api.update(
-                                `api/projects/@current/property_definitions/${_eventProperty.id}`,
+                                `api/projects/${values.currentProjectId}/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
                             )
                             updatePropertyDefinitions({
@@ -92,7 +106,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
-                            definition = await api.update(`api/projects/@current/cohorts/${_cohort.id}`, _cohort)
+                            definition = await api.update(
+                                `api/projects/${values.currentProjectId}/cohorts/${_cohort.id}`,
+                                _cohort
+                            )
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
                     } catch (error: any) {
@@ -108,7 +125,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         state: [
             DefinitionPopoverState.View as DefinitionPopoverState,
             {
@@ -118,48 +135,12 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         localDefinition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
-                setDefinition: (_, { item, isDataWarehouse }) => {
+                setDefinition: (_, { item, isDataWarehouse, selectedItemMeta }) => {
                     if (isDataWarehouse && 'fields' in item) {
-                        // Pre-populate the data warehouse table settings for insights
-                        const warehouseItem = item as DataWarehouseTableForInsight
-
-                        if (!('id_field' in item)) {
-                            const idField = Object.values(warehouseItem.fields).find((n) => n.name === 'id')
-                            if (idField) {
-                                warehouseItem['id_field'] = idField.name
-                            }
-                        }
-
-                        if (!('distinct_id_field' in item)) {
-                            const distinctIdField =
-                                Object.values(warehouseItem.fields).find((n) => n.name === 'distinct_id') ??
-                                Object.values(warehouseItem.fields).find((n) => n.name === 'id')
-                            if (distinctIdField) {
-                                warehouseItem['distinct_id_field'] = distinctIdField.name
-                            }
-                        }
-
-                        if (!('timestamp_field' in item)) {
-                            const timestampKeys = [
-                                'created',
-                                'created_at',
-                                'createdAt',
-                                'updated',
-                                'updated_at',
-                                'updatedAt',
-                            ]
-                            const timestampNameField = Object.values(warehouseItem.fields).find((n) =>
-                                timestampKeys.includes(n.name)
-                            )
-                            const timestampTypeField = Object.values(warehouseItem.fields).find(
-                                (n) => n.type == 'datetime' || n.type == 'date'
-                            )
-                            if (timestampNameField || timestampTypeField) {
-                                warehouseItem['timestamp_field'] = timestampNameField?.name || timestampTypeField?.name
-                            }
-                        }
-
-                        return warehouseItem
+                        return getDataWarehouseItemWithFieldDefaults(
+                            item as DataWarehouseTableForInsight,
+                            selectedItemMeta
+                        )
                     }
 
                     return item
@@ -171,7 +152,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     }) as Partial<TaxonomicDefinitionTypes>,
             },
         ],
-    }),
+    })),
     selectors({
         type: [() => [(_, props) => props.type], (type) => type],
         hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],

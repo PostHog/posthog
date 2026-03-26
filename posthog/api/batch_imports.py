@@ -1,13 +1,13 @@
 import uuid
 import dataclasses
 from datetime import timedelta
-from enum import Enum
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -25,12 +25,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
-
-
-class BatchImportKafkaTopic(str, Enum):
-    MAIN = "main"
-    HISTORICAL = "historical"
-    OVERFLOW = "overflow"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -68,6 +62,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             validated_data["import_config"] = validated_data.pop("import_config")
         return BatchImport.objects.create(**validated_data)
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by_id:
             try:
@@ -163,11 +158,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
                 .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
             )
 
-        config_builder.to_kafka(
-            topic=BatchImportKafkaTopic.HISTORICAL,
-            send_rate=1000,
-            transaction_timeout_seconds=60,
-        )
+        config_builder.to_capture(send_rate=1000)
 
         batch_import.save()
         return batch_import
@@ -258,11 +249,7 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
                 .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
             )
 
-        config_builder.to_kafka(
-            topic=BatchImportKafkaTopic.HISTORICAL,
-            send_rate=1000,
-            transaction_timeout_seconds=60,
-        )
+        config_builder.to_capture(send_rate=1000)
 
         batch_import.save()
         return batch_import
@@ -383,11 +370,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
                 )
 
-            config_builder.to_kafka(
-                topic=BatchImportKafkaTopic.HISTORICAL,
-                send_rate=1000,
-                transaction_timeout_seconds=60,
-            )
+            config_builder.to_capture(send_rate=1000)
 
             batch_import.save()
             return batch_import

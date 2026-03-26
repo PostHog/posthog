@@ -7,16 +7,20 @@ import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { IconArchive, IconCheck, IconPlus, IconSearch } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
-    ListStorage,
+    DefinitionPopoverRenderer,
+    isSkeletonItem,
+    SkeletonItem,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -28,14 +32,17 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { isDefinitionStale } from 'lib/utils/definitions'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
@@ -95,6 +102,28 @@ const renderItemContents = ({
     eventNames: string[]
     isActive: boolean
 }): JSX.Element | string => {
+    if (hasRecentContext(item)) {
+        if (item._recentContext.propertyFilter) {
+            const label = formatPropertyLabel(item._recentContext.propertyFilter, {})
+            return (
+                <div className="taxonomic-list-row-contents min-w-0">
+                    <span className="truncate" title={label}>
+                        {label}
+                    </span>
+                </div>
+            )
+        }
+        const coreDef = getCoreFilterDefinition(item.name, itemGroup.type)
+        const label = coreDef?.label || item.name || ''
+        return (
+            <div className="taxonomic-list-row-contents min-w-0">
+                <span className="truncate" title={label}>
+                    {label}
+                </span>
+            </div>
+        )
+    }
+
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
         listGroupType === TaxonomicFilterGroupType.Events && 'id' in item && isDefinitionStale(item as EventDefinition)
@@ -140,7 +169,7 @@ const renderItemContents = ({
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : (
-        <div className="taxonomic-list-row-contents">
+        <div className="taxonomic-list-row-contents min-w-0">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
             ) : (
@@ -184,6 +213,12 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Metadata,
             TaxonomicFilterGroupType.SessionProperties,
             TaxonomicFilterGroupType.ErrorTrackingProperties,
+            TaxonomicFilterGroupType.PageviewUrls,
+            TaxonomicFilterGroupType.PageviewEvents,
+            TaxonomicFilterGroupType.Screens,
+            TaxonomicFilterGroupType.ScreenEvents,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.AutocaptureEvents,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
@@ -200,7 +235,7 @@ const canSelectItem = (
 }
 
 interface InfiniteListRowProps {
-    results: TaxonomicDefinitionTypes[]
+    results: (TaxonomicDefinitionTypes | SkeletonItem)[]
     taxonomicGroups: TaxonomicFilterGroup[]
     group: TaxonomicFilterGroup
     listGroupType: TaxonomicFilterGroupType
@@ -217,20 +252,47 @@ interface InfiniteListRowProps {
     expandedCount: number
     isExpandable: boolean
     isLoading: boolean
-    items: ListStorage
     showNonCapturedEventOption: boolean
     trimmedSearchQuery: string
     dataWarehousePopoverFields: DataWarehousePopoverField[] | undefined
     popupAnchorElement: HTMLDivElement | null
+    showSuggestedFiltersEmptyState: boolean
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
     setIndex: (index: number) => void
     expand: () => void
     selectItem: (
         group: TaxonomicFilterGroup,
         value: string | number | null,
-        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
-        originalQuery?: string
+        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true }
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
+}
+
+function InfiniteListSkeletonItem({
+    style,
+    listGroupType,
+    rowIndex,
+    groupName,
+}: {
+    style: CSSProperties
+    listGroupType: TaxonomicFilterGroupType
+    rowIndex: number
+    groupName: string
+}): JSX.Element {
+    return (
+        <div
+            className={clsx('taxonomic-list-row', 'skeleton-row')}
+            style={style}
+            data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
+        >
+            <div className="taxonomic-list-row-contents w-full">
+                <LemonSkeleton className="h-4 flex-1" />
+                <LemonTag size="small" type="highlight" className="ml-2 shrink-0">
+                    {groupName}
+                </LemonTag>
+            </div>
+        </div>
+    )
 }
 
 const InfiniteListRow = ({
@@ -253,11 +315,12 @@ const InfiniteListRow = ({
     expandedCount,
     isExpandable,
     isLoading,
-    items,
     showNonCapturedEventOption,
     trimmedSearchQuery,
     dataWarehousePopoverFields,
     popupAnchorElement,
+    showSuggestedFiltersEmptyState,
+    taxonomicGroupTypes,
     setIndex,
     expand,
     selectItem,
@@ -267,7 +330,29 @@ const InfiniteListRow = ({
     index: number
     style: CSSProperties
 } & InfiniteListRowProps): JSX.Element | null => {
+    if (showSuggestedFiltersEmptyState && rowIndex === results.length) {
+        return (
+            <div style={style} className="flex flex-col items-center justify-center gap-1 pt-2">
+                <IconSearch className="text-3xl text-tertiary" />
+                <span className="text-secondary text-center text-xs">Start searching and we'll suggest filters...</span>
+                <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+            </div>
+        )
+    }
+
     const item = results[rowIndex]
+
+    if (isSkeletonItem(item)) {
+        return (
+            <InfiniteListSkeletonItem
+                style={style}
+                listGroupType={listGroupType}
+                rowIndex={rowIndex}
+                groupName={item.groupName}
+            />
+        )
+    }
+
     const itemGroup = getItemGroup(item, taxonomicGroups, group)
     const itemValue = item ? itemGroup?.getValue?.(item) : null
 
@@ -281,12 +366,7 @@ const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
-            selectItem(
-                itemGroup,
-                trimmedSearchQuery,
-                { name: trimmedSearchQuery, isNonCaptured: true },
-                trimmedSearchQuery
-            )
+            selectItem(itemGroup, trimmedSearchQuery, { name: trimmedSearchQuery, isNonCaptured: true })
         }
 
         return (
@@ -338,15 +418,30 @@ const InfiniteListRow = ({
 
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
-        const isExactMatchItem =
-            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
+        const isCrossGroupItem = !!group.isLocalOnly && itemGroup.type !== listGroupType
+        const itemHasRecentContext = hasRecentContext(item)
+        const recentGroup = itemHasRecentContext
+            ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
+            : undefined
+
+        const { listGroupType: resolvedListGroupType, itemGroup: resolvedItemGroup } = resolveItemRendering({
+            item,
+            itemGroup,
+            listGroupType,
+            isCrossGroupItem,
+            recentGroup,
+            fallbackGroup: group,
+        })
 
         return (
             <div
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                role="button"
+                data-ph-capture-attribute-taxonomic-group={resolvedListGroupType}
+                data-ph-capture-attribute-taxonomic-group-name={resolvedItemGroup.name}
+                role="option"
+                aria-selected={isSelected}
                 aria-disabled={isDisabledItem}
                 onClick={(event) => {
                     if (isDisabledItem) {
@@ -356,25 +451,20 @@ const InfiniteListRow = ({
                     }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(
-                            itemGroup,
-                            itemValue ?? null,
-                            item,
-                            isExactMatchItem ? undefined : items.originalQuery
-                        )
+                        selectItem(itemGroup, itemValue ?? null, item)
                     )
                 }}
             >
                 {renderItemContents({
                     item,
-                    listGroupType: isExactMatchItem ? itemGroup.type : listGroupType,
-                    itemGroup,
+                    listGroupType: resolvedListGroupType,
+                    itemGroup: resolvedItemGroup,
                     eventNames,
                     isActive,
                 })}
-                {isExactMatchItem && (
+                {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
-                        {itemGroup.name}
+                        {itemHasRecentContext ? `${itemGroup.name} - recent` : itemGroup.name}
                     </LemonTag>
                 )}
             </div>
@@ -388,6 +478,8 @@ const InfiniteListRow = ({
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, 'expand-row')}
                 data-attr={`expand-list-${listGroupType}`}
+                role="button"
+                aria-label="Show more items"
                 onClick={expand}
             >
                 {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
@@ -417,19 +509,63 @@ const InfiniteListRow = ({
     )
 }
 
-export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
+function InfiniteListEmptyState(): JSX.Element {
+    const { searchQuery, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
+
+    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters } = useValues(infiniteListLogic)
+
+    const emptySearchQuery = searchQuery.trim().length === 0
+    const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
+    return (
+        <div className="no-infinite-results flex flex-col gap-y-1 items-center">
+            {suggestedFiltersBeforeSearching ? (
+                <>
+                    <IconSearch className="text-5xl text-tertiary" />
+                    <span className="text-secondary text-center">Start searching and we'll suggest filters...</span>
+                    <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                </>
+            ) : needsMoreSearchCharacters ? (
+                <>
+                    <IconSearch className="text-5xl text-tertiary" />
+                    <span className="text-secondary text-center">
+                        Search for{' '}
+                        {group?.searchDescription || group?.searchPlaceholder || group?.name?.toLowerCase() || 'items'}
+                    </span>
+                    <span className="text-center text-secondary italic">
+                        Type at least {minSearchQueryLength} characters to search
+                    </span>
+                </>
+            ) : (
+                <>
+                    <IconArchive className="text-5xl text-tertiary" />
+                    <span>
+                        {emptySearchQuery ? (
+                            'Start typing to find results'
+                        ) : (
+                            <>
+                                No results for "<strong>{searchQuery}</strong>"
+                            </>
+                        )}
+                    </span>
+                </>
+            )}
+        </div>
+    )
+}
+
+export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
         activeTab,
         searchQuery,
         eventNames,
-        allowNonCapturedEvents,
         groupType,
         value,
         taxonomicGroups,
+        taxonomicGroupTypes,
         selectedProperties,
+        selectedItemMeta,
         dataWarehousePopoverFields,
-        anyGroupLoading,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -445,40 +581,16 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         totalListCount,
         expandedCount,
         showPopover,
-        items,
-        hasRemoteDataSource,
+        showNonCapturedEventOption,
+        showEmptyState,
+        showLoadingState,
+        isSuggestedFilters,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const isActiveTab = listGroupType === activeTab
     const listRef = useListRef(null)
-
     const trimmedSearchQuery = searchQuery.trim()
-
-    // Show "Add non-captured event" option for CustomEvents group when searching
-    const showNonCapturedEventOption =
-        allowNonCapturedEvents &&
-        (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
-            listGroupType === TaxonomicFilterGroupType.Events) &&
-        trimmedSearchQuery.length > 0 &&
-        !isLoading &&
-        // Only show if no results found at all
-        results.length === 0
-
-    // Only show empty state if:
-    // 1. There are no results
-    // 2. We're not currently loading
-    // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
-    // 4. We're not showing the non-captured event option
-    const isSuggestedFilters = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
-    const showEmptyState =
-        totalListCount === 0 &&
-        !isLoading &&
-        !(isSuggestedFilters && anyGroupLoading) &&
-        (!!searchQuery || !hasRemoteDataSource) &&
-        !showNonCapturedEventOption
-    const showLoadingState =
-        (isLoading || (isSuggestedFilters && anyGroupLoading)) && (!results || results.length === 0)
 
     useEffect(() => {
         if (index >= 0 && listRef.current) {
@@ -487,34 +599,20 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     }, [index, listRef])
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
+    const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
+    const showSuggestedFiltersEmptyState = isSuggestedFilters && !trimmedSearchQuery && results.length > 0
 
     return (
-        <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
+        <div
+            className={cn(
+                'taxonomic-infinite-list',
+                showEmptyState && 'empty-infinite-list',
+                'h-full',
+                isSuggestedFilters && 'empty-infinite-list--start'
+            )}
+        >
             {showEmptyState ? (
-                <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    {isSuggestedFilters ? (
-                        <>
-                            <IconSearch className="text-5xl text-tertiary" />
-                            <span className="text-secondary text-center">
-                                Start searching and we'll suggest filters...
-                            </span>
-                            <span className="text-secondary text-center">Try pasting an email, URL, or hostname</span>
-                        </>
-                    ) : (
-                        <>
-                            <IconArchive className="text-5xl text-tertiary" />
-                            <span>
-                                {searchQuery ? (
-                                    <>
-                                        No results for "<strong>{searchQuery}</strong>"
-                                    </>
-                                ) : (
-                                    'No results'
-                                )}
-                            </span>
-                        </>
-                    )}
-                </div>
+                <InfiniteListEmptyState />
             ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">
                     <Spinner className="text-3xl" />
@@ -529,10 +627,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                                 rowCount={
                                     showNonCapturedEventOption
                                         ? 1
-                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
+                                          (showSuggestedFiltersEmptyState ? 1 : 0)
                                 }
                                 overscanCount={100}
-                                rowHeight={36}
+                                rowHeight={(i) => (showSuggestedFiltersEmptyState && i === results.length ? 80 : 36)}
                                 rowComponent={InfiniteListRow}
                                 rowProps={{
                                     results,
@@ -552,11 +651,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                                     expandedCount,
                                     isExpandable,
                                     isLoading,
-                                    items,
                                     showNonCapturedEventOption,
                                     trimmedSearchQuery,
                                     dataWarehousePopoverFields,
                                     popupAnchorElement,
+                                    showSuggestedFiltersEmptyState,
+                                    taxonomicGroupTypes,
                                     setIndex,
                                     expand,
                                     selectItem,
@@ -582,6 +682,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     logic={definitionPopoverLogic}
                     props={{
                         type: selectedItemGroup.type,
+                        selectedItemMeta,
                         updateRemoteItem,
                     }}
                 >
@@ -590,11 +691,111 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         item={selectedItem}
                         group={selectedItemGroup}
                         highlightedItemElement={highlightedItemElement}
+                        definitionPopoverRenderer={
+                            selectedItemIsRecent
+                                ? ({ item, group, defaultView }) => {
+                                      const recentRenderer = definitionPopoverRenderer
+                                          ? definitionPopoverRenderer({ item, group, defaultView })
+                                          : defaultView
+                                      let label: string
+                                      if (
+                                          hasRecentContext(selectedItem) &&
+                                          selectedItem._recentContext.propertyFilter
+                                      ) {
+                                          label = formatPropertyLabel(selectedItem._recentContext.propertyFilter, {})
+                                      } else {
+                                          const coreDef = getCoreFilterDefinition(
+                                              selectedItem.name,
+                                              selectedItemGroup?.type
+                                          )
+                                          label =
+                                              coreDef?.label ||
+                                              selectedItemGroup?.getName?.(selectedItem) ||
+                                              selectedItem.name ||
+                                              ''
+                                      }
+                                      return (
+                                          <>
+                                              <div className="p-3 pb-0">
+                                                  <div className="text-xs font-semibold text-secondary uppercase">
+                                                      Recent filter
+                                                  </div>
+                                                  <div className="text-sm mt-1">{label}</div>
+                                              </div>
+                                              <LemonDivider />
+                                              {recentRenderer}
+                                          </>
+                                      )
+                                  }
+                                : definitionPopoverRenderer
+                        }
                     />
                 </BindLogic>
             ) : null}
         </div>
     )
+}
+
+function SuggestedFiltersSearchHint({
+    taxonomicGroupTypes,
+}: {
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+}): JSX.Element | null {
+    const groupSet = new Set(taxonomicGroupTypes)
+    const hints: string[] = []
+    if (groupSet.has(TaxonomicFilterGroupType.EmailAddresses)) {
+        hints.push('an email')
+    }
+    if (groupSet.has(TaxonomicFilterGroupType.PageviewUrls) || groupSet.has(TaxonomicFilterGroupType.PageviewEvents)) {
+        hints.push('a URL')
+    }
+    if (groupSet.has(TaxonomicFilterGroupType.Screens) || groupSet.has(TaxonomicFilterGroupType.ScreenEvents)) {
+        hints.push('a screen name')
+    }
+    if (hints.length === 0) {
+        return null
+    }
+    const joined =
+        hints.length === 1
+            ? hints[0]
+            : hints.length === 2
+              ? `${hints[0]} or ${hints[1]}`
+              : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
+    return <span className="text-center text-secondary italic">Try searching for {joined}</span>
+}
+
+function resolveItemRendering({
+    item,
+    itemGroup,
+    listGroupType,
+    isCrossGroupItem,
+    recentGroup,
+    fallbackGroup,
+}: {
+    item: TaxonomicDefinitionTypes
+    itemGroup: TaxonomicFilterGroup
+    listGroupType: TaxonomicFilterGroupType
+    isCrossGroupItem: boolean
+    recentGroup: TaxonomicFilterGroup | undefined
+    fallbackGroup: TaxonomicFilterGroup
+}): { listGroupType: TaxonomicFilterGroupType; itemGroup: TaxonomicFilterGroup } {
+    const isRecentPropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
+
+    if (isRecentPropertyFilter) {
+        return {
+            listGroupType,
+            itemGroup: recentGroup ?? fallbackGroup,
+        }
+    }
+
+    if (isCrossGroupItem) {
+        return {
+            listGroupType: itemGroup.type,
+            itemGroup,
+        }
+    }
+
+    return { listGroupType, itemGroup }
 }
 
 export function getItemGroup(
@@ -604,7 +805,12 @@ export function getItemGroup(
 ): TaxonomicFilterGroup {
     let group = defaultGroup
 
-    if (item && 'group' in item) {
+    if (item && hasRecentContext(item)) {
+        const itemGroup = groups.find((g) => g.type === item._recentContext.sourceGroupType)
+        if (itemGroup) {
+            group = itemGroup
+        }
+    } else if (item && 'group' in item) {
         const itemGroup = groups.find((g) => item.group === g.type)
         if (itemGroup) {
             group = itemGroup

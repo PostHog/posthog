@@ -377,7 +377,7 @@ class TestSSLRequirement:
         assert _get_sslmode(require_ssl=False) == "prefer"
 
     def test_ssl_required_after_date_is_set(self):
-        assert SSL_REQUIRED_AFTER_DATE == dt.datetime(2025, 2, 17, tzinfo=dt.UTC)
+        assert SSL_REQUIRED_AFTER_DATE == dt.datetime(2026, 2, 18, tzinfo=dt.UTC)
 
     def test_ssl_required_error_message(self):
         error = SSLRequiredError("Test error message")

@@ -85,6 +85,18 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "openrouter/anthropic/claude-3.5-sonnet": {
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct": {
+        "litellm_provider": "fireworks_ai",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+    },
 }
 
 
@@ -101,6 +113,8 @@ def create_mock_settings() -> MagicMock:
     settings.openai_api_key = "sk-test"
     settings.anthropic_api_key = "sk-ant-test"
     settings.gemini_api_key = "gemini-test"
+    settings.openrouter_api_key = "or-test"
+    settings.fireworks_api_key = "fw-test"
     return settings
 
 
@@ -163,8 +177,8 @@ class TestListModelsForProductEndpoint:
         assert "gpt-4o" in model_ids
         assert "o1" in model_ids
 
-    def test_twig_filters_models_by_allowed_list(self, client: TestClient):
-        response = client.get("/twig/v1/models")
+    def test_posthog_code_filters_models_by_allowed_list(self, client: TestClient):
+        response = client.get("/posthog_code/v1/models")
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}
@@ -174,15 +188,46 @@ class TestListModelsForProductEndpoint:
         assert "o1" not in model_ids
         assert "claude-3-5-sonnet-20241022" not in model_ids
 
-    def test_array_alias_routes_to_twig(self, client: TestClient):
-        response = client.get("/array/v1/models")
+    @pytest.mark.parametrize("alias", ["twig", "array"])
+    def test_legacy_alias_routes_to_posthog_code(self, client: TestClient, alias: str):
+        response = client.get(f"/{alias}/v1/models")
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}
-        assert "claude-sonnet-4-5" in model_ids
-        assert "gpt-4o" not in model_ids
+        posthog_code_response = client.get("/posthog_code/v1/models")
+        posthog_code_model_ids = {m["id"] for m in posthog_code_response.json()["data"]}
+        assert model_ids == posthog_code_model_ids
 
     def test_returns_error_for_invalid_product(self, client: TestClient):
         response = client.get("/invalid_product/v1/models")
         assert response.status_code == 400
         assert "Invalid product" in response.json()["detail"]
+
+
+class TestResponsesModeModels:
+    @pytest.mark.parametrize(
+        "endpoint", ["/v1/models", "/posthog_code/v1/models", "/array/v1/models", "/twig/v1/models"]
+    )
+    def test_models_endpoint_includes_responses_mode_models(self, client: TestClient, endpoint: str):
+        cost_data_with_responses = dict(MOCK_COST_DATA)
+        cost_data_with_responses["gpt-5.3-codex"] = {
+            **cost_data_with_responses["gpt-5.3-codex"],
+            "mode": "responses",
+        }
+
+        def get_costs_with_responses(self: ModelCostService, model: str) -> ModelCost | None:
+            return cost_data_with_responses.get(model)
+
+        def get_all_models_with_responses(self: ModelCostService) -> dict[str, ModelCost]:
+            return cost_data_with_responses
+
+        ModelRegistryService.reset_instance()
+        ModelCostService.reset_instance()
+        with (
+            patch.object(ModelCostService, "get_costs", get_costs_with_responses),
+            patch.object(ModelCostService, "get_all_models", get_all_models_with_responses),
+        ):
+            response = client.get(endpoint)
+            assert response.status_code == 200
+            model_ids = {m["id"] for m in response.json()["data"]}
+            assert "gpt-5.3-codex" in model_ids

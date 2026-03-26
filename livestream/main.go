@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -57,6 +58,16 @@ func main() {
 
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper(config.SessionRecording.MaxLRUEntries, 0)
+	statsRedis, err := events.NewStatsInRedis(config.Redis)
+
+	if err != nil || statsRedis == nil {
+		log.Printf("WARNING: Redis connection failed, continuing without Redis: %v", err)
+	} else {
+		defer statsRedis.Close()
+		stats.RedisStore = statsRedis
+		sessionStats.RedisStore = statsRedis
+		log.Printf("Redis stats store enabled (address: %s:%s)", config.Redis.Address, config.Redis.Port)
+	}
 
 	phEventChan := make(chan events.PostHogEvent, 10000)
 	statsChan := make(chan events.CountEvent, 10000)
@@ -64,15 +75,35 @@ func main() {
 	subChan := make(chan events.Subscription, 10000)
 	unSubChan := make(chan events.Subscription, 10000)
 
-	go stats.KeepStats(statsChan)
-	go sessionStats.KeepStats(ctx, sessionStatsChan)
+	flushInterval := time.Duration(config.Redis.FlushIntervalMs) * time.Millisecond
+	go stats.KeepStats(statsChan, flushInterval)
+	go sessionStats.KeepStats(ctx, sessionStatsChan, flushInterval)
 
 	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
-	go consumer.Consume()
+
+	usePubSub := config.Redis.UsePubSub
+	if usePubSub {
+		cleanup, err := setupRedisPubSub(ctx, config.Redis, consumer, subChan, unSubChan)
+		if err != nil {
+			log.Printf("ERROR: Failed to set up Redis pub/sub, falling back to in-memory filter: %v", err)
+			usePubSub = false
+		} else {
+			defer cleanup()
+			log.Printf("Redis pub/sub event transport enabled (publish_workers=%d, publish_buffer_size=%d)",
+				config.Redis.PublishWorkers, config.Redis.PublishBufferSize)
+		}
+	}
+
+	go consumer.Consume(ctx)
+
+	if !usePubSub {
+		filter := events.NewFilter(subChan, unSubChan, phEventChan)
+		go filter.Run()
+	}
 
 	if config.Kafka.SessionRecordingEnabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
@@ -85,6 +116,17 @@ func main() {
 			go sessionConsumer.Consume(ctx)
 			log.Printf("Session recording consumer started for topic: %s (security_protocol: %s)",
 				config.Kafka.SessionRecordingTopic, config.Kafka.SessionRecordingSecurityProtocol)
+		}
+	}
+
+	if config.Kafka.NotificationEnabled && statsRedis != nil {
+		notifConsumer, err := events.NewNotificationKafkaConsumer(config.Kafka, statsRedis.Client())
+		if err != nil {
+			log.Printf("Failed to create notification Kafka consumer: %v", err)
+		} else {
+			defer notifConsumer.Close()
+			go notifConsumer.Consume(ctx)
+			log.Printf("Notification Kafka consumer enabled (topic: %s)", config.Kafka.NotificationTopic)
 		}
 	}
 
@@ -103,12 +145,12 @@ func main() {
 				metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
 				metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
 				metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
+				if consumer.Broker != nil {
+					metrics.RedisPublishQueue.Set(consumer.Broker.BufferRatio())
+				}
 			}
 		}
 	}()
-
-	filter := events.NewFilter(subChan, unSubChan, phEventChan)
-	go filter.Run()
 
 	// Echo instance
 	e := echo.New()
@@ -178,9 +220,13 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/stats", handlers.StatsHandler(stats, sessionStats))
+	e.GET("/stats", handlers.StatsHandler(stats, sessionStats, statsRedis))
 
-	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
+	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, unSubChan))
+
+	if statsRedis != nil {
+		e.GET("/notifications", handlers.NotificationsHandler(statsRedis.Client()))
+	}
 
 	if config.Debug {
 		e.GET("/served", handlers.ServedHandler(stats))
@@ -247,4 +293,34 @@ func main() {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
 	log.Println("HTTP server stopped")
+}
+
+func setupRedisPubSub(
+	ctx context.Context,
+	redisConfig configs.RedisConfig,
+	consumer *events.PostHogKafkaConsumer,
+	subChan, unSubChan chan events.Subscription,
+) (cleanup func(), err error) {
+	broker, err := events.NewRedisEventBroker(redisConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create Redis event broker: %w", err)
+	}
+
+	subscriberClient, err := events.NewRedisClient(redisConfig)
+	if err != nil {
+		broker.Close()
+		return nil, fmt.Errorf("create Redis subscriber client: %w", err)
+	}
+
+	tokenRouter := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
+
+	consumer.Broker = broker
+	go broker.Run(ctx)
+	go tokenRouter.Run(ctx)
+
+	cleanup = func() {
+		subscriberClient.Close()
+		broker.Close()
+	}
+	return cleanup, nil
 }

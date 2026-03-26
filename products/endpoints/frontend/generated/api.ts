@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EndpointLastExecutionTimesRequestApi,
     EndpointRequestApi,
@@ -106,6 +106,24 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
     return apiMutator<void>(getEndpointsDestroyUrl(projectId, name), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
+ */
+export const getEndpointsMaterializationPreviewRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_preview/`
+}
+
+export const endpointsMaterializationPreviewRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEndpointsMaterializationPreviewRetrieveUrl(projectId, name), {
+        ...options,
+        method: 'GET',
     })
 }
 

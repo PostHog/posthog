@@ -36,6 +36,7 @@ export interface SearchItem {
     tags?: string[]
     searchKeywords?: string[]
     record?: Record<string, unknown>
+    rank?: number | null // PostgreSQL full-text search rank (from unified search API)
 }
 
 export interface SearchCategory {
@@ -110,7 +111,10 @@ export const searchLogic = kea<searchLogicType>([
                         return null
                     }
 
-                    const response = await api.search.list({ q: trimmed })
+                    const response = await api.search.list({
+                        q: trimmed,
+                        include_counts: false,
+                    })
                     breakpoint()
 
                     return response
@@ -325,26 +329,41 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
-
-                // Add Activity manually
-                const activityHref = urls.activity(ActivityTab.ExploreEvents)
-                items.push({
-                    id: 'app-activity',
-                    name: 'Activity',
-                    displayName: 'Activity',
-                    category: 'apps',
-                    productCategory: null,
-                    href: activityHref,
-                    icon: <IconClock />,
-                    itemType: null,
-                    tags: undefined,
-                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
-                    record: {
-                        type: 'activity',
-                        iconType: undefined,
-                        iconColor: undefined,
+                items.push(
+                    {
+                        id: 'app-activity',
+                        name: 'Activity',
+                        displayName: 'Activity',
+                        category: 'apps',
+                        productCategory: null,
+                        href: urls.activity(ActivityTab.ExploreEvents),
+                        icon: <IconClock />,
+                        itemType: null,
+                        tags: undefined,
+                        lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
+                        record: {
+                            type: 'activity',
+                            iconType: undefined,
+                            iconColor: undefined,
+                        },
                     },
-                })
+                    {
+                        id: 'app-cohorts',
+                        name: 'Cohorts',
+                        displayName: 'Cohorts',
+                        category: 'apps',
+                        productCategory: null,
+                        href: urls.cohorts(),
+                        itemType: 'cohort',
+                        tags: undefined,
+                        lastViewedAt: sceneLogViewsByRef['Cohorts'] ?? null,
+                        record: {
+                            type: 'cohort',
+                            iconType: 'cohort',
+                            iconColor: undefined,
+                        },
+                    }
+                )
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
@@ -664,6 +683,11 @@ export const searchLogic = kea<searchLogicType>([
 
                 const categoryItems: Record<string, SearchItem[]> = {}
 
+                // Safely extract a string field from extra_fields — the API may return
+                // non-string values (objects, arrays) which would crash React if rendered.
+                const safeField = (field: unknown): string | undefined =>
+                    typeof field === 'string' ? field : undefined
+
                 for (const result of unifiedSearchResults.results) {
                     const category = result.type
                     if (!categoryItems[category]) {
@@ -675,51 +699,51 @@ export const searchLogic = kea<searchLogicType>([
 
                     switch (result.type) {
                         case 'insight':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/insights/${result.result_id}`
                             break
                         case 'dashboard':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/dashboard/${result.result_id}`
                             break
                         case 'feature_flag':
-                            name = (result.extra_fields.key as string) || result.result_id
+                            name = safeField(result.extra_fields.key) || result.result_id
                             href = `/feature_flags/${result.result_id}`
                             break
                         case 'experiment':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/experiments/${result.result_id}`
                             break
                         case 'early_access_feature':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/early_access_features/${result.result_id}`
                             break
                         case 'hog_flow':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/workflows/${result.result_id}/workflow`
                             break
                         case 'survey':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/surveys/${result.result_id}`
                             break
                         case 'notebook':
-                            name = (result.extra_fields.title as string) || result.result_id
+                            name = safeField(result.extra_fields.title) || result.result_id
                             href = `/notebooks/${result.result_id}`
                             break
                         case 'cohort':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/cohorts/${result.result_id}`
                             break
                         case 'action':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/data-management/actions/${result.result_id}`
                             break
                         case 'event_definition':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/data-management/events/${result.result_id}`
                             break
                         case 'property_definition':
-                            name = (result.extra_fields.name as string) || result.result_id
+                            name = safeField(result.extra_fields.name) || result.result_id
                             href = `/data-management/properties/${result.result_id}`
                             break
                     }
@@ -730,6 +754,7 @@ export const searchLogic = kea<searchLogicType>([
                         category,
                         href,
                         itemType: result.type,
+                        rank: result.rank,
                         record: {
                             type: result.type,
                             ...result.extra_fields,

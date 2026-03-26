@@ -26,6 +26,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
+    AnyDataWarehouseNode,
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
@@ -34,10 +35,15 @@ import {
     FunnelExclusionSteps,
     FunnelsFilter,
     FunnelsQuery,
+    GroupNode,
     InsightFilter,
+    InsightFilterProperty,
     InsightQueryNode,
+    LifecycleQuery,
     Node,
     NodeKind,
+    ProductAnalyticsInsightQueryNode,
+    RetentionQuery,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -46,6 +52,7 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    getAggregationGroupTypeIndex,
     getBreakdown,
     getCompareFilter,
     getDisplay,
@@ -64,11 +71,13 @@ import {
     getShowValuesOnSeries,
     getYAxisScaleType,
     isActionsNode,
+    isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
+    isLifecycleDataWarehouseNode,
     isLifecycleQuery,
     isNodeWithSource,
     isPathsQuery,
@@ -81,7 +90,14 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, SlowQueryPossibilities } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    FilterType,
+    InsightLogicProps,
+    LabelGroupType,
+    SlowQueryPossibilities,
+} from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -252,6 +268,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
+        aggregationGroupTypeIndex: [(s) => [s.querySource], (q) => (q ? getAggregationGroupTypeIndex(q) : null)],
+        labelGroupType: [
+            (s) => [s.aggregationGroupTypeIndex],
+            (aggregationGroupTypeIndex): LabelGroupType => aggregationGroupTypeIndex ?? 'people',
+        ],
         goalLines: [
             (s) => [s.querySource],
             (q) => (isTrendsQuery(q) || isFunnelsQuery(q) || isRetentionQuery(q) ? getGoalLines(q) : null),
@@ -335,7 +356,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isBreakdownSeries: [
             (s) => [s.breakdownFilter],
             (breakdownFilter): boolean => {
-                return !!breakdownFilter?.breakdown
+                return !!breakdownFilter?.breakdown || (breakdownFilter?.breakdowns?.length ?? 0) > 0
             },
         ],
 
@@ -360,13 +381,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasDataWarehouseSeries: [
-            (s) => [s.isTrends, s.isFunnels, s.series],
-            (isTrends, isFunnels, series): boolean => {
-                return (
-                    (isTrends || isFunnels) &&
-                    (series || []).length > 0 &&
-                    !!series?.some((node) => isDataWarehouseNode(node))
-                )
+            (s) => [s.series],
+            (series): boolean => (series || []).length > 0 && !!series?.some((node) => isAnyDataWarehouseNode(node)),
+        ],
+        hasOnlyDataWarehouseSeries: [
+            (s) => [s.series],
+            (series): boolean => {
+                return !!series && series.length > 0 && series.every((node) => isAnyDataWarehouseNode(node))
             },
         ],
 
@@ -391,7 +412,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return []
                 }
 
-                const dataWarehouseSeries = series!.filter(isDataWarehouseNode)
+                const dataWarehouseSeries = series!.filter(isAnyDataWarehouseNode)
                 const dataWarehouseTableNames = Array.from(new Set(dataWarehouseSeries.map((node) => node.table_name)))
                 return dataWarehouseTableNames.flatMap((tableName) =>
                     Object.values(dataWarehouseTablesMap[tableName]?.fields ?? {})
@@ -578,15 +599,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
-                if (query.source.kind === NodeKind.TrendsQuery) {
-                    // Disable filter test account when using a data warehouse series
-                    const hasWarehouseSeries = query.source.series?.some((node) => isDataWarehouseNode(node))
-                    const filterTestAccountsEnabled = query.source.filterTestAccounts ?? false
-                    if (hasWarehouseSeries && filterTestAccountsEnabled) {
-                        query.source.filterTestAccounts = false
-                    }
-                }
-
                 if (props.setQuery) {
                     props.setQuery(query)
                 }
@@ -625,10 +637,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             // Reset selectedInterval for retention insights when date range changes
             if (values.isRetention && !isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 const filterProperty = filterKeyForQuery(values.localQuerySource)
-                updates[filterProperty as keyof QuerySourceUpdate] = {
-                    ...values.localQuerySource[filterProperty],
-                    selectedInterval: null,
-                }
+                Object.assign(updates, {
+                    [filterProperty]: { ...filterForQuery(values.localQuerySource), selectedInterval: null },
+                })
             }
 
             actions.updateQuerySource(updates)
@@ -662,7 +673,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
-                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
+                [filterProperty]: { ...filterForQuery(values.localQuerySource), ...insightFilter },
             })
         },
 
@@ -733,7 +744,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 ])
 
 const getActiveUsersMath = (
-    series: TrendsQuery['series'] | null | undefined
+    series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] | null | undefined
 ): BaseMathType.WeeklyActiveUsers | BaseMathType.MonthlyActiveUsers | null => {
     for (const seriesItem of series || []) {
         if (seriesItem.math === BaseMathType.WeeklyActiveUsers) {
@@ -758,8 +769,10 @@ const handleQuerySourceUpdateSideEffects = (
     const maybeChangedSeries = (update as TrendsQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
     const kind = (update as Partial<InsightQueryNode>).kind || currentState.kind
-    const insightFilter = currentState[nodeKindToFilterProperty[currentState.kind]] as Partial<InsightFilter>
-    const maybeChangedInsightFilter = update[nodeKindToFilterProperty[kind]] as Partial<InsightFilter>
+    const insightFilter = filterForQuery(currentState as ProductAnalyticsInsightQueryNode) as Partial<InsightFilter>
+    const maybeChangedInsightFilter = (update as Record<string, InsightFilter | undefined>)[
+        (nodeKindToFilterProperty as Record<string, InsightFilterProperty>)[kind]
+    ] as Partial<InsightFilter>
 
     const interval = (currentState as TrendsQuery).interval
 
@@ -806,6 +819,25 @@ const handleQuerySourceUpdateSideEffects = (
             ...(insightFilter as FunnelsFilter),
             ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
         }
+    }
+
+    if (
+        maybeChangedSeries &&
+        isLifecycleQuery(currentState) &&
+        currentState.customAggregationTarget &&
+        !maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
+    ) {
+        ;(mergedUpdate as LifecycleQuery).customAggregationTarget = undefined
+    }
+
+    if (
+        maybeChangedSeries &&
+        isLifecycleQuery(currentState) &&
+        maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
+    ) {
+        ;(mergedUpdate as LifecycleQuery).properties = undefined
+        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = undefined
+        ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
     }
 
     /*
@@ -865,7 +897,7 @@ const handleQuerySourceUpdateSideEffects = (
     ) {
         const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0]?.math
 
-        mergedUpdate['breakdownFilter'] = {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = {
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }
@@ -878,18 +910,29 @@ const handleQuerySourceUpdateSideEffects = (
         (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
         (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
     ) {
-        mergedUpdate['breakdownFilter'] = null
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
         mergedUpdate['properties'] = []
     }
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
-        mergedUpdate['breakdownFilter'] = null
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
     // Remove breakdown filter if display type is Heatmap because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
-        mergedUpdate['breakdownFilter'] = null
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+    }
+
+    // Remove formulas for box plot (formulas don't apply to statistical distributions)
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoxPlot) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+        ;(mergedUpdate as TrendsQuery).trendsFilter = {
+            ...(mergedUpdate as TrendsQuery).trendsFilter,
+            formula: undefined,
+            formulas: undefined,
+            formulaNodes: [],
+        }
     }
 
     // Don't allow minutes on anything other than Trends
@@ -934,6 +977,16 @@ const handleQuerySourceUpdateSideEffects = (
                 ...(currentState as TrendsQuery).trendsFilter,
                 smoothingIntervals: undefined,
             }
+        }
+    }
+
+    /*
+     * Retention side effects
+     */
+    if (kind === NodeKind.RetentionQuery) {
+        const retentionFilter = (mergedUpdate as RetentionQuery).retentionFilter
+        if (retentionFilter?.timeWindowMode === '24_hour_windows') {
+            retentionFilter.cumulative = false
         }
     }
 

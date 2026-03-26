@@ -129,4 +129,15 @@ export const TrendsTableBreakdownEdit: Story = createInsightStory(
 TrendsTableBreakdownEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' },
 }
+export const TrendsValueEditViewports: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
+    'edit'
+)
+TrendsValueEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-bar-value-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+
 /* eslint-enable @typescript-eslint/no-var-requires */

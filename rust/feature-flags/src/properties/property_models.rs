@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in posthog/api/feature_flag.py
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -7,6 +8,8 @@ pub enum OperatorType {
     IsNot,
     Icontains,
     NotIcontains,
+    IcontainsMulti,
+    NotIcontainsMulti,
     Regex,
     NotRegex,
     Gt,
@@ -46,6 +49,26 @@ pub enum PropertyType {
     Flag,
 }
 
+/// Pre-compiled regex state for Regex/NotRegex operators.
+/// Populated by `prepare_regex()` at flag-load time.
+/// Clone is cheap: fancy_regex::Regex uses Arc<Prog> internally.
+#[derive(Clone)]
+pub enum CompiledRegex {
+    /// Pattern compiled successfully — use this for matching.
+    Compiled(fancy_regex::Regex),
+    /// Pattern failed to compile — always returns Ok(false), no re-compilation needed.
+    InvalidPattern,
+}
+
+impl std::fmt::Debug for CompiledRegex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Compiled(re) => write!(f, "CompiledRegex(/{}/)", re.as_str()),
+            Self::InvalidPattern => write!(f, "CompiledRegex(invalid)"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
@@ -56,4 +79,10 @@ pub struct PropertyFilter {
     pub prop_type: PropertyType,
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
+    /// Pre-compiled regex for Regex/NotRegex operators.
+    /// `None` means `prepare_regex()` was not called (fallback to on-the-fly compilation).
+    /// `Some(Compiled(_))` holds the pre-compiled regex.
+    /// `Some(InvalidPattern)` means the pattern failed to compile — returns false immediately.
+    #[serde(skip)]
+    pub compiled_regex: Option<CompiledRegex>,
 }

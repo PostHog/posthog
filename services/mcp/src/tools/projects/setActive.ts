@@ -7,7 +7,12 @@ const schema = ProjectSetActiveSchema
 
 type Params = z.infer<typeof schema>
 
-export const setActiveHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { content: Array<{ type: string; text: string }> }
+
+export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { projectId } = params
 
     await context.cache.set('projectId', projectId.toString())
@@ -17,7 +22,7 @@ export const setActiveHandler: ToolBase<typeof schema>['handler'] = async (conte
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'switch-project',
     schema,
     handler: setActiveHandler,

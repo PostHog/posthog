@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -106,6 +106,63 @@ export interface PatchedExperimentHoldoutApi {
 }
 
 /**
+ * Mixin for serializers to add user access control fields
+ */
+export interface ExperimentSavedMetricApi {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    query: unknown
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface PaginatedExperimentSavedMetricListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExperimentSavedMetricApi[]
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedExperimentSavedMetricApi {
+    readonly id?: number
+    /** @maxLength 400 */
+    name?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    query?: unknown
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    readonly updated_at?: string
+    tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+/**
  * * `server` - Server
  * `client` - Client
  * `all` - All
@@ -113,9 +170,9 @@ export interface PatchedExperimentHoldoutApi {
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
 export const EvaluationRuntimeEnumApi = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
 } as const
 
 /**
@@ -125,8 +182,8 @@ export const EvaluationRuntimeEnumApi = {
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
 export const BucketingIdentifierEnumApi = {
-    distinct_id: 'distinct_id',
-    device_id: 'device_id',
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
 } as const
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
@@ -161,7 +218,7 @@ export interface MinimalFeatureFlagApi {
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    readonly evaluation_tags: readonly string[]
+    readonly evaluation_contexts: readonly string[]
 }
 
 export interface ExperimentToSavedMetricApi {
@@ -181,8 +238,8 @@ export interface ExperimentToSavedMetricApi {
 export type ExperimentTypeEnumApi = (typeof ExperimentTypeEnumApi)[keyof typeof ExperimentTypeEnumApi]
 
 export const ExperimentTypeEnumApi = {
-    web: 'web',
-    product: 'product',
+    Web: 'web',
+    Product: 'product',
 } as const
 
 /**
@@ -192,14 +249,27 @@ export const ExperimentTypeEnumApi = {
  * `stopped_early` - Stopped Early
  * `invalid` - Invalid
  */
-export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
+export type ExperimentConclusionEnumApi = (typeof ExperimentConclusionEnumApi)[keyof typeof ExperimentConclusionEnumApi]
 
-export const ConclusionEnumApi = {
-    won: 'won',
-    lost: 'lost',
-    inconclusive: 'inconclusive',
-    stopped_early: 'stopped_early',
-    invalid: 'invalid',
+export const ExperimentConclusionEnumApi = {
+    Won: 'won',
+    Lost: 'lost',
+    Inconclusive: 'inconclusive',
+    StoppedEarly: 'stopped_early',
+    Invalid: 'invalid',
+} as const
+
+/**
+ * * `draft` - Draft
+ * `running` - Running
+ * `stopped` - Stopped
+ */
+export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
+
+export const ExperimentStatusEnumApi = {
+    Draft: 'draft',
+    Running: 'running',
+    Stopped: 'stopped',
 } as const
 
 /**
@@ -244,12 +314,13 @@ export interface ExperimentApi {
     stats_config?: unknown | null
     scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
+    conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -308,12 +379,13 @@ export interface PatchedExperimentApi {
     stats_config?: unknown | null
     scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
+    conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -321,7 +393,52 @@ export interface PatchedExperimentApi {
     readonly user_access_level?: string | null
 }
 
+/**
+ * * `won` - won
+ * `lost` - lost
+ * `inconclusive` - inconclusive
+ * `stopped_early` - stopped_early
+ * `invalid` - invalid
+ */
+export type EndExperimentConclusionEnumApi =
+    (typeof EndExperimentConclusionEnumApi)[keyof typeof EndExperimentConclusionEnumApi]
+
+export const EndExperimentConclusionEnumApi = {
+    Won: 'won',
+    Lost: 'lost',
+    Inconclusive: 'inconclusive',
+    StoppedEarly: 'stopped_early',
+    Invalid: 'invalid',
+} as const
+
+export interface EndExperimentApi {
+    /** The conclusion of the experiment.
+
+* `won` - won
+* `lost` - lost
+* `inconclusive` - inconclusive
+* `stopped_early` - stopped_early
+* `invalid` - invalid */
+    conclusion?: EndExperimentConclusionEnumApi | NullEnumApi | null
+    /**
+     * Optional comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
+}
+
 export type ExperimentHoldoutsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ExperimentSavedMetricsListParams = {
     /**
      * Number of results to return per page.
      */

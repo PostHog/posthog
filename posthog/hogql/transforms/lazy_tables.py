@@ -681,7 +681,7 @@ class LazyTableResolver(TraversingVisitor):
                 field_or_property.table_type = table_type
             elif isinstance(field_or_property, ast.PropertyType):
                 field_or_property.field_type.table_type = table_type
-                field_or_property.joined_subquery = table_type
+                field_or_property.joined_subquery = cast(ast.SelectQueryAliasType, table_type)
 
         self.field_collectors.pop()
 

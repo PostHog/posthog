@@ -36,23 +36,15 @@ message GetHashKeyOverrideContextResponse {
   repeated HashKeyOverrideContext results = 1;
 }
 
-// HashKeyOverrideInput represents a single override to upsert.
-// The hash_key is specified at the request level since all overrides
-// in a batch share the same hash key (for experience continuity).
-message HashKeyOverrideInput {
-  int64 person_id = 1;
-  string feature_flag_key = 2;
-}
-
-// UpsertHashKeyOverridesRequest batch upserts hash key overrides.
-// All overrides in a batch share the same hash_key, which is used for
-// experience continuity - ensuring consistent flag values when a user
-// logs in with a new distinct_id.
+// UpsertHashKeyOverridesRequest resolves distinct_ids to person_ids server-side
+// and creates hash key overrides for all matching persons crossed with all
+// feature_flag_keys. This ensures experience continuity works even when
+// distinct_ids haven't been merged yet.
 message UpsertHashKeyOverridesRequest {
   int64 team_id = 1;
-  repeated HashKeyOverrideInput overrides = 2;
-  // The hash key to use for all overrides (typically the $anon_distinct_id)
+  repeated string distinct_ids = 2;
   string hash_key = 3;
+  repeated string feature_flag_keys = 4;
 }
 
 message UpsertHashKeyOverridesResponse {

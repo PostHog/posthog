@@ -31,6 +31,8 @@ export interface SessionKey {
     sessionState: SessionState
     /** Unix timestamp (seconds) when the key was deleted, if sessionState is 'deleted' */
     deletedAt?: number
+    /** Identity (email) of who deleted this key, if sessionState is 'deleted' */
+    deletedBy?: string
 }
 
 /**
@@ -42,6 +44,7 @@ export interface SerializedSessionKey {
     encryptedKey: string
     sessionState: SessionState
     deletedAt?: number
+    deletedBy?: string
 }
 
 /**
@@ -49,8 +52,8 @@ export interface SerializedSessionKey {
  * Implementations include DynamoDB (cloud) and cleartext (self-hosted).
  */
 export type DeleteKeyResult =
-    | { deleted: true; deletedAt: number }
-    | { deleted: false; reason: 'already_deleted'; deletedAt: number }
+    | { status: 'deleted'; deletedAt: number; deletedBy: string }
+    | { status: 'already_deleted'; deletedAt: number; deletedBy: string }
 
 export interface KeyStore {
     start(): Promise<void>
@@ -59,7 +62,7 @@ export interface KeyStore {
     /** Retrieve the encryption key for a session */
     getKey(sessionId: string, teamId: number): Promise<SessionKey>
     /** Delete a session's key (crypto-shredding) */
-    deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult>
+    deleteKey(sessionId: string, teamId: number, deletedBy: string): Promise<DeleteKeyResult>
     stop(): void
 }
 
@@ -70,9 +73,9 @@ export interface KeyStore {
 export interface RecordingEncryptor {
     start(): Promise<void>
     /** Encrypt a block, fetching the session key automatically */
-    encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<EncryptResult>
     /** Encrypt a block with a pre-fetched session key */
-    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
+    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): EncryptResult
 }
 
 /**
@@ -82,21 +85,33 @@ export interface RecordingEncryptor {
 export interface RecordingDecryptor {
     start(): Promise<void>
     /** Decrypt a block, fetching the session key automatically */
-    decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<DecryptResult>
     /** Decrypt a block with a pre-fetched session key */
-    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
+    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): DecryptResult
 }
 
 /**
  * Error thrown when attempting to access a crypto-shredded session.
  * The recording data still exists but is permanently unreadable.
  */
+export interface EncryptResult {
+    data: Buffer
+    sessionState: SessionState
+}
+
+export interface DecryptResult {
+    data: Buffer
+    sessionState: SessionState
+}
+
 export class SessionKeyDeletedError extends Error {
     public readonly deletedAt?: number
+    public readonly deletedBy: string
 
-    constructor(sessionId: string, teamId: number, deletedAt?: number) {
+    constructor(sessionId: string, teamId: number, deletedAt?: number, deletedBy: string = '') {
         super(`Session key has been deleted for session ${sessionId} team ${teamId}`)
         this.name = 'SessionKeyDeletedError'
         this.deletedAt = deletedAt
+        this.deletedBy = deletedBy
     }
 }

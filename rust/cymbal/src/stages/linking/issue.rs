@@ -15,7 +15,7 @@ use crate::{
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     posthog_utils::capture_issue_created,
-    stages::{linking::LinkingStage, pipeline::ExceptionEventHandledError},
+    stages::{linking::LinkingStage, pipeline::HandledError},
     teams::TeamManager,
     types::{
         exception_properties::ExceptionProperties,
@@ -60,7 +60,7 @@ impl IssueLinker {
 impl ValueOperator for IssueLinker {
     type Item = ExceptionProperties;
     type Context = LinkingStage;
-    type HandledError = ExceptionEventHandledError;
+    type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
     fn name(&self) -> &'static str {
@@ -111,6 +111,9 @@ async fn resolve_issue(
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+            context
+                .signal_client
+                .emit_issue_reopened(&issue, &output_props);
             send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
@@ -150,7 +153,7 @@ async fn resolve_issue(
     if !was_created {
         txn.rollback().await?;
         // Replace the attempt issue with the existing one
-        issue = Issue::load(&mut *conn, team_id, issue_override.id)
+        issue = Issue::load(&mut *conn, team_id, issue_override.issue_id)
             .await?
             .unwrap_or(issue);
 
@@ -160,6 +163,9 @@ async fn resolve_issue(
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+            context
+                .signal_client
+                .emit_issue_reopened(&issue, &output_props);
             send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
@@ -170,6 +176,9 @@ async fn resolve_issue(
 
         let output_props = event_properties.clone().to_output(issue.id)?;
         send_new_fingerprint_event(context, &issue, &output_props).await?;
+        context
+            .signal_client
+            .emit_issue_created(&issue, &output_props);
         send_issue_created_alert(context, &issue, assignment, output_props, &event_timestamp)
             .await?;
         txn.commit().await?;

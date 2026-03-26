@@ -7,15 +7,15 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from posthog.models import (
-    Cohort,
+from posthog.models import Cohort, FeatureFlag
+from posthog.models.utils import convert_legacy_metrics
+
+from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
-    FeatureFlag,
 )
-from posthog.models.utils import convert_legacy_metrics
 
 
 class ExperimentAdminForm(ModelForm):
@@ -34,7 +34,9 @@ class ExperimentAdminForm(ModelForm):
             if "holdout" in self.fields:
                 self.fields["holdout"].queryset = ExperimentHoldout.objects.filter(team=self.instance.team)  # type: ignore
             if "feature_flag" in self.fields:
-                self.fields["feature_flag"].queryset = FeatureFlag.objects.filter(team=self.instance.team)  # type: ignore
+                self.fields["feature_flag"].queryset = FeatureFlag.objects_including_soft_deleted.filter(  # type: ignore[attr-defined]
+                    team=self.instance.team
+                )
 
 
 def has_legacy_metric(metrics):

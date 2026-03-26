@@ -176,11 +176,15 @@
     width: 100%;
 
     &--type-steps-vertical,
+    &--type-steps-flow,
     &--type-time_to_convert,
     &--type-trends {
         min-height: var(--insight-viz-min-height);
 
-        .NotebookNode &,
+        .NotebookNode & {
+            min-height: 0;
+        }
+
         .InsightCard &,
         .ExportedInsight &,
         .WebAnalyticsDashboard & {
@@ -199,7 +203,8 @@
     }
 }
 
-.ErrorTracking__breakdowns {
+.ErrorTracking__breakdowns,
+.ErrorTracking__insights {
     .InsightViz {
         height: 100%;
     }

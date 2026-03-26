@@ -1,0 +1,128 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Notebooks
+feature: notebooks
+url_prefix: /notebooks
+tools:
+    notebooks-list:
+        operation: notebooks_list
+        enabled: true
+        scopes:
+            - notebook:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List notebooks
+        description: >
+            List all notebooks in the project. Supports filtering by search term, created_by,
+            last_modified_by, date_from, date_to, and contains. Returns title, short_id, and
+            creation/modification metadata.
+
+    notebooks-create:
+        operation: notebooks_create
+        enabled: true
+        scopes:
+            - notebook:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{short_id}'
+        title: Create notebook
+        description: >
+            Create a new notebook. Provide a title and content. Content is a JSON object
+            representing the notebook's rich text document structure (ProseMirror-based).
+            Returns the created notebook with its short_id.
+        exclude_params:
+            - _create_in_folder
+    notebooks-retrieve:
+        operation: notebooks_retrieve
+        enabled: true
+        scopes:
+            - notebook:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        title: Get notebook
+        description: >
+            Get a specific notebook by its short_id. Returns the full notebook including
+            title, content, version, and creation/modification metadata.
+
+    notebooks-update:
+        operation: notebooks_update
+        enabled: false
+    notebooks-partial-update:
+        operation: notebooks_partial_update
+        enabled: true
+        scopes:
+            - notebook:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        title: Update notebook
+        description: >
+            Update an existing notebook by short_id. Can update title, content, and deleted status.
+            IMPORTANT: when updating the content field, you must provide the current version number
+            for optimistic concurrency control. Retrieve the notebook first to get the latest version.
+        exclude_params:
+            - _create_in_folder
+    notebooks-destroy:
+        operation: notebooks_destroy
+        enabled: true
+        scopes:
+            - notebook:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete notebook
+        description: >
+            Delete a notebook by short_id. The notebook will be soft-deleted and no longer
+            appear in lists.
+        soft_delete: true
+    notebooks-activity-retrieve:
+        operation: notebooks_activity_retrieve
+        enabled: false
+    notebooks-activity-retrieve-2:
+        operation: notebooks_activity_retrieve_2
+        enabled: false
+    notebooks-hogql-execute-create:
+        operation: notebooks_hogql_execute_create
+        enabled: false
+    notebooks-kernel-config-create:
+        operation: notebooks_kernel_config_create
+        enabled: false
+    notebooks-kernel-dataframe-retrieve:
+        operation: notebooks_kernel_dataframe_retrieve
+        enabled: false
+    notebooks-kernel-execute-create:
+        operation: notebooks_kernel_execute_create
+        enabled: false
+    notebooks-kernel-execute-stream-create:
+        operation: notebooks_kernel_execute_stream_create
+        enabled: false
+    notebooks-kernel-restart-create:
+        operation: notebooks_kernel_restart_create
+        enabled: false
+    notebooks-kernel-start-create:
+        operation: notebooks_kernel_start_create
+        enabled: false
+    notebooks-kernel-status-retrieve:
+        operation: notebooks_kernel_status_retrieve
+        enabled: false
+    notebooks-kernel-stop-create:
+        operation: notebooks_kernel_stop_create
+        enabled: false
+    notebooks-recording-comments-retrieve:
+        operation: notebooks_recording_comments_retrieve
+        enabled: false

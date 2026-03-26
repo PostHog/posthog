@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { IngestionWarningsOutput } from '../../common/outputs'
+import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
+import { BatchRetryOptions, withBatchRetry } from '../batch-retry'
 import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
@@ -16,6 +17,14 @@ import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipel
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
+
+/**
+ * Minimal team context required for team-aware pipeline operations.
+ * Only the team ID is needed to route warnings to the correct team.
+ */
+export interface TeamIdContext {
+    team: { id: number }
+}
 
 /**
  * Builder for configuring how items within a group are processed.
@@ -66,6 +75,20 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
 
     pipeBatch<U>(step: BatchProcessingStep<TOutput, U>): BatchPipelineBuilder<TInput, U, CInput, COutput> {
         return new BatchPipelineBuilder(new BaseBatchPipeline(step, this.pipeline))
+    }
+
+    /**
+     * Add a batch processing step with automatic retry logic.
+     *
+     * When the step throws a retriable error (error.isRetriable === true),
+     * it will be retried with exponential backoff. Non-retriable errors
+     * are converted to DLQ results for all inputs in the batch.
+     */
+    pipeBatchWithRetry<U>(
+        step: BatchProcessingStep<TOutput, U>,
+        options?: BatchRetryOptions
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+        return this.pipeBatch(withBatchRetry(step, options))
     }
 
     concurrently<U>(
@@ -148,11 +171,11 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     }
 
     teamAware<TOut, COut = COutput>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>,
+        this: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>,
         callback: (
-            builder: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }>
-    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }> {
+            builder: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>
+        ) => BatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext>
+    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext> {
         const builtPipeline = callback(this)
         return new TeamAwareBatchPipelineBuilder(builtPipeline.build())
     }
@@ -198,16 +221,16 @@ export class ResultHandledBatchPipelineBuilder<
 export class TeamAwareBatchPipelineBuilder<
     TInput,
     TOutput,
-    CInput extends { team: Team },
-    COutput extends { team: Team },
+    CInput extends TeamIdContext,
+    COutput extends TeamIdContext,
 > extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
     constructor(pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {
         super(pipeline)
     }
 
     handleIngestionWarnings(
-        kafkaProducer: KafkaProducerWrapper
+        outputs: IngestionOutputs<IngestionWarningsOutput>
     ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-        return new BatchPipelineBuilder(new IngestionWarningHandlingBatchPipeline(kafkaProducer, this.pipeline))
+        return new BatchPipelineBuilder(new IngestionWarningHandlingBatchPipeline(outputs, this.pipeline))
     }
 }

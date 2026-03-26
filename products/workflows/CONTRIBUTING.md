@@ -242,6 +242,65 @@ Async functions are registered via side-effect imports. Add your file to:
 
 If you skip this step, your async function will never be available to Hog code.
 
+## Frontend: adding a custom input type
+
+The input configuration UI (`CyclotronJobInputs`) supports product-specific input types via a lazy renderer registry.
+Built-in types (`string`, `number`, `boolean`, etc.) are handled directly in the switch statement.
+Custom types are looked up in `CUSTOM_INPUT_RENDERERS` and lazy-loaded when rendered.
+
+### 1) Create the renderer component
+
+Create a React component in your product that default-exports a function accepting `CustomInputRendererProps`:
+
+```tsx
+import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
+
+export default function MyCustomInput({ value, onChange }: CustomInputRendererProps): JSX.Element {
+  return <input value={value} onChange={(e) => onChange(e.target.value)} />
+}
+```
+
+### 2) Register it in the mapping
+
+Add an entry to `CUSTOM_INPUT_RENDERERS` in:
+
+- frontend/src/lib/components/CyclotronJob/customInputRenderers.ts
+
+```ts
+export const CUSTOM_INPUT_RENDERERS = {
+  my_custom_type: lazy(() => import('products/my_product/frontend/components/MyCustomInput')),
+}
+```
+
+The component is lazy-loaded via `React.lazy`, so no product code is bundled until the input type is actually rendered.
+
+### 3) Add the type to the schema unions
+
+Add your type string to `CyclotronJobInputSchemaType.type` in:
+
+- frontend/src/types.ts
+- nodejs/src/cdp/types.ts
+- nodejs/src/schema/cyclotron.ts
+- products/workflows/frontend/Workflows/hogflows/steps/types.ts
+
+### 4) Use it in a template
+
+Reference the type in your template's `inputs_schema`:
+
+```ts
+{
+    key: 'my_field',
+    type: 'my_custom_type',
+    label: 'My field',
+    required: false,
+}
+```
+
+Existing example:
+
+- `posthog_assignee` type defined in nodejs/src/cdp/templates/\_destinations/posthog_conversations/posthog-update-ticket.template.ts
+- Renderer in products/conversations/frontend/components/Assignee/CyclotronJobInputAssignee.tsx
+
 ## Common pitfalls
 
 - **Forgot the side-effect import**: triggers/actions must be imported by their `index.ts`, and async functions must be imported by nodejs/src/cdp/async-functions/index.ts.

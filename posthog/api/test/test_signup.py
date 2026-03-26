@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
 from django.urls.base import reverse
@@ -16,9 +17,9 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
-from posthog.email import is_email_available
 from posthog.models import Dashboard, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
@@ -542,6 +543,28 @@ class TestSignupAPI(APIBaseTest):
                 "type": "validation_error",
                 "code": "password_too_short",
                 "detail": "This password is too short. It must contain at least 8 characters.",
+                "attr": "password",
+            },
+        )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+
+    def test_cant_sign_up_with_too_long_password(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+
+        response = self.client.post(
+            "/api/signup/",
+            {"first_name": "Jane", "email": "failed@posthog.com", "password": "a" * 73},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "max_length",
+                "detail": "Ensure this field has no more than 72 characters.",
                 "attr": "password",
             },
         )
@@ -1126,7 +1149,11 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
-    def test_api_sign_up_preserves_next_param(self):
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    def test_api_sign_up_preserves_next_param(self, mock_email_verifier, mock_is_email_available):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
         response = self.client.post(
             "/api/signup/",
             {
@@ -1143,13 +1170,42 @@ class TestSignupAPI(APIBaseTest):
         user = cast(User, User.objects.order_by("-pk")[0])
         response_data = response.json()
 
-        if not user.is_email_verified and is_email_available():
-            self.assertEqual(
-                response_data["redirect_url"],
-                f"/verify_email/{user.uuid}?next=/next_path",
-            )
-        else:
-            self.assertEqual(response_data["redirect_url"], "/next_path")
+        self.assertEqual(
+            response_data["redirect_url"],
+            f"/verify_email/{user.uuid}?next=%2Fnext_path",
+        )
+        mock_email_verifier.assert_called_once_with(user, "/next_path")
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    def test_api_sign_up_preserves_oauth_next_param_with_query_string(
+        self, mock_email_verifier, mock_is_email_available
+    ):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        oauth_url = "/oauth/authorize?client_id=test123&redirect_uri=http://localhost:3000/callback&response_type=code"
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Jane",
+                "email": "oauth-hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "OAuth Hedgehogs, LLC",
+                "role_at_organization": "product",
+                "next_url": oauth_url,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        response_data = response.json()
+
+        expected_encoded = "%2Foauth%2Fauthorize%3Fclient_id%3Dtest123%26redirect_uri%3Dhttp%3A%2F%2Flocalhost%3A3000%2Fcallback%26response_type%3Dcode"
+        self.assertEqual(
+            response_data["redirect_url"],
+            f"/verify_email/{user.uuid}?next={expected_encoded}",
+        )
+        mock_email_verifier.assert_called_once_with(user, oauth_url)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
@@ -1425,6 +1481,25 @@ class TestPasskeySignupAPI(APIBaseTest):
             },
         )
         self.assertEqual(User.objects.count(), count)
+
+
+class TestSignupSessionSaveRecovery(unittest.TestCase):
+    def test_save_session_with_recovery_uses_save_when_row_exists(self):
+        session = mock.Mock()
+
+        _save_session_with_recovery(session)
+
+        session.save.assert_called_once_with()
+        session.create.assert_not_called()
+
+    def test_save_session_with_recovery_recreates_session_on_update_error(self):
+        session = mock.Mock()
+        session.save.side_effect = UpdateError
+
+        _save_session_with_recovery(session)
+
+        session.save.assert_called_once_with()
+        session.create.assert_called_once_with()
 
 
 class TestInviteSignupAPI(APIBaseTest):
@@ -2271,3 +2346,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+
+    def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
+        nonexistent_id = str(uuid.uuid4())
+        result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
+        self.assertIsNone(result)

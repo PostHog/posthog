@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import { ActorsQuery } from '~/queries/schema/schema-general'

@@ -39,6 +39,37 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert data["properties"][1]["name"] == "user_id"
         assert data["properties"][1]["is_required"] is True
 
+    def test_create_property_group_with_is_optional_in_types(self):
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Super Props Group",
+                "properties": [
+                    {
+                        "name": "team_id",
+                        "property_type": "String",
+                        "is_required": True,
+                        "is_optional_in_types": True,
+                        "description": "Set via super properties",
+                    },
+                    {
+                        "name": "user_id",
+                        "property_type": "String",
+                        "is_required": True,
+                        "is_optional_in_types": False,
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        team_id_prop = next(p for p in data["properties"] if p["name"] == "team_id")
+        user_id_prop = next(p for p in data["properties"] if p["name"] == "user_id")
+        assert team_id_prop["is_optional_in_types"] is True
+        assert team_id_prop["is_required"] is True
+        assert user_id_prop["is_optional_in_types"] is False
+
     def test_update_property_group_preserves_existing_properties(self):
         # Create initial property group
         property_group = SchemaPropertyGroup.objects.create(

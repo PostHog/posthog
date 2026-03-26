@@ -19,6 +19,7 @@ from .box.source import BoxSource
 from .braintree.source import BraintreeSource
 from .braze.source import BrazeSource
 from .brevo.source import BrevoSource
+from .buildbetter.source import BuildBetterSource
 from .calendly.source import CalendlySource
 from .campaign_monitor.source import CampaignMonitorSource
 from .chargebee.source import ChargebeeSource
@@ -31,6 +32,7 @@ from .cockroachdb.source import CockroachDBSource
 from .common.registry import SourceRegistry
 from .confluence.source import ConfluenceSource
 from .convertkit.source import ConvertKitSource
+from .convex.source import ConvexSource
 from .copper.source import CopperSource
 from .customer_io.source import CustomerIOSource
 from .datadog.source import DatadogSource
@@ -161,6 +163,7 @@ __all__ = [
     "BraintreeSource",
     "BrazeSource",
     "BrevoSource",
+    "BuildBetterSource",
     "CalendlySource",
     "CampaignMonitorSource",
     "ChargebeeSource",
@@ -172,6 +175,7 @@ __all__ = [
     "CockroachDBSource",
     "ConfluenceSource",
     "ConvertKitSource",
+    "ConvexSource",
     "CopperSource",
     "CustomerIOSource",
     "DatadogSource",

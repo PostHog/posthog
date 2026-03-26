@@ -29,7 +29,9 @@ User ─────────────────────────
                               │     _repository            │
                               │  3. start_agent_server     │
                               │  4. wait_condition         │
-                              │     (60 min timeout)       │
+                              │     (5 min inactivity      │
+                              │      timeout, heartbeat-   │
+                              │      extended)             │
                               │  5. cleanup_sandbox        │
                               └─────────┬──────────────────┘
                                         │
@@ -59,7 +61,7 @@ User ─────────────────────────
 1. **get_task_processing_context** — Loads the TaskRun, validates GitHub integration and repository, builds a `TaskProcessingContext` with IDs and credentials
 2. **get_sandbox_for_repository** — Creates an OAuth token, provisions a sandbox (with snapshot if available), clones the repo, stores `sandbox_id`/`sandbox_url`/`sandbox_connect_token` in TaskRun.state
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox, waits for health check
-4. **wait_condition** — Blocks for up to 60 minutes waiting for a `complete_task` signal
+4. **wait_condition** — Blocks with a 5-minute inactivity timeout. The agent sends `heartbeat` signals to keep the workflow alive; each heartbeat resets the timer. The workflow exits when it receives a `complete_task` signal or when no heartbeat arrives within 5 minutes
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs via `finally`)
 
 ### Temporal client
@@ -70,7 +72,7 @@ User ─────────────────────────
 
 `backend/services/sandbox.py` — Protocol-based abstraction. `get_sandbox_class()` returns `DockerSandbox` when `SANDBOX_PROVIDER=docker` (requires `DEBUG=True`), otherwise `ModalSandbox`.
 
-- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Port 47821, no auth token needed. Builds images from `backend/sandbox/images/Dockerfile.sandbox-base`.
+- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds images from `backend/sandbox/images/Dockerfile.sandbox-base`.
 - **ModalSandbox** (`backend/services/modal_sandbox.py`) — Production. Port 8080, gVisor isolation, Modal connect tokens for authenticated access. Images from `ghcr.io/posthog/posthog-sandbox-base`.
 
 ### Agent server and runner
@@ -95,7 +97,7 @@ Environment variables consumed inside the sandbox:
 4. **update_task_run_status** — Sets status to IN_PROGRESS
 5. **get_sandbox_for_repository** — Gets GitHub token from integration, creates OAuth access token, provisions sandbox, clones repo (unless snapshot used), stores sandbox credentials in TaskRun.state
 6. **start_agent_server** — Starts `npx agent-server` in sandbox, polls `/health` until ready
-7. **wait_condition** — Workflow blocks up to 60 min. Twig IDE or the agent server signals completion via the API
+7. **wait_condition** — Workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Code or the agent server signals completion via the API
 8. Agent server calls `PATCH /api/projects/{team_id}/task_runs/{run_id}/` with terminal status
 9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow
 10. **cleanup_sandbox** — Sandbox destroyed
@@ -130,14 +132,30 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 
 ## Sandbox providers
 
-|              | DockerSandbox             | ModalSandbox                           |
-| ------------ | ------------------------- | -------------------------------------- |
-| Use case     | Local development         | Production                             |
-| Port         | 47821                     | 8080                                   |
-| Isolation    | Standard Docker container | gVisor kernel-level sandboxing         |
-| Auth         | No token needed           | Modal connect token                    |
-| Image source | Local Dockerfile build    | `ghcr.io/posthog/posthog-sandbox-base` |
-| Snapshots    | Docker commit/tag         | Modal `snapshot_filesystem()`          |
+|                   | DockerSandbox                                                  | ModalSandbox                                                          |
+| ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Use case          | Local development                                              | Production                                                            |
+| Internal port     | 47821                                                          | 8080                                                                  |
+| Host port         | Dynamically assigned                                           | N/A (cloud-routed)                                                    |
+| Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing                                        |
+| Auth              | No token needed                                                | Modal connect token                                                   |
+| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`                                |
+| Snapshots         | Docker commit/tag                                              | Modal `snapshot_filesystem()`                                         |
+| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok)                                |
+| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev with Modal (ngrok URL); production uses `SITE_URL` |
+
+### Local development with Docker
+
+Docker is the recommended sandbox provider for local development. To use it, set `SANDBOX_PROVIDER=docker` and `DEBUG=1` in your `.env`.
+
+**Do not set `SANDBOX_API_URL`** when using Docker. The `DockerSandbox` automatically rewrites `POSTHOG_API_URL` inside the container:
+
+- `localhost` / `127.0.0.1` → `host.docker.internal` (Docker's host gateway)
+- Port `8010` (Caddy) → `8000` (Django directly) — Caddy returns empty responses when called from inside Docker
+
+The container is started with `--add-host host.docker.internal:host-gateway` so `host.docker.internal` resolves to the host machine. The internal agent-server port is 47821; the host port is dynamically assigned to avoid conflicts.
+
+Setting `SANDBOX_API_URL` is unnecessary with Docker — the auto-transform already does the right thing. If you need to override, use port 8000: `SANDBOX_API_URL=http://host.docker.internal:8000`.
 
 ### Local development with Modal
 
@@ -167,9 +185,9 @@ Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:80
 
 ## Frontend
 
-- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in Twig" link
+- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in PostHog Code" link
 - **TaskSessionView** (`frontend/components/TaskSessionView.tsx`) — Live log streaming with hedgehog animation during agent execution
-- Twig IDE integration via `twig://task/{id}` deep links
+- PostHog Code integration via `posthog-code://task/{id}` deep links
 
 ## Key files
 

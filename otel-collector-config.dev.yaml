@@ -60,6 +60,14 @@ exporters:
         endpoint: 'jaeger-local:4317' # Sending OTLP gRPC to Jaeger
         tls:
             insecure: true # For local communication to Jaeger
+    otlphttp: # Using the standard OTLP exporter
+        endpoint: 'http://capture-logs:4318'
+        compression: none
+        tls:
+            insecure: true # For local communication to Jaeger
+        headers:
+            # special "local" token is automatically mapped to team_id 1 in dev environments
+            authorization: Bearer phc_local
     otlphttp/logs:
         endpoint: 'http://capture-logs:4318'
         compression: none
@@ -77,7 +85,7 @@ service:
         traces:
             receivers: [otlp]
             processors: [batch]
-            exporters: [otlp]
+            exporters: [otlp, otlphttp]
         logs:
             exporters:
                 - otlphttp/logs

@@ -1,4 +1,4 @@
-import { KeyStore, RecordingEncryptor, SessionKey } from '../types'
+import { EncryptResult, KeyStore, RecordingEncryptor, SessionKey } from '../types'
 
 /**
  * Cleartext encryptor used for hobby deployments and local development instances.
@@ -11,11 +11,16 @@ export class CleartextRecordingEncryptor implements RecordingEncryptor {
         return Promise.resolve()
     }
 
-    encryptBlock(_sessionId: string, _teamId: number, blockData: Buffer): Promise<Buffer> {
-        return Promise.resolve(blockData)
+    encryptBlock(_sessionId: string, _teamId: number, blockData: Buffer): Promise<EncryptResult> {
+        return Promise.resolve({ data: blockData, sessionState: 'cleartext' })
     }
 
-    encryptBlockWithKey(_sessionId: string, _teamId: number, blockData: Buffer, _sessionKey: SessionKey): Buffer {
-        return blockData
+    encryptBlockWithKey(
+        _sessionId: string,
+        _teamId: number,
+        blockData: Buffer,
+        _sessionKey: SessionKey
+    ): EncryptResult {
+        return { data: blockData, sessionState: 'cleartext' }
     }
 }

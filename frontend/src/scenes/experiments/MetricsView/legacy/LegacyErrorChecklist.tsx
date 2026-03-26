@@ -21,6 +21,106 @@ export enum ResultErrorCode {
 /**
  * @deprecated Only on Legacy Experiments. Use the ErrorChecklist component instead.
  */
+function ChecklistItem({
+    errorCode,
+    value,
+    experiment,
+    variants,
+    getInsightType,
+    metric,
+}: {
+    errorCode: ResultErrorCode
+    value: boolean
+    experiment: any
+    variants: any[]
+    getInsightType: (metric: any) => InsightType
+    metric: any
+}): JSX.Element {
+    const failureText: Record<ResultErrorCode, string> = {
+        [ResultErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant not received',
+        [ResultErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant not received',
+        [ResultErrorCode.NO_EXPOSURES]: 'Exposure events not received',
+    }
+
+    const successText: Record<ResultErrorCode, string> = {
+        [ResultErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant received',
+        [ResultErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant received',
+        [ResultErrorCode.NO_EXPOSURES]: 'Exposure events have been received',
+    }
+
+    const insightType = getInsightType(metric)
+    const hasMissingExposure = errorCode === ResultErrorCode.NO_EXPOSURES
+
+    const requiredEvent =
+        insightType === InsightType.TRENDS
+            ? hasMissingExposure
+                ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
+                : metric.count_query?.series[0]?.event
+            : metric.funnels_query?.series[0]?.event
+
+    const query = {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', `properties."$feature/${experiment.feature_flag?.key}"`, 'timestamp'],
+            orderBy: ['timestamp DESC'],
+            after: experiment.start_date,
+            event: requiredEvent,
+            properties: [
+                {
+                    key: `$feature/${experiment.feature_flag?.key}`,
+                    value: hasMissingExposure
+                        ? variants.map((variant: any) => variant.key)
+                        : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
+                          ? ['control']
+                          : variants.slice(1).map((variant: any) => variant.key),
+                    operator: 'exact',
+                    type: 'event',
+                },
+                ...(hasMissingExposure
+                    ? [
+                          {
+                              key: '$feature_flag',
+                              value: [experiment.feature_flag?.key],
+                              operator: 'exact',
+                              type: 'event',
+                          },
+                      ]
+                    : []),
+            ],
+            filterTestAccounts: metric.count_query?.filter_test_accounts,
+        },
+        propertiesViaUrl: true,
+        showPersistentColumnConfigurator: true,
+    }
+
+    return (
+        <div className="flex items-center deprecated-space-x-2">
+            {value === false ? (
+                <span className="flex items-center deprecated-space-x-2">
+                    <IconCheck className="text-success" fontSize={16} />
+                    <span className="text-secondary">{successText[errorCode]}</span>
+                </span>
+            ) : (
+                <span className="flex items-center deprecated-space-x-2">
+                    <IconX className="text-danger" fontSize={16} />
+                    <span>{failureText[errorCode]}</span>
+                    <Tooltip title="Verify missing events in the Activity tab">
+                        <Link
+                            target="_blank"
+                            className="font-semibold"
+                            to={combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url}
+                        >
+                            <IconOpenInNew fontSize="16" className="-ml-1" />
+                        </Link>
+                    </Tooltip>
+                </span>
+            )}
+        </div>
+    )
+}
+
 export function LegacyErrorChecklist({ error, metric }: { error: any; metric: any }): JSX.Element {
     const { experiment, variants, getInsightType } = useValues(experimentLogic)
 
@@ -30,92 +130,6 @@ export function LegacyErrorChecklist({ error, metric }: { error: any; metric: an
 
     const { statusCode, hasDiagnostics } = error
 
-    function ChecklistItem({ errorCode, value }: { errorCode: ResultErrorCode; value: boolean }): JSX.Element {
-        const failureText: Record<ResultErrorCode, string> = {
-            [ResultErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant not received',
-            [ResultErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant not received',
-            [ResultErrorCode.NO_EXPOSURES]: 'Exposure events not received',
-        }
-
-        const successText: Record<ResultErrorCode, string> = {
-            [ResultErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant received',
-            [ResultErrorCode.NO_TEST_VARIANT]: 'Events with at least one test variant received',
-            [ResultErrorCode.NO_EXPOSURES]: 'Exposure events have been received',
-        }
-
-        const insightType = getInsightType(metric)
-        const hasMissingExposure = errorCode === ResultErrorCode.NO_EXPOSURES
-
-        const requiredEvent =
-            insightType === InsightType.TRENDS
-                ? hasMissingExposure
-                    ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
-                    : metric.count_query?.series[0]?.event
-                : metric.funnels_query?.series[0]?.event
-
-        const query = {
-            kind: NodeKind.DataTableNode,
-            full: true,
-            source: {
-                kind: NodeKind.EventsQuery,
-                select: ['*', 'event', `properties."$feature/${experiment.feature_flag?.key}"`, 'timestamp'],
-                orderBy: ['timestamp DESC'],
-                after: experiment.start_date,
-                event: requiredEvent,
-                properties: [
-                    {
-                        key: `$feature/${experiment.feature_flag?.key}`,
-                        value: hasMissingExposure
-                            ? variants.map((variant) => variant.key)
-                            : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
-                              ? ['control']
-                              : variants.slice(1).map((variant) => variant.key),
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                    ...(hasMissingExposure
-                        ? [
-                              {
-                                  key: '$feature_flag',
-                                  value: [experiment.feature_flag?.key],
-                                  operator: 'exact',
-                                  type: 'event',
-                              },
-                          ]
-                        : []),
-                ],
-                filterTestAccounts: metric.count_query?.filter_test_accounts,
-            },
-            propertiesViaUrl: true,
-            showPersistentColumnConfigurator: true,
-        }
-
-        return (
-            <div className="flex items-center deprecated-space-x-2">
-                {value === false ? (
-                    <span className="flex items-center deprecated-space-x-2">
-                        <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-secondary">{successText[errorCode]}</span>
-                    </span>
-                ) : (
-                    <span className="flex items-center deprecated-space-x-2">
-                        <IconX className="text-danger" fontSize={16} />
-                        <span>{failureText[errorCode]}</span>
-                        <Tooltip title="Verify missing events in the Activity tab">
-                            <Link
-                                target="_blank"
-                                className="font-semibold"
-                                to={combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url}
-                            >
-                                <IconOpenInNew fontSize="16" className="-ml-1" />
-                            </Link>
-                        </Tooltip>
-                    </span>
-                )}
-            </div>
-        )
-    }
-
     if (hasDiagnostics) {
         const checklistItems = []
         for (const [errorCode, value] of Object.entries(error.detail as Record<ResultErrorCode, boolean>)) {
@@ -124,7 +138,15 @@ export function LegacyErrorChecklist({ error, metric }: { error: any; metric: an
                 continue
             }
             checklistItems.push(
-                <ChecklistItem key={errorCode} errorCode={errorCode as ResultErrorCode} value={value} />
+                <ChecklistItem
+                    key={errorCode}
+                    errorCode={errorCode as ResultErrorCode}
+                    value={value}
+                    experiment={experiment}
+                    variants={variants}
+                    getInsightType={getInsightType}
+                    metric={metric}
+                />
             )
         }
 

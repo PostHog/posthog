@@ -31,7 +31,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Initialize the PostHog client with your API key and host:</Markdown>
+                    <Markdown>Initialize the PostHog client with your project token and host:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -45,7 +45,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                                 )
 
                                 func main() {
-                                    client, _ := posthog.NewWithConfig("<ph_project_api_key>", posthog.Config{Endpoint: "<ph_client_api_host>"})
+                                    client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{Endpoint: "<ph_client_api_host>"})
                                     defer client.Close()
                                 }
                             `,

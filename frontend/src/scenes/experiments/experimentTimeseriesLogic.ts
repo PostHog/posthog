@@ -1,12 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
+import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { hexToRGBA, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ExperimentMetric,
@@ -17,9 +18,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType } from '~/types'
 
+import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
-import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
 export interface ProcessedTimeseriesDataPoint {
     date: string
@@ -59,6 +60,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentTimeseriesRecalculated']],
+        values: [teamLogic, ['currentProjectId']],
     })),
 
     actions(() => ({
@@ -66,7 +68,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         recalculateTimeseries: ({ metric }: { metric: ExperimentMetric }) => ({ metric }),
     })),
 
-    loaders(({ actions, props }) => ({
+    loaders(({ actions, props, values }) => ({
         timeseries: [
             null as ExperimentMetricTimeseries | null,
             {
@@ -79,7 +81,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     }
 
                     const response = await api.get(
-                        `api/projects/@current/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
+                        `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
                     return response
                 },
@@ -91,7 +93,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     try {
                         const response = await api.createResponse(
-                            `api/projects/@current/experiments/${props.experiment.id}/recalculate_timeseries/`,
+                            `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/recalculate_timeseries/`,
                             {
                                 metric: metric,
                                 fingerprint: metric.fingerprint,

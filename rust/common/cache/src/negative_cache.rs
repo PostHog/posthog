@@ -46,15 +46,11 @@ impl NegativeCache {
         Self { cache }
     }
 
-    /// Check if a key is in the negative cache (was not found in database)
-    ///
-    /// # Arguments
-    /// * `key` - The key to check
-    ///
-    /// # Returns
-    /// `true` if the key is in the negative cache, `false` otherwise
+    /// Check if a key is in the negative cache (was not found in database).
+    /// Uses `get` instead of `contains_key` to refresh the entry's LRU position,
+    /// keeping frequently-hit entries (e.g., persistent bots) from being evicted.
     pub fn contains(&self, key: &str) -> bool {
-        self.cache.contains_key(key)
+        self.cache.get(key).is_some()
     }
 
     /// Add a key to the negative cache (marking it as not found in database)

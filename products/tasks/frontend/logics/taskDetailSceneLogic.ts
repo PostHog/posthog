@@ -16,8 +16,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { LogEntry, parseLogEvent } from '../lib/parse-logs'
 import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 import { TaskLogicProps, taskLogic } from './taskLogic'
@@ -33,7 +35,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task']],
+        values: [taskLogic(props), ['task'], teamLogic, ['currentProjectId']],
         actions: [
             taskLogic(props),
             ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
@@ -46,6 +48,10 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         clearShouldSelectLatestRun: true,
         startPolling: true,
         stopPolling: true,
+        startStreaming: true,
+        stopStreaming: true,
+        markStreamingFailed: true,
+        appendStreamEntries: (entries: LogEntry[]) => ({ entries }),
         setLogs: (logs: string) => ({ logs }),
         updateRun: (run: TaskRun) => ({ run }),
     }),
@@ -76,6 +82,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             {
                 setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? true : state),
                 setLogs: () => false,
+                appendStreamEntries: () => false,
             },
         ],
         runs: [
@@ -83,6 +90,41 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             {
                 updateRun: (state: TaskRun[], { run }: { run: TaskRun }) =>
                     state.map((r) => (r.id === run.id ? run : r)),
+            },
+        ],
+        streamEntries: [
+            [] as LogEntry[],
+            {
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? [] : state),
+                appendStreamEntries: (state, { entries }) => {
+                    if (entries.length === 0) {
+                        return state
+                    }
+                    const last = state[state.length - 1]
+                    const first = entries[0]
+                    if (last?.type === 'agent' && first.type === 'agent') {
+                        return [
+                            ...state.slice(0, -1),
+                            { ...last, message: (last.message || '') + (first.message || '') },
+                            ...entries.slice(1),
+                        ]
+                    }
+                    return [...state, ...entries]
+                },
+            },
+        ],
+        isStreaming: [
+            false,
+            {
+                startStreaming: () => true,
+                stopStreaming: () => false,
+            },
+        ],
+        streamingFailed: [
+            false,
+            {
+                setSelectedRunId: () => false,
+                markStreamingFailed: () => true,
             },
         ],
     })),
@@ -107,7 +149,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     const run = await api.tasks.runs.get(props.taskId, values.selectedRunId)
                     // Use proxy endpoint to avoid CORS issues with direct S3 access
                     actions.loadLogs({
-                        url: `/api/projects/@current/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/`,
+                        url: `/api/projects/${values.currentProjectId}/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/`,
                     })
                     return run
                 },
@@ -186,6 +228,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 return
             }
             actions.stopPolling()
+            actions.stopStreaming()
             actions.loadSelectedRun()
         },
         runTaskSuccess: ({ task }) => {
@@ -214,9 +257,14 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             }
             actions.loadTask()
             if (values.shouldPoll) {
-                actions.startPolling()
+                if (values.streamingFailed) {
+                    actions.startPolling()
+                } else {
+                    actions.startStreaming()
+                }
             } else {
                 actions.stopPolling()
+                actions.stopStreaming()
             }
         },
         loadTaskSuccess: ({ task }) => {
@@ -229,6 +277,101 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             if (rawLogs) {
                 actions.setLogs(rawLogs)
             }
+        },
+        startStreaming: () => {
+            // Stop any existing polling — streaming replaces it
+            actions.stopPolling()
+
+            cache.disposables.add(() => {
+                const abortController = new AbortController()
+                const runId = values.selectedRunId
+                if (!runId) {
+                    return () => {}
+                }
+
+                const streamUrl = `/api/projects/@current/tasks/${props.taskId}/runs/${runId}/stream/`
+                const toolMap = new Map<string, LogEntry>()
+                let eventIndex = 0
+
+                const consume = async (): Promise<void> => {
+                    try {
+                        const response = await fetch(streamUrl, {
+                            signal: abortController.signal,
+                            headers: { Accept: 'text/event-stream' },
+                        })
+
+                        if (!response.ok || !response.body) {
+                            // Stream not available — fall back to polling
+                            actions.stopStreaming()
+                            actions.markStreamingFailed()
+                            actions.startPolling()
+                            return
+                        }
+
+                        const reader = response.body.getReader()
+                        const decoder = new TextDecoder()
+                        let buffer = ''
+
+                        while (true) {
+                            const { done, value } = await reader.read()
+                            if (done) {
+                                break
+                            }
+
+                            buffer += decoder.decode(value, { stream: true })
+                            const lines = buffer.split('\n')
+                            // Keep the last incomplete line in the buffer
+                            buffer = lines.pop() || ''
+
+                            const batch: LogEntry[] = []
+                            for (const line of lines) {
+                                if (!line.startsWith('data: ')) {
+                                    continue
+                                }
+                                const jsonStr = line.slice(6)
+                                try {
+                                    const event = JSON.parse(jsonStr) as Record<string, unknown>
+                                    const entry = parseLogEvent(event, eventIndex++, toolMap)
+                                    if (entry) {
+                                        // Merge consecutive agent messages
+                                        const last = batch[batch.length - 1]
+                                        if (entry.type === 'agent' && last?.type === 'agent') {
+                                            last.message = (last.message || '') + (entry.message || '')
+                                        } else {
+                                            batch.push(entry)
+                                        }
+                                    }
+                                } catch {
+                                    // Skip invalid JSON
+                                }
+                            }
+
+                            if (batch.length > 0) {
+                                actions.appendStreamEntries(batch)
+                            }
+                        }
+
+                        // Stream ended normally — do a final poll to get the latest run status
+                        actions.loadSelectedRun()
+                    } catch (e) {
+                        if ((e as Error).name === 'AbortError') {
+                            return
+                        }
+                        // Stream failed — fall back to polling
+                        console.warn('SSE stream error, falling back to polling:', e)
+                        actions.stopStreaming()
+                        actions.markStreamingFailed()
+                        actions.startPolling()
+                    }
+                }
+
+                consume()
+
+                return () => abortController.abort()
+            }, 'sseStream')
+        },
+        stopStreaming: () => {
+            cache.disposables.dispose('sseStream')
         },
         startPolling: () => {
             cache.disposables.add(() => {
@@ -250,11 +393,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
     beforeUnmount(({ actions }) => {
         actions.stopPolling()
+        actions.stopStreaming()
     }),
 
     propsChanged(({ actions, props }, oldProps) => {
         if (props.taskId !== oldProps.taskId) {
             actions.stopPolling()
+            actions.stopStreaming()
             actions.loadTask()
             actions.loadRuns()
         }

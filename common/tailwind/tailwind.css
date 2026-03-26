@@ -10,14 +10,89 @@
     --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
 
     --animate-hue-rotate: hue-rotate 5s linear infinite;
+    --animate-fade-in-subtle: fade-in-subtle 150ms cubic-bezier(0.215, 0.61, 0.355, 1) forwards;
+    --animate-fade-in: fade-in 150ms cubic-bezier(0.215, 0.61, 0.355, 1) forwards;
+    --animate-fade-out: fade-out 120ms cubic-bezier(0.215, 0.61, 0.355, 1) forwards;
+    --animate-fade-out-subtle: fade-out-subtle 120ms cubic-bezier(0.215, 0.61, 0.355, 1) forwards;
 
     @keyframes hue-rotate {
         to {
             filter: hue-rotate(360deg);
         }
     }
+
+    @keyframes fade-in-subtle {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 0.3;
+        }
+    }
+
+    @keyframes fade-in {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    @keyframes fade-out {
+        from {
+            opacity: 1;
+        }
+        to {
+            opacity: 0;
+        }
+    }
+    @keyframes fade-out-subtle {
+        from {
+            opacity: 0.3;
+        }
+        to {
+            opacity: 0;
+        }
+    }
 }
 
 @utility animate-hue-rotate {
     animation: var(--animate-hue-rotate);
+}
+
+@utility animate-fade-in {
+    animation: var(--animate-fade-in);
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        opacity: 1;
+    }
+}
+
+@utility animate-fade-out {
+    animation: var(--animate-fade-out);
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        opacity: 0;
+    }
+}
+
+@utility animate-fade-in-subtle {
+    animation: var(--animate-fade-in-subtle);
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        opacity: 0.3;
+    }
+}
+
+@utility animate-fade-out-subtle {
+    animation: var(--animate-fade-out-subtle);
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        opacity: 0;
+    }
 }

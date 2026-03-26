@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -65,6 +66,7 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             "result_data",
         ]
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_approvals(self, obj):
         approvals = obj.approvals.all()
         return ApprovalSerializer(approvals, many=True).data
@@ -179,6 +181,20 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+
+    def validate_approver_config(self, value):
+        quorum = value.get("quorum", 0)
+        if quorum < 1:
+            raise serializers.ValidationError("Quorum must be at least 1")
+        return value
+
+    def validate_bypass_org_membership_levels(self, value):
+        if not value:
+            return value
+        try:
+            return [int(lvl) for lvl in value]
+        except (ValueError, TypeError):
+            raise serializers.ValidationError("All membership levels must be integers")
 
     def validate_bypass_roles(self, value):
         if not value:

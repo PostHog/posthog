@@ -83,21 +83,27 @@ def auto_update_manifest() -> set[str]:
     if not manifest_file.exists():
         return set()
 
-    # Load existing manifest
+    # Load existing manifest to check for duplicates
     with open(manifest_file) as f:
         manifest = yaml.safe_load(f) or {}
 
-    # Find or create tools category for new entries
+    existing_tools = manifest.get("tools", {})
+    new_entries = {k: v for k, v in entries.items() if k not in existing_tools}
+    if not new_entries:
+        return set()
+
+    # Append new entries as YAML text to preserve existing file formatting.
+    # Round-tripping the entire file through yaml.dump() destroys indentation
+    # style and line wrapping, causing the whole file to show as modified.
+    content = manifest_file.read_text()
+
     if "tools" not in manifest:
-        manifest["tools"] = {}
+        content = content.rstrip() + "\ntools:\n"
 
-    # Add new entries to tools category
-    for cmd_name, cmd_config in entries.items():
-        if cmd_name not in manifest["tools"]:
-            manifest["tools"][cmd_name] = cmd_config
+    fragment = yaml.dump(new_entries, default_flow_style=False, sort_keys=False, indent=4)
+    # Indent the fragment to sit under the tools: key (4 spaces)
+    indented = "\n".join("    " + line if line.strip() else line for line in fragment.splitlines())
+    content = content.rstrip() + "\n" + indented + "\n"
 
-    # Write back to manifest file
-    with open(manifest_file, "w") as f:
-        yaml.dump(manifest, f, default_flow_style=False, sort_keys=False)
-
-    return set(entries.keys())
+    manifest_file.write_text(content)
+    return set(new_entries.keys())

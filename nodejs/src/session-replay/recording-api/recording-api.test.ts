@@ -3,14 +3,20 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { Hub } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RetentionService } from '../shared/retention/retention-service'
-import { TeamService } from '../shared/teams/team-service'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
-import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
+import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
+
+jest.mock('@clickhouse/client', () => ({
+    createClient: jest.fn().mockReturnValue({
+        query: jest.fn(),
+        close: jest.fn().mockResolvedValue(undefined),
+    }),
+}))
 
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
@@ -42,10 +48,20 @@ jest.mock('../../utils/db/redis', () => ({
     }),
 }))
 
+jest.mock('../../kafka/producer', () => ({
+    KafkaProducerWrapper: {
+        create: jest.fn().mockResolvedValue({
+            produce: jest.fn().mockResolvedValue(undefined),
+            disconnect: jest.fn().mockResolvedValue(undefined),
+        }),
+    },
+}))
+
 jest.mock('./recording-service')
 
 describe('RecordingApi', () => {
-    let mockHub: Partial<Hub>
+    let mockConfig: Partial<RecordingApiConfig>
+    const mockPostgres = {} as PostgresRouter
     let mockKeyStore: jest.Mocked<KeyStore>
     let mockDecryptor: jest.Mocked<RecordingDecryptor>
     let mockService: jest.Mocked<RecordingService>
@@ -53,7 +69,7 @@ describe('RecordingApi', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockHub = {
+        mockConfig = {
             SESSION_RECORDING_V2_S3_REGION: 'us-west-2',
             SESSION_RECORDING_V2_S3_ENDPOINT: undefined,
             SESSION_RECORDING_V2_S3_BUCKET: 'test-bucket',
@@ -62,7 +78,11 @@ describe('RecordingApi', () => {
             SESSION_RECORDING_API_REDIS_PORT: 6379,
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
-            postgres: {} as any,
+            CLICKHOUSE_HOST: 'localhost',
+            CLICKHOUSE_DATABASE: 'default',
+            CLICKHOUSE_USER: 'default',
+            CLICKHOUSE_PASSWORD: undefined,
+            CLICKHOUSE_SECURE: false,
         }
 
         mockKeyStore = {
@@ -82,17 +102,17 @@ describe('RecordingApi', () => {
             validateS3Key: jest.fn().mockReturnValue(true),
             formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
             getBlock: jest.fn(),
-            deleteRecording: jest.fn(),
-            bulkDeleteRecordings: jest.fn(),
+            listBlocks: jest.fn(),
+            deleteRecordings: jest.fn(),
         } as unknown as jest.Mocked<RecordingService>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
-        ;(RecordingService as jest.Mock).mockImplementation(() => mockService)
+        ;(RecordingService as unknown as jest.Mock).mockImplementation(() => mockService)
     })
 
     describe('service', () => {
         it('should return service descriptor', () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             const service = recordingApi.service
 
             expect(service.id).toBe('recording-api')
@@ -103,7 +123,7 @@ describe('RecordingApi', () => {
 
     describe('start', () => {
         it('should initialize all components', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await recordingApi.start()
 
             expect(S3Client).toHaveBeenCalledWith({
@@ -111,22 +131,17 @@ describe('RecordingApi', () => {
                 endpoint: undefined,
                 forcePathStyle: undefined,
             })
-            expect(getKeyStore).toHaveBeenCalledWith(
-                expect.any(TeamService),
-                expect.any(RetentionService),
-                'us-west-2',
-                {
-                    kmsEndpoint: undefined,
-                    dynamoDBEndpoint: undefined,
-                }
-            )
+            expect(getKeyStore).toHaveBeenCalledWith(expect.any(RetentionService), 'us-west-2', {
+                kmsEndpoint: undefined,
+                dynamoDBEndpoint: undefined,
+            })
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
             expect(RecordingService).toHaveBeenCalled()
         })
 
         it('should use default region if not specified', async () => {
-            mockHub.SESSION_RECORDING_V2_S3_REGION = undefined
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            mockConfig.SESSION_RECORDING_V2_S3_REGION = undefined
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
 
             await recordingApi.start()
 
@@ -138,8 +153,8 @@ describe('RecordingApi', () => {
         })
 
         it('should configure forcePathStyle when endpoint is specified', async () => {
-            mockHub.SESSION_RECORDING_V2_S3_ENDPOINT = 'http://localhost:4566'
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            mockConfig.SESSION_RECORDING_V2_S3_ENDPOINT = 'http://localhost:4566'
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
 
             await recordingApi.start()
 
@@ -153,7 +168,7 @@ describe('RecordingApi', () => {
 
     describe('stop', () => {
         it('should clean up all components', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await recordingApi.start()
             const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
 
@@ -164,21 +179,21 @@ describe('RecordingApi', () => {
         })
 
         it('should handle stop when not started', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await expect(recordingApi.stop()).resolves.toBeUndefined()
         })
     })
 
     describe('isHealthy', () => {
         it('should return error when not started', () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             const result = recordingApi.isHealthy()
 
             expect(result.isError()).toBe(true)
         })
 
         it('should return ok when all components initialized', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await recordingApi.start()
 
             const result = recordingApi.isHealthy()
@@ -189,7 +204,7 @@ describe('RecordingApi', () => {
 
     describe('router', () => {
         it('should return an express router', () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             const router = recordingApi.router()
 
             expect(router).toBeDefined()
@@ -202,7 +217,7 @@ describe('RecordingApi', () => {
         const validKey = 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee'
 
         beforeEach(async () => {
-            const recordingApi = new RecordingApi({} as RecordingApiHub)
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
             await recordingApi.start(mockService)
             app = express()
             app.use('/', recordingApi.router())
@@ -217,28 +232,28 @@ describe('RecordingApi', () => {
             it('should return 400 if key is missing', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ start: '0', end: '100' })
+                    .query({ start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Missing key query parameter' })
             })
 
-            it('should return 400 if start is missing', async () => {
+            it('should return 400 if start_byte is missing', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, end: '100' })
+                    .query({ key: validKey, end_byte: '100' })
 
                 expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'Missing start query parameter' })
+                expect(res.body).toEqual({ error: 'Missing start_byte query parameter' })
             })
 
-            it('should return 400 if end is missing', async () => {
+            it('should return 400 if end_byte is missing', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0' })
+                    .query({ key: validKey, start_byte: '0' })
 
                 expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'Missing end query parameter' })
+                expect(res.body).toEqual({ error: 'Missing end_byte query parameter' })
             })
 
             it.each([
@@ -248,19 +263,19 @@ describe('RecordingApi', () => {
             ])('should return 400 for invalid team_id: %s (%s)', async (teamId) => {
                 const res = await supertest(app)
                     .get(`/api/projects/${teamId}/recordings/session-123/block`)
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Invalid team_id parameter' })
             })
 
-            it('should return 400 when start is greater than end', async () => {
+            it('should return 400 when start_byte is greater than end_byte', async () => {
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '100', end: '50' })
+                    .query({ key: validKey, start_byte: '100', end_byte: '50' })
 
                 expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'start must be less than or equal to end' })
+                expect(res.body).toEqual({ error: 'start_byte must be less than or equal to end_byte' })
             })
 
             it('should return 400 for invalid S3 key', async () => {
@@ -268,14 +283,14 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: '../etc/passwd', start: '0', end: '100' })
+                    .query({ key: '../etc/passwd', start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Invalid key format' })
             })
 
             it('should return 503 if service not initialized', async () => {
-                const uninitializedApi = new RecordingApi({} as RecordingApiHub)
+                const uninitializedApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
                 const uninitializedApp = express()
                 uninitializedApp.use('/', uninitializedApi.router())
                 const uninitializedServer = uninitializedApp.listen(0, () => {})
@@ -283,7 +298,7 @@ describe('RecordingApi', () => {
                 try {
                     const res = await supertest(uninitializedApp)
                         .get('/api/projects/1/recordings/session-123/block')
-                        .query({ key: validKey, start: '0', end: '100' })
+                        .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                     expect(res.status).toBe(503)
                     expect(res.body).toEqual({ error: 'S3 client not initialized' })
@@ -299,7 +314,7 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
                     .responseType('buffer')
 
                 expect(res.status).toBe(200)
@@ -314,23 +329,29 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(404)
                 expect(res.body).toEqual({ error: 'Block not found' })
             })
 
             it('should return 410 for deleted recording', async () => {
-                mockService.getBlock.mockResolvedValue({ ok: false, error: 'deleted', deletedAt: 1700000000 })
+                mockService.getBlock.mockResolvedValue({
+                    ok: false,
+                    error: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'user@example.com',
+                })
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(410)
                 expect(res.body).toEqual({
-                    error: 'Recording has been deleted',
+                    error: 'recording_deleted',
                     deleted_at: 1700000000,
+                    deleted_by: 'user@example.com',
                 })
             })
 
@@ -339,7 +360,7 @@ describe('RecordingApi', () => {
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
-                    .query({ key: validKey, start: '0', end: '100' })
+                    .query({ key: validKey, start_byte: '0', end_byte: '100' })
 
                 expect(res.status).toBe(500)
                 expect(res.body).toEqual({ error: 'Failed to fetch block from S3' })
@@ -347,12 +368,111 @@ describe('RecordingApi', () => {
         })
     })
 
-    describe('bulkDeleteRecordings endpoint', () => {
+    describe('listBlocks endpoint', () => {
         let app: express.Application
         let server: Server
 
         beforeEach(async () => {
-            const recordingApi = new RecordingApi({} as RecordingApiHub)
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
+            await recordingApi.start(mockService)
+            app = express()
+            app.use('/', recordingApi.router())
+            server = app.listen(0, () => {})
+        })
+
+        afterEach(() => {
+            server.close()
+        })
+
+        it('should return blocks from service', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+                {
+                    key: 'session_recordings/30d/2000-bbb',
+                    start_byte: 0,
+                    end_byte: 200,
+                    start_timestamp: '2024-01-01T00:01:00Z',
+                    end_timestamp: '2024-01-01T00:02:00Z',
+                },
+            ])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({
+                blocks: [
+                    {
+                        key: 'session_recordings/30d/1000-aaa',
+                        start_byte: 0,
+                        end_byte: 100,
+                        start_timestamp: '2024-01-01T00:00:00Z',
+                        end_timestamp: '2024-01-01T00:01:00Z',
+                    },
+                    {
+                        key: 'session_recordings/30d/2000-bbb',
+                        start_byte: 0,
+                        end_byte: 200,
+                        start_timestamp: '2024-01-01T00:01:00Z',
+                        end_timestamp: '2024-01-01T00:02:00Z',
+                    },
+                ],
+            })
+            expect(mockService.listBlocks).toHaveBeenCalledWith('session-123', 1)
+        })
+
+        it('should return empty blocks when session not found', async () => {
+            mockService.listBlocks.mockResolvedValue([])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ blocks: [] })
+        })
+
+        it('should return 400 for invalid team_id', async () => {
+            const res = await supertest(app).get('/api/projects/abc/recordings/session-123/blocks')
+
+            expect(res.status).toBe(400)
+        })
+
+        it('should return 500 when service throws', async () => {
+            mockService.listBlocks.mockRejectedValue(new Error('ClickHouse error'))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(500)
+            expect(res.body).toEqual({ error: 'Failed to list blocks' })
+        })
+
+        it('should return 503 if service not initialized', async () => {
+            const uninitializedApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
+            const uninitializedApp = express()
+            uninitializedApp.use('/', uninitializedApi.router())
+            const uninitializedServer = uninitializedApp.listen(0, () => {})
+
+            try {
+                const res = await supertest(uninitializedApp).get('/api/projects/1/recordings/session-123/blocks')
+
+                expect(res.status).toBe(503)
+                expect(res.body).toEqual({ error: 'Service not initialized' })
+            } finally {
+                uninitializedServer.close()
+            }
+        })
+    })
+
+    describe('deleteRecordings endpoint', () => {
+        let app: express.Application
+        let server: Server
+
+        beforeEach(async () => {
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
             await recordingApi.start(mockService)
             app = express()
             app.use(express.json())
@@ -371,8 +491,8 @@ describe('RecordingApi', () => {
                 ['-1', 'negative number'],
             ])('should return 400 for invalid team_id: %s (%s)', async (teamId) => {
                 const res = await supertest(app)
-                    .post(`/api/projects/${teamId}/recordings/bulk_delete`)
-                    .send({ session_ids: ['session-1'] })
+                    .post(`/api/projects/${teamId}/recordings/delete`)
+                    .send({ session_ids: ['session-1'], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Invalid team_id parameter' })
@@ -380,33 +500,43 @@ describe('RecordingApi', () => {
 
             it('should return 400 when session_ids is empty', async () => {
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: [] })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: [], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'session_ids must not be empty' })
             })
 
             it('should return 400 when session_ids is missing', async () => {
-                const res = await supertest(app).post('/api/projects/1/recordings/bulk_delete').send({})
+                const res = await supertest(app)
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body.error).toBeDefined()
+            })
+
+            it('should return 400 when deleted_by is missing', async () => {
+                const res = await supertest(app)
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: ['session-1'] })
+
+                expect(res.status).toBe(400)
             })
 
             it('should return 400 when too many session_ids', async () => {
                 const sessionIds = Array.from({ length: 101 }, (_, i) => `session-${i}`)
 
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: sessionIds })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: sessionIds, deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Too many session_ids (max 100)' })
             })
 
             it('should return 503 if service not initialized', async () => {
-                const uninitializedApi = new RecordingApi({} as RecordingApiHub)
+                const uninitializedApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
                 const uninitializedApp = express()
                 uninitializedApp.use(express.json())
                 uninitializedApp.use('/', uninitializedApi.router())
@@ -414,8 +544,8 @@ describe('RecordingApi', () => {
 
                 try {
                     const res = await supertest(uninitializedApp)
-                        .post('/api/projects/1/recordings/bulk_delete')
-                        .send({ session_ids: ['session-1'] })
+                        .post('/api/projects/1/recordings/delete')
+                        .send({ session_ids: ['session-1'], deleted_by: 'user@example.com' })
 
                     expect(res.status).toBe(503)
                     expect(res.body).toEqual({ error: 'Service not initialized' })
@@ -427,120 +557,62 @@ describe('RecordingApi', () => {
 
         describe('response serialization', () => {
             it('should return result from service', async () => {
-                mockService.bulkDeleteRecordings.mockResolvedValue({
-                    deleted: ['session-1', 'session-2'],
-                    failed: [{ session_id: 'session-3', error: 'unexpected_error' }],
-                })
+                mockService.deleteRecordings.mockResolvedValue([
+                    {
+                        sessionId: 'session-1',
+                        ok: true,
+                        status: 'deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'user@example.com',
+                    },
+                    {
+                        sessionId: 'session-2',
+                        ok: true,
+                        status: 'already_deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'original@example.com',
+                    },
+                    { sessionId: 'session-3', ok: false, status: 'delete_failed' },
+                ])
 
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: ['session-1', 'session-2', 'session-3'] })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: ['session-1', 'session-2', 'session-3'], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(200)
-                expect(res.body).toEqual({
-                    deleted: ['session-1', 'session-2'],
-                    failed: [{ session_id: 'session-3', error: 'unexpected_error' }],
-                })
-                expect(mockService.bulkDeleteRecordings).toHaveBeenCalledWith(
+                expect(res.body).toEqual([
+                    {
+                        sessionId: 'session-1',
+                        ok: true,
+                        status: 'deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'user@example.com',
+                    },
+                    {
+                        sessionId: 'session-2',
+                        ok: true,
+                        status: 'already_deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'original@example.com',
+                    },
+                    { sessionId: 'session-3', ok: false, status: 'delete_failed' },
+                ])
+                expect(mockService.deleteRecordings).toHaveBeenCalledWith(
                     ['session-1', 'session-2', 'session-3'],
-                    1
+                    1,
+                    'user@example.com'
                 )
             })
 
             it('should return 500 when service throws unexpected error', async () => {
-                mockService.bulkDeleteRecordings.mockRejectedValue(new Error('Unexpected error'))
+                mockService.deleteRecordings.mockRejectedValue(new Error('Unexpected error'))
 
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: ['session-1'] })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: ['session-1'], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(500)
-                expect(res.body).toEqual({ error: 'Failed to bulk delete recordings' })
-            })
-        })
-    })
-
-    describe('deleteRecording endpoint', () => {
-        let app: express.Application
-        let server: Server
-
-        beforeEach(async () => {
-            const recordingApi = new RecordingApi({} as RecordingApiHub)
-            await recordingApi.start(mockService)
-            app = express()
-            app.use('/', recordingApi.router())
-            server = app.listen(0, () => {})
-        })
-
-        afterEach(() => {
-            server.close()
-        })
-
-        describe('request parsing', () => {
-            it.each([
-                ['abc', 'non-numeric string'],
-                ['0', 'zero'],
-                ['-1', 'negative number'],
-            ])('should return 400 for invalid team_id: %s (%s)', async (teamId) => {
-                const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/session-123`)
-
-                expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'Invalid team_id parameter' })
-            })
-
-            it('should return 503 if service not initialized', async () => {
-                const uninitializedApi = new RecordingApi({} as RecordingApiHub)
-                const uninitializedApp = express()
-                uninitializedApp.use('/', uninitializedApi.router())
-                const uninitializedServer = uninitializedApp.listen(0, () => {})
-
-                try {
-                    const res = await supertest(uninitializedApp).delete('/api/projects/1/recordings/session-123')
-
-                    expect(res.status).toBe(503)
-                    expect(res.body).toEqual({ error: 'KeyStore not initialized' })
-                } finally {
-                    uninitializedServer.close()
-                }
-            })
-        })
-
-        describe('response serialization', () => {
-            it('should return success when key is deleted', async () => {
-                mockService.deleteRecording.mockResolvedValue({ ok: true, deletedAt: 1700000000 })
-
-                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
-
-                expect(res.status).toBe(200)
-                expect(res.body).toEqual({
-                    team_id: 1,
-                    session_id: 'session-123',
-                    status: 'deleted',
-                    deleted_at: 1700000000,
-                })
-            })
-
-            it('should return 500 when post-deletion cleanup fails', async () => {
-                mockService.deleteRecording.mockResolvedValue({
-                    ok: false,
-                    error: 'cleanup_failed',
-                    metadataError: new Error('Kafka error'),
-                    postgresError: undefined,
-                })
-
-                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
-
-                expect(res.status).toBe(500)
-                expect(res.body).toEqual({ error: 'Recording key deleted but post-deletion cleanup failed' })
-            })
-
-            it('should return 500 when service throws unexpected error', async () => {
-                mockService.deleteRecording.mockRejectedValue(new Error('Delete error'))
-
-                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
-
-                expect(res.status).toBe(500)
-                expect(res.body).toEqual({ error: 'Failed to delete recording key' })
+                expect(res.body).toEqual({ error: 'Failed to delete recordings' })
             })
         })
     })

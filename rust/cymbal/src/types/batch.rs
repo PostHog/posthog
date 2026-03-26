@@ -1,8 +1,11 @@
 use std::future::Future;
 
-use crate::types::{
-    operator::Operator,
-    stage::{Stage, StageResult},
+use crate::{
+    error::UnhandledError,
+    types::{
+        operator::Operator,
+        stage::{Stage, StageResult},
+    },
 };
 
 pub struct Batch<T>(Vec<T>);
@@ -40,6 +43,14 @@ impl<T> Batch<T> {
                 .map(|item| func(item, ctx))
                 .collect::<Vec<_>>(),
         )
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     pub fn filter_map<O>(self, func: impl FnMut(T) -> Option<O>) -> Batch<O> {
@@ -123,7 +134,13 @@ impl<T> Batch<T> {
     {
         async {
             let time = common_metrics::timing_guard(stage.name(), &[]);
+            let before_len = self.len();
+            let stage_name = stage.name();
             let res = stage.process(self).await?;
+            let after_len = res.len();
+            if before_len != after_len {
+                return Err(UnhandledError::Other(format!("Batch length mismatch while applying stage {stage_name}. before_len: {before_len}, after_len: {after_len}")));
+            }
             time.label("outcome", "success");
             Ok(res)
         }

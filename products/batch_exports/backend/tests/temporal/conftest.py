@@ -42,6 +42,8 @@ def clickhouse_create_db_and_tables():
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
     )
 
     database.create_database()  # Create database if it doesn't exist

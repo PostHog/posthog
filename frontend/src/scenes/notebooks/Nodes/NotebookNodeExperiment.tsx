@@ -6,11 +6,11 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getExperimentStatus, isExperimentPaused } from 'scenes/experiments/experimentsLogic'
+import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
 import { Info } from 'scenes/experiments/ExperimentView/Info'
 import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
-import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
@@ -21,7 +21,7 @@ import { INTEGER_REGEX_MATCH_GROUPS, OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from '
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, legacyPrimaryMetricsResults } =
+    const { experiment, experimentLoading, experimentMissing, isExperimentLaunched, legacyPrimaryMetricsResults } =
         useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded } = useValues(notebookNodeLogic)
@@ -59,7 +59,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag status={getExperimentStatus(experiment)} />
+                            <StatusTag
+                                status={getExperimentStatus(experiment)}
+                                isPaused={isExperimentPaused(experiment)}
+                            />
                             <ResultsTag />
                         </>
                     )}
@@ -81,7 +84,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 </div>
                             </>
                         )}
-                        {isExperimentRunning && (
+                        {isExperimentLaunched && (
                             <>
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">

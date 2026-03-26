@@ -9,11 +9,13 @@
  */
 /**
  * * `llm_judge` - LLM as a judge
+ * `hog` - Hog
  */
 export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
 
 export const EvaluationTypeEnumApi = {
-    llm_judge: 'llm_judge',
+    LlmJudge: 'llm_judge',
+    Hog: 'hog',
 } as const
 
 /**
@@ -22,7 +24,7 @@ export const EvaluationTypeEnumApi = {
 export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
 
 export const OutputTypeEnumApi = {
-    boolean: 'boolean',
+    Boolean: 'boolean',
 } as const
 
 /**
@@ -30,14 +32,16 @@ export const OutputTypeEnumApi = {
  * `anthropic` - Anthropic
  * `gemini` - Gemini
  * `openrouter` - Openrouter
+ * `fireworks` - Fireworks
  */
 export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
 
 export const ProviderEnumApi = {
-    openai: 'openai',
-    anthropic: 'anthropic',
-    gemini: 'gemini',
-    openrouter: 'openrouter',
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
 } as const
 
 /**
@@ -66,14 +70,14 @@ export interface ModelConfigurationApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -139,6 +143,48 @@ export interface PaginatedEvaluationListApi {
     results: EvaluationApi[]
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+
+export const AnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
+export interface ClusteringJobApi {
+    readonly id: string
+    /** @maxLength 100 */
+    name: string
+    analysis_level: AnalysisLevelEnumApi
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedClusteringJobListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ClusteringJobApi[]
+}
+
+export interface PatchedClusteringJobApi {
+    readonly id?: string
+    /** @maxLength 100 */
+    name?: string
+    analysis_level?: AnalysisLevelEnumApi
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 export type ClusteringRunRequestApiEventFiltersItem = { [key: string]: unknown }
 
 /**
@@ -149,8 +195,8 @@ export type EmbeddingNormalizationEnumApi =
     (typeof EmbeddingNormalizationEnumApi)[keyof typeof EmbeddingNormalizationEnumApi]
 
 export const EmbeddingNormalizationEnumApi = {
-    none: 'none',
-    l2: 'l2',
+    None: 'none',
+    L2: 'l2',
 } as const
 
 /**
@@ -162,9 +208,9 @@ export type DimensionalityReductionMethodEnumApi =
     (typeof DimensionalityReductionMethodEnumApi)[keyof typeof DimensionalityReductionMethodEnumApi]
 
 export const DimensionalityReductionMethodEnumApi = {
-    none: 'none',
-    umap: 'umap',
-    pca: 'pca',
+    None: 'none',
+    Umap: 'umap',
+    Pca: 'pca',
 } as const
 
 /**
@@ -174,8 +220,8 @@ export const DimensionalityReductionMethodEnumApi = {
 export type ClusteringMethodEnumApi = (typeof ClusteringMethodEnumApi)[keyof typeof ClusteringMethodEnumApi]
 
 export const ClusteringMethodEnumApi = {
-    hdbscan: 'hdbscan',
-    kmeans: 'kmeans',
+    Hdbscan: 'hdbscan',
+    Kmeans: 'kmeans',
 } as const
 
 /**
@@ -186,9 +232,9 @@ export const ClusteringMethodEnumApi = {
 export type VisualizationMethodEnumApi = (typeof VisualizationMethodEnumApi)[keyof typeof VisualizationMethodEnumApi]
 
 export const VisualizationMethodEnumApi = {
-    umap: 'umap',
-    pca: 'pca',
-    tsne: 'tsne',
+    Umap: 'umap',
+    Pca: 'pca',
+    Tsne: 'tsne',
 } as const
 
 /**
@@ -230,8 +276,8 @@ export interface ClusteringRunRequestApi {
 * `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
-     * Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)
-     * @minimum 0.05
+     * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
+     * @minimum 0.02
      * @maximum 0.5
      */
     min_cluster_size_fraction?: number
@@ -266,6 +312,11 @@ export interface ClusteringRunRequestApi {
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
+    /**
+     * If provided, use this clustering job's analysis_level and event_filters instead of request params
+     * @nullable
+     */
+    clustering_job_id?: string | null
 }
 
 /**
@@ -277,10 +328,10 @@ export interface ClusteringRunRequestApi {
 export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
 
 export const FilterEnumApi = {
-    all: 'all',
-    pass: 'pass',
-    fail: 'fail',
-    na: 'na',
+    All: 'all',
+    Pass: 'pass',
+    Fail: 'fail',
+    Na: 'na',
 } as const
 
 /**
@@ -337,10 +388,10 @@ export interface EvaluationSummaryResponseApi {
 export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
 
 export const LLMProviderKeyStateEnumApi = {
-    unknown: 'unknown',
-    ok: 'ok',
-    invalid: 'invalid',
-    error: 'error',
+    Unknown: 'unknown',
+    Ok: 'ok',
+    Invalid: 'invalid',
+    Error: 'error',
 } as const
 
 export interface LLMProviderKeyApi {
@@ -386,6 +437,284 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface ReviewQueueItemApi {
+    readonly id: string
+    /** Review queue ID that currently owns this pending trace. */
+    readonly queue_id: string
+    /** Human-readable name of the queue that currently owns this pending trace. */
+    readonly queue_name: string
+    /** Trace ID currently pending human review. */
+    readonly trace_id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who queued this trace. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueItemApi[]
+}
+
+export interface ReviewQueueItemCreateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id: string
+    /**
+     * Trace ID to add to the selected review queue.
+     * @maxLength 255
+     */
+    trace_id: string
+}
+
+export interface PatchedReviewQueueItemUpdateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id?: string
+}
+
+export interface ReviewQueueApi {
+    readonly id: string
+    /** Human-readable queue name. */
+    readonly name: string
+    /** Number of pending traces currently assigned to this queue. */
+    readonly pending_item_count: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who created this review queue. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueApi[]
+}
+
+export interface ReviewQueueCreateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface PatchedReviewQueueUpdateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name?: string
+}
+
+/**
+ * * `categorical` - categorical
+ * `numeric` - numeric
+ * `boolean` - boolean
+ */
+export type Kind01eEnumApi = (typeof Kind01eEnumApi)[keyof typeof Kind01eEnumApi]
+
+export const Kind01eEnumApi = {
+    Categorical: 'categorical',
+    Numeric: 'numeric',
+    Boolean: 'boolean',
+} as const
+
+export interface CategoricalScoreOptionApi {
+    /**
+     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Human-readable option label.
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * * `single` - single
+ * `multiple` - multiple
+ */
+export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
+
+export const SelectionModeEnumApi = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export interface CategoricalScoreDefinitionConfigApi {
+    /** Ordered categorical options available to the scorer. */
+    options: CategoricalScoreOptionApi[]
+    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+
+* `single` - single
+* `multiple` - multiple */
+    selection_mode?: SelectionModeEnumApi
+    /**
+     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    min_selections?: number | null
+    /**
+     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    max_selections?: number | null
+}
+
+export interface NumericScoreDefinitionConfigApi {
+    /**
+     * Optional inclusive minimum score.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Optional inclusive maximum score.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional increment step for numeric input, for example 1 or 0.5.
+     * @nullable
+     */
+    step?: number | null
+}
+
+export interface BooleanScoreDefinitionConfigApi {
+    /** Optional label for a true value. */
+    true_label?: string
+    /** Optional label for a false value. */
+    false_label?: string
+}
+
+export type ScoreDefinitionConfigApi =
+    | CategoricalScoreDefinitionConfigApi
+    | NumericScoreDefinitionConfigApi
+    | BooleanScoreDefinitionConfigApi
+
+export interface ScoreDefinitionApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly kind: Kind01eEnumApi
+    readonly archived: boolean
+    /** Current immutable configuration version number. */
+    readonly current_version: number
+    /** Current immutable scorer configuration. */
+    readonly config: ScoreDefinitionConfigApi
+    /** User who created the scorer. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly team: number
+}
+
+export interface PaginatedScoreDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScoreDefinitionApi[]
+}
+
+export interface ScoreDefinitionCreateApi {
+    /**
+     * Human-readable scorer name.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Optional human-readable description.
+     * @nullable
+     */
+    description?: string | null
+    /** Scorer kind. This cannot be changed after creation.
+
+* `categorical` - categorical
+* `numeric` - numeric
+* `boolean` - boolean */
+    kind: Kind01eEnumApi
+    /** New scorers are always created as active. */
+    archived?: boolean
+    /** Initial immutable scorer configuration. */
+    config: ScoreDefinitionConfigApi
+}
+
+export interface PatchedScoreDefinitionMetadataApi {
+    /**
+     * Updated scorer name.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Updated scorer description.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether the scorer is archived. */
+    archived?: boolean
+}
+
+export interface ScoreDefinitionNewVersionApi {
+    /** Next immutable scorer configuration. */
+    config: ScoreDefinitionConfigApi
+}
+
+export interface SentimentRequestApi {
+    /**
+     * @minItems 1
+     * @maxItems 5
+     */
+    ids: string[]
+    analysis_level?: AnalysisLevelEnumApi
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export type MessageSentimentApiScores = { [key: string]: number }
+
+export interface MessageSentimentApi {
+    label: string
+    score: number
+    scores: MessageSentimentApiScores
+}
+
+export type SentimentResultApiScores = { [key: string]: number }
+
+export type SentimentResultApiMessages = { [key: string]: MessageSentimentApi }
+
+export interface SentimentResultApi {
+    label: string
+    score: number
+    scores: SentimentResultApiScores
+    messages: SentimentResultApiMessages
+    message_count: number
+}
+
+export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultApi }
+
+export interface SentimentBatchResponseApi {
+    results: SentimentBatchResponseApiResults
+}
+
 /**
  * * `trace` - trace
  * `event` - event
@@ -393,8 +722,8 @@ export interface PatchedLLMProviderKeyApi {
 export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
 
 export const SummarizeTypeEnumApi = {
-    trace: 'trace',
-    event: 'event',
+    Trace: 'trace',
+    Event: 'event',
 } as const
 
 /**
@@ -404,8 +733,8 @@ export const SummarizeTypeEnumApi = {
 export type Mode02aEnumApi = (typeof Mode02aEnumApi)[keyof typeof Mode02aEnumApi]
 
 export const Mode02aEnumApi = {
-    minimal: 'minimal',
-    detailed: 'detailed',
+    Minimal: 'minimal',
+    Detailed: 'detailed',
 } as const
 
 export interface SummarizeRequestApi {
@@ -497,10 +826,10 @@ export interface BatchCheckResponseApi {
 export type EventTypeEnumApi = (typeof EventTypeEnumApi)[keyof typeof EventTypeEnumApi]
 
 export const EventTypeEnumApi = {
-    $ai_generation: '$ai_generation',
-    $ai_span: '$ai_span',
-    $ai_embedding: '$ai_embedding',
-    $ai_trace: '$ai_trace',
+    AiGeneration: '$ai_generation',
+    AiSpan: '$ai_span',
+    AiEmbedding: '$ai_embedding',
+    AiTrace: '$ai_trace',
 } as const
 
 export interface TextReprOptionsApi {
@@ -555,6 +884,210 @@ export interface TextReprResponseApi {
     text: string
     /** Metadata about the text representation */
     metadata: TextReprMetadataApi
+}
+
+export interface TraceReviewScoreApi {
+    readonly id: string
+    /** Stable scorer definition ID. */
+    readonly definition_id: string
+    /** Human-readable scorer name. */
+    readonly definition_name: string
+    /** Scorer kind for this saved score. */
+    readonly definition_kind: string
+    /** Whether the scorer is currently archived. */
+    readonly definition_archived: boolean
+    /** Immutable scorer version ID used to validate this score. */
+    readonly definition_version_id: string
+    /** Immutable scorer version number used to validate this score. */
+    readonly definition_version: number
+    /** Immutable scorer configuration snapshot used to validate this score. */
+    readonly definition_config: ScoreDefinitionConfigApi
+    /**
+     * Categorical option keys selected for this score.
+     * @nullable
+     */
+    readonly categorical_values: readonly string[] | null
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    readonly numeric_value: string | null
+    /** @nullable */
+    readonly boolean_value: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface TraceReviewApi {
+    readonly id: string
+    /** Trace ID for the review. */
+    readonly trace_id: string
+    /**
+     * Optional human comment or reasoning for the review.
+     * @nullable
+     */
+    readonly comment: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+    /** User who last saved this review. */
+    readonly reviewed_by: UserBasicApi
+    /** Saved scorer values for this review. */
+    readonly scores: readonly TraceReviewScoreApi[]
+    readonly team: number
+}
+
+export interface PaginatedTraceReviewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TraceReviewApi[]
+}
+
+export interface TraceReviewScoreWriteApi {
+    /** Stable scorer definition ID. */
+    definition_id: string
+    /**
+     * Optional immutable scorer version ID. Defaults to the scorer's current version.
+     * @nullable
+     */
+    definition_version_id?: string | null
+    /**
+     * Categorical option keys selected for this score.
+     * @minItems 1
+     * @nullable
+     */
+    categorical_values?: string[] | null
+    /**
+     * Numeric value selected for this score.
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    numeric_value?: string | null
+    /**
+     * Boolean value selected for this score.
+     * @nullable
+     */
+    boolean_value?: boolean | null
+}
+
+export interface TraceReviewCreateApi {
+    /**
+     * Trace ID for the review. Only one active review can exist per trace and team.
+     * @maxLength 255
+     */
+    trace_id: string
+    /**
+     * Optional human comment or reasoning for the review.
+     * @nullable
+     */
+    comment?: string | null
+    /** Full desired score set for this review. Omit scorers you want to leave blank. */
+    scores?: TraceReviewScoreWriteApi[]
+    /**
+     * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+     * @nullable
+     */
+    queue_id?: string | null
+}
+
+export interface PatchedTraceReviewUpdateApi {
+    /**
+     * Trace ID for the review. Only one active review can exist per trace and team.
+     * @maxLength 255
+     */
+    trace_id?: string
+    /**
+     * Optional human comment or reasoning for the review.
+     * @nullable
+     */
+    comment?: string | null
+    /** Full desired score set for this review. Omit scorers you want to leave blank. */
+    scores?: TraceReviewScoreWriteApi[]
+    /**
+     * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+     * @nullable
+     */
+    queue_id?: string | null
+}
+
+export interface LLMPromptApi {
+    readonly id: string
+    /**
+     * Unique prompt name using letters, numbers, hyphens, and underscores only.
+     * @maxLength 255
+     */
+    name: string
+    /** Prompt payload as JSON or string data. */
+    prompt: unknown
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+export interface PaginatedLLMPromptListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMPromptApi[]
+}
+
+export interface LLMPromptPublicApi {
+    id: string
+    name: string
+    prompt: unknown
+    version: number
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface PatchedLLMPromptPublishApi {
+    /** Prompt payload to publish as a new version. */
+    prompt?: unknown
+    /**
+     * Latest version you are editing from. Used for optimistic concurrency checks.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMPromptDuplicateApi {
+    /**
+     * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+     * @maxLength 255
+     */
+    new_name: string
+}
+
+export interface LLMPromptVersionSummaryApi {
+    readonly id: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly is_latest: boolean
+}
+
+export interface LLMPromptResolveResponseApi {
+    prompt: LLMPromptApi
+    versions: LLMPromptVersionSummaryApi[]
+    has_more: boolean
 }
 
 export interface DatasetItemApi {
@@ -688,23 +1221,23 @@ export type EvaluationsListParams = {
 * `name` - Name
 * `-name` - Name (descending)
  */
-    order_by?: EvaluationsListOrderByItem[]
+    order_by?: string[]
     /**
      * Search in name or description
      */
     search?: string
 }
 
-export type EvaluationsListOrderByItem = (typeof EvaluationsListOrderByItem)[keyof typeof EvaluationsListOrderByItem]
-
-export const EvaluationsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-name': '-name',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    name: 'name',
-    updated_at: 'updated_at',
-} as const
+export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
 
@@ -725,6 +1258,88 @@ export type LlmAnalyticsProviderKeysListParams = {
     offset?: number
 }
 
+export type LlmAnalyticsReviewQueueItemsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `created_at` or `updated_at`.
+     */
+    order_by?: string
+    /**
+     * Filter by a specific review queue ID.
+     */
+    queue_id?: string
+    /**
+     * Search pending trace IDs.
+     */
+    search?: string
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string
+}
+
+export type LlmAnalyticsReviewQueuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    name?: string
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `name`, `updated_at`, or `created_at`.
+     */
+    order_by?: string
+    /**
+     * Search review queue names.
+     */
+    search?: string
+}
+
+export type LlmAnalyticsScoreDefinitionsListParams = {
+    /**
+     * Filter by archived state.
+     */
+    archived?: boolean
+    /**
+     * Filter by scorer kind.
+     */
+    kind?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort by name, kind, created_at, updated_at, or current_version.
+     */
+    order_by?: string
+    /**
+     * Search scorers by name or description.
+     */
+    search?: string
+}
+
+export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown }
@@ -740,6 +1355,92 @@ export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
 export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
+
+export type LlmAnalyticsTraceReviewsListParams = {
+    /**
+     * Filter by a stable scorer definition ID.
+     */
+    definition_id?: string
+    /**
+     * Filter by multiple scorer definition IDs separated by commas.
+     */
+    definition_id__in?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `updated_at` or `created_at`.
+     */
+    order_by?: string
+    /**
+     * Search trace IDs and comments.
+     */
+    search?: string
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string
+}
+
+export type LlmPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string
+}
+
+export type LlmPromptsNameRetrieveParams = {
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmPromptsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string
+}
 
 export type DatasetItemsListParams = {
     /**
@@ -777,18 +1478,9 @@ export type DatasetsListParams = {
 * `updated_at` - Updated At
 * `-updated_at` - Updated At (descending)
  */
-    order_by?: DatasetsListOrderByItem[]
+    order_by?: string[]
     /**
      * Search in name, description, or metadata
      */
     search?: string
 }
-
-export type DatasetsListOrderByItem = (typeof DatasetsListOrderByItem)[keyof typeof DatasetsListOrderByItem]
-
-export const DatasetsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    updated_at: 'updated_at',
-} as const

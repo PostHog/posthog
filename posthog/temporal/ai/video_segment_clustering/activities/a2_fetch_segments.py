@@ -1,6 +1,8 @@
 """
 Activity 2 of the video segment clustering workflow:
 Fetch unprocessed video segments from ClickHouse.
+
+Stores result in object storage to avoid exceeding Temporal's 2 MB payload limit.
 """
 
 import json
@@ -11,11 +13,12 @@ from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering.models import (
     FetchSegmentsActivityInputs,
     FetchSegmentsResult,
-    VideoSegmentMetadata,
+    VideoSegment,
 )
+from posthog.temporal.ai.video_segment_clustering.object_storage import generate_storage_key, store_fetch_result
 from posthog.temporal.common.logger import get_logger
 
-from ..data import fetch_video_segment_metadata_rows
+from ..data import fetch_video_segment_rows_paginated
 
 logger = get_logger(__name__)
 
@@ -28,21 +31,25 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
     Uses a configurable lookback period (default 7 days) to ensure idempotent
     processing - segments are deduplicated at the Task and TaskReference level.
     """
+
     team = await Team.objects.aget(id=inputs.team_id)
-    video_segment_metadata_rows = await fetch_video_segment_metadata_rows(
+    video_segment_rows = await fetch_video_segment_rows_paginated(
         team=team,
         lookback_hours=inputs.lookback_hours,
     )
-    segments: list[VideoSegmentMetadata] = []
+    segments: list[VideoSegment] = []
+    parse_errors = 0
+    missing_metadata = 0
 
-    for row in video_segment_metadata_rows:
-        document_id, content, metadata_str, _timestamp_of_embedding = row
-        # Parse metadata JSON
+    for row in video_segment_rows:
+        document_id, content, metadata_str, embedding = row
         try:
+            # Parse metadata JSON
             metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
         except (json.JSONDecodeError, TypeError):
             # Being defensive to avoid a poison pill kind of situation
             logger.exception(f"Failed to parse metadata for document_id: {document_id}", metadata_str=metadata_str)
+            parse_errors += 1
             continue
 
         session_id = metadata.get("session_id")
@@ -64,10 +71,11 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
             or not session_active_seconds
         ):
             logger.error(f"Missing required metadata for document_id: {document_id}", metadata=metadata)
+            missing_metadata += 1
             continue
 
         segments.append(
-            VideoSegmentMetadata(
+            VideoSegment(
                 document_id=document_id,
                 session_id=session_id,
                 start_time=start_time,
@@ -78,7 +86,12 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
                 session_active_seconds=session_active_seconds,
                 distinct_id=distinct_id,
                 content=content,
+                embedding=embedding,
             )
         )
 
-    return FetchSegmentsResult(segments=segments)
+    distinct_ids = list({s.distinct_id for s in segments if s.distinct_id})
+    storage_key = generate_storage_key(inputs.team_id, activity.info().workflow_run_id, name="segments")
+    await store_fetch_result(storage_key, segments, distinct_ids)
+
+    return FetchSegmentsResult(storage_key=storage_key, document_count=len(segments))

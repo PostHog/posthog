@@ -13,7 +13,7 @@ import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
-export const CATEGORY_ORDER = ['Analytics', 'AI Analytics', 'Behavior', 'Features', 'Tools', 'Unreleased']
+export const CATEGORY_ORDER = ['Analytics', 'AI engineering', 'Behavior', 'Features', 'Tools', 'Unreleased']
 
 export function getCategoryOrder(category: string | undefined): number {
     if (!category) {
@@ -118,9 +118,12 @@ export function convertFileSystemEntryToTreeDataItem({
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
         const lastPart = pathSplit.pop()
-        const itemName = unescapePath(
-            lastPart ? (item.href?.includes('new') ? `New ${lastPart.toLowerCase()}` : lastPart) : 'Unnamed'
-        )
+        const itemName =
+            'displayLabel' in item && item.displayLabel
+                ? item.displayLabel
+                : unescapePath(
+                      lastPart ? (item.href?.includes('new') ? `New ${lastPart.toLowerCase()}` : lastPart) : 'Unnamed'
+                  )
         const nodeId = getItemId(item, root)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined

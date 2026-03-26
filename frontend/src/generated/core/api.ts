@@ -1,3 +1,4 @@
+import { apiMutator } from '../../lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,38 +8,33 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../lib/api-orval-mutator'
 import type {
-    AnnotationApi,
-    AnnotationsListParams,
     CommentApi,
     CommentsListParams,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DomainsListParams,
-    EnterpriseEventDefinitionApi,
     EnterprisePropertyDefinitionApi,
-    EventDefinitionApi,
-    EventDefinitionsByNameRetrieveParams,
-    EventDefinitionsListParams,
     ExportedAssetApi,
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
-    FlagValueValuesRetrieve200Item,
+    FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
+    GitHubBranchesResponseApi,
+    GitHubReposResponseApi,
     IntegrationApi,
+    IntegrationsGithubBranchesRetrieveParams,
     IntegrationsList2Params,
     InvitesListParams,
     List2Params,
     MembersListParams,
+    OauthApplicationsListParams,
     OrganizationDomainApi,
     OrganizationInviteApi,
     OrganizationMemberApi,
-    PaginatedAnnotationListApi,
     PaginatedCommentListApi,
     PaginatedDashboardTemplateListApi,
-    PaginatedEnterpriseEventDefinitionListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
@@ -46,15 +42,14 @@ import type {
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationMemberListApi,
+    PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedRoleListApi,
     PaginatedScheduledChangeListApi,
     PaginatedSubscriptionListApi,
     PaginatedUserListApi,
-    PatchedAnnotationApi,
     PatchedCommentApi,
     PatchedDashboardTemplateApi,
-    PatchedEnterpriseEventDefinitionApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedIntegrationApi,
@@ -403,6 +398,39 @@ export const membersScopedApiKeysRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * ViewSet for listing OAuth applications at the organization level (read-only).
+ */
+export const getOauthApplicationsListUrl = (organizationId: string, params?: OauthApplicationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/oauth_applications/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/oauth_applications/`
+}
+
+export const oauthApplicationsList = async (
+    organizationId: string,
+    params?: OauthApplicationsListParams,
+    options?: RequestInit
+): Promise<PaginatedOrganizationOAuthApplicationListApi> => {
+    return apiMutator<PaginatedOrganizationOAuthApplicationListApi>(
+        getOauthApplicationsListUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -814,130 +842,6 @@ export const rolesDestroy = async (organizationId: string, id: string, options?:
     })
 }
 
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsListUrl = (projectId: string, params?: AnnotationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/annotations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/annotations/`
-}
-
-export const annotationsList = async (
-    projectId: string,
-    params?: AnnotationsListParams,
-    options?: RequestInit
-): Promise<PaginatedAnnotationListApi> => {
-    return apiMutator<PaginatedAnnotationListApi>(getAnnotationsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/annotations/`
-}
-
-export const annotationsCreate = async (
-    projectId: string,
-    annotationApi: NonReadonly<AnnotationApi>,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(annotationApi),
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsUpdate = async (
-    projectId: string,
-    id: number,
-    annotationApi: NonReadonly<AnnotationApi>,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(annotationApi),
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedAnnotationApi: NonReadonly<PatchedAnnotationApi>,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedAnnotationApi),
-    })
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const getAnnotationsDestroyUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getAnnotationsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getCommentsListUrl = (projectId: string, params?: CommentsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1184,193 +1088,6 @@ export const getDashboardTemplatesJsonSchemaRetrieveUrl = (projectId: string) =>
 
 export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEventDefinitionsListUrl = (projectId: string, params?: EventDefinitionsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/event_definitions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/event_definitions/`
-}
-
-export const eventDefinitionsList = async (
-    projectId: string,
-    params?: EventDefinitionsListParams,
-    options?: RequestInit
-): Promise<PaginatedEnterpriseEventDefinitionListApi> => {
-    return apiMutator<PaginatedEnterpriseEventDefinitionListApi>(getEventDefinitionsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEventDefinitionsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/`
-}
-
-export const eventDefinitionsCreate = async (
-    projectId: string,
-    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
-    options?: RequestInit
-): Promise<EnterpriseEventDefinitionApi> => {
-    return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enterpriseEventDefinitionApi),
-    })
-}
-
-export const getEventDefinitionsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/event_definitions/${id}/`
-}
-
-export const eventDefinitionsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<EnterpriseEventDefinitionApi> => {
-    return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEventDefinitionsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/event_definitions/${id}/`
-}
-
-export const eventDefinitionsUpdate = async (
-    projectId: string,
-    id: string,
-    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
-    options?: RequestInit
-): Promise<EnterpriseEventDefinitionApi> => {
-    return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enterpriseEventDefinitionApi),
-    })
-}
-
-export const getEventDefinitionsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/event_definitions/${id}/`
-}
-
-export const eventDefinitionsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedEnterpriseEventDefinitionApi: NonReadonly<PatchedEnterpriseEventDefinitionApi>,
-    options?: RequestInit
-): Promise<EnterpriseEventDefinitionApi> => {
-    return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedEnterpriseEventDefinitionApi),
-    })
-}
-
-export const getEventDefinitionsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/event_definitions/${id}/`
-}
-
-export const eventDefinitionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getEventDefinitionsMetricsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/event_definitions/${id}/metrics/`
-}
-
-export const eventDefinitionsMetricsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsMetricsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Get event definition by exact name
- */
-export const getEventDefinitionsByNameRetrieveUrl = (
-    projectId: string,
-    params: EventDefinitionsByNameRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/event_definitions/by_name/?${stringifiedParams}`
-        : `/api/projects/${projectId}/event_definitions/by_name/`
-}
-
-export const eventDefinitionsByNameRetrieve = async (
-    projectId: string,
-    params: EventDefinitionsByNameRetrieveParams,
-    options?: RequestInit
-): Promise<EventDefinitionApi> => {
-    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEventDefinitionsGolangRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/golang/`
-}
-
-export const eventDefinitionsGolangRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsGolangRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/python/`
-}
-
-export const eventDefinitionsPythonRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsPythonRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEventDefinitionsTypescriptRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/typescript/`
-}
-
-export const eventDefinitionsTypescriptRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsTypescriptRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -1714,8 +1431,8 @@ export const flagValueValuesRetrieve = async (
     projectId: string,
     params?: FlagValueValuesRetrieveParams,
     options?: RequestInit
-): Promise<FlagValueValuesRetrieve200Item[]> => {
-    return apiMutator<FlagValueValuesRetrieve200Item[]>(getFlagValueValuesRetrieveUrl(projectId, params), {
+): Promise<FlagValueResponseApi> => {
+    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1960,6 +1677,38 @@ export const integrationsEmailVerifyCreate = async (
     })
 }
 
+export const getIntegrationsGithubBranchesRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubBranchesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_branches/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_branches/`
+}
+
+export const integrationsGithubBranchesRetrieve = async (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubBranchesRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubBranchesResponseApi> => {
+    return apiMutator<GitHubBranchesResponseApi>(getIntegrationsGithubBranchesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/github_repos/`
 }
@@ -1968,8 +1717,8 @@ export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+): Promise<GitHubReposResponseApi> => {
+    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

@@ -1,4 +1,5 @@
 // This should eventually be moved to a DB.
+// eslint-disable-next-line import/no-cycle
 import { PizzaSurveyOverlayComponent } from './PizzaSurveyOverlayComponent'
 
 export enum StoryType {

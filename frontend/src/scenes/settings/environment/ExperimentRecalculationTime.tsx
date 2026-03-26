@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
@@ -38,8 +38,9 @@ export function ExperimentRecalculationTime(): JSX.Element {
     const { currentTeam, currentTeamLoading, timezone: projectTimezone } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
     const handleChange = (value: string): void => {
@@ -55,7 +56,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
             value={currentLocalHour.toString()}
             onChange={handleChange}
             options={hourOptions}
-            disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
+            disabledReason={restrictedReason || (currentTeamLoading ? 'Loading...' : undefined)}
             data-attr="team-experiment-recalculation-time"
             placeholder="Select recalculation time"
         />

@@ -177,6 +177,34 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get(self.base_authorization_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_first_party_app_auto_approves_with_org_scoped_grant(self):
+        first_party_app = OAuthApplication.objects.create(
+            name="First Party App",
+            client_id="first_party_client_id",
+            client_secret="first_party_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_first_party=True,
+        )
+
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response["Location"]
+        self.assertIn("code=", location)
+
+        code = parse_qs(urlparse(location).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+
+        self.assertIn(self.team.pk, grant.scoped_teams)
+        self.assertIn(str(self.organization.id), grant.scoped_organizations)
+
     def test_authorize_missing_client_id(self):
         url = self.base_authorization_url
 
@@ -979,6 +1007,45 @@ class TestOAuthAPI(APIBaseTest):
 
             refresh_token = refresh_response.json()["refresh_token"]
 
+    def test_refresh_with_injected_code_does_not_escalate_scopes(self):
+        """A refresh request that includes a `code` parameter from a broader-scope
+        grant must NOT override the scopes inherited from the refresh token."""
+        # Step 1: authorize with team-scoped access
+        team_scoped_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": [self.team.id],
+        }
+        response = self.client.post("/oauth/authorize/", team_scoped_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        refresh_token = token_response.json()["refresh_token"]
+
+        # Step 2: create a separate "all" scoped grant (simulating a broader authorization)
+        all_scoped_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_teams": [],
+        }
+        response2 = self.client.post("/oauth/authorize/", all_scoped_data)
+        broad_code = response2.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        # Step 3: refresh the team-scoped token but inject the broad-scope code
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+            "code": broad_code,
+        }
+        refresh_response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+
+        new_access_token = refresh_response.json()["access_token"]
+        db_token = OAuthAccessToken.objects.get(token=new_access_token)
+        self.assertEqual(db_token.scoped_teams, [self.team.id])
+
     def test_revoked_refresh_token_invalidates_access_tokens(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -1161,6 +1228,7 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_userinfo_endpoint_with_expired_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -1943,6 +2011,7 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_with_json_payload(self):
         grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -2031,6 +2100,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["client_id"], "test_confidential_client_id")
+        self.assertEqual(data["client_name"], "Test Confidential App")
         self.assertIn("scoped_teams", data)
         self.assertIn("scoped_organizations", data)
 
@@ -2258,8 +2328,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
 
     @freeze_time("2025-01-01 00:00:00")
-    def test_self_introspection_with_expired_token_fails(self):
-        """An expired token cannot self-introspect."""
+    def test_self_introspection_with_expired_token_returns_inactive(self):
+        """An expired token can self-introspect and gets active: false per RFC 7662."""
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         access_token.expires = timezone.now() - timedelta(hours=1)
         access_token.save()
@@ -2270,7 +2340,22 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        # Falls back to standard behavior which requires introspection scope
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+
+    def test_self_introspection_with_revoked_token_fails(self):
+        """A revoked (deleted) token cannot self-introspect."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+        token_value = access_token.token
+        access_token.delete()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token_value},
+            headers={"Authorization": f"Bearer {token_value}"},
+        )
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_introspecting_different_token_still_requires_introspection_scope(self):
@@ -2302,6 +2387,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_dcr_client_gets_extended_token_expiry(self):
         self.public_application.is_dcr_client = True
         self.public_application.save()

@@ -6,7 +6,7 @@ from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -83,7 +84,7 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
-    logo_media_id = serializers.PrimaryKeyRelatedField(
+    logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
     default_role_id = serializers.CharField(
@@ -181,6 +182,7 @@ class OrganizationSerializer(
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
         return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
         return {
             "instance_tag": settings.INSTANCE_TAG,
@@ -222,6 +224,7 @@ class OrganizationSerializer(
                 )
         return value
 
+    @extend_schema_field(serializers.IntegerField())
     def get_member_count(self, organization: Organization):
         return (
             OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
@@ -336,6 +339,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         project_names = [team.name for team in teams]
         organization_id = organization.pk
         organization_name = organization.name
+
+        # the memberships need to be deleted synchronously so that the requesting user can delete their account if they want to
+        organization.memberships.all().delete()
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, org/team records, ClickHouse, email

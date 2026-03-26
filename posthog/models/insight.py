@@ -48,7 +48,8 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     query_metadata = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    saved = models.BooleanField(default=False)
+    # DEPRECATED: legacy field from a removed history feature. Retained to filter out old saved=False records.
+    saved = models.BooleanField(default=True)
     created_at = models.DateTimeField(null=True, blank=True, auto_now_add=True)
     refreshing = models.BooleanField(default=False)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -304,6 +305,20 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             return bool(self.filters.get("show_legend", False) if self.filters else False)
         except (AttributeError, TypeError, KeyError):
             return False
+
+    @property
+    def are_alerts_supported(self) -> bool:
+        from posthog.schema_migrations.upgrade_manager import upgrade_query
+
+        with upgrade_query(self):
+            query = self.query
+            if query is None:
+                return False
+            while query.get("source"):
+                query = query["source"]
+            if query.get("kind") != "TrendsQuery":
+                return False
+        return True
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

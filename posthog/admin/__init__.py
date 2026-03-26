@@ -13,7 +13,9 @@ def register_all_admin():
         DashboardAdmin,
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
+        DataDeletionRequestAdmin,
         DataWarehouseTableAdmin,
+        DuckgresServerAdmin,
         DuckLakeCatalogAdmin,
         EventIngestionRestrictionConfigAdmin,
         ExperimentAdmin,
@@ -21,6 +23,7 @@ def register_all_admin():
         ExternalDataSchemaAdmin,
         FeatureFlagAdmin,
         GroupTypeMappingAdmin,
+        HogFlowAdmin,
         HogFunctionAdmin,
         InsightAdmin,
         InstanceSettingAdmin,
@@ -51,19 +54,19 @@ def register_all_admin():
         Dashboard,
         DashboardTemplate,
         DataColorTheme,
+        DataDeletionRequest,
         DataWarehouseTable,
+        DuckgresServer,
         DuckLakeCatalog,
         EventIngestionRestrictionConfig,
-        Experiment,
-        ExperimentSavedMetric,
         ExportedAsset,
         FeatureFlag,
         GroupTypeMapping,
+        HogFlow,
         HogFunction,
         Insight,
         InstanceSetting,
         Integration,
-        Link,
         Organization,
         OrganizationDomain,
         OrganizationIntegration,
@@ -72,7 +75,6 @@ def register_all_admin():
         Plugin,
         PluginConfig,
         Project,
-        Survey,
         Team,
         Text,
         User,
@@ -82,10 +84,21 @@ def register_all_admin():
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
+    from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
+    from products.endpoints.backend.models import Endpoint, EndpointVersion
+    from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
+    from products.links.backend.models import Link
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
-    from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
-    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.surveys.backend.models import Survey
+    from products.tasks.backend.admin import (
+        CodeInviteAdmin,
+        CodeInviteRedemptionAdmin,
+        SandboxSnapshotAdmin,
+        TaskAdmin,
+        TaskRunAdmin,
+    )
+    from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
 
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
@@ -106,6 +119,7 @@ def register_all_admin():
     admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
     admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
+    admin.site.register(DataDeletionRequest, DataDeletionRequestAdmin)
     admin.site.register(InstanceSetting, InstanceSettingAdmin)
     admin.site.register(Integration, IntegrationAdmin)
     admin.site.register(PluginConfig, PluginConfigAdmin)
@@ -126,7 +140,9 @@ def register_all_admin():
 
     admin.site.register(ExternalDataSchema, ExternalDataSchemaAdmin)
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+    admin.site.register(DuckgresServer, DuckgresServerAdmin)
     admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
+    admin.site.register(HogFlow, HogFlowAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
     admin.site.register(Link, LinkAdmin)
@@ -138,8 +154,13 @@ def register_all_admin():
     admin.site.register(Task, TaskAdmin)
     admin.site.register(TaskRun, TaskRunAdmin)
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
+    admin.site.register(CodeInvite, CodeInviteAdmin)
+    admin.site.register(CodeInviteRedemption, CodeInviteRedemptionAdmin)
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
+
+    admin.site.register(Endpoint, EndpointAdmin)
+    admin.site.register(EndpointVersion, EndpointVersionAdmin)
 
     admin.site.register(SignalReport, SignalReportAdmin)
 

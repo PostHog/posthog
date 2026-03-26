@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import MaterializedColumnSlotState
-from posthog.models.property_definition import PropertyType
 from posthog.temporal.backfill_materialized_property.activities import (
     BackfillMaterializedColumnInputs,
     UpdateSlotStateInputs,
@@ -16,6 +15,8 @@ from posthog.temporal.backfill_materialized_property.activities import (
     backfill_materialized_column,
     update_slot_state,
 )
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 @pytest.mark.django_db(transaction=True)

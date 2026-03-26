@@ -9,20 +9,26 @@ from .create_snapshot.activities import (
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .process_task.activities import (
     cleanup_sandbox,
+    create_resume_snapshot,
     execute_task_in_sandbox,
+    forward_pending_user_message,
     get_sandbox_for_repository,
     get_task_processing_context,
     post_slack_update,
     read_sandbox_logs,
+    relay_sandbox_events,
+    send_followup_to_sandbox,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
 )
 from .process_task.workflow import ProcessTaskWorkflow
+from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
     ProcessTaskWorkflow,
     CreateSnapshotForRepositoryWorkflow,
+    PostHogCodeAgentRelayWorkflow,
 ]
 
 ACTIVITIES = [
@@ -30,12 +36,17 @@ ACTIVITIES = [
     get_task_processing_context,
     get_sandbox_for_repository,
     execute_task_in_sandbox,
+    forward_pending_user_message,
+    relay_sandbox_events,
+    create_resume_snapshot,
+    send_followup_to_sandbox,
     start_agent_server,
     read_sandbox_logs,
     cleanup_sandbox,
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
+    relay_slack_message,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,

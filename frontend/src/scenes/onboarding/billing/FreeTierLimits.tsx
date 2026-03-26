@@ -1,10 +1,8 @@
 import { useValues } from 'kea'
 
-import * as Icons from '@posthog/icons'
-
 import { billingLogic } from 'scenes/billing/billingLogic'
 
-import { availableOnboardingProducts } from '../utils'
+import { availableOnboardingProducts, getProductIcon } from '../utils'
 
 type FreeTierLimit = {
     title: string
@@ -23,11 +21,10 @@ const formatFreeTierLimit = (value: number): string => {
 }
 
 const FreeTierItem = ({ limit }: { limit: FreeTierLimit }): JSX.Element => {
-    const Icon = Icons[limit.icon as keyof typeof Icons]
     return (
         <div className="flex flex-col items-center w-36">
             <div className="flex gap-1 items-center">
-                <Icon className="w-6 h-6" color={limit.color} />
+                {getProductIcon(limit.icon, { iconColor: limit.color, className: 'w-6 h-6' })}
             </div>
             <strong className="text-[15px] text-center leading-none mt-2 mb-1">{limit.title}</strong>
             <div className="text-sm text-center text-success dark:text-green-400">

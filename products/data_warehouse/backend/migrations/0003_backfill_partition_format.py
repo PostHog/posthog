@@ -4,11 +4,9 @@
 from django.db import migrations
 from django.db.models import Q
 
-from products.data_warehouse.backend.models import ExternalDataSchema as ExternalDataSchemaModel
-
 
 def forwards(apps, _):
-    ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("data_warehouse", "ExternalDataSchema")
+    ExternalDataSchema = apps.get_model("data_warehouse", "ExternalDataSchema")
     # temporal io backfill partition format to day
     affected_temporalio = ExternalDataSchema.objects.filter(
         Q(source__source_type="TemporalIO")
@@ -50,7 +48,7 @@ def forwards(apps, _):
 
 
 def backwards(apps, _):
-    ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("data_warehouse", "ExternalDataSchema")
+    ExternalDataSchema = apps.get_model("data_warehouse", "ExternalDataSchema")
     affected = ExternalDataSchema.objects.filter(Q(sync_type_config__backfilled=True))
     for schema in affected:
         schema.sync_type_config.pop("partition_format", None)

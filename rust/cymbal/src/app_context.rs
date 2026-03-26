@@ -17,8 +17,10 @@ use uuid::Uuid;
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
+    signals::{MaybeSignalClient, SignalClient},
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
+        apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
         concurrency,
@@ -55,6 +57,7 @@ pub struct AppContext {
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
+    pub signal_client: MaybeSignalClient,
 }
 
 impl AppContext {
@@ -183,8 +186,9 @@ impl AppContext {
             posthog_pool.clone(),
             config.object_storage_bucket.clone(),
         );
-        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
         // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
+        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
+        let hmp_atmostonce = concurrency::AtMostOne::new(hmp_caching);
 
         let pgp_chunk = ChunkIdFetcher::new(
             ProguardProvider {},
@@ -193,16 +197,29 @@ impl AppContext {
             config.object_storage_bucket.clone(),
         );
         let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
+        let pgp_atmostonce = concurrency::AtMostOne::new(pgp_caching);
+
+        let apple_chunk = ChunkIdFetcher::new(
+            AppleProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let apple_caching = Caching::new(apple_chunk, ss_cache.clone());
+        let apple_atmostonce = concurrency::AtMostOne::new(apple_caching);
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Arc::new(Catalog::new(smp_atmostonce, hmp_caching, pgp_caching));
-
+        let catalog = Arc::new(Catalog::new(
+            smp_atmostonce,
+            hmp_atmostonce,
+            pgp_atmostonce,
+            apple_atmostonce,
+        ));
         let team_manager = TeamManager::new(config);
-
         let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
 
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,
@@ -229,6 +246,16 @@ impl AppContext {
             _ => panic!("Invalid filter mode"),
         };
 
+        let signal_client = if config.signals_api_base_url.is_empty() {
+            MaybeSignalClient::disabled()
+        } else {
+            info!(
+                "Signal emission enabled, base_url={}",
+                config.signals_api_base_url
+            );
+            MaybeSignalClient::enabled(SignalClient::new(config))
+        };
+
         let symbol_resolver = Arc::new(LocalSymbolResolver::new(
             config,
             catalog.clone(),
@@ -251,6 +278,7 @@ impl AppContext {
             issue_buckets_redis_client,
             filtered_teams,
             filter_mode,
+            signal_client,
             symbol_resolver,
         })
     }

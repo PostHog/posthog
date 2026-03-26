@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -40,6 +40,7 @@ export function FunnelLineGraph({
         insightData,
         showValuesOnSeries,
         funnelsFilter,
+        labelGroupType,
     } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -49,7 +50,6 @@ export function FunnelLineGraph({
     }
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
-    const aggregationGroupTypeIndex = querySource.aggregation_group_type_index
 
     return (
         <LineGraphWrapper inCardView={inCardView}>
@@ -87,7 +87,7 @@ export function FunnelLineGraph({
                     },
                 }}
                 trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
-                labelGroupType={aggregationGroupTypeIndex ?? 'people'}
+                labelGroupType={labelGroupType}
                 incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
                 onClick={
                     !showPersonsModal

@@ -1,5 +1,39 @@
 # posthog-cli
 
+# 0.7.4
+
+- fix: create per-UUID ZIP for dSYM uploads
+
+# 0.7.3
+
+- feat: enable symbol set compression
+- fix: fix process command reading from stdin
+
+# 0.7.2
+
+- feat: allow reading files and directories from stdin
+
+# 0.7.1
+
+- feat: track upload started and upload finished events
+
+# 0.7.0
+
+- feat: promote dsym, hermes, and proguard commands from experimental to top-level
+- feat: keep backward-compat aliases under `exp` (hidden from help)
+
+# 0.6.2
+
+- fix: endpoints now save to YAML with proper newlines
+
+# 0.6.1
+
+- chore: bump `cargo-dist` version
+
+# 0.6.0
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
 # 0.5.30
 
 - Add experimental dSYM upload for iOS/macOS crash symbolication

@@ -20,6 +20,7 @@ const RegionMap = lazy(() => import('scenes/insights/views/RegionMap').then((m) 
 const TrendsCalendarHeatMap = lazy(() =>
     import('scenes/insights/views/CalendarHeatMap').then((m) => ({ default: m.TrendsCalendarHeatMap }))
 )
+const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
 
 interface Props {
     view: InsightType
@@ -51,7 +52,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsLineGraph
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -61,7 +62,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <BoldNumber
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -83,7 +84,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsPie
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -93,7 +94,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsHorizontalBar
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -111,7 +112,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                     <RegionMap
                         showPersonsModal={showPersonsModal}
                         context={context}
-                        inCardView={embedded}
+                        inCardView={embedded && !inSharedMode}
                         inSharedMode={inSharedMode}
                     />
                 )
@@ -121,7 +122,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <WorldMap
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -129,6 +130,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         if (display === ChartDisplayType.CalendarHeatmap) {
             return (
                 <TrendsCalendarHeatMap
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded && !inSharedMode}
+                    inSharedMode={inSharedMode}
+                />
+            )
+        }
+        if (display === ChartDisplayType.BoxPlot) {
+            return (
+                <BoxPlotChart
                     showPersonsModal={showPersonsModal}
                     context={context}
                     inCardView={embedded}
@@ -148,6 +159,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             {!embedded &&
                 display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 display !== ChartDisplayType.CalendarHeatmap && // the heatmap doesn't need this cta
+                display !== ChartDisplayType.BoxPlot && // box plot doesn't support breakdowns
                 breakdownFilter &&
                 hasBreakdownMore && (
                     <div className="p-4">

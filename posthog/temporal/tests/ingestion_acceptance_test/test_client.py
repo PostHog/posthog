@@ -49,7 +49,7 @@ class TestCaptureEvent:
         mock_posthog_sdk.capture.assert_called_once_with(
             distinct_id="user_123",
             event="test_event",
-            properties=properties,
+            properties={"$ignore_sent_at": True, **properties},
             uuid=event_uuid,
         )
 
@@ -57,7 +57,7 @@ class TestCaptureEvent:
         client.capture_event(event_name="test_event", distinct_id="user_123")
 
         call_kwargs = mock_posthog_sdk.capture.call_args[1]
-        assert call_kwargs["properties"] == {}
+        assert call_kwargs["properties"] == {"$ignore_sent_at": True}
 
 
 class TestFetchEventByUuid:
@@ -72,7 +72,10 @@ class TestFetchEventByUuid:
             call_kwargs = mock_post.call_args[1]
 
             assert call_kwargs["headers"] == {"Authorization": "Bearer phx_personal_key"}
-            assert call_kwargs["timeout"] == PostHogClient.HTTP_TIMEOUT_SECONDS
+            assert call_kwargs["timeout"] == (
+                PostHogClient.HTTP_CONNECT_TIMEOUT_SECONDS,
+                PostHogClient.HTTP_READ_TIMEOUT_SECONDS,
+            )
 
             request_body = call_kwargs["json"]
             assert request_body["query"]["kind"] == "HogQLQuery"
@@ -359,7 +362,7 @@ class TestTimestampFiltering:
             mock_post.return_value.status_code = 200
             mock_post.return_value.json.return_value = {"results": [], "columns": []}
 
-            client._fetch_events_by_person_id("test-person-id", expected_count=1)
+            client._fetch_events_by_person_id("test-person-id", expected_event_uuids={"some-uuid"})
 
             mock_post.assert_called_once()
             call_kwargs = mock_post.call_args[1]

@@ -1,0 +1,33 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Activity logs
+feature: activity_logs
+url_prefix: /activity
+tools:
+    activity-logs-list:
+        operation: activity_log_list
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List activity logs
+        description: >
+            List recent activity logs for the project. Shows who changed what and when —
+            includes feature flag updates, insight creations, dashboard modifications,
+            experiment launches, and other project changes. Use scope parameter to filter
+            by resource type (e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment",
+            "Survey", "Cohort"). Use item_id to filter changes for a specific resource.
+            Returns results ordered by most recent first. Each result includes: user (who
+            performed the action with first_name and email), activity (e.g. "created",
+            "updated", "deleted"), scope (entity type like "FeatureFlag"), item_id (ID of
+            the affected resource), detail (structured JSON with name, short_id, and a
+            changes array where each change has type, action, field, before, and after
+            values), and created_at timestamp.

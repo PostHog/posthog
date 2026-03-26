@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import math
+import datetime
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -13,6 +14,7 @@ import pyarrow as pa
 import pymysql
 import pymysql.converters
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
@@ -32,25 +34,73 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
-def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def _safe_convert_date(obj: Any) -> datetime.date | None:
+    """Convert MySQL date, returning None for invalid dates like '0000-00-00'."""
+    if isinstance(obj, (bytes, bytearray)):
+        obj = obj.decode("utf-8")
+    try:
+        parts = obj.split("-", 2)
+        return datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, IndexError, AttributeError):
+        return None
+
+
+def _safe_convert_datetime(obj: Any) -> datetime.datetime | None:
+    """Convert MySQL datetime/timestamp, returning None for invalid values like '0000-00-00 00:00:00'."""
+    if isinstance(obj, (bytes, bytearray)):
+        obj = obj.decode("utf-8")
+    try:
+        date_part, time_part = obj.split(" ", 1)
+        date_values = [int(x) for x in date_part.split("-", 2)]
+        time_parts = time_part.split(":", 2)
+        hours = int(time_parts[0])
+        minutes = int(time_parts[1])
+        # Handle optional microseconds
+        sec_parts = time_parts[2].split(".", 1)
+        seconds = int(sec_parts[0])
+        microseconds = int(sec_parts[1].ljust(6, "0")) if len(sec_parts) > 1 else 0
+        return datetime.datetime(date_values[0], date_values[1], date_values[2], hours, minutes, seconds, microseconds)
+    except (ValueError, IndexError, AttributeError):
+        return None
+
+
+# Custom conversions that return None for MySQL zero dates instead of raw strings
+_MYSQL_SAFE_CONVERSIONS: dict[type[object] | int, Any] = {
+    **pymysql.converters.conversions,
+    FIELD_TYPE.DATE: _safe_convert_date,
+    FIELD_TYPE.DATETIME: _safe_convert_datetime,
+    FIELD_TYPE.TIMESTAMP: _safe_convert_datetime,
+}
+
+
+def filter_mysql_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "datetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
         elif type == "tinyint" or type == "smallint" or type == "mediumint" or type == "int" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
 
 def get_schemas(
-    host: str, user: str, password: str, database: str, schema: str, port: int, using_ssl: bool = True
-) -> dict[str, list[tuple[str, str]]]:
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    port: int,
+    using_ssl: bool = True,
+    names: list[str] | None = None,
+) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from MySQL source schemas to sync."""
 
     ssl_ca: str | None = None
@@ -64,20 +114,29 @@ def get_schemas(
         database=database,
         user=user,
         password=password,
-        connect_timeout=5,
+        connect_timeout=10,
         ssl_ca=ssl_ca,
     )
 
     with connection.cursor() as cursor:
+        params: dict = {"schema": schema}
+        names_filter = ""
+        if names:
+            params["names"] = tuple(names)
+            names_filter = "AND table_name IN %(names)s"
+
         cursor.execute(
-            "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-            {"schema": schema},
+            "SELECT table_name, column_name, data_type, is_nullable"
+            " FROM information_schema.columns"
+            f" WHERE table_schema = %(schema)s {names_filter}"
+            " ORDER BY table_name ASC",
+            params,
         )
         result = cursor.fetchall()
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
-            schema_list[row[0]].append((row[1], row[2]))
+            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 
@@ -153,7 +212,11 @@ def _get_rows_to_sync(
 
 
 def _get_partition_settings(
-    cursor: Cursor, schema: str, table_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 ) -> PartitionSettings | None:
     """Get partition settings for given MySQL table.
 
@@ -181,6 +244,8 @@ def _get_partition_settings(
         table_name_identifier=pymysql.converters.escape_string(table_name),
     )
 
+    logger.debug(f"_get_partition_settings: running query {query}")
+
     cursor.execute(
         query,
         {
@@ -190,11 +255,15 @@ def _get_partition_settings(
     )
     result = cursor.fetchone()
     if result is None:
+        logger.debug("_get_partition_settings: no results returning None")
         return None
 
     table_size, row_count = result
 
     if table_size is None or row_count is None or row_count == 0:
+        logger.debug(
+            "_get_partition_settings: table_size is None or row_count is None or row_count == 0. returning None"
+        )
         return None
 
     avg_row_size = table_size / row_count
@@ -203,8 +272,10 @@ def _get_partition_settings(
     partition_count = math.floor(row_count / partition_size)
 
     if partition_count == 0:
+        logger.debug(f"_get_partition_settings: partition_count == 0, returning partition_size={partition_size}")
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
+    logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
@@ -294,9 +365,13 @@ class MySQLColumn(Column):
             case "varchar" | "char" | "text" | "mediumtext" | "longtext":
                 arrow_type = pa.string()
             case "date":
+                # MySQL allows zero dates ('0000-00-00') which become None,
+                # so date columns must always be nullable in the Arrow schema
                 arrow_type = pa.date32()
+                return pa.field(self.name, arrow_type, nullable=True)
             case "datetime" | "timestamp":
                 arrow_type = pa.timestamp("us")
+                return pa.field(self.name, arrow_type, nullable=True)
             case "time":
                 arrow_type = pa.time64("us")
             case "boolean" | "bool":
@@ -497,8 +572,9 @@ def mysql_source(
             database=database,
             user=user,
             password=password,
-            connect_timeout=5,
+            connect_timeout=10,
             ssl_ca=ssl_ca,
+            conv=_MYSQL_SAFE_CONVERSIONS,
         ) as connection:
             with connection.cursor() as cursor:
                 inner_query, inner_query_args = _build_query(
@@ -525,7 +601,9 @@ def mysql_source(
                     logger,
                 )
                 partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                    _get_partition_settings(cursor, schema, table_name, logger)
+                    if should_use_incremental_field
+                    else None
                 )
 
                 # Fallback on checking for an `id` field on the table
@@ -545,9 +623,10 @@ def mysql_source(
                 database=database,
                 user=user,
                 password=password,
-                connect_timeout=5,
+                connect_timeout=10,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
+                conv=_MYSQL_SAFE_CONVERSIONS,
             ) as connection:
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(

@@ -7,6 +7,7 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
+    AnyDataWarehouseNode,
     AnyEntityNode,
     CachedNewExperimentQueryResponse,
     EventsNode,
@@ -44,7 +45,16 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
+
+export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
+    return variants.filter(
+        (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_WARNING_THRESHOLD
+    )
+}
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
     return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
@@ -113,7 +123,7 @@ export function transformFiltersForWinningVariant(
 }
 
 function seriesToFilterLegacy(
-    series: AnyEntityNode | GroupNode,
+    series: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue | null {
@@ -818,6 +828,12 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         return null
     }
 
+    // Data warehouse tables don't support test account filters — those filters
+    // reference the events table (e.g. events.properties.*), which doesn't exist
+    // on a DW table and causes "Unable to resolve field: events". This matches
+    // product analytics behavior, where the toggle is disabled for DW sources.
+    const isDWQuery = series.some((s) => s.kind === NodeKind.DataWarehouseNode)
+
     return {
         kind: NodeKind.TrendsQuery,
         series,
@@ -831,7 +847,7 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
             explicitDate: false,
         },
         interval: 'day',
-        filterTestAccounts,
+        filterTestAccounts: isDWQuery ? false : filterTestAccounts,
     }
 }
 

@@ -5,7 +5,6 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { PluginsServerConfig } from '../types'
 import { isTestEnv } from './env-utils'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
@@ -36,7 +35,7 @@ export class GeoIPService {
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
 
-    constructor(private config: PluginsServerConfig) {
+    constructor(private mmdbFileLocation: string) {
         logger.info('🌎', 'GeoIPService created')
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead
@@ -66,7 +65,7 @@ export class GeoIPService {
 
     private async loadMmdb(reason: string): Promise<ReaderModel | undefined> {
         logger.info('🌎', 'Loading MMDB from disk...', {
-            location: this.config.MMDB_FILE_LOCATION,
+            location: this.mmdbFileLocation,
         })
 
         try {
@@ -76,12 +75,12 @@ export class GeoIPService {
                     key: 'geoip_load_mmdb',
                     logExecutionTime: true,
                 },
-                async () => await Reader.open(this.config.MMDB_FILE_LOCATION)
+                async () => await Reader.open(this.mmdbFileLocation)
             )
         } catch (e) {
             logger.warn('🌎', 'Loading MMDB from disk failed, GeoIP lookups will be disabled', {
                 error: e.message,
-                location: this.config.MMDB_FILE_LOCATION,
+                location: this.mmdbFileLocation,
             })
             return undefined
         }
@@ -89,11 +88,11 @@ export class GeoIPService {
 
     private async loadMmdbMetadata(): Promise<MmdbMetadata | undefined> {
         try {
-            return parseJSON(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
+            return parseJSON(await fs.readFile(this.mmdbFileLocation.replace('.mmdb', '.json'), 'utf8'))
         } catch (e) {
             logger.warn('🌎', 'Error loading MMDB metadata', {
                 error: e.message,
-                location: this.config.MMDB_FILE_LOCATION,
+                location: this.mmdbFileLocation,
             })
             // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
             return undefined

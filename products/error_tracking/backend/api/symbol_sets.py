@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
@@ -42,6 +43,7 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
         fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason", "release"]
         read_only_fields = ["team_id"]
 
+    @extend_schema_field(serializers.DictField(allow_null=True, help_text="Release associated with this symbol set"))
     def get_release(self, obj):
         from products.error_tracking.backend.api.releases import ErrorTrackingReleaseSerializer
 
@@ -112,6 +114,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.storage_ptr = storage_ptr
         symbol_set.content_hash = content_hash
         symbol_set.failure_reason = None
+        symbol_set.last_used = timezone.now()
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -227,6 +230,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         if not symbol_set.content_hash:
             symbol_set.content_hash = content_hash
+            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
@@ -262,7 +266,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team)
+        chunk_id_url_map = bulk_create_symbol_sets(
+            symbol_sets, self.team, distinct_id=str(request.user.pk) if request.user.pk else None
+        )
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
@@ -286,9 +292,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
+        file_count = len(content_hashes)
         symbol_set_ids = content_hashes.keys()
         symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids)
 
+        total_file_size = 0
         try:
             for symbol_set in symbol_sets:
                 s3_upload = None
@@ -297,6 +305,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 if s3_upload:
                     content_length = s3_upload.get("ContentLength")
+                    if content_length:
+                        total_file_size += content_length
 
                     if not content_length or content_length > ONE_HUNDRED_MEGABYTES:
                         symbol_set.delete()
@@ -313,8 +323,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 content_hash = content_hashes[str(symbol_set.id)]
                 symbol_set.content_hash = content_hash
-            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
-        except Exception:
+                symbol_set.last_used = timezone.now()
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash", "last_used"])
+        except Exception as e:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
                 try:
@@ -323,10 +334,25 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 except Exception:
                     pass
 
+            posthoganalytics.capture(
+                "error_tracking_symbol_set_uploaded",
+                properties={
+                    "file_size": total_file_size,
+                    "success": False,
+                    "file_count": file_count,
+                    "failure_reason": type(e).__name__,
+                },
+                groups=groups(self.team.organization, self.team),
+            )
             raise
 
-        _ = posthoganalytics.capture(
+        posthoganalytics.capture(
             "error_tracking_symbol_set_uploaded",
+            properties={
+                "file_size": total_file_size,
+                "success": True,
+                "file_count": file_count,
+            },
             groups=groups(self.team.organization, self.team),
         )
 
@@ -353,6 +379,7 @@ def create_symbol_set(
                 raise ValidationError(f"Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
+            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         except ErrorTrackingSymbolSet.DoesNotExist:
@@ -362,6 +389,7 @@ def create_symbol_set(
                 release=release,
                 storage_ptr=storage_ptr,
                 content_hash=content_hash,
+                last_used=timezone.now(),
             )
 
         # Delete any existing frames associated with this symbol set
@@ -374,7 +402,18 @@ def create_symbol_set(
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
+    distinct_id: str | None = None,
 ) -> dict[str, dict[str, str]]:
+    accelerate = bool(
+        distinct_id
+        and posthoganalytics.feature_enabled(
+            "error-tracking-s3-accelerate",
+            distinct_id,
+            groups={"organization": str(team.organization.id)},
+            send_feature_flag_events=False,
+        )
+    )
+
     chunk_ids = [x.chunk_id for x in new_symbol_sets]
 
     # Check for dupes
@@ -406,7 +445,7 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
             id_url_map[chunk_id] = {"presigned_url": presigned_url}
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
@@ -416,6 +455,7 @@ def bulk_create_symbol_sets(
                 ref=chunk_id,
                 storage_ptr=storage_ptr,
                 release_id=new_symbol_set_map[chunk_id].release_id,
+                last_used=timezone.now(),
             )
             symbol_sets_to_be_created.append(to_create)
 
@@ -458,7 +498,7 @@ def bulk_create_symbol_sets(
                 # If the existing set doesn't have a content hash, we can set it up for an upload, and return it
                 # so the CLI will send the data to s3
                 storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
                 id_url_map[existing.ref] = {
                     "presigned_url": presigned_url,
                     "symbol_set_id": str(existing.id),
@@ -524,7 +564,13 @@ def generate_symbol_set_file_key():
     return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
 
 
-def generate_symbol_set_upload_presigned_url(file_key: str):
+def generate_symbol_set_upload_presigned_url(file_key: str, *, accelerate: bool = False):
+    if accelerate:
+        return object_storage.get_accelerated_presigned_post(
+            file_key=file_key,
+            conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+            expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+        )
     return object_storage.get_presigned_post(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],

@@ -110,7 +110,7 @@ describe('LogsIngestionConsumer', () => {
     let logMessageDroppedCounterSpy: jest.SpyInstance
 
     const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
-        const consumer = new LogsIngestionConsumer(hub, overrides)
+        const consumer = new LogsIngestionConsumer(hub, hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         consumer['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -138,9 +138,9 @@ describe('LogsIngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
         consumer = await createLogsIngestionConsumer(hub)
 

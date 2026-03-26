@@ -8,8 +8,9 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models import Node
 from products.data_warehouse.backend.models import DataModelingJob
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 
-from .utils import update_node_system_properties
+from .utils import strip_hostname_from_error, update_node_system_properties
 
 LOGGER = get_logger(__name__)
 
@@ -21,25 +22,38 @@ class FailMaterializationInputs:
     dag_id: str
     job_id: str
     error: str
+    cancelled: bool = False
+    update_node: bool = True
 
 
 @database_sync_to_async
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
-    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id)
-    update_node_system_properties(
-        node,
-        status="failed",
-        job_id=inputs.job_id,
-        error=inputs.error,
-    )
-    node.save()
+    # strip hostnames from error for user-facing storage while preserving original for logging
+    sanitized_error = strip_hostname_from_error(inputs.error)
+
+    node = None
+    if inputs.update_node:
+        node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+        status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+        update_node_system_properties(
+            node,
+            status=status,
+            job_id=inputs.job_id,
+            error=sanitized_error,
+        )
+        node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    job.status = DataModelingJob.Status.FAILED
-    job.error = inputs.error
+
+    # if the job is already in a terminal state, don't overwrite it — preserves the first error
+    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+        return node, job
+
+    job.status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+    job.error = sanitized_error
     job.save()
 
-    if job.saved_query_id:
+    if inputs.update_node and job.saved_query_id:
         try:
             from posthog.tasks.email import send_saved_query_materialization_failure
 
@@ -59,6 +73,6 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     node, job = await _fail_node_and_data_modeling_job(inputs)
 
     await logger.aerror(
-        f"Failed materialization job: node={node.id} dag={inputs.dag_id} job={job.id} "
+        f"Failed materialization job: node={inputs.node_id} dag={inputs.dag_id} job={job.id} "
         f"workflow={job.workflow_id} workflow_run={job.workflow_run_id} error={inputs.error}"
     )

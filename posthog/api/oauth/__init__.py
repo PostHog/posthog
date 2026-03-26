@@ -2,6 +2,8 @@
 from posthog.api.oauth.application import (
     OAuthApplicationPublicMetadataSerializer,
     OAuthApplicationPublicMetadataViewSet,
+    OrganizationOAuthApplicationSerializer,
+    OrganizationOAuthApplicationViewSet,
 )
 from posthog.api.oauth.dcr import (
     DCRBurstThrottle,
@@ -42,4 +44,6 @@ __all__ = [
     # application
     "OAuthApplicationPublicMetadataSerializer",
     "OAuthApplicationPublicMetadataViewSet",
+    "OrganizationOAuthApplicationSerializer",
+    "OrganizationOAuthApplicationViewSet",
 ]

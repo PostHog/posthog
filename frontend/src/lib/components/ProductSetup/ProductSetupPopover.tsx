@@ -7,6 +7,7 @@ import { IconCheck, IconExternal, IconLock, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -19,7 +20,7 @@ import { ActivationTaskStatus } from '~/types'
 import { globalSetupLogic } from './globalSetupLogic'
 import { productSetupLogic } from './productSetupLogic'
 import { PRODUCTS_WITH_SETUP, getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
-import type { SetupTaskId, SetupTaskWithState } from './types'
+import type { SetupTaskWithState } from './types'
 
 // Build maps from ProductKey to category and href for sorting and navigation
 const productCategoryMap: Partial<Record<ProductKey, string>> = {}

@@ -26,6 +26,8 @@ We also have a growing collection of Rust services that handle performance-criti
 - property-defs-rs – extracts and infers property definitions from events
 - hook services – manages webhooks with high performance
 - hogvm – evaluates HogQL bytecode via a stack machine implementation
+- personhog-replica – serves person data over gRPC, backed by PostgreSQL
+- personhog-router – routes person data requests to replica instances via gRPC
 
 These components rely on a few external services:
 
@@ -39,7 +41,7 @@ These components rely on a few external services:
 When spinning up an instance of PostHog for development, we recommend the following hybrid configuration:
 
 - External services (ClickHouse, Kafka, PostgreSQL, Redis, etc.) run in Docker via `docker compose`
-- PostHog apps (Django, frontend, plugin-server, Celery) run on the host using `hogli start` (which uses mprocs, a terminal UI, to manage and display logs from all processes simultaneously)
+- PostHog apps (Django, frontend, plugin-server, Celery) run on the host using `hogli start` (which uses phrocs, a terminal UI, to manage and display logs from all processes simultaneously)
 
 This approach gives you fast iteration on the code you're developing while keeping infrastructure isolated.
 
@@ -52,7 +54,7 @@ For other Linux distros, adjust the steps as needed (e.g. use `dnf` or `pacman` 
 
 Windows isn't supported natively. But, Windows users can run a Linux virtual machine. The latest Ubuntu LTS Desktop is recommended. (Ubuntu Server is not recommended as debugging the frontend will require a browser that can access localhost.)
 
-In case some steps here have fallen out of date, please tell us about it – feel free to [submit a patch](https://github.com/PostHog/posthog.com/blob/master/contents/handbook/engineering/developing-locally.md)!
+In case some steps here have fallen out of date, please tell us about it – feel free to [submit a patch](https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/developing-locally.md)!
 
 ## Option 1: Developing locally
 
@@ -132,7 +134,7 @@ To get PostHog running in a dev environment:
 
    > Note on app dependencies: Python requirements get updated every time the environment is activated (`uv sync` is lightning fast). JS dependencies only get installed if `node_modules/` is not present (`pnpm install` still takes a couple lengthy seconds). Dependencies for other languages currently don't get auto-installed.
 
-3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via mprocs — a terminal UI that shows logs from every service side by side.
+3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
@@ -157,7 +159,7 @@ If you see "Exit Code 137" or out-of-memory errors, your Docker container doesn'
 If you see `Error while fetching server API version: 500 Server Error for http+docker://localhost/version`, make sure Docker (or OrbStack) is actually running.
 
 **Port conflicts**
-If you see a port binding error for 5432, you have Postgres running locally. Use `lsof -i :5432` to find the process, then `sudo service postgresql stop` to stop it.
+If you see a port binding error for 5432, you have Postgres running locally. Use `lsof -i :5432` to find the process, then `sudo service postgresql stop` to stop it. You may also see errors like `role "posthog" does not exist`, which could indicate that a local PostgreSQL instance is being used instead of the expected containerized one.
 
 **GeoLite database missing**
 The feature-flags container needs the GeoLite database in `/share`. If it's missing, run `./bin/download-mmdb` and then `chmod 0755 ./share/GeoLite2-City.mmdb`.
@@ -183,6 +185,15 @@ On Apple Silicon Macs, you may get build errors related to OpenSSL. For nodejs: 
 **Nodejs services rebuild**
 If the nodejs won't start, try `cd nodejs && pnpm rebuild && pnpm i`.
 
+**Events not ingesting to local environment**
+This is usually due to nodejs not running or not starting. If the Node.js process silently fails to start, try resetting your node_modules:
+
+```bash
+rm -rf node_modules
+pnpm store prune
+pnpm install --force
+```
+
 **Python setuptools error**
 If you see `import gyp  # noqa: E402` during nodejs install, run `brew install python-setuptools`.
 
@@ -207,7 +218,7 @@ This is a faster option to get up and running if you can't or don't want to set 
    - If this doesn't activate your python virtual environment, run `uv venv` (install `uv` following the [uv standalone installer guide](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer) if needed)
 7. Install `sqlx-cli` with `cargo install sqlx-cli` (install Cargo following the [Cargo getting started guide](https://doc.rust-lang.org/cargo/getting-started/installation.html) if needed)
 8. Now run `DEBUG=1 ./bin/migrate`
-9. Install [mprocs](https://github.com/pvolok/mprocs#installation) (`cargo install mprocs`)
+9. Install [phrocs](https://github.com/PostHog/posthog/blob/master/tools/phrocs/README.md) (`brew install posthog/tap/phrocs`).
 10. Run `bin/hogli start` (or just `hogli start` if using Flox).
 11. Open browser to <http://localhost:8010/>.
 12. To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`.
@@ -227,7 +238,7 @@ pnpm --filter=@posthog/frontend test
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pnpm jest --testPathPattern=frontend/src/lib/components/IntervalFilter/intervalFilterLogic.test.ts
+pnpm jest --testPathPattern=frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
 To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `pnpm storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
@@ -297,7 +308,9 @@ If you'd like to have ALL feature flags that exist in PostHog at your disposal r
 
 This command automatically turns any feature flag ending in `_EXPERIMENT` as a multivariate flag with `control` and `test` variants.
 
-Backend side flags are only evaluated locally, which requires the `POSTHOG_PERSONAL_API_KEY` env var to be set. Generate the key in [your user settings](http://localhost:8010/settings/user#personal-api-keys).
+Backend side flags are automatically configured in DEBUG mode using the
+dev API key created by `manage.py setup_local_api_key`.
+If you need to override the key, set the `POSTHOG_PERSONAL_API_KEY` env var.
 
 ## Extra: Debugging with VS Code
 
@@ -317,7 +330,7 @@ With PyCharm's built in support for Django, it's fairly easy to setup debugging 
    - If using Flox: `path_to_repo/posthog/.flox/cache/venv/bin/python`.
 3. Setup Django support (Settings… > Languages & Frameworks > Django):
    - Django project root: `path_to_repo`
-   - Settings: `posthog/settings/__init__py`
+   - Settings: `posthog/settings/__init__.py`
 4. To run tests correctly in PyCharm, disable the Django test runner:
    - Go to Settings… > Languages & Frameworks > Django
    - Check "Do not use Django test runner"
@@ -430,6 +443,36 @@ When creating a new email, there are a few steps to take. It's important to add 
    message.send()
    ```
 
+## Extra: Using AI assistants with your local dev environment
+
+Phrocs (the process manager) includes an MCP (Model Context Protocol) server that lets AI coding assistants query your local dev environment. This is useful for debugging issues with AI tools like Claude Desktop, Cursor, Windsurf, or other MCP-compatible assistants.
+
+### Setup
+
+The repository includes a `.mcp.json` configuration file in the repo root that registers the phrocs MCP server. To use it:
+
+1. Ensure your AI tool supports MCP and can read `.mcp.json` configuration files
+2. Open the PostHog repository in your AI tool
+3. The phrocs MCP server is available automatically when `hogli start` is running
+
+### Available tools
+
+The MCP server provides two tools:
+
+- **get_process_status** – Returns process status including PID, running state, readiness, and real-time metrics (CPU, memory, threads)
+- **get_process_logs** – Retrieves recent log lines from a process's in-memory buffer, with optional grep filtering
+
+### Example usage
+
+Ask your AI assistant questions like:
+
+- "What processes are currently running?"
+- "Show me the recent logs from the backend process"
+- "Is the frontend process ready?"
+- "Search the worker logs for error messages"
+
+The AI assistant uses the MCP tools to query phrocs directly and provide you with the relevant information.
+
 ## Extra: Developing paid features (PostHog employees only)
 
 If you're a PostHog employee, you can get access to paid features on your local instance to make development easier. [Learn how to do so in our internal billing guide](https://github.com/PostHog/billing?tab=readme-ov-file#licensing-your-local-instance).
@@ -454,7 +497,7 @@ If you need to start fresh with a clean database (for example, if your local dat
 
 3. Wait for all migrations to complete. You can monitor the logs to ensure migrations have finished running.
 
-4. Once PostHog is running, click the **generate-demo-data** service in the mprocs terminal UI (you may have to scroll), then type `r` to start the service and generate test data.
+4. Once PostHog is running, click the **generate-demo-data** service in the phrocs terminal UI (you may have to scroll), then type `r` to start the service and generate test data.
 
 > **Note:** This process will completely wipe your local database. Make sure you don't have any important local data before proceeding.
 
@@ -467,6 +510,13 @@ hogli build:openapi
 ```
 
 See the [Type system guide](type-system) for details on how type generation works and best practices for documenting your API.
+
+## Extra: Working on multiple branches simultaneously
+
+If you frequently switch between features, bug fixes, and PR reviews, the
+[isolated development with Flox](./flox-multi-instance-workflow) guide shows
+how to use Git worktrees with per-worktree Flox environments for fast context
+switching.
 
 ## Extra: Working with the data warehouse
 

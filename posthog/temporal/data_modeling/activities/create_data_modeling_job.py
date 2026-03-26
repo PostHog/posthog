@@ -10,6 +10,7 @@ from products.data_modeling.backend.models import Node
 
 # TODO(andrew): migrate/recreate this model to data_modeling app
 from products.data_warehouse.backend.models import DataModelingJob
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobEngine
 
 LOGGER = get_logger(__name__)
 
@@ -19,17 +20,19 @@ class CreateDataModelingJobInputs:
     team_id: int
     node_id: str
     dag_id: str
+    engine: str = DataModelingJobEngine.CLICKHOUSE
 
 
 @database_sync_to_async
 def _create_data_modeling_job(inputs: CreateDataModelingJobInputs, workflow_id: str, workflow_run_id: str) -> str:
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
     job = DataModelingJob.objects.create(
         team_id=inputs.team_id,
         saved_query=node.saved_query,
         status=DataModelingJob.Status.RUNNING,
+        engine=inputs.engine,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
         created_by_id=node.saved_query.created_by_id if node.saved_query else None,

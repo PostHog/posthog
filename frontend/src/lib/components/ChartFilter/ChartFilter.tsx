@@ -81,6 +81,22 @@ export function ChartFilter(): JSX.Element {
                         />
                     ),
                 },
+                ...(featureFlags[FEATURE_FLAGS.BOX_PLOT_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.BoxPlot,
+                              icon: <IconGraph />,
+                              label: 'Box plot',
+                              disabledReason: trendsOnlyDisabledReason,
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Box plot"
+                                      description="Distribution of a property over time showing quartiles."
+                                  />
+                              ),
+                          },
+                      ]
+                    : []),
             ],
         },
         {

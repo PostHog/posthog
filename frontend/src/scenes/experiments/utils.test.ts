@@ -26,8 +26,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/shared/utils'
 import { filterToMetricConfig } from './metricQueryUtils'
+import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
@@ -683,6 +683,7 @@ describe('checkFeatureFlagEligibility', () => {
         deleted: false,
         active: true,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,
@@ -694,7 +695,7 @@ describe('checkFeatureFlagEligibility', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-        evaluation_tags: [],
+        evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
     it('throws an error for a remote configuration feature flag', () => {

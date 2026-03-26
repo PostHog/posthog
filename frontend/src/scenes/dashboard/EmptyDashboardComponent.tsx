@@ -13,8 +13,8 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {

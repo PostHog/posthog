@@ -38,6 +38,7 @@ export function ActionsHorizontalBar({
         querySource,
         breakdownFilter,
         isSingleSeriesDefinition,
+        isBreakdownSeries,
         getTrendsColor,
         getTrendsHidden,
         theme,
@@ -102,7 +103,7 @@ export function ActionsHorizontalBar({
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
             ignoreActionsInSeriesLabels={
-                context?.ignoreActionsInSeriesLabels || (isSingleSeriesDefinition && !!breakdownFilter?.breakdown)
+                context?.ignoreActionsInSeriesLabels || (isSingleSeriesDefinition && isBreakdownSeries)
             }
             isStacked={false}
             inCardView={inCardView}

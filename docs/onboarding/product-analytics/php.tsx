@@ -31,7 +31,7 @@ export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Initialize the PostHog client with your API key and host:</Markdown>
+                    <Markdown>Initialize the PostHog client with your project token and host:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -39,7 +39,7 @@ export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'PHP',
                                 code: dedent`
                                 PostHog\\PostHog::init(
-                                    '<ph_project_api_key>',
+                                    '<ph_project_token>',
                                     ['host' => '<ph_client_api_host>']
                                 );
                             `,

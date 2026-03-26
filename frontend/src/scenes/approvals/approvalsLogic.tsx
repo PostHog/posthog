@@ -13,7 +13,7 @@ import type { approvalsLogicType } from './approvalsLogicType'
 
 export interface ApprovalsFilters {
     state?: ChangeRequestState
-    action_type?: string
+    action_key?: string
     resource_type?: string
     resource_id?: string
     requester?: number
@@ -70,7 +70,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
                         url ||
                         `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                             ...(values.filters.state && { state: values.filters.state }),
-                            ...(values.filters.action_type && { action_type: values.filters.action_type }),
+                            ...(values.filters.action_key && { action_key: values.filters.action_key }),
                             ...(values.filters.resource_type && { resource_type: values.filters.resource_type }),
                             ...(values.filters.resource_id && { resource_id: values.filters.resource_id }),
                             ...(values.filters.requester && { requester: values.filters.requester.toString() }),
@@ -116,7 +116,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
             const nextUrl = `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                 offset: values.changeRequests.length.toString(),
                 ...(values.filters.state && { state: values.filters.state }),
-                ...(values.filters.action_type && { action_type: values.filters.action_type }),
+                ...(values.filters.action_key && { action_key: values.filters.action_key }),
                 ...(values.filters.resource_type && { resource_type: values.filters.resource_type }),
                 ...(values.filters.resource_id && { resource_id: values.filters.resource_id }),
                 ...(values.filters.requester && { requester: values.filters.requester.toString() }),

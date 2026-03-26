@@ -9,7 +9,10 @@ const schema = ExecuteSQLSchema
 
 type Params = z.infer<typeof schema>
 
-export const executeSqlHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const executeSqlHandler: ToolBase<typeof schema, string>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const result = await invokeMcpTool(context, 'execute_sql', {
         query: params.query,
         truncate: params.truncate ?? true,
@@ -22,7 +25,7 @@ export const executeSqlHandler: ToolBase<typeof schema>['handler'] = async (cont
     return result.content
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, string> => ({
     name: 'execute-sql',
     schema,
     handler: executeSqlHandler,

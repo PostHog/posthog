@@ -4,9 +4,6 @@ import React from 'react'
 import { IconPlusSmall, IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
-import { AnimatedSparkles } from './components/AnimatedSparkles'
 import { ToolRegistration } from './max-constants'
 import { useMaxTool } from './useMaxTool'
 
@@ -39,8 +36,6 @@ export function MaxTool({
     className,
     position = 'top-right',
 }: MaxToolProps): JSX.Element {
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
         context,
@@ -87,16 +82,12 @@ export function MaxTool({
                             position === 'bottom-right' && '-bottom-2 -right-2',
                             position === 'top-left' && '-top-2 -left-2',
                             position === 'bottom-left' && '-bottom-2 -left-2',
-                            isRemovingSidePanelFlag && 'border-ai bg-ai/08 dark:bg-ai/20 hover:scale-110'
+                            'border-ai bg-ai/08 dark:bg-ai/20 hover:scale-110'
                         )}
                         type="button"
                         onClick={openMax || undefined}
                     >
-                        {isRemovingSidePanelFlag ? (
-                            <IconPlusSmall className="relative size-full text-ai dark:text-white p-0.5" />
-                        ) : (
-                            <AnimatedSparkles className="relative size-full pl-0.5 pb-0.5" />
-                        )}
+                        <IconPlusSmall className="relative size-full text-ai dark:text-white p-0.5" />
                     </button>
                 </Tooltip>
                 {typeof Children === 'function' ? <Children toolAvailable={true} /> : Children}
@@ -107,16 +98,7 @@ export function MaxTool({
         <div
             className={clsx(
                 'relative flex flex-col',
-                // Rounding is +1px to account for the border
-                !isRemovingSidePanelFlag &&
-                    isMaxOpen &&
-                    active &&
-                    'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
-                className,
-                isRemovingSidePanelFlag &&
-                    isMaxOpen &&
-                    active &&
-                    'border border-ai -m-px rounded-[calc(var(--radius)+1px)]',
+                isMaxOpen && active && 'border border-ai -m-px rounded-[calc(var(--radius)+1px)]',
                 className
             )}
         >

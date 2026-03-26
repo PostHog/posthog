@@ -125,6 +125,7 @@ interface SaveToDashboardModalProps {
     closeModal: () => void
     insightProps: InsightLogicProps
     canEditInsight: boolean
+    'data-attr'?: string
 }
 
 export function AddToDashboardModal({
@@ -132,6 +133,7 @@ export function AddToDashboardModal({
     closeModal,
     insightProps,
     canEditInsight,
+    'data-attr': dataAttr,
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = addToDashboardModalLogic(insightProps)
 
@@ -161,6 +163,7 @@ export function AddToDashboardModal({
             }}
             isOpen={isOpen}
             title="Add to dashboard"
+            data-attr={dataAttr}
             footer={
                 <>
                     <div className="flex-1">

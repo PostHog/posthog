@@ -1,3 +1,9 @@
+// Canonical enum definitions live in schema-signals.ts (synced between TS and Python).
+// Re-exported here so existing consumers keep working.
+import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
+
+export { SignalSourceProduct, SignalSourceType }
+
 export interface SignalReport {
     id: string
     title: string | null
@@ -15,6 +21,7 @@ export enum SignalReportStatus {
     POTENTIAL = 'potential',
     CANDIDATE = 'candidate',
     IN_PROGRESS = 'in_progress',
+    PENDING_INPUT = 'pending_input',
     READY = 'ready',
     FAILED = 'failed',
 }
@@ -29,4 +36,28 @@ export interface SignalReportArtefact {
 export interface SignalReportArtefactResponse {
     results: SignalReportArtefact[]
     count: number
+}
+
+export interface SignalSourceConfig {
+    id: string
+    source_product: SignalSourceProduct
+    source_type: SignalSourceType
+    enabled: boolean
+    config: Record<string, any>
+    created_at: string
+    updated_at: string
+    status: SignalSourceConfigStatus | null
+}
+
+export interface ToggleSignalSourceParams {
+    sourceProduct: SignalSourceProduct
+    sourceType: SignalSourceType
+    enabled: boolean
+    config?: Record<string, any>
+}
+
+export enum SignalSourceConfigStatus {
+    RUNNING = 'running',
+    COMPLETED = 'completed',
+    FAILED = 'failed',
 }

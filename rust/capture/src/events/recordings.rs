@@ -21,7 +21,6 @@ use uuid::Uuid;
 
 use crate::{
     api::CaptureError,
-    config::CaptureMode,
     debug_or_info,
     event_restrictions::{
         AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
@@ -166,11 +165,11 @@ impl HasEventName for RawRecording {
 /// - Serialize directly to final format using serde::Serialize
 ///
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
-pub async fn process_replay_events<'a>(
+pub async fn process_replay_events(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     restriction_service: Option<EventRestrictionService>,
     events: Vec<RawRecording>,
-    context: &'a ProcessingContext,
+    context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
@@ -182,13 +181,14 @@ pub async fn process_replay_events<'a>(
     });
     let ignore_sent_at = events[0].properties.ignore_sent_at.unwrap_or(false);
 
-    let computed_timestamp = common_types::timestamp::parse_event_timestamp(
+    let parsed = common_types::timestamp::parse_event_timestamp(
         events[0].timestamp.as_deref(),
         events[0].offset,
         sent_at_utc,
         ignore_sent_at,
         context.now,
     );
+    let computed_timestamp = parsed.timestamp;
 
     // Extract metadata from first event by taking ownership (no clones!)
     // We split off the first event to extract metadata, then iterate over the rest
@@ -232,10 +232,9 @@ pub async fn process_replay_events<'a>(
             now_ts: context.now.timestamp(),
         };
 
-        let restrictions = service.get_restrictions(&context.token, &event_ctx).await;
-        let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Recordings);
+        let applied = service.get_restrictions(&context.token, &event_ctx).await;
 
-        if applied.should_drop {
+        if applied.should_drop() {
             report_dropped_events("event_restriction_drop", 1);
             return Ok(());
         }
@@ -308,9 +307,10 @@ pub async fn process_replay_events<'a>(
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp),
         event_name: "$snapshot_items".to_string(),
-        force_overflow: applied.force_overflow,
-        skip_person_processing: applied.skip_person_processing,
-        redirect_to_dlq: applied.redirect_to_dlq,
+        force_overflow: applied.force_overflow(),
+        skip_person_processing: applied.skip_person_processing(),
+        redirect_to_dlq: applied.redirect_to_dlq(),
+        redirect_to_topic: applied.redirect_to_topic().map(|s| s.to_string()),
     };
 
     // Serialize snapshot data synchronously
@@ -373,10 +373,7 @@ pub async fn serialize_snapshot_data_async(
     })
     .await
     .map_err(|e| {
-        error!(
-            "failed to spawn blocking task for snapshot serialization: {}",
-            e
-        );
+        error!("failed to spawn blocking task for snapshot serialization: {e:#}");
         CaptureError::NonRetryableSinkError
     })
 }
@@ -556,6 +553,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -585,6 +583,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::RedirectToDlq,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -616,6 +615,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -647,6 +647,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::SkipPersonProcessing,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -701,6 +702,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::Filtered(filters),
+                args: None,
             }],
         );
         service.update(manager).await;

@@ -18,6 +18,8 @@ logger = structlog.get_logger(__name__)
 class RequestContext:
     request_id: str
     product: str = "llm_gateway"
+    posthog_properties: dict[str, str] | None = None
+    posthog_flags: dict[str, str] | None = None
 
 
 request_context_var: ContextVar[RequestContext | None] = ContextVar("request_context", default=None)
@@ -43,6 +45,44 @@ def get_request_id() -> str:
 def get_product() -> str:
     ctx = request_context_var.get()
     return ctx.product if ctx else "llm_gateway"
+
+
+def set_posthog_properties(properties: dict[str, str] | None) -> None:
+    ctx = request_context_var.get()
+    if ctx is None:
+        return
+    request_context_var.set(
+        RequestContext(
+            request_id=ctx.request_id,
+            product=ctx.product,
+            posthog_properties=properties,
+            posthog_flags=ctx.posthog_flags,
+        )
+    )
+
+
+def get_posthog_properties() -> dict[str, str] | None:
+    ctx = request_context_var.get()
+    return ctx.posthog_properties if ctx else None
+
+
+def set_posthog_flags(flags: dict[str, str] | None) -> None:
+    ctx = request_context_var.get()
+    if ctx is None:
+        return
+    request_context_var.set(
+        RequestContext(
+            request_id=ctx.request_id,
+            product=ctx.product,
+            posthog_properties=ctx.posthog_properties,
+            posthog_flags=flags,
+        )
+    )
+
+
+def get_posthog_flags() -> dict[str, str] | None:
+    ctx = request_context_var.get()
+    return ctx.posthog_flags if ctx else None
 
 
 def set_throttle_context(runner: ThrottleRunner, context: ThrottleContext) -> None:
@@ -71,6 +111,6 @@ async def record_cost(cost: float, end_user_id: str | None = None) -> None:
     runner = throttle_runner_var.get()
     context = throttle_context_var.get()
     if runner and context:
-        if end_user_id:
+        if end_user_id and not context.end_user_id:
             context.end_user_id = end_user_id
         await runner.record_cost(context, cost)

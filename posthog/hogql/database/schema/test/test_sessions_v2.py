@@ -22,8 +22,9 @@ from posthog.hogql.database.schema.sessions_v2 import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):

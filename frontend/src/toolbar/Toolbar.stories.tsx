@@ -1,5 +1,4 @@
 import '~/styles'
-
 import '~/toolbar/styles.scss'
 
 import { Meta, StoryFn } from '@storybook/react'
@@ -54,7 +53,7 @@ type ToolbarStoryProps = {
 
 const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
     const toolbarParams: ToolbarParams = {
-        temporaryToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
+        accessToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
         actionId: undefined,
         userIntent: undefined,
         dataAttributes: ['data-attr'],

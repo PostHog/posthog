@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Status
+from products.conversations.backend.models.constants import ChannelDetail, Status
 
 
 class TestWidgetAPI(BaseTest):
@@ -69,6 +69,30 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.distinct_id, self.distinct_id)
         self.assertEqual(ticket.status, "new")
         self.assertEqual(ticket.unread_team_count, 1)
+
+    def test_create_ticket_channel_detail_widget_enabled(self):
+        self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}
+        self.team.save()
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"message": "Hi", "widget_session_id": self.widget_session_id, "distinct_id": self.distinct_id},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.channel_detail, ChannelDetail.WIDGET_EMBEDDED)
+
+    def test_create_ticket_channel_detail_widget_disabled(self):
+        self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": False}
+        self.team.save()
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"message": "Hi", "widget_session_id": str(uuid.uuid4()), "distinct_id": "user-456"},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.channel_detail, ChannelDetail.WIDGET_API)
 
     def test_create_message_to_existing_ticket(self):
         ticket = Ticket.objects.create_with_number(

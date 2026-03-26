@@ -1,8 +1,8 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
 import posthog from 'posthog-js'
+import { Fragment } from 'react'
 
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -13,6 +13,7 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     InsightBreakdownSummary,
     PropertiesSummary,
@@ -194,7 +195,7 @@ const insightActionsMapping: Record<
                     </>
                 }
                 listParts={addedDashboards.map((d) => (
-                    <>{linkToDashboard(d)}</>
+                    <Fragment key={d.id}>{linkToDashboard(d)}</Fragment>
                 ))}
             />
         ) : null
@@ -208,7 +209,7 @@ const insightActionsMapping: Record<
                     </>
                 }
                 listParts={removedDashboards.map((d) => (
-                    <>{linkToDashboard(d)}</>
+                    <Fragment key={d.id}>{linkToDashboard(d)}</Fragment>
                 ))}
             />
         ) : null
@@ -238,6 +239,9 @@ const insightActionsMapping: Record<
     user_access_level: () => null,
     _create_in_folder: () => null,
     last_viewed_at: () => null,
+    viewers: () => null,
+    view_count: () => null,
+    is_cached: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
@@ -329,14 +333,15 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
         try {
             for (const change of logItem.detail.changes || []) {
-                if (!change?.field || !insightActionsMapping[change.field]) {
+                const insightAction = insightActionsMapping[change.field as keyof InsightModel]
+                if (!change?.field || !insightAction) {
                     continue // insight updates have to have a "field" to be described
                 }
 
-                const actionHandler = insightActionsMapping[change.field]
+                const actionHandler = insightAction
                 const processedChange = actionHandler(change, logItem, asNotification)
                 if (processedChange === null) {
-                    continue // // unexpected log from backend is indescribable
+                    continue // unexpected log from backend is indescribable
                 }
 
                 const { description, extendedDescription: _extendedDescription, suffix } = processedChange

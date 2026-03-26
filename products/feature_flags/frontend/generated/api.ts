@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,10 +8,14 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
+    CopyFlagsRequestApi,
+    CopyFlagsResponseApi,
+    DependentFlagApi,
     FeatureFlagApi,
+    FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagStatusResponseApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -20,7 +25,9 @@ import type {
     LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
-    PatchedFeatureFlagApi,
+    PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    UserBlastRadiusRequestApi,
+    UserBlastRadiusResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -59,10 +66,16 @@ export const getFeatureFlagsCopyFlagsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/feature_flags/copy_flags/`
 }
 
-export const featureFlagsCopyFlagsCreate = async (organizationId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
+export const featureFlagsCopyFlagsCreate = async (
+    organizationId: string,
+    copyFlagsRequestApi: CopyFlagsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsResponseApi> => {
+    return apiMutator<CopyFlagsResponseApi>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyFlagsRequestApi),
     })
 }
 
@@ -109,14 +122,14 @@ export const getFeatureFlagsCreateUrl = (projectId: string) => {
 
 export const featureFlagsCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    featureFlagCreateRequestSchemaApi: FeatureFlagCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(featureFlagCreateRequestSchemaApi),
     })
 }
 
@@ -175,14 +188,14 @@ export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) =
 export const featureFlagsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedFeatureFlagApi: NonReadonly<PatchedFeatureFlagApi>,
+    patchedFeatureFlagPartialUpdateRequestSchemaApi: PatchedFeatureFlagPartialUpdateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFeatureFlagApi),
+        body: JSON.stringify(patchedFeatureFlagPartialUpdateRequestSchemaApi),
     })
 }
 
@@ -286,16 +299,16 @@ export const featureFlagsDashboardCreate = async (
 /**
  * Get other active flags that depend on this flag.
  */
-export const getFeatureFlagsDependentFlagsRetrieveUrl = (projectId: string, id: number) => {
+export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
 
-export const featureFlagsDependentFlagsRetrieve = async (
+export const featureFlagsDependentFlagsList = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsDependentFlagsRetrieveUrl(projectId, id), {
+): Promise<DependentFlagApi[]> => {
+    return apiMutator<DependentFlagApi[]>(getFeatureFlagsDependentFlagsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -357,8 +370,8 @@ export const featureFlagsStatusRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
+): Promise<FeatureFlagStatusResponseApi> => {
+    return apiMutator<FeatureFlagStatusResponseApi>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -575,13 +588,13 @@ export const getFeatureFlagsUserBlastRadiusCreateUrl = (projectId: string) => {
 
 export const featureFlagsUserBlastRadiusCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    userBlastRadiusRequestApi: UserBlastRadiusRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
+): Promise<UserBlastRadiusResponseApi> => {
+    return apiMutator<UserBlastRadiusResponseApi>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(userBlastRadiusRequestApi),
     })
 }

@@ -7,6 +7,7 @@ export type RecentItemRowProps = Pick<LemonButtonProps, 'onClick' | 'to'> & {
     subtitle: React.ReactNode
     prefix?: React.ReactNode
     suffix?: React.ReactNode
+    dataAttr?: string
 }
 
 export function ProjectHomePageCompactListItem({
@@ -16,9 +17,16 @@ export function ProjectHomePageCompactListItem({
     subtitle,
     prefix,
     suffix,
+    dataAttr,
 }: RecentItemRowProps): JSX.Element {
     return (
-        <LemonButton fullWidth to={to} onClick={onClick} className="h-12">
+        <LemonButton
+            fullWidth
+            to={to}
+            onClick={onClick}
+            className="h-12"
+            data-attr={dataAttr ? `insights-home-tab-${dataAttr}` : undefined}
+        >
             <div className="flex items-start justify-between overflow-hidden gap-2 flex-1">
                 {prefix ? <span className="flex shrink-0 text-secondary text-xl">{prefix}</span> : null}
 

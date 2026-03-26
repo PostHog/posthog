@@ -4,17 +4,22 @@ import dataclasses
 
 from django.conf import settings
 
-from azure.storage.blob.aio import BlobServiceClient, ContainerClient
+from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import AzureBlobBatchExportInputs, BatchExportInsertInputs, BatchExportModel
 from posthog.models.integration import AzureBlobIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    AzureBlobBatchExportInputs,
+    BatchExportField,
+    BatchExportInsertInputs,
+    BatchExportModel,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -101,7 +106,11 @@ async def _get_azure_blob_integration(integration_id: int, team_id: int) -> Azur
     return AzureBlobIntegration(integration)
 
 
-azure_blob_default_fields = events_model_default_fields
+def azure_blob_default_fields() -> list[BatchExportField]:
+    """Azure blob default fields include ingested timestamp."""
+    default_fields = events_model_default_fields()
+    default_fields.append({"expression": "NOW64()", "alias": "azure_blob_ingested_timestamp"})
+    return default_fields
 
 
 class AzureBlobConsumer(Consumer):
@@ -149,6 +158,10 @@ class AzureBlobConsumer(Consumer):
             conn_str=connection_string,
             max_single_put_size=64 * 1024 * 1024,  # 64 MiB
             max_block_size=4 * 1024 * 1024,  # 4 MiB
+            # Increase the read timeout to 10 minutes to account for large uploads.
+            read_timeout=600,
+            # Azure SDK defaults but we set them explicitly for visibility.
+            retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
         )
         container_client = blob_service_client.get_container_client(inputs.container_name)
 
@@ -326,7 +339,9 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: AzureBlobBatchExportInputs):
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

@@ -1,0 +1,41 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Function templates
+feature: hog_function_templates
+url_prefix: /pipeline/templates
+tools:
+    cdp-function-templates-list:
+        operation: hog_function_templates_list
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List function templates
+        description: >
+            List available function templates. Templates are pre-built function configurations for common
+            integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination,
+            site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by
+            popularity (number of active functions using each template).
+
+    cdp-function-templates-retrieve:
+        operation: hog_function_templates_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function template
+        description: >
+            Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns
+            the full template including source code, inputs schema, default filters, and mapping templates. Use this to
+            understand what inputs a template requires before creating a function from it.

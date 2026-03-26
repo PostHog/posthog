@@ -111,6 +111,8 @@ class HogQLCohortQuery:
                     hogql_context=self.hogql_context,
                 ),
                 self.team.pk,
+                self.team,
+                cohort,
             )
             self.property_groups = filter.property_groups
         elif cohort_query is not None:
@@ -127,7 +129,7 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
+            settings=HogQLGlobalSettings(enable_analyzer=None),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:

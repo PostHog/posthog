@@ -250,8 +250,8 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">50% off Mintlify for 6 months</h4>
-                                <p className="text-muted text-sm">So you can build better documentation</p>
+                                <h4 className="font-semibold">$1,500 off an Incident.io teams plan</h4>
+                                <p className="text-muted text-sm">So you can avoid stress during an incident</p>
                             </div>
                         </div>
                         <div className="flex items-start">

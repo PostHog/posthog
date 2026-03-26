@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.schema import (
     ArtifactContentType,
@@ -11,9 +12,15 @@ from posthog.schema import (
     ArtifactSource,
     AssistantMessage,
     AssistantTrendsQuery,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FunnelsQuery,
     HumanMessage,
     LifecycleQuery,
     NotebookArtifactContent,
+    RetentionFilter,
+    RetentionQuery,
     TrendsQuery,
     VisualizationArtifactContent,
     VisualizationMessage,
@@ -319,6 +326,70 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
         assert isinstance(content, VisualizationArtifactContent)
         self.assertEqual(content.name, "Insight")
         self.assertEqual(content.plan, "state plan")
+
+    @parameterized.expand(
+        [
+            (
+                "funnels_with_label_and_explicit_date",
+                FunnelsQuery(
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                EventPropertyFilter(key="$pathname", value=["/"], label=None),
+                            ],
+                        ),
+                    ],
+                    dateRange=DateRange(date_from="-30d", explicitDate=False),
+                ),
+                FunnelsQuery,
+            ),
+            (
+                "trends_with_explicit_date",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    dateRange=DateRange(date_from="-7d", explicitDate=False),
+                ),
+                TrendsQuery,
+            ),
+            (
+                "retention_with_explicit_date",
+                RetentionQuery(
+                    retentionFilter=RetentionFilter(),
+                    dateRange=DateRange(date_from="-14d", explicitDate=False),
+                ),
+                RetentionQuery,
+            ),
+        ]
+    )
+    async def test_extracts_content_from_state_with_non_assistant_query_fields(self, _name, query, expected_type):
+        viz_id = str(uuid4())
+        viz_message = VisualizationMessage(
+            id=viz_id,
+            query="test query",
+            answer=query,
+            plan="test plan",
+        )
+        artifact_msg_id = str(uuid4())
+        artifact_message = ArtifactRefMessage(
+            id=artifact_msg_id,
+            content_type=ArtifactContentType.VISUALIZATION,
+            artifact_id=viz_id,
+            source=ArtifactSource.STATE,
+        )
+        messages: list[VisualizationMessage | ArtifactRefMessage] = [
+            viz_message,
+            artifact_message,
+        ]
+
+        contents = await self.manager._aget_contents_by_id(messages, aggregate_by="message_id")
+
+        self.assertEqual(len(contents), 1)
+        content = contents[artifact_msg_id]
+        assert isinstance(content, VisualizationArtifactContent)
+        assert isinstance(content.query, expected_type)
+        self.assertEqual(content.name, "Insight")
+        self.assertEqual(content.plan, "test plan")
 
 
 class TestArtifactManagerEnrichMessages(BaseTest):

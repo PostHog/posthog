@@ -117,6 +117,7 @@ class NonIntegratedConversionsTableQueryRunner(
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
+            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
 
     def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:

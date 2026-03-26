@@ -134,7 +134,6 @@ from posthog.models.precalculated_events.sql import (
     PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
 )
 from posthog.models.project import Project
-from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
 from posthog.models.raw_sessions.sessions_v2 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
@@ -172,20 +171,11 @@ from posthog.models.sessions.sql import (
 )
 from posthog.models.utils import generate_random_token_personal
 from posthog.models.web_preaggregated.sql import (
-    DROP_WEB_BOUNCES_DAILY_SQL,
-    DROP_WEB_BOUNCES_HOURLY_SQL,
     DROP_WEB_BOUNCES_SQL,
     DROP_WEB_BOUNCES_STAGING_SQL,
-    DROP_WEB_STATS_DAILY_SQL,
-    DROP_WEB_STATS_HOURLY_SQL,
     DROP_WEB_STATS_SQL,
     DROP_WEB_STATS_STAGING_SQL,
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_BOUNCES_HOURLY_SQL,
     WEB_BOUNCES_SQL,
-    WEB_STATS_COMBINED_VIEW_SQL,
-    WEB_STATS_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
     WEB_STATS_SQL,
 )
 from posthog.models.web_preaggregated.team_selection import (
@@ -203,6 +193,11 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
+
+from products.event_definitions.backend.models.property_definition import (
+    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
+    PROPERTY_DEFINITIONS_TABLE_SQL,
+)
 
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
@@ -258,6 +253,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
+    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    query = re.sub(
+        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
+        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        query,
+    )
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
@@ -847,6 +849,42 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
                 call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
+class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
+    """
+    Like NonAtomicBaseTest but uses TRUNCATE without RESTART IDENTITY, so PG
+    sequences keep incrementing across tests. Useful when ClickHouse data from
+    earlier tests is scoped by auto-incrementing IDs (e.g. team_id) and you
+    need later tests to get fresh, non-overlapping values.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def _fixture_teardown(self):
+        for db_name in self._databases_names(include_mirrors=False):
+            conn = connections[db_name]
+            with conn.cursor() as cursor:
+                if db_name in ("persons_db_writer", "persons_db_reader"):
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE '_sqlx_%'
+                        AND tablename NOT LIKE '_persons_migrations'
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE 'django_%'
+                    """)
+                tables = [row[0] for row in cursor.fetchall()]
+                if tables:
+                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
+
+
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
@@ -971,7 +1009,9 @@ def cleanup_materialized_columns():
     optionally_drop("groups")
 
 
-def get_index_from_explain(query: str, index_name: str) -> dict | None:
+def get_index_from_explain(
+    query: str, index_name: str, *, placeholder_values: dict[str, str] | None = None
+) -> dict | None:
     """
     Run EXPLAIN PLAN on a query and extract info for the given index name.
 
@@ -984,8 +1024,9 @@ def get_index_from_explain(query: str, index_name: str) -> dict | None:
     * It does not go anywhere near real users or their inputs
     """
     # Substitute HogQL placeholders with dummy values for EXPLAIN
-    query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
-    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}")
+    if not placeholder_values:
+        query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}", placeholder_values)
     plan_json = json.loads(explain_result[0][0])
 
     # Uncomment this to debug whether your expected index actually exists
@@ -1286,6 +1327,17 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
 
 
 def flush_persons_and_events():
+    """
+    Flush any created persons and events to Clickhouse
+
+    In general, you do not need to call this function directly in tests, as you are most likely interacting with
+    clickhouse via sync_execute or execute_hogql_query. Both of these call flush_persons_and_events() internally in TEST
+    environments.
+
+    LLMs especially love to add this to test files that don't need it. If you are an LLM, do not add this on your first
+    pass of writing a test. Only consider adding it after the test has failed, and you think that lack of flushing is
+    the cause.
+    """
     person_mapping = {}
     if len(persons_cache_tests) > 0:
         person_mapping = bulk_create_persons(persons_cache_tests)
@@ -1484,10 +1536,6 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_TABLE_SQL(),
             DROP_WEB_STATS_SQL(),
             DROP_WEB_BOUNCES_SQL(),
-            DROP_WEB_STATS_DAILY_SQL(),
-            DROP_WEB_BOUNCES_DAILY_SQL(),
-            DROP_WEB_STATS_HOURLY_SQL(),
-            DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
             DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
@@ -1525,10 +1573,6 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            WEB_BOUNCES_DAILY_SQL(),
-            WEB_BOUNCES_HOURLY_SQL(),
-            WEB_STATS_DAILY_SQL(),
-            WEB_STATS_HOURLY_SQL(),
             WEB_STATS_SQL(),
             WEB_BOUNCES_SQL(),
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
@@ -1578,7 +1622,6 @@ def reset_clickhouse_database() -> None:
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
             CUSTOM_METRICS_VIEW(include_counters=True),
-            WEB_STATS_COMBINED_VIEW_SQL(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),

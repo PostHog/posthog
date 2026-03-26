@@ -52,7 +52,7 @@ test.describe('Logs', () => {
             // ACT: Click the service filter and select a value
             await page.getByTestId('logs-service-filter').click()
             // Wait for dropdown to be visible, then select first option
-            await page.locator('[data-attr^="prop-val-"]').first().click()
+            await page.locator('[data-attr^="logs-service-option-"]').first().click()
 
             // Wait for the filter-triggered request
             const request = await requestPromise

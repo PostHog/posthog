@@ -10,7 +10,9 @@ const schema = QueryRunInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const queryRunHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { query: unknown; results: unknown; _posthogUrl: string }
+
+export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { query } = params
 
     const projectId = await context.stateManager.getProjectId()
@@ -30,10 +32,14 @@ export const queryRunHandler: ToolBase<typeof schema>['handler'] = async (contex
     const queryInfo = analyzeQuery(query)
 
     // Format results based on the query type
-    // TrendsQuery and FunnelsQuery return results directly as an array
+    // TrendsQuery, FunnelsQuery, and PathsQuery return results directly as an array
     // HogQLQuery returns { results: [...], columns: [...] }
     // The UI app infers the visualization type from the data structure
-    if (queryInfo.visualization === 'trends' || queryInfo.visualization === 'funnel') {
+    if (
+        queryInfo.visualization === 'trends' ||
+        queryInfo.visualization === 'funnel' ||
+        queryInfo.visualization === 'paths'
+    ) {
         return {
             query: queryInfo.innerQuery || query,
             results: queryResult.data.results,
@@ -52,7 +58,7 @@ export const queryRunHandler: ToolBase<typeof schema>['handler'] = async (contex
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'query-run',
     schema,
     handler: queryRunHandler,

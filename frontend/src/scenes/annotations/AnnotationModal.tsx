@@ -8,11 +8,11 @@ import {
     LemonModalProps,
     LemonSelect,
     LemonSelectOptions,
-    LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 

@@ -251,7 +251,7 @@ class TestDatabricksVolumeTestStep:
         """
         with patch(
             "products.batch_exports.backend.api.destination_tests.databricks.DatabricksClient.acreate_volume",
-            side_effect=DatabricksInsufficientPermissionsError("Insufficient permissions"),
+            side_effect=DatabricksInsufficientPermissionsError("CREATE VOLUME", "Insufficient permissions"),
         ):
             test_step = DatabricksVolumeTestStep(
                 server_hostname=databricks_config["server_hostname"],
@@ -264,4 +264,7 @@ class TestDatabricksVolumeTestStep:
             )
             result = await test_step.run()
             assert result.status == Status.FAILED
-            assert result.message == "A test volume could not be created: Insufficient permissions"
+            assert (
+                result.message
+                == "A test volume could not be created: Failed to execute 'CREATE VOLUME': Insufficient permissions"
+            )

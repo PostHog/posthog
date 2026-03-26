@@ -13,7 +13,6 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
 
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 
 
 class CanEditInsight(BasePermission):
@@ -28,7 +27,6 @@ class CanEditInsight(BasePermission):
 
 class EnterpriseInsightsViewSet(InsightViewSet):
     permission_classes = [CanEditInsight]
-    stickiness_query_class = ClickhouseStickiness
 
     # ******************************************
     # /projects/:id/insights/funnel/correlation

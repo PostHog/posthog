@@ -7,6 +7,7 @@ from posthog.schema import AttributionMode, NodeKind, SourceMap
 
 from posthog.models.team import Team
 from posthog.models.team.extensions import register_team_extension_signal
+from posthog.rbac.decorators import field_access_control
 
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
@@ -264,39 +265,61 @@ class TeamMarketingAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     # Attribution settings
-    attribution_window_days = models.IntegerField(default=90, help_text="Attribution window in days (1-90)")
-    attribution_mode = models.CharField(
-        max_length=20,
-        default=AttributionMode.LAST_TOUCH,
-        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
-        help_text="Attribution mode: first_touch or last_touch",
+    attribution_window_days = field_access_control(
+        models.IntegerField(default=90, help_text="Attribution window in days (1-90)"), "project", "admin"
+    )
+    attribution_mode = field_access_control(
+        models.CharField(
+            max_length=20,
+            default=AttributionMode.LAST_TOUCH,
+            choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
+            help_text="Attribution mode: first_touch or last_touch",
+        ),
+        "project",
+        "admin",
     )
 
     # Mangled fields incoming:
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
-    _sources_map = models.JSONField(default=dict, db_column="sources_map", null=False, blank=True)
-    _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
-    _campaign_name_mappings = models.JSONField(
-        default=dict,
-        db_column="campaign_name_mappings",
-        null=False,
-        blank=True,
-        help_text="Maps campaign names to lists of raw UTM values per data source",
+    _sources_map = field_access_control(
+        models.JSONField(default=dict, db_column="sources_map", null=False, blank=True), "project", "admin"
     )
-    _custom_source_mappings = models.JSONField(
-        default=dict,
-        db_column="custom_source_mappings",
-        null=False,
-        blank=True,
-        help_text="Custom UTM source mappings: maps integration types to lists of custom UTM source values",
+    _conversion_goals = field_access_control(
+        models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True), "project", "admin"
     )
-    _campaign_field_preferences = models.JSONField(
-        default=dict,
-        db_column="campaign_field_preferences",
-        null=False,
-        blank=True,
-        help_text="Campaign field matching preferences: defines which field (campaign_name or campaign_id) to match utm_campaign against per integration. Manual mappings always take precedence.",
+    _campaign_name_mappings = field_access_control(
+        models.JSONField(
+            default=dict,
+            db_column="campaign_name_mappings",
+            null=False,
+            blank=True,
+            help_text="Maps campaign names to lists of raw UTM values per data source",
+        ),
+        "project",
+        "admin",
+    )
+    _custom_source_mappings = field_access_control(
+        models.JSONField(
+            default=dict,
+            db_column="custom_source_mappings",
+            null=False,
+            blank=True,
+            help_text="Custom UTM source mappings: maps integration types to lists of custom UTM source values",
+        ),
+        "project",
+        "admin",
+    )
+    _campaign_field_preferences = field_access_control(
+        models.JSONField(
+            default=dict,
+            db_column="campaign_field_preferences",
+            null=False,
+            blank=True,
+            help_text="Campaign field matching preferences: defines which field (campaign_name or campaign_id) to match utm_campaign against per integration. Manual mappings always take precedence.",
+        ),
+        "project",
+        "admin",
     )
 
     def clean(self):

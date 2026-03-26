@@ -11,6 +11,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -18,6 +19,7 @@ import { userLogic } from 'scenes/userLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     getDefaultTreeData,
+    getDefaultTreeDataAndPeople,
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
@@ -462,7 +464,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    lemonToast.success('Shortcut created successfully', {
+                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
+                        shortcutItem.type ?? 'unknown',
+                        shortcutPath,
+                        isAIFirst
+                    )
+                    lemonToast.success(isAIFirst ? 'Added to starred' : 'Shortcut created successfully', {
                         button: {
                             label: 'View',
                             dataAttr: 'project-tree-view-shortcuts',
@@ -476,7 +484,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     )
                 },
                 deleteShortcut: async ({ id }) => {
+                    const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
+                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(
+                        shortcut?.type ?? 'unknown',
+                        shortcut?.path ?? 'unknown',
+                        isAIFirst
+                    )
+                    if (isAIFirst) {
+                        lemonToast.success('Removed from starred')
+                    }
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },
@@ -999,6 +1017,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         ['products://', getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
+                        ['data-and-people://', [...getDefaultTreeDataAndPeople(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
                     ]
                     const staticItems = data.map(([protocol, files]) => ({

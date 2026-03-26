@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconCursorClick, IconMegaphone } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
-type TourType = 'tour' | 'announcement' | 'banner' | undefined
+import { EffectiveProductTourType } from '~/types'
 
 export interface NewProductTourModalProps {
     isOpen: boolean
@@ -23,7 +23,7 @@ export function NewProductTourModal({
     onCreateTour,
     existingTourNames,
 }: NewProductTourModalProps): JSX.Element {
-    const [tourType, setTourType] = useState<TourType>()
+    const [tourType, setTourType] = useState<EffectiveProductTourType>()
     const [tourName, setTourName] = useState<string | undefined>()
     const [tourNameError, setTourNameError] = useState<string | undefined>()
 

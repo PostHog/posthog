@@ -8,6 +8,11 @@ import { EventType } from '~/types'
 const meta: Meta<typeof ErrorDisplay> = {
     title: 'Components/Errors/Error Display',
     component: ErrorDisplay,
+    parameters: {
+        testOptions: {
+            viewport: { width: 720, height: 720 },
+        },
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -228,19 +233,19 @@ export function ChainedErrorStack(): JSX.Element {
                     },
                     {
                         module: '__main__',
-                        type: 'CustomException',
-                        value: 'This is a custom exception',
+                        type: 'CustomException \n aaa',
+                        value: "This is a custom exception that's very very long and would look very very bad because having something this long is not cool \n but gladly there's a newline",
                         stacktrace: {
                             type: 'resolved',
                             frames: [
                                 {
-                                    source: '/Users/neilkakkar/Project/posthog-python/example2.py',
+                                    source: '/Users/maxthehedgehog/Project/posthog-python/example2.py',
                                     resolved_name: '<module>',
                                     line: 37,
                                     in_app: true,
                                 },
                                 {
-                                    source: '/Users/neilkakkar/Project/posthog-python/example2.py',
+                                    source: '/Users/maxthehedgehog/Project/posthog-python/example2.py',
                                     resolved_name: 'will_raise',
                                     line: 35,
                                     in_app: true,

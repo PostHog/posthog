@@ -9,6 +9,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import override_settings
 from django.utils import timezone
@@ -22,6 +23,7 @@ from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.dashboard import Dashboard
+from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -119,6 +121,10 @@ def team_api_test_factory():
                 project=self.project, team=other_team, group_type="place", group_type_index=1
             )
 
+            # Clear both cache keys so the next request fetches from DB
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+            cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
 
@@ -156,6 +162,53 @@ def team_api_test_factory():
                     },
                 ],
             )
+
+        def test_group_types_graceful_degradation_on_db_failure(self):
+            """When the persons DB is unreachable and no stale data exists, the
+            endpoint still returns 200 with empty group types rather than a 500."""
+            with patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects:
+                mock_objects.filter.return_value.order_by.return_value.values.side_effect = OperationalError(
+                    "could not connect to server"
+                )
+                cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+                cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+
+                response = self.client.get("/api/environments/@current/")
+                response_data = response.json()
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+                self.assertEqual(response_data["has_group_types"], False)
+                self.assertEqual(response_data["group_types"], [])
+
+        def test_group_types_stale_cache_survives_prolonged_db_outage(self):
+            """After the primary 5-minute cache expires during a prolonged DB outage,
+            the stale fallback key (24h TTL) keeps serving last known good data."""
+            other_team = Team.objects.create(organization=self.organization, project=self.project)
+            create_group_type_mapping_without_created_at(
+                project=self.project, team=other_team, group_type="company", group_type_index=0
+            )
+
+            # First request populates both primary and stale cache
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+            cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["has_group_types"], True)
+
+            # Simulate prolonged outage: primary cache expired, but stale key remains
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+
+            with patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects:
+                mock_objects.filter.return_value.order_by.return_value.values.side_effect = OperationalError(
+                    "could not connect to server"
+                )
+
+                response = self.client.get("/api/environments/@current/")
+                response_data = response.json()
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+                self.assertEqual(response_data["has_group_types"], True)
+                self.assertEqual(response_data["group_types"][0]["group_type"], "company")
 
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
@@ -478,8 +531,9 @@ def team_api_test_factory():
                 call(
                     distinct_id=self.user.distinct_id,
                     event="team deleted",
-                    properties={},
+                    properties=mock.ANY,
                     groups=mock.ANY,
+                    send_feature_flags=False,
                 ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -487,8 +541,9 @@ def team_api_test_factory():
                     call(
                         distinct_id=self.user.distinct_id,
                         event="project deleted",
-                        properties={"project_name": "Default project"},
+                        properties=mock.ANY,
                         groups=mock.ANY,
+                        send_feature_flags=False,
                     )
                 )
                 mock_delete_task_project.delay.assert_called_once_with(
@@ -531,7 +586,6 @@ def team_api_test_factory():
                 team=team,
                 name="test",
                 key="test",
-                rollout_percentage=50,
                 created_by=self.user,
             )
             FeatureFlagHashKeyOverride.objects.create(
@@ -649,6 +703,59 @@ def team_api_test_factory():
                 # Now delete the team - this should succeed
                 response = self.client.delete(f"/api/environments/{team.id}")
                 assert response.status_code == 204
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_scheduled_query",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
+
+            mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
+            import temporalio.service
+
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_missing_schedule",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            rpc_error = temporalio.service.RPCError("not found", temporalio.service.RPCStatusCode.NOT_FOUND, b"")
+            mock_delete_schedule.side_effect = rpc_error
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -1610,14 +1717,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
                     "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         @patch("posthog.api.project.report_user_action")
@@ -1666,14 +1772,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
                     "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         def _create_other_org_and_team(
@@ -2172,6 +2277,301 @@ def team_api_test_factory():
             self.assertEqual(self.team.timezone, "Europe/Lisbon")
             self.assertEqual(self.team.session_recording_opt_in, True)
 
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertTrue(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                    enabled=True,
+                ).exists()
+            )
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled=True,
+                config={},
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertFalse(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).exists()
+            )
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_true_is_idempotent(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled=True,
+                config={},
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).count(),
+                1,
+            )
+
+        def test_can_set_session_recording_trigger_groups(self):
+            """Test that we can create and update session_recording_trigger_groups field"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "test-group-1",
+                        "name": "Test Group",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 5000,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["pageview"],
+                            "flag": "test-flag-key",
+                        },
+                    }
+                ],
+            }
+
+            # Test creating with trigger groups
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+            # Test that it persisted
+            self.team.refresh_from_db()
+            assert self.team.session_recording_trigger_groups == trigger_groups
+
+            # Test updating
+            trigger_groups["groups"][0]["sampleRate"] = 1.0  # type: ignore
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["sampleRate"] == 1.0
+
+            # Test clearing (set to null)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": None},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] is None
+
+        @parameterized.expand(
+            [
+                (
+                    "missing_version",
+                    {"groups": []},
+                    "version",
+                ),
+                (
+                    "invalid_version",
+                    {"version": 1, "groups": []},
+                    "version",
+                ),
+                (
+                    "missing_groups",
+                    {"version": 2},
+                    "groups",
+                ),
+                (
+                    "invalid_sample_rate_above_one",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 1.5,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "negative_sample_rate",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": -0.1,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "invalid_match_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {"matchType": "invalid"},
+                            }
+                        ],
+                    },
+                    "matchtype",
+                ),
+                (
+                    "invalid_regex",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "urls": [{"url": "[invalid(regex", "matching": "regex"}],
+                                },
+                            }
+                        ],
+                    },
+                    "regex",
+                ),
+                (
+                    "invalid_min_duration_negative",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": -100,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_too_large",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": 40000,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_boolean",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": True,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+            ]
+        )
+        def test_session_recording_trigger_groups_validation_errors(
+            self, name: str, trigger_groups: dict, expected_error_fragment: str
+        ):
+            """Test various validation failures for trigger groups"""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert expected_error_fragment in str(response.json()).lower()
+
+        def test_session_recording_trigger_groups_complex_valid_config(self):
+            """Test that complex valid configurations pass validation"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "errors",
+                        "name": "Error Tracking",
+                        "sampleRate": 1.0,
+                        "minDurationMs": 0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["error", "crash"],
+                            "urls": [{"url": "/checkout.*", "matching": "regex"}],
+                        },
+                    },
+                    {
+                        "id": "feature-flag",
+                        "name": "Feature Flag Testing",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 10000,
+                        "conditions": {
+                            "matchType": "all",
+                            "flag": {"key": "variant-test", "variant": "control"},
+                        },
+                    },
+                    {
+                        "id": "simple-flag",
+                        "name": "Simple Flag",
+                        "sampleRate": 0.3,
+                        "conditions": {
+                            "matchType": "any",
+                            "flag": "simple-feature-flag",
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
     return TestTeamAPI
 
 
@@ -2229,16 +2629,20 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_teams=[other_team_in_project.id],
+            scopes=["*"],
         )
 
+        # Team-scoped keys cannot list all environments — they can only access specific teams directly
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {team["id"] for team in response.json()["results"]},
-            {other_team_in_project.id},
-            "Only the scoped team listed here, the other two should be excluded",
+        # But they can access the scoped team directly
+        response = self.client.get(
+            f"/api/environments/{other_team_in_project.id}/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], other_team_in_project.id)
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -2249,6 +2653,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_organizations=[other_org.id],
+            scopes=["*"],
         )
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})

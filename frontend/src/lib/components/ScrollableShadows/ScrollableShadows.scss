@@ -19,16 +19,24 @@
         transition: opacity 200ms ease;
     }
 
+    // Base UI ScrollArea injects `.base-ui-disable-scrollbar` on the Viewport
+    // which hides native scrollbars. Restore them unless explicitly hidden.
+    &:not(.ScrollableShadows--hide-scrollbars) {
+        .ScrollableShadows__inner.base-ui-disable-scrollbar {
+            scrollbar-width: auto;
+
+            &::-webkit-scrollbar {
+                display: block;
+            }
+        }
+    }
+
     .ScrollableShadows__inner {
         flex: 1;
     }
 
     &.ScrollableShadows--horizontal {
         height: 100%;
-
-        .ScrollableShadows__inner {
-            overflow-x: auto;
-        }
 
         &::before {
             box-shadow: 16px 0 16px -16px rgb(0 0 0 / 25%) inset;
@@ -52,10 +60,6 @@
     &.ScrollableShadows--vertical {
         width: 100%;
 
-        .ScrollableShadows__inner {
-            overflow-y: auto;
-        }
-
         &::before {
             box-shadow: 0 16px 16px -16px rgb(0 0 0 / 25%) inset;
         }
@@ -75,16 +79,28 @@
         }
     }
 
-    &.ScrollableShadows--right::after,
-    &.ScrollableShadows--left::before,
-    &.ScrollableShadows--bottom::after,
-    &.ScrollableShadows--top::before {
-        opacity: 1;
+    &.ScrollableShadows--horizontal:not(.ScrollableShadows--hide-shadows) {
+        &[data-overflow-x-start]::before {
+            opacity: 1;
+        }
+
+        &[data-overflow-x-end]::after {
+            opacity: 1;
+        }
+    }
+
+    &.ScrollableShadows--vertical:not(.ScrollableShadows--hide-shadows) {
+        &[data-overflow-y-start]::before {
+            opacity: 1;
+        }
+
+        &[data-overflow-y-end]::after {
+            opacity: 1;
+        }
     }
 
     &.ScrollableShadows--hide-scrollbars {
         .ScrollableShadows__inner {
-            /* Hide the scrollbar */
             scrollbar-width: none;
 
             &::-webkit-scrollbar {

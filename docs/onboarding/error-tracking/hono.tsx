@@ -17,7 +17,7 @@ export const getHonoSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                     {dedent`
                         Hono uses [\`app.onError\`](https://hono.dev/docs/api/exception#handling-httpexception) to handle uncaught exceptions. You can take advantage of this for error tracking. 
                         
-                        Remember to **export** your [project API key](https://app.posthog.com/settings/project#variables) as an environment variable.
+                        Remember to **export** your [project token](https://app.posthog.com/settings/project#variables) as an environment variable.
                     `}
                 </Markdown>
                 <CodeBlock
@@ -27,7 +27,7 @@ export const getHonoSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             file: 'index.ts',
                             code: dedent`
                               import { PostHog } from 'posthog-node'
-                              const posthog = new PostHog(process.env.POSTHOG_PUBLIC_KEY, { host: 'https://us.i.posthog.com' })
+                              const posthog = new PostHog(process.env.POSTHOG_TOKEN, { host: 'https://us.i.posthog.com' })
                               app.onError(async (err, c) => {
                                 posthog.captureException(err, 'user_distinct_id_with_err_rethrow', {
                                   path: c.req.path,
@@ -63,11 +63,7 @@ export const getHonoSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionHandlingStep,
-        verifyStep,
-    ]
+    return [...installSteps, exceptionHandlingStep, verifyStep]
 }
 
 export const HonoInstallation = createInstallation(getHonoSteps)

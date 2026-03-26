@@ -14,10 +14,13 @@ from rest_framework.request import Request
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
-from posthog.auth import TemporaryTokenAuthentication
+from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models import Team, WebExperiment
+from posthog.models import Team
 from posthog.utils_cors import cors_response
+
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.web_experiment import WebExperiment
 
 
 def validate_no_xss(content: str, field_name: str) -> None:
@@ -216,6 +219,15 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         experiment = WebExperiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **create_params, stats_config=stats_config
         )
+
+        report_user_action(
+            self.context["request"].user,
+            "experiment created",
+            experiment.get_analytics_metadata(),
+            team=team,
+            request=self.context["request"],
+        )
+
         return experiment
 
     def update(self, instance: WebExperiment, validated_data: dict[str, Any]) -> WebExperiment:
@@ -259,7 +271,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at").all()
 
     def safely_get_queryset(self, queryset):
@@ -279,7 +290,7 @@ def web_experiments(request: Request):
             request,
             generate_exception_response(
                 "experiments",
-                "API key not provided. You can find your project API key in your PostHog project settings.",
+                "Project token not provided. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -293,7 +304,7 @@ def web_experiments(request: Request):
                 request,
                 generate_exception_response(
                     "experiments",
-                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                    "Project token invalid. You can find your project token in your PostHog project settings.",
                     type="authentication_error",
                     code="invalid_api_key",
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -304,7 +315,7 @@ def web_experiments(request: Request):
             WebExperiment.objects.filter(team_id=team.id)
             .exclude(archived=True)
             .exclude(deleted=True)
-            .exclude(end_date__isnull=False)
+            .filter(status__in=[Experiment.Status.DRAFT, Experiment.Status.RUNNING])
             .select_related("feature_flag", "created_by")
             .order_by("-created_at"),
             many=True,

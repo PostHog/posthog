@@ -1,9 +1,18 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconArchive, IconGraph, IconLlmAnalytics, IconThumbsDown, IconThumbsUp, IconTrash } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCopy,
+    IconGraph,
+    IconLlmAnalytics,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -18,29 +27,30 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
+import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
+import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { SurveyViewRedesign } from 'scenes/surveys/SurveyViewRedesign'
-import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
-import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryContextColumn } from '~/queries/types'
 import {
@@ -93,8 +103,9 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
-    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { push } = useActions(router)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
@@ -106,7 +117,6 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
         type: 'survey',
         ref: surveyId,
         enabled: Boolean(surveyId && !surveyLoading),
-        deps: [surveyId, surveyLoading],
     })
 
     useEffect(() => {
@@ -141,6 +151,17 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     }
                                 }}
                             />
+                            {canCopyToProject && surveyId && (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={() => push(urls.resourceTransfer('Survey', surveyId))}
+                                    data-attr="survey-copy-to-project"
+                                    tooltip="Copy this survey to another project"
+                                >
+                                    <IconCopy />
+                                    Copy to another project
+                                </ButtonPrimitive>
+                            )}
                         </ScenePanelActionsSection>
                         <ScenePanelDivider />
                         {!survey.archived && (
@@ -209,15 +230,9 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            guidedEditorEnabled && survey.type === SurveyType.Popover
-                                                ? undefined
-                                                : () => editingSurvey(true)
+                                            survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)
                                         }
-                                        to={
-                                            guidedEditorEnabled && survey.type === SurveyType.Popover
-                                                ? urls.surveyWizard(id)
-                                                : undefined
-                                        }
+                                        to={survey.type === SurveyType.Popover ? urls.surveyWizard(id) : undefined}
                                         type="secondary"
                                         size="small"
                                     >
@@ -403,7 +418,12 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         processedSurveyStats,
         archivedResponseUuids,
         isSurveyHeadlineEnabled,
+        hasActiveFilters,
+        hasActiveAnswerFilters,
+        hasActiveDateRange,
+        propertyFilters,
     } = useValues(surveyLogic)
+    const { clearFilters } = useActions(surveyLogic)
 
     /**
      * custom column renderer that does:
@@ -496,9 +516,10 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                                 return {}
                                             }
                                             return {
-                                                className: archivedResponseUuids.has(result[0].uuid)
-                                                    ? 'opacity-50'
-                                                    : undefined,
+                                                className:
+                                                    result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
+                                                        ? 'opacity-50'
+                                                        : undefined,
                                             }
                                         },
                                     }}
@@ -507,7 +528,16 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         ))}
                 </>
             ) : (
-                <SurveyNoResponsesBanner type="survey" />
+                <SurveyNoResponsesBanner
+                    type="survey"
+                    isFiltered={hasActiveFilters}
+                    onClearFilters={hasActiveFilters ? clearFilters : undefined}
+                    activeFilterTypes={{
+                        dateRange: hasActiveDateRange,
+                        answerFilters: hasActiveAnswerFilters,
+                        propertyFilters: propertyFilters.length > 0,
+                    }}
+                />
             )}
         </div>
     )

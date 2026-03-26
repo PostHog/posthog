@@ -79,7 +79,7 @@ The assistant used the todo list because:
 5. This approach allows for tracking progress across multiple recording queries and summaries
 """.strip()
 
-MODE_DESCRIPTION = "Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, and summarize entire sessions or a set of them."
+SESSION_REPLAY_MODE_DESCRIPTION = "Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, and summarize entire sessions or a set of them."
 
 
 class SessionReplayAgentToolkit(AgentToolkit):
@@ -106,7 +106,7 @@ class SessionReplayAgentToolkit(AgentToolkit):
 
 session_replay_agent = AgentModeDefinition(
     mode=AgentMode.SESSION_REPLAY,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=SESSION_REPLAY_MODE_DESCRIPTION,
     toolkit_class=SessionReplayAgentToolkit,
     node_class=ChatAgentExecutable,
     tools_node_class=ChatAgentToolsExecutable,
@@ -115,7 +115,7 @@ session_replay_agent = AgentModeDefinition(
 
 chat_agent_plan_session_replay_agent = AgentModeDefinition(
     mode=AgentMode.SESSION_REPLAY,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=SESSION_REPLAY_MODE_DESCRIPTION,
     toolkit_class=SessionReplayAgentToolkit,
     node_class=ChatAgentPlanExecutable,
     tools_node_class=ChatAgentPlanToolsExecutable,

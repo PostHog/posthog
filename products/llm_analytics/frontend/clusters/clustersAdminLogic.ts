@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { AnyPropertyFilter } from '~/types'
 
@@ -45,7 +46,7 @@ export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
     dimensionality_reduction_method: 'umap',
     dimensionality_reduction_ndims: 100,
     clustering_method: 'hdbscan',
-    min_cluster_size_fraction: 0.05,
+    min_cluster_size_fraction: 0.02,
     hdbscan_min_samples: 5,
     kmeans_min_k: 2,
     kmeans_max_k: 10,
@@ -58,7 +59,7 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersAdminLogic']),
 
     connect({
-        values: [clusteringConfigLogic, ['config', 'configLoading']],
+        values: [clusteringConfigLogic, ['config', 'configLoading'], teamLogic, ['currentTeamIdStrict']],
     }),
 
     actions({
@@ -92,7 +93,7 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
             {
                 triggerClusteringRun: async () => {
                     const response = await api.create(
-                        'api/environments/@current/llm_analytics/clustering_runs',
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_runs`,
                         values.params
                     )
                     return response as ClusteringRunResponse

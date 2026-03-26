@@ -14,7 +14,7 @@ registerAsyncFunction('foobar', {
      *
      * @param args the arguments passed from the Hog code, for example `foobar('i am foo', {'key': 200}, 'i am baz')`
      * @param _context includes the invocation details, any global variables attached to the invocation, and a reference to
-     *   the HogExecutorServiceHub which provides access to other services and data (e.g. teamManager, featureFlagManager, etc.)
+     *   the AsyncFunctionContext which provides access to other services and data (e.g. teamManager, siteUrl, etc.)
      * @param _result the current state of the invocation result, which can be modified by the async function and serves as a place to store
      *   its return value and/or modify the invocation.
      *   For example, you can set a value for a key on result.invocation, and that value would then be accessible in subsequent async functions.

@@ -8,9 +8,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
 import { TaskRun } from '../types'
-import { TaskRunStatusBadge } from './TaskRunStatusBadge'
+import { CollapsibleContent } from './CollapsibleContent'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { ToolCallEntry } from './session/ToolCallEntry'
+import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 
 const HEDGEHOG_STATUSES = [
     'Spiking...',
@@ -52,7 +53,9 @@ function HedgehogStatus(): JSX.Element {
 
 interface TaskSessionViewProps {
     logs: string
+    streamEntries: LogEntry[]
     isPolling: boolean
+    isStreaming: boolean
     run: TaskRun | null
 }
 
@@ -86,7 +89,9 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                         )}
                     </div>
                     <div className="border-r-2 border-muted pr-3 max-w-[90%] text-right">
-                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        <CollapsibleContent gradientColor="--bg-3000">
+                            <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        </CollapsibleContent>
                     </div>
                 </div>
             )
@@ -120,8 +125,16 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
     }
 }
 
-export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps): JSX.Element {
-    const entries = useMemo(() => parseLogs(logs), [logs])
+export function TaskSessionView({
+    logs,
+    streamEntries,
+    isPolling,
+    isStreaming,
+    run,
+}: TaskSessionViewProps): JSX.Element {
+    const parsedLogs = useMemo(() => parseLogs(logs), [logs])
+    // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
+    const entries = streamEntries.length > 0 ? streamEntries : parsedLogs
 
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(
@@ -153,7 +166,7 @@ export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps):
                 {entries.map((entry) => (
                     <LogEntryRenderer key={entry.id} entry={entry} />
                 ))}
-                {isPolling && <HedgehogStatus />}
+                {(isPolling || isStreaming) && <HedgehogStatus />}
             </div>
         </div>
     )
