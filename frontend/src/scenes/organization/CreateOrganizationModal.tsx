@@ -59,6 +59,13 @@ export function CreateOrganizationModal({
                     >
                         Create organization
                     </LemonButton>
+                    {inline && (
+                        <div className="w-full text-center mt-2">
+                            <span className="text-muted">
+                                or <Link to="/settings/user">manage your account</Link>
+                            </span>
+                        </div>
+                    )}
                 </>
             }
             onClose={closeModal}
