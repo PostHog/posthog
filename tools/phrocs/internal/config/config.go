@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"sort"
 
@@ -33,6 +34,27 @@ type Config struct {
 	MouseScrollSpeed int                   `yaml:"mouse_scroll_speed"`
 	ProcListWidth    int                   `yaml:"proc_list_width"`
 	Scrollback       int                   `yaml:"scrollback"`
+}
+
+// ResolveConfigPath returns the config file path to use. If explicit is
+// non-empty it is returned as-is. Otherwise, the function checks for an
+// mprocs.yaml in the current directory and returns its path, or an error
+// if no config can be found.
+func ResolveConfigPath(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	info, err := os.Stat("mprocs.yaml")
+	if err == nil && info.Mode().IsRegular() {
+		return "mprocs.yaml", nil
+	}
+	if err == nil {
+		return "", fmt.Errorf("mprocs.yaml exists but is not a regular file")
+	}
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("no config: pass --config or place an mprocs.yaml in the current directory")
+	}
+	return "", fmt.Errorf("stat mprocs.yaml: %w", err)
 }
 
 // Reads and parses an mprocs-compatible YAML config file
