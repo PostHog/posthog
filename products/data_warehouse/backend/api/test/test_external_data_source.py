@@ -839,11 +839,14 @@ class TestExternalDataSource(APIBaseTest):
             ),
         ]
         source = self._create_external_data_source()
+        # Simulate the realistic soft-delete path: the schema was syncing,
+        # then got removed from the source which sets should_sync=False before
+        # soft-deleting (see sync_old_schemas_with_new_schemas).
         deleted_schema = ExternalDataSchema.objects.create(
             name="restored_table",
             team_id=self.team.pk,
             source_id=source.pk,
-            should_sync=True,
+            should_sync=False,
             deleted=True,
             sync_type_config={"legacy_key": "keep"},
         )
@@ -868,7 +871,8 @@ class TestExternalDataSource(APIBaseTest):
 
         restored_schema = ExternalDataSchema.objects.get(pk=deleted_schema.pk)
         self.assertFalse(restored_schema.deleted)
-        self.assertTrue(restored_schema.should_sync)
+        # Restored schemas come back disabled — the user must opt in again
+        self.assertFalse(restored_schema.should_sync)
         self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
 
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
