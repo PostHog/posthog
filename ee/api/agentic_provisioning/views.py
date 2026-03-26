@@ -254,6 +254,8 @@ def _handle_existing_user(
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
 
+    _capture_provisioning_event("account_request", "existing_user", region=region)
+
     authorize_url = _build_authorize_url(confirmation_secret, scopes)
     return Response(
         {
@@ -288,9 +290,11 @@ def _handle_new_user(
     except IntegrityError:
         existing = User.objects.filter(email=email).first()
         if existing:
+            _capture_provisioning_event("account_request", "race_condition_existing_user", region=region)
             return _handle_existing_user(
                 request_id, existing, data.get("confirmation_secret", ""), scopes, stripe_account_id, region
             )
+        _capture_provisioning_event("account_request", "creation_failed", region=region)
         return Response(
             {
                 "id": request_id,
@@ -299,6 +303,8 @@ def _handle_new_user(
             },
             status=500,
         )
+
+    _capture_provisioning_event("account_request", "new_user", region=region)
 
     code = secrets.token_urlsafe(32)
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
@@ -336,14 +342,17 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 def agentic_authorize(request: Any) -> HttpResponseBase:
     state = request.GET.get("state", "")
     if not state or not _SAFE_STATE_RE.match(state):
+        _capture_provisioning_event("authorize", "missing_state")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
     pending = cache.get(pending_key)
     if pending is None:
+        _capture_provisioning_event("authorize", "expired_state")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=expired_or_invalid_state")
 
     if request.user.email != pending["email"]:
+        _capture_provisioning_event("authorize", "email_mismatch")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
     scope = " ".join(pending.get("scopes", []))
@@ -379,10 +388,14 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
             timeout=AUTH_CODE_TTL_SECONDS,
         )
 
+        _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
+
         callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
         sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
         params = urlencode({"code": code, "state": sanitized_state})
         return HttpResponseRedirect(f"{callback_url}?{params}")
+
+    _capture_provisioning_event("authorize", "selection_required")
 
     base = settings.SITE_URL.rstrip("/")
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
@@ -397,24 +410,29 @@ def agentic_authorize_confirm(request: Request) -> Response:
     team_id = request.data.get("team_id")
 
     if not state or team_id is None or not _SAFE_STATE_RE.match(state):
+        _capture_provisioning_event("authorize_confirm", "invalid_request")
         return Response({"error": "state and team_id are required"}, status=400)
 
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
     pending = cache.get(pending_key)
     if pending is None:
+        _capture_provisioning_event("authorize_confirm", "expired_state")
         return Response({"error": "expired_or_invalid_state"}, status=400)
 
     user = cast(User, request.user)
 
     if user.email != pending["email"]:
+        _capture_provisioning_event("authorize_confirm", "email_mismatch")
         return Response({"error": "email_mismatch"}, status=403)
 
     try:
         team = Team.objects.get(id=team_id, is_demo=False)
     except Team.DoesNotExist:
+        _capture_provisioning_event("authorize_confirm", "team_not_found", team_id=team_id)
         return Response({"error": "team_not_found"}, status=404)
 
     if not user.organization_memberships.filter(organization_id=team.organization_id).exists():
+        _capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
         return Response({"error": "team_not_accessible"}, status=403)
 
     cache.delete(pending_key)
@@ -437,6 +455,8 @@ def agentic_authorize_confirm(request: Request) -> Response:
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
     params = urlencode({"code": code, "state": sanitized_state})
     redirect_url = f"{callback_url}?{params}"
+
+    _capture_provisioning_event("authorize_confirm", "success", team_id=team_id)
 
     return Response({"redirect_url": redirect_url})
 
@@ -472,6 +492,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
     code_data = cache.get(cache_key)
     if code_data is None:
+        _capture_provisioning_event("token_exchange", "invalid_code", grant_type="authorization_code")
         return Response(
             {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
         )
@@ -511,6 +532,8 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     account_id = str(code_data.get("org_id", ""))
 
+    _capture_provisioning_event("token_exchange", "success", grant_type="authorization_code")
+
     return Response(
         {
             "token_type": "bearer",
@@ -532,6 +555,7 @@ def _exchange_refresh_token(request: Request) -> Response:
 
     old_refresh = find_oauth_refresh_token(refresh_token_value)
     if old_refresh is None:
+        _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
 
     oauth_app = old_refresh.application
@@ -566,6 +590,8 @@ def _exchange_refresh_token(request: Request) -> Response:
         scoped_teams=scoped_teams,
     )
 
+    _capture_provisioning_event("token_exchange", "success", grant_type="refresh_token")
+
     return Response(
         {
             "token_type": "bearer",
@@ -597,17 +623,20 @@ def provisioning_resources_create(request: Request) -> Response:
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
+        _capture_provisioning_event("resource_created", "error", error_code="unknown_service")
         return _error_response("unknown_service", f"Unknown service_id: {service_id}")
 
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
+        _capture_provisioning_event("resource_created", "error", error_code="no_team")
         return _error_response("no_team", "No team associated with this token")
 
     team_id = scoped_teams[0]
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
+        _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
@@ -615,6 +644,8 @@ def provisioning_resources_create(request: Request) -> Response:
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
+
+    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team_id)
 
     return Response(
         {
@@ -683,9 +714,12 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         team.reset_token_and_save(user=user, is_impersonated_session=False)
     except Exception:
         capture_exception(additional_properties={"team_id": team_id})
+        _capture_provisioning_event("credential_rotation", "failed", team_id=team_id)
         return _error_response(
             "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
         )
+
+    _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
 
     service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
@@ -968,6 +1002,14 @@ def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
 def _capture_deep_link_event(outcome: str, **extra: object) -> None:
     posthoganalytics.capture(
         "agentic_provisioning deep link login",
+        distinct_id="agentic_provisioning_system",
+        properties={"outcome": outcome, **extra},
+    )
+
+
+def _capture_provisioning_event(event_type: str, outcome: str, **extra: object) -> None:
+    posthoganalytics.capture(
+        f"agentic_provisioning {event_type}",
         distinct_id="agentic_provisioning_system",
         properties={"outcome": outcome, **extra},
     )
