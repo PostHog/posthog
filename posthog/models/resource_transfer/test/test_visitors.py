@@ -1303,6 +1303,8 @@ class TestExperimentSavedMetricVisitorDynamicEdges(SimpleTestCase):
 
         metric_list = SimpleNamespace(query=[])
         assert ExperimentSavedMetricVisitor.get_dynamic_edges(metric_list) == []
+
+
 class TestSurveyVisitorConditionsCohorts(BaseTest):
     @parameterized.expand(
         [
