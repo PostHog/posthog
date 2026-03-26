@@ -34,7 +34,7 @@ export const Basic: Story = Template.bind({})
 Basic.args = {
     info: 'This field is optional',
     showOptional: true,
-    children: 'Label',
+    children: 'Label ',
 }
 
 function ExplanationModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {
