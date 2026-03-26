@@ -1234,9 +1234,11 @@ class InsightViewSet(
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
                 feature_flag = request.GET["feature_flag"]
+                feature_flag_breakdown = f"$feature/{feature_flag}"
                 queryset = queryset.filter(
-                    Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
+                    Q(filters__breakdown__icontains=feature_flag_breakdown)
                     | Q(filters__properties__icontains=feature_flag)
+                    | Q(query__icontains=feature_flag_breakdown)
                 )
             elif key == "events":
                 events_filter = request.GET["events"]
