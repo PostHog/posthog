@@ -6,7 +6,7 @@ import uuid
 
 from django.db import models
 
-from .facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, RunType, SnapshotResult
 
 
 class Repo(models.Model):
@@ -114,7 +114,14 @@ class Run(models.Model):
     branch = models.CharField(max_length=255)
     pr_number = models.PositiveIntegerField(null=True, blank=True)
 
-    # Approval
+    # Purpose and review
+    purpose = models.CharField(
+        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW
+    )
+    review_decision = models.CharField(
+        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING
+    )
+    # Legacy — derived from review_decision, kept for backward compat during migration
     approved = models.BooleanField(default=False)
     approved_at = models.DateTimeField(null=True, blank=True)
     # References posthog.User in the main database — plain integer, no FK.
