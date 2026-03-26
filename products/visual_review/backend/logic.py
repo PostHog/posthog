@@ -417,6 +417,7 @@ def create_run(
         baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
         RunSnapshot.objects.create(
             run=run,
+            team_id=repo.team_id,
             identifier=identifier,
             current_hash="",
             baseline_hash=baseline_hash or "",
