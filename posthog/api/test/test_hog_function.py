@@ -1200,6 +1200,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination,transformation")
         assert len(response.json()["results"]) == 2
 
+    def test_warehouse_source_webhook_excluded(self, *args):
+        destination = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL},
+        )
+        assert destination.status_code == status.HTTP_201_CREATED
+
+        webhook_func = HogFunction.objects.create(
+            team=self.team,
+            name="Webhook Source",
+            type="warehouse_source_webhook",
+            hog="return event",
+        )
+
+        # List should not include warehouse_source_webhook functions
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        ids = [r["id"] for r in response.json()["results"]]
+        assert str(webhook_func.id) not in ids
+        assert len(response.json()["results"]) == 1
+
+        # Detail should return 404
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{webhook_func.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_list_with_enabled_filter(self, *args):
         response_destination = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

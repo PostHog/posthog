@@ -31,32 +31,50 @@ resource "posthog_dashboard_layout" "slo_monitoring" {
         })
       },
     ],
-    # Per-region rows: burn rate (left) + duration (right), h=3 each.
-    # Sorted by operation then region. Each row is 3 units tall.
-    # y starts at 6 (after success rate h=5 + text h=1).
-    [
-      for idx, key in sort(keys(local.slo_operation_regions)) :
-      {
-        insight_id = posthog_insight.slo_burn_rate[key].id
-        layouts_json = jsonencode({
-          sm = {
-            h = 3, i = "burn_${key}", w = 6, x = 0, y = 6 + idx * 3
-            minH = 2, minW = 2, moved = false, static = false
+    # Per-operation sections: header + burn rate (left) + duration (right) per region.
+    # Each section: header (h=1) + N regions * row_height (h=3).
+    # Base y = 6 (after success rate h=5 + text h=1).
+    # NOTE: y offset formula assumes all operations have the same number of regions.
+    flatten([
+      for op_idx, op_key in sort(keys(local.slo_operations)) : concat(
+        # Section header
+        [{
+          text_body = "## ${local.slo_operations[op_key].name}"
+          layouts_json = jsonencode({
+            sm = {
+              h = 1, i = "header_${op_key}", w = 12, x = 0,
+              y = 6 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3)
+              minH = 1, minW = 1, moved = false, static = false
+            }
+          })
+        }],
+        # Burn rate tiles (left half)
+        [
+          for reg_idx, region in sort(local.slo_operations[op_key].regions) : {
+            insight_id = posthog_insight.slo_burn_rate["${op_key}_${lower(region)}"].id
+            layouts_json = jsonencode({
+              sm = {
+                h = 3, i = "burn_${op_key}_${lower(region)}", w = 6, x = 0,
+                y = 6 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3) + 1 + reg_idx * 3
+                minH = 2, minW = 2, moved = false, static = false
+              }
+            })
           }
-        })
-      }
-    ],
-    [
-      for idx, key in sort(keys(local.slo_operation_regions)) :
-      {
-        insight_id = posthog_insight.slo_duration[key].id
-        layouts_json = jsonencode({
-          sm = {
-            h = 3, i = "dur_${key}", w = 6, x = 6, y = 6 + idx * 3
-            minH = 2, minW = 2, moved = false, static = false
+        ],
+        # Duration tiles (right half)
+        [
+          for reg_idx, region in sort(local.slo_operations[op_key].regions) : {
+            insight_id = posthog_insight.slo_duration["${op_key}_${lower(region)}"].id
+            layouts_json = jsonencode({
+              sm = {
+                h = 3, i = "dur_${op_key}_${lower(region)}", w = 6, x = 6,
+                y = 6 + op_idx * (1 + length(local.slo_operations[op_key].regions) * 3) + 1 + reg_idx * 3
+                minH = 2, minW = 2, moved = false, static = false
+              }
+            })
           }
-        })
-      }
-    ],
+        ],
+      )
+    ]),
   )
 }

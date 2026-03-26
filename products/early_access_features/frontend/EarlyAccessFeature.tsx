@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
+import { IconCopy, IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -29,6 +29,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -146,6 +147,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         setEarlyAccessFeatureValue,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -391,6 +393,21 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     <ScenePanelActionsSection>
                         <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />
                         <ScenePanelDivider />
+                        {!isNewEarlyAccessFeature && canCopyToProject && earlyAccessFeatureId && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        urls.resourceTransfer('EarlyAccessFeature', earlyAccessFeatureId)
+                                    )
+                                }
+                                data-attr="early-access-feature-copy-to-project"
+                                tooltip="Copy this early access feature to another project"
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </ButtonPrimitive>
+                        )}
                         <ButtonPrimitive
                             onClick={() => {
                                 LemonDialog.open({

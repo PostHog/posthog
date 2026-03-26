@@ -498,6 +498,19 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
     return f"{name} (Copy {counter})"
 
 
+def _deduplicate_feature_flag_key(model: type[models.Model], key: str, team: Team) -> str:
+    """Return a unique ``key`` for a feature flag being copied into *team*."""
+    if not model.objects.filter(team=team, key=key).exists():
+        return key
+    candidate = f"{key}-copy"
+    if not model.objects.filter(team=team, key=candidate).exists():
+        return candidate
+    counter = 2
+    while model.objects.filter(team=team, key=f"{key}-copy-{counter}").exists():
+        counter += 1
+    return f"{key}-copy-{counter}"
+
+
 def _get_mapped_substitutions(
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
     target_team: Team | None = None,
@@ -642,8 +655,13 @@ def _duplicate_vertex(
                 target_pk=str(edge.target_primary_key),
             )
 
+    payload = visitor.adjust_duplicate_payload(payload, vertex, new_team)
+
     if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
         payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
+
+    if visitor.kind == "FeatureFlag" and payload.get("key"):
+        payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
 
     new_resource = visitor.get_model().objects.create(**payload)
     logger.info(

@@ -85,6 +85,17 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
+    /// Maximum gRPC message size to encode (send), in bytes.
+    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    /// Defaults to 128 MiB.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_send_message_size: usize,
+
+    /// Maximum gRPC message size to decode (receive), in bytes.
+    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    #[envconfig(default = "134217728")]
+    pub grpc_max_recv_message_size: usize,
+
     // ── etcd coordination (leader mode only) ─────────────────────
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,
