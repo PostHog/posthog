@@ -507,7 +507,10 @@ function FeatureFlagScheduleV2(): JSX.Element {
 
                     {/* Row 2: Configuration panel */}
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
-                        <div className="self-start">
+                        <div className="rounded border p-4 flex flex-col gap-2">
+                            <p className="text-muted text-sm m-0">
+                                The flag will be switched to the status you select on the scheduled date.
+                            </p>
                             <LemonSwitch
                                 checked={!!schedulePayload.active}
                                 onChange={(checked) => setSchedulePayload(null, checked)}
@@ -518,10 +521,10 @@ function FeatureFlagScheduleV2(): JSX.Element {
                     )}
                     {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
                         <div className="flex flex-col gap-3">
-                            <LemonBanner type="info">
-                                This condition will be appended to the flag's existing release conditions, not replace
-                                them.
-                            </LemonBanner>
+                            <p className="text-muted text-sm m-0">
+                                This condition will be appended to the flag's existing release conditions; it will not
+                                replace them.
+                            </p>
                             <div className="rounded border p-3">
                                 <FeatureFlagReleaseConditionsCollapsible
                                     id={`schedule-release-conditions-${featureFlag.id}`}
