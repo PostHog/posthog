@@ -272,6 +272,29 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_can_delete_last_project_on_self_hosted(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        with self.is_cloud(False):
+            response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    @patch("posthog.api.project.get_cached_instance_license")
+    def test_can_delete_last_project_when_no_license(self, mock_get_license, mock_delete_task):
+        mock_get_license.return_value = None
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        with self.is_cloud(True):
+            response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
         # Create a Person
