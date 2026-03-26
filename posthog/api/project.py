@@ -678,19 +678,19 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 "Project deletion is temporarily disabled during database migration. Please try again later."
             )
 
-        # Block deletion of the last project if org has an active subscription
-        if is_cloud():
-            organization = project.organization
-            if organization.projects.count() == 1:
-                license = get_cached_instance_license()
-                if license:
-                    billing_manager = BillingManager(license)
-                    billing = billing_manager.get_billing(organization)
-                    if billing.get("has_active_subscription"):
-                        raise exceptions.ValidationError(
-                            "Cannot delete the last project in an organization with an active subscription. "
-                            "Please cancel your subscription first in the billing page."
-                        )
+        # Block deletion of the last project in an org with an active subscription (cloud only)
+        is_last_project = project.organization.projects.count() == 1
+        license = get_cached_instance_license()
+        has_active_subscription = (
+            is_cloud()
+            and license
+            and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
+        )
+        if is_last_project and has_active_subscription:
+            raise exceptions.ValidationError(
+                "Cannot delete the last project in an organization with an active subscription. "
+                "Please cancel your subscription first in the billing page."
+            )
 
         project_id = project.pk
         organization_id = project.organization_id
