@@ -274,6 +274,38 @@ describe('DualReadGroupRepository', () => {
         })
     })
 
+    describe('gRPC empty result shape divergence from Postgres', () => {
+        it('fetchGroupTypesByTeamIds with missing key works via ?? [] fallback', async () => {
+            // gRPC returns {} when a team has no group types (key absent),
+            // whereas Postgres returns { "5": [] } (key present with empty array).
+            // Downstream code uses result[teamId] ?? [] so both shapes work.
+            mockGrpc.fetchGroupTypesByTeamIds.mockResolvedValue({})
+            jest.spyOn(Math, 'random').mockReturnValue(0) // force gRPC path
+
+            const repo = createRepo(100)
+            const result = await repo.fetchGroupTypesByTeamIds([5 as TeamId])
+
+            expect(result).toEqual({})
+            // The caller would access result["5"] ?? [] and get []
+            expect(result['5'] ?? []).toEqual([])
+
+            jest.spyOn(Math, 'random').mockRestore()
+        })
+
+        it('fetchGroupTypesByProjectIds with missing key works via ?? [] fallback', async () => {
+            mockGrpc.fetchGroupTypesByProjectIds.mockResolvedValue({})
+            jest.spyOn(Math, 'random').mockReturnValue(0) // force gRPC path
+
+            const repo = createRepo(100)
+            const result = await repo.fetchGroupTypesByProjectIds([200 as ProjectId])
+
+            expect(result).toEqual({})
+            expect(result['200'] ?? []).toEqual([])
+
+            jest.spyOn(Math, 'random').mockRestore()
+        })
+    })
+
     describe('write operations always delegate to postgres', () => {
         it('insertGroup', async () => {
             mockPostgres.insertGroup.mockResolvedValue(1)

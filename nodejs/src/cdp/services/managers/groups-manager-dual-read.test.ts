@@ -278,6 +278,55 @@ describe('GroupsManagerService + DualReadGroupRepository integration', () => {
         })
     })
 
+    describe('gRPC empty group type mapping key omission', () => {
+        it('event with unknown group type is silently skipped when gRPC omits the mapping key', async () => {
+            // The real PersonHogClient does NOT pre-initialize empty arrays for
+            // requested team IDs that have no group type mappings — the key is
+            // simply absent from the response. This differs from Postgres which
+            // returns { "teamId": [] }. Verify that GroupsManagerService handles
+            // the missing key via its ?? [] fallback and produces the correct result.
+            const TEAM_3 = 3 as TeamId
+
+            const mockPostgres = createMockPostgres([], [])
+            const mockGrpc: MockPersonHogClient = {
+                fetchGroup: jest.fn(),
+                fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
+                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((_teamIds: number[]) => {
+                    // Mimic real gRPC behavior: return empty object (no key for team 3)
+                    return Promise.resolve({})
+                }),
+                fetchGroupTypesByProjectIds: jest.fn(),
+            }
+
+            const dualRead = new DualReadGroupRepository(
+                mockPostgres,
+                mockGrpc as unknown as PersonHogClient,
+                100,
+                'test'
+            )
+            const manager = new GroupsManagerService(
+                { hasAvailableFeature: jest.fn().mockResolvedValue(true) } as unknown as TeamManager,
+                dualRead
+            )
+
+            const globals = createHogExecutionGlobals({
+                groups: undefined,
+                project: { id: TEAM_3 } as any,
+                event: {
+                    properties: { $groups: { UnknownType: 'some-key' } },
+                } as any,
+            })
+
+            await manager.addGroupsToGlobals(globals)
+
+            // UnknownType has no mapping → skipped entirely → empty groups
+            expect(globals.groups).toEqual({})
+            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_3])
+            // fetchGroupsByKeys should NOT be called since there are no valid group type mappings
+            expect(mockGrpc.fetchGroupsByKeys).not.toHaveBeenCalled()
+        })
+    })
+
     describe('grpc fallback to postgres on error', () => {
         let mockPostgres: jest.Mocked<GroupRepository>
         let mockGrpc: ReturnType<typeof createMockGrpcClient>
