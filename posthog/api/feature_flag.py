@@ -387,7 +387,7 @@ class RemoteConfigThrottle(BurstRateThrottle):
 
 
 class EvaluationTagsChecker:
-    """Helper class to check if evaluation tags feature is enabled.
+    """Helper class to check if evaluation contexts feature is enabled.
 
     This avoids repeated feature flag checks during serialization by computing
     the result once per request.
@@ -395,7 +395,7 @@ class EvaluationTagsChecker:
 
     @staticmethod
     def is_enabled(request) -> bool:
-        """Check if evaluation tags feature is enabled for the request user."""
+        """Check if evaluation contexts feature is enabled for the request user."""
         if not hasattr(request, "user") or request.user.is_anonymous:
             return False
 
@@ -413,63 +413,57 @@ class EvaluationTagsChecker:
             return False
 
 
-class EvaluationTagSerializerMixin(serializers.Serializer):
+class EvaluationContextSerializerMixin(serializers.Serializer):
     """
     Serializer mixin that handles evaluation contexts for feature flags.
 
     Evaluation contexts are independent from organizational tags — they control
     where flags evaluate at runtime (e.g. "production", "staging"). Backed by
     the EvaluationContext model, not the Tag model.
-
-    Accepts both 'evaluation_tags' (deprecated) and 'evaluation_contexts' as
-    input field names for backward compatibility.
     """
 
-    evaluation_tags = serializers.ListField(required=False, write_only=True)
+    evaluation_contexts = serializers.ListField(required=False, write_only=True)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
-        # Accept both field names; prefer evaluation_contexts if provided.
-        # Use explicit `in` checks rather than `or` to avoid treating [] as falsy.
-        if hasattr(self, "initial_data"):
-            if "evaluation_contexts" in self.initial_data:
-                raw = self.initial_data["evaluation_contexts"]
-            elif "evaluation_tags" in self.initial_data:
-                raw = self.initial_data["evaluation_tags"]
-            else:
-                raw = None
+        if hasattr(self, "initial_data") and "evaluation_contexts" in self.initial_data:
+            raw = self.initial_data["evaluation_contexts"]
             if raw is not None:
                 if not isinstance(raw, list) or len(raw) > 50:
                     raise serializers.ValidationError("evaluation_contexts must be a list of at most 50 items.")
                 for item in raw:
                     if not isinstance(item, str) or len(item) > 255:
                         raise serializers.ValidationError("Invalid evaluation context name.")
-                # Deduplicate: silently collapse duplicates rather than erroring,
-                # since the backend would deduplicate anyway via _attempt_set_evaluation_tags.
-                attrs["evaluation_tags"] = list(dict.fromkeys(raw))
+                attrs["evaluation_contexts"] = list(dict.fromkeys(raw))
 
         return attrs
 
-    def _is_evaluation_tags_feature_enabled(self):
+    def _is_evaluation_contexts_feature_enabled(self):
         """Check if FLAG_EVALUATION_TAGS feature flag is enabled."""
         if "request" not in self.context:
             return False
 
         return EvaluationTagsChecker.is_enabled(self.context["request"])
 
-    def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
+    def _attempt_set_evaluation_contexts(self, evaluation_contexts, obj):
         """Update evaluation contexts for a feature flag using efficient diff logic."""
         if not obj:
             return
 
-        if not self._is_evaluation_tags_feature_enabled():
+        if not self._is_evaluation_contexts_feature_enabled():
             return
 
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
-        deduped_names = list({normalize_context_name(t) for t in evaluation_tags or []})
-        deduped_set = set(deduped_names)
+        seen: set[str] = set()
+        deduped_names: list[str] = []
+        for t in evaluation_contexts or []:
+            name = normalize_context_name(t)
+            if name not in seen:
+                seen.add(name)
+                deduped_names.append(name)
+        deduped_set = seen
 
         current_context_names = set(
             FeatureFlagEvaluationContext.objects.filter(feature_flag=obj)
@@ -509,9 +503,6 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
                 for ec in obj.flag_evaluation_contexts.select_related("evaluation_context").all()
             ]
 
-        # Deprecated: evaluation_tags is kept for backward compatibility.
-        # Use evaluation_contexts instead. Will be removed in a future release.
-        ret["evaluation_tags"] = context_names
         ret["evaluation_contexts"] = context_names
 
         return ret
@@ -531,10 +522,10 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Organizational tags for this feature flag.",
     )
-    evaluation_tags = serializers.ListField(
+    evaluation_contexts = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Evaluation context tags. Must be a subset of `tags`.",
+        help_text="Evaluation contexts that control where this flag evaluates at runtime.",
     )
 
 
@@ -552,16 +543,16 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Organizational tags for this feature flag.",
     )
-    evaluation_tags = serializers.ListField(
+    evaluation_contexts = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Evaluation context tags. Must be a subset of `tags`.",
+        help_text="Evaluation contexts that control where this flag evaluates at runtime.",
     )
 
 
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
-    EvaluationTagSerializerMixin,
+    EvaluationContextSerializerMixin,
     UserAccessControlSerializerMixin,
     serializers.HyperlinkedModelSerializer,
 ):
@@ -628,7 +619,7 @@ class FeatureFlagSerializer(
             "performed_rollback",
             "can_edit",
             "tags",
-            "evaluation_tags",
+            "evaluation_contexts",
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
@@ -701,7 +692,7 @@ class FeatureFlagSerializer(
         if creation_context == "surveys":
             return attrs
 
-        # Get the team to check if evaluation tags are required
+        # Get the team to check if evaluation contexts are required
         # The context uses a lambda for lazy evaluation
         get_team = self.context.get("get_team")
         if not get_team:
@@ -711,44 +702,33 @@ class FeatureFlagSerializer(
         if not team or not team.require_evaluation_contexts:
             return attrs
 
-        # Check if evaluation tags feature is enabled
-        if not self._is_evaluation_tags_feature_enabled():
+        if not self._is_evaluation_contexts_feature_enabled():
             return attrs
 
-        # Get evaluation_tags from attrs (validated data)
         # Note: for creation_context, we use initial_data since it's metadata not part of the model
-        evaluation_tags = attrs.get("evaluation_tags")
+        evaluation_contexts = attrs.get("evaluation_contexts")
 
-        # Validate evaluation tag requirements based on operation type
         if request.method == "POST":
-            # Creating a new flag: require at least one evaluation tag
-            if not evaluation_tags:
+            if not evaluation_contexts:
                 raise serializers.ValidationError(
-                    "At least one evaluation context tag is required to create a new feature flag."
+                    "At least one evaluation context is required to create a new feature flag."
                 )
         elif request.method in ["PUT", "PATCH"] and self.instance:
-            # Updating an existing flag: if it currently has evaluation tags, require at least one in the update
-            # TRICKY: This creates asymmetric behavior - flags WITH eval tags can't have them removed,
-            # but flags WITHOUT eval tags aren't required to add them on update (only on creation).
-            # This is intentional: we enforce eval tags going forward (new flags) without breaking
-            # existing workflows (updating old flags that were created before the requirement).
-
-            # Check if evaluation contexts are already loaded to avoid extra query
+            # Flags that already have evaluation contexts can't have them all removed,
+            # but flags without contexts aren't required to add them on update (only on creation).
             if (
                 hasattr(self.instance, "_prefetched_objects_cache")
                 and "flag_evaluation_contexts" in self.instance._prefetched_objects_cache
             ):
-                existing_eval_tag_count = len(self.instance.flag_evaluation_contexts.all())
+                existing_context_count = len(self.instance.flag_evaluation_contexts.all())
             else:
-                existing_eval_tag_count = self.instance.flag_evaluation_contexts.count()
+                existing_context_count = self.instance.flag_evaluation_contexts.count()
 
-            if existing_eval_tag_count > 0:
-                # Flag currently has evaluation tags, so we need to enforce the requirement
-                # Only validate if evaluation_tags is explicitly provided in the request
-                if evaluation_tags is not None and not evaluation_tags:
+            if existing_context_count > 0:
+                if evaluation_contexts is not None and not evaluation_contexts:
                     raise serializers.ValidationError(
-                        "Cannot remove all evaluation context tags. At least one tag is required because "
-                        "this flag already has evaluation tags and the team requires them."
+                        "Cannot remove all evaluation contexts. At least one evaluation context is required "
+                        "because this flag already has evaluation contexts and the team requires them."
                     )
 
         return attrs
@@ -1234,7 +1214,7 @@ class FeatureFlagSerializer(
         validated_data["team_id"] = self.context["team_id"]
         validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        evaluation_tags = validated_data.pop("evaluation_tags", None)
+        evaluation_contexts = validated_data.pop("evaluation_contexts", None)
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"
         )  # default to "feature_flags" if an alternative value is not provided
@@ -1262,7 +1242,7 @@ class FeatureFlagSerializer(
             instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
-        self._attempt_set_evaluation_tags(evaluation_tags, instance)
+        self._attempt_set_evaluation_contexts(evaluation_contexts, instance)
 
         if should_create_usage_dashboard:
             _create_usage_dashboard(instance, request.user)
@@ -1293,8 +1273,7 @@ class FeatureFlagSerializer(
 
         validated_data["last_modified_by"] = request.user
         # Prevent DRF from attempting to set reverse FK relation directly
-        # We manage evaluation tags via _attempt_set_evaluation_tags below
-        validated_data.pop("evaluation_tags", None)
+        validated_data.pop("evaluation_contexts", None)
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
@@ -1445,10 +1424,7 @@ class FeatureFlagSerializer(
         # Accept both field names; prefer evaluation_contexts if provided
         if "evaluation_contexts" in self.initial_data:
             evaluation_data = self.initial_data.get("evaluation_contexts")
-            self._attempt_set_evaluation_tags(evaluation_data, instance)
-        elif "evaluation_tags" in self.initial_data:
-            evaluation_data = self.initial_data.get("evaluation_tags")
-            self._attempt_set_evaluation_tags(evaluation_data, instance)
+            self._attempt_set_evaluation_contexts(evaluation_data, instance)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -1815,7 +1791,6 @@ class UserBlastRadiusResponseSerializer(serializers.Serializer):
 
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
-    evaluation_tags = serializers.SerializerMethodField()
     evaluation_contexts = serializers.SerializerMethodField()
 
     class Meta:
@@ -1833,25 +1808,21 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "version",
             "evaluation_runtime",
             "bucketing_identifier",
-            "evaluation_tags",
             "evaluation_contexts",
         ]
 
-    def _get_context_names(self, feature_flag: FeatureFlag) -> list[str]:
+    def get_evaluation_contexts(self, feature_flag: FeatureFlag) -> list[str]:
         try:
-            # Check for _evaluation_tag_names cache attribute (set by Redis/local evaluation)
             cached = getattr(feature_flag, "_evaluation_tag_names", None)
             if cached is not None:
                 return cached or []
 
-            # Check prefetch cache (set by queryset.prefetch_related)
             if (
                 hasattr(feature_flag, "_prefetched_objects_cache")
                 and "flag_evaluation_contexts" in feature_flag._prefetched_objects_cache
             ):
                 return [ec.evaluation_context.name for ec in feature_flag.flag_evaluation_contexts.all()]
 
-            # Fallback: direct query
             from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 
             return list(
@@ -1861,12 +1832,6 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             )
         except Exception:
             return []
-
-    def get_evaluation_tags(self, feature_flag: FeatureFlag) -> list[str]:
-        return self._get_context_names(feature_flag)
-
-    def get_evaluation_contexts(self, feature_flag: FeatureFlag) -> list[str]:
-        return self._get_context_names(feature_flag)
 
 
 class MyFlagsResponseSerializer(serializers.Serializer):
@@ -2055,12 +2020,12 @@ class FeatureFlagViewSet(
                 description="JSON-encoded list of tag names to filter feature flags by.",
             ),
             OpenApiParameter(
-                "has_evaluation_tags",
+                "has_evaluation_contexts",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false"],
-                description="Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.",
+                description="Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
             ),
         ]
     )
@@ -2072,14 +2037,11 @@ class FeatureFlagViewSet(
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
 
-        # Check if user has access to evaluation tags feature (once per request)
-        is_evaluation_tags_enabled = EvaluationTagsChecker.is_enabled(request)
+        is_evaluation_contexts_enabled = EvaluationTagsChecker.is_enabled(request)
 
-        # Populate evaluation_tags and handle encrypted payloads
         for feature_flag in feature_flags_data:
-            # Set evaluation_tags based on access
-            if not is_evaluation_tags_enabled:
-                feature_flag["evaluation_tags"] = []
+            if not is_evaluation_contexts_enabled:
+                feature_flag["evaluation_contexts"] = []
 
             # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
             if feature_flag.get("has_encrypted_payloads", False):
@@ -2093,12 +2055,10 @@ class FeatureFlagViewSet(
         response = super().retrieve(request, *args, **kwargs)
         feature_flag_data = response.data
 
-        # Check if user has access to evaluation tags feature
-        is_evaluation_tags_enabled = EvaluationTagsChecker.is_enabled(request)
+        is_evaluation_contexts_enabled = EvaluationTagsChecker.is_enabled(request)
 
-        # Set evaluation_tags based on access
-        if not is_evaluation_tags_enabled:
-            feature_flag_data["evaluation_tags"] = []
+        if not is_evaluation_contexts_enabled:
+            feature_flag_data["evaluation_contexts"] = []
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):
@@ -2402,7 +2362,7 @@ class FeatureFlagViewSet(
                 "evaluation_runtime",
                 "excluded_properties",
                 "tags",
-                "has_evaluation_tags",
+                "has_evaluation_contexts",
             }
             unknown_keys = set(filters.keys()) - valid_filter_keys
             if unknown_keys:
@@ -2731,7 +2691,7 @@ class FeatureFlagViewSet(
                         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
                 except (json.JSONDecodeError, TypeError):
                     pass
-            elif key == "has_evaluation_tags":
+            elif key == "has_evaluation_contexts":
                 # Handle both string and boolean
                 if isinstance(value, bool):
                     filter_value = value

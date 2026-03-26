@@ -571,7 +571,7 @@ Query parameters:
 - created_by_id: Filter by creator user ID
 - order: Sort order field
 - evaluation_runtime: Filter by evaluation runtime
-- has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
+- has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
  */
 export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/eligible_feature_flags/`

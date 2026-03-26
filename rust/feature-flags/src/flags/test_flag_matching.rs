@@ -190,6 +190,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -268,6 +269,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -352,6 +354,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -384,6 +387,7 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -476,6 +480,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -743,6 +748,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1226,6 +1232,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1422,6 +1429,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1477,6 +1485,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1549,6 +1558,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,
@@ -1697,6 +1707,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -1744,6 +1755,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1826,6 +1838,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1908,6 +1921,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -1970,6 +1984,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2019,6 +2034,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2154,6 +2170,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2221,6 +2238,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2269,6 +2287,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2345,6 +2364,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2580,6 +2600,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2693,6 +2714,8 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -2861,6 +2884,8 @@ mod tests {
                     ..Default::default()
                 }]),
 
+                feature_enrollment: None,
+
                 holdout: None,
             }),
             None,
@@ -2979,6 +3004,8 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3133,6 +3160,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3232,6 +3260,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3331,6 +3360,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3451,6 +3481,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3550,6 +3581,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3649,6 +3681,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3740,6 +3773,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3826,6 +3860,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -3927,6 +3962,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4006,6 +4042,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4115,6 +4152,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4207,6 +4245,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4240,6 +4279,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4367,6 +4407,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4436,6 +4477,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -4537,6 +4579,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4571,6 +4614,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4605,6 +4649,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4775,6 +4820,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4896,6 +4942,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -4985,6 +5032,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -5089,6 +5137,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
             }),
             None,
             Some(true),
@@ -5165,6 +5214,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -5314,6 +5364,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -5380,6 +5431,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -5450,6 +5502,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -5643,6 +5696,8 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -6136,6 +6191,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -6400,6 +6456,7 @@ mod tests {
                 aggregation_group_type_index: Some(1), // This is a group-based flag
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -6694,6 +6751,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             },
@@ -7510,6 +7568,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7604,6 +7663,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7711,6 +7771,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7823,6 +7884,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -7922,6 +7984,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8005,6 +8068,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8030,6 +8094,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8055,6 +8120,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8176,6 +8242,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8201,6 +8268,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8316,6 +8384,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8350,6 +8419,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8457,6 +8527,8 @@ mod tests {
                     ..Default::default()
                 }]),
 
+                feature_enrollment: None,
+
                 holdout: None,
             }),
             None,
@@ -8558,6 +8630,8 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
+
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8667,6 +8741,8 @@ mod tests {
                     ..Default::default()
                 }]),
 
+                feature_enrollment: None,
+
                 holdout: None,
             }),
             None,
@@ -8734,6 +8810,229 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case(json!("true"), true, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!("false"), false, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!(true), true, FeatureFlagMatchReason::SuperConditionValue)]
+    #[case(json!(false), false, FeatureFlagMatchReason::SuperConditionValue)]
+    #[tokio::test]
+    async fn test_feature_enrollment_match_by_property_value(
+        #[case] property_value: serde_json::Value,
+        #[case] expected_match: bool,
+        #[case] expected_reason: FeatureFlagMatchReason,
+    ) {
+        // New feature_enrollment format: flag has `feature_enrollment: true` instead of super_groups.
+        // The enrollment property key is derived as `$feature_enrollment/{flag_key}`.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Feature Enrollment Flag".to_string()),
+            Some("my-feature".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: Some(true),
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$feature_enrollment/my-feature": property_value})),
+            )
+            .await
+            .unwrap();
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+
+        assert_eq!(result.matches, expected_match);
+        assert_eq!(result.reason, expected_reason);
+    }
+
+    #[tokio::test]
+    async fn test_feature_enrollment_no_property_falls_through() {
+        // Person without the enrollment property falls through to regular conditions.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Feature Enrollment Flag".to_string()),
+            Some("my-feature".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: Some(true),
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        context
+            .insert_person(team.id, "not_enrolled_user".to_string(), None)
+            .await
+            .unwrap();
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "not_enrolled_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+
+        // Falls through to regular conditions (0% rollout → no match)
+        assert!(!result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::OutOfRolloutBound);
+    }
+
+    #[tokio::test]
+    async fn test_feature_enrollment_takes_precedence_over_super_groups() {
+        // When both feature_enrollment and super_groups are present,
+        // feature_enrollment should be used (new format wins).
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Dual Format Flag".to_string()),
+            Some("dual-format-flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                // Legacy super_groups with a DIFFERENT key (to prove feature_enrollment is used)
+                super_groups: Some(vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "wrong_key".to_string(),
+                        value: Some(json!(["true"])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }]),
+                feature_enrollment: Some(true),
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Person has the feature_enrollment property (derived from flag key)
+        // but NOT the wrong_key property from super_groups
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$feature_enrollment/dual-format-flag": "true"})),
+            )
+            .await
+            .unwrap();
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+
+        // Should match via feature_enrollment (not super_groups which uses wrong_key)
+        assert!(result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
+    }
+
     #[tokio::test]
     async fn test_paired_group_identifiers_avoid_cartesian_product() {
         use crate::utils::test_utils::create_group_in_pg;
@@ -8771,6 +9070,7 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -8804,6 +9104,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
 
                 holdout: None,
             }),
@@ -9132,6 +9433,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
+                feature_enrollment: None,
                 holdout: None,
             }),
             None,

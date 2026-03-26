@@ -3936,7 +3936,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     surveys: Survey[] | null
     can_edit: boolean
     tags: string[]
-    evaluation_tags: string[]
     evaluation_contexts: string[]
     usage_dashboard?: number
     has_enriched_analytics?: boolean
