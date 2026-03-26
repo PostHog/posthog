@@ -909,15 +909,6 @@ export interface DashboardTemplateApi {
     is_featured?: boolean
 }
 
-export interface PaginatedDashboardTemplateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardTemplateApi[]
-}
-
 export interface PatchedDashboardTemplateApi {
     readonly id?: string
     /**
