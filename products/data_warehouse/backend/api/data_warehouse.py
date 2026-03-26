@@ -815,10 +815,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False)
     def provision(self, request: Request, **kwargs) -> Response:
         """Start provisioning a managed warehouse for this team."""
+        database_name = request.data.get("database_name")
+        if not database_name:
+            return Response({"error": "database_name is required"}, status=status.HTTP_400_BAD_REQUEST)
         return self._provisioning_request(
             "POST",
             "/provision",
             json_body={
+                "database_name": database_name,
                 "metadata_store": {"type": "aurora", "aurora": {"min_acu": 0.5, "max_acu": 2}},
             },
         )
@@ -831,4 +835,31 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
-        return self._provisioning_request("GET", "/warehouse")
+        return self._provisioning_request("GET", "/warehouse/status")
+
+    @action(methods=["GET"], detail=False, url_path="check-database-name")
+    def check_database_name(self, request: Request, **kwargs) -> Response:
+        """Check if a database name is available."""
+        name = request.query_params.get("name")
+        if not name:
+            return Response({"error": "name query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        base_url = getattr(django_settings, "DUCKGRES_API_URL", None)
+        token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
+
+        if not base_url:
+            return Response(
+                {"error": "Managed warehouse provisioning is not configured"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        url = f"{base_url.rstrip('/')}/api/v1/database-name/check"
+        headers = {}
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        try:
+            resp = http_requests.request("GET", url, params={"name": name}, headers=headers, timeout=10)
+            return Response(resp.json(), status=resp.status_code)
+        except Exception:
+            return Response({"error": "Failed to check database name"}, status=status.HTTP_502_BAD_GATEWAY)

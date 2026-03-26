@@ -1,12 +1,18 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
+import { IconCheck, IconEye, IconHide, IconX } from '@posthog/icons'
+
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataWarehouseProvisioningState, DataWarehouseProvisioningStatus } from '~/types'
+import { DataWarehouseProvisioningState } from '~/types'
 
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
@@ -26,55 +32,88 @@ function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'war
     }
 }
 
-function ComponentStatus({ label, state }: { label: string; state: DataWarehouseProvisioningState }): JSX.Element {
-    return (
-        <div className="flex items-center justify-between py-1">
-            <span className="text-muted">{label}</span>
-            <LemonTag type={stateToTagType(state)}>{state}</LemonTag>
-        </div>
-    )
-}
-
-function DetailRow({ label, value }: { label: string; value: string }): JSX.Element | null {
-    if (!value) {
-        return null
-    }
-    return (
-        <div className="flex items-start justify-between py-1 gap-4">
-            <span className="text-muted whitespace-nowrap">{label}</span>
-            <code className="text-xs bg-bg-light px-1.5 py-0.5 rounded break-all text-right">{value}</code>
-        </div>
-    )
-}
-
-function ConnectionDetails({ status }: { status: DataWarehouseProvisioningStatus }): JSX.Element {
-    const db = status.warehouse_database
-    const host = db.endpoint || 'Pending...'
-    const port = db.port || 5432
-    const dbName = db.database_name || 'ducklake'
-    const username = db.username || 'posthog'
+function ConnectionDetails(): JSX.Element {
+    // TODO: replace with real values from the provisioning API once
+    // the duckgres Helm chart exposes connection details in the config store.
+    const host = 'warehouse.posthog.com'
+    const port = '5432'
+    const dbName = 'your-database-name'
+    const username = 'posthog'
+    const password = 'sk_phw_abc123def456'
+    const [showPassword, setShowPassword] = useState(false)
+    const psqlCmd = `psql "host=${host} port=${port} dbname=${dbName} user=${username} sslmode=require"`
 
     return (
-        <div className="border rounded p-4 space-y-2">
-            <h3 className="mb-0">Connection Details</h3>
-            <DetailRow label="Host" value={host} />
-            <DetailRow label="Port" value={String(port)} />
-            <DetailRow label="Database" value={dbName} />
-            <DetailRow label="Username" value={username} />
-            <div className="mt-2">
-                <span className="text-muted text-xs">Connect with:</span>
-                <code className="block text-xs bg-bg-light p-2 rounded mt-1 break-all">
-                    psql "host={host} port={port} dbname={dbName} user={username} sslmode=require"
-                </code>
+        <div className="border rounded p-4 space-y-3">
+            <h3 className="mb-2">Connection Details</h3>
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                    <LemonLabel>Host</LemonLabel>
+                    <CodeSnippet compact thing="host">
+                        {host}
+                    </CodeSnippet>
+                </div>
+                <div>
+                    <LemonLabel>Port</LemonLabel>
+                    <CodeSnippet compact thing="port">
+                        {port}
+                    </CodeSnippet>
+                </div>
+                <div>
+                    <LemonLabel>Database</LemonLabel>
+                    <CodeSnippet compact thing="database">
+                        {dbName}
+                    </CodeSnippet>
+                </div>
+                <div>
+                    <LemonLabel>Username</LemonLabel>
+                    <CodeSnippet compact thing="username">
+                        {username}
+                    </CodeSnippet>
+                </div>
+            </div>
+            <div>
+                <LemonLabel>Password</LemonLabel>
+                <CodeSnippet
+                    compact
+                    thing="password"
+                    actions={
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={showPassword ? <IconHide /> : <IconEye />}
+                            onClick={() => setShowPassword(!showPassword)}
+                            tooltip={showPassword ? 'Hide password' : 'Show password'}
+                        />
+                    }
+                >
+                    {showPassword ? password : '••••••••••••••••••'}
+                </CodeSnippet>
+            </div>
+            <div>
+                <LemonLabel>Connect with psql</LemonLabel>
+                <CodeSnippet compact thing="psql command">
+                    {psqlCmd}
+                </CodeSnippet>
             </div>
         </div>
     )
 }
 
 export function SettingsTab(): JSX.Element {
-    const { warehouseStatus, warehouseStatusLoading, isProvisioning, isDeprovisioning, isInProgress } =
-        useValues(warehouseProvisioningLogic)
-    const { provisionWarehouse, deprovisionWarehouse, loadWarehouseStatus } = useActions(warehouseProvisioningLogic)
+    const {
+        warehouseStatus,
+        warehouseStatusLoading,
+        isProvisioning,
+        isDeprovisioning,
+        isInProgress,
+        databaseName,
+        databaseNameAvailable,
+        databaseNameChecking,
+        isValidDatabaseName,
+        canProvision,
+    } = useValues(warehouseProvisioningLogic)
+    const { provisionWarehouse, deprovisionWarehouse, setDatabaseName } = useActions(warehouseProvisioningLogic)
 
     const hasWarehouse = warehouseStatus && warehouseStatus.state !== 'deleted'
     const isReady = warehouseStatus?.state === 'ready'
@@ -96,13 +135,53 @@ export function SettingsTab(): JSX.Element {
                 </div>
             ) : !hasWarehouse ? (
                 <div className="space-y-4">
-                    <LemonBanner type="info">
-                        No managed warehouse has been provisioned for this team. Provisioning creates dedicated Aurora,
-                        S3, and compute resources.
-                    </LemonBanner>
+                    <div>
+                        <LemonLabel>Database name</LemonLabel>
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                value={databaseName}
+                                onChange={setDatabaseName}
+                                placeholder="my-warehouse"
+                                fullWidth
+                            />
+                            {databaseName &&
+                                isValidDatabaseName &&
+                                (databaseNameChecking ? (
+                                    <Spinner className="text-muted" />
+                                ) : databaseNameAvailable === true ? (
+                                    <IconCheck className="text-success text-xl" />
+                                ) : (
+                                    <IconX className="text-danger text-xl" />
+                                ))}
+                        </div>
+                        {databaseName &&
+                            isValidDatabaseName &&
+                            !databaseNameChecking &&
+                            databaseNameAvailable !== true && (
+                                <p className="text-danger text-xs mt-1">
+                                    {databaseNameAvailable === false
+                                        ? 'This database name is already taken.'
+                                        : 'Unable to verify database name availability.'}
+                                </p>
+                            )}
+                        {databaseName && !isValidDatabaseName && (
+                            <p className="text-danger text-xs mt-1">
+                                Must be 3-63 characters, start with a lowercase letter, and contain only lowercase
+                                letters, numbers, hyphens, or underscores.
+                            </p>
+                        )}
+                        {(!databaseName ||
+                            (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true))) && (
+                            <p className="text-muted text-xs mt-1">
+                                Unique name for your database. This is what you'll use in <code>dbname=</code> when
+                                connecting.
+                            </p>
+                        )}
+                    </div>
                     <LemonButton
                         type="primary"
                         loading={isProvisioning}
+                        disabledReason={!canProvision ? 'Enter an available database name' : undefined}
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Provision managed warehouse?',
@@ -110,7 +189,7 @@ export function SettingsTab(): JSX.Element {
                                     'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your team. This typically takes 5-15 minutes.',
                                 primaryButton: {
                                     children: 'Provision',
-                                    onClick: () => provisionWarehouse(),
+                                    onClick: () => provisionWarehouse({ databaseName }),
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',
@@ -143,39 +222,22 @@ export function SettingsTab(): JSX.Element {
                         </LemonBanner>
                     )}
 
-                    <div className="border rounded p-4 space-y-2">
-                        <div className="flex items-center justify-between mb-2">
+                    <div className="border rounded px-4 pt-4 pb-3 space-y-2">
+                        <div className="flex items-center justify-between">
                             <h3 className="mb-0">Status</h3>
-                            <div className="flex items-center gap-2">
-                                <LemonTag type={stateToTagType(warehouseStatus!.state)}>
-                                    {warehouseStatus!.state}
-                                </LemonTag>
-                                <LemonButton size="small" onClick={() => loadWarehouseStatus()} type="secondary">
-                                    Refresh
-                                </LemonButton>
-                            </div>
-                        </div>
-
-                        {warehouseStatus!.status_message && (
-                            <p className="text-muted text-sm">{warehouseStatus!.status_message}</p>
-                        )}
-
-                        <div className="border-t pt-2 mt-2">
-                            <ComponentStatus label="S3 Storage" state={warehouseStatus!.s3_state} />
-                            <ComponentStatus label="Metadata Store" state={warehouseStatus!.metadata_store_state} />
-                            <ComponentStatus label="Identity & IAM" state={warehouseStatus!.identity_state} />
-                            <ComponentStatus label="Secrets" state={warehouseStatus!.secrets_state} />
-                            <ComponentStatus label="Database" state={warehouseStatus!.warehouse_database_state} />
+                            <LemonTag type={stateToTagType(warehouseStatus!.state)}>
+                                {warehouseStatus!.state.toUpperCase()}
+                            </LemonTag>
                         </div>
 
                         {warehouseStatus!.ready_at && (
-                            <p className="text-muted text-xs mt-2">
+                            <p className="text-muted text-xs">
                                 Ready since: {new Date(warehouseStatus!.ready_at).toLocaleString()}
                             </p>
                         )}
                     </div>
 
-                    {isReady && <ConnectionDetails status={warehouseStatus!} />}
+                    {isReady && <ConnectionDetails />}
 
                     <div className="flex gap-2">
                         {isFailed && (

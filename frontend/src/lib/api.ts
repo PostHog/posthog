@@ -4941,11 +4941,14 @@ const api = {
             return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
         },
 
-        async provisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; team: string }> {
+        async provisionWarehouse(
+            databaseName: string,
+            options?: ApiMethodOptions
+        ): Promise<{ status: string; team: string }> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('provision')
-                .create(options as any)
+                .create({ data: { database_name: databaseName }, ...options } as any)
         },
 
         async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; team: string }> {
@@ -4957,6 +4960,10 @@ const api = {
 
         async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
             return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
+        },
+
+        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
+            return await new ApiRequest().dataWarehouse().withAction('check_database_name').get({ data: { name } })
         },
     },
 
