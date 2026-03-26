@@ -22,7 +22,7 @@ export function TemplateItem({
 
     return (
         <div
-            className="cursor-pointer border rounded TemplateItem flex flex-col transition-all w-full md:w-60 h-[210px]"
+            className="cursor-pointer border rounded TemplateItem flex flex-col transition-all w-full h-[210px]"
             onClick={onClick}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}

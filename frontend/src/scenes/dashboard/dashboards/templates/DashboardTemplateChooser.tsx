@@ -44,11 +44,9 @@ export function DashboardTemplateChooser({
             return
         }
         setIsLoading(true)
-        if ((template.variables || []).length === 0) {
-            if (template.variables === null) {
-                template.variables = []
-            }
-            createDashboardFromTemplate(template, template.variables || [], redirectAfterCreation)
+        const variables = template.variables ?? []
+        if (variables.length === 0) {
+            createDashboardFromTemplate(template, variables, redirectAfterCreation)
         } else {
             if (!newDashboardModalVisible) {
                 showVariableSelectModal(template)
@@ -106,11 +104,11 @@ export function DashboardTemplateChooser({
     )
 }
 
-/** Placeholder grid cells that mirror `TemplateItem` layout (cover, title, tags, description). */
+/** Placeholder grid cells that mirror `TemplateItem` layout (cover, title, description). */
 function TemplateItemSkeleton(): JSX.Element {
     return (
         <div
-            className="border rounded TemplateItem flex flex-col pointer-events-none select-none w-60 h-[210px]"
+            className="border rounded TemplateItem flex flex-col pointer-events-none select-none w-full h-[210px]"
             aria-hidden
         >
             <div className="h-30 min-h-30 w-full overflow-hidden">
@@ -119,10 +117,6 @@ function TemplateItemSkeleton(): JSX.Element {
             <div className="px-2 py-1">
                 <div className="mb-1">
                     <LemonSkeleton className="h-5 w-4/5" />
-                </div>
-                <div className="flex gap-x-1 mb-1">
-                    <LemonSkeleton className="h-5 w-14 rounded" />
-                    <LemonSkeleton className="h-5 w-16 rounded" />
                 </div>
                 <div className="py-1 grow flex flex-col gap-1">
                     <LemonSkeleton className="h-3 w-full" />
