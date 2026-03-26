@@ -40,10 +40,10 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                     title={
                         <>
                             Limit to {aggregationTargetLabel.plural}{' '}
-                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a
+                            {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} converted within a
                             specific time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in
-                            this time frame will be considered as drop-offs.
+                            {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} do not convert in this
+                            time frame will be considered as drop-offs.
                         </>
                     }
                 >
