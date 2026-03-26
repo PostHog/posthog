@@ -999,17 +999,13 @@ def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
     return "/"
 
 
-def _capture_deep_link_event(outcome: str, **extra: object) -> None:
-    posthoganalytics.capture(
-        "agentic_provisioning deep link login",
-        distinct_id="agentic_provisioning_system",
-        properties={"outcome": outcome, **extra},
-    )
-
-
 def _capture_provisioning_event(event_type: str, outcome: str, **extra: object) -> None:
     posthoganalytics.capture(
         f"agentic_provisioning {event_type}",
         distinct_id="agentic_provisioning_system",
         properties={"outcome": outcome, **extra},
     )
+
+
+def _capture_deep_link_event(outcome: str, **extra: object) -> None:
+    _capture_provisioning_event("deep link login", outcome, **extra)
