@@ -5,8 +5,8 @@ import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
-import { Query } from '~/queries/Query/Query'
-import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
+import { Query, QueryProps } from '~/queries/Query/Query'
+import { Node, WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import browserMock from './__mocks__/Browser.json'
@@ -16,8 +16,8 @@ import retentionMock from './__mocks__/Retention.json'
 import worldMapMock from './__mocks__/WorldMap.json'
 import { webAnalyticsDataTableQueryContext } from './WebAnalyticsTile'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof Query> = {
+type Story = StoryObj<QueryProps<Node>>
+const meta: Meta<QueryProps<Node>> = {
     title: 'Web Analytics/Tiles',
     component: Query,
     parameters: {

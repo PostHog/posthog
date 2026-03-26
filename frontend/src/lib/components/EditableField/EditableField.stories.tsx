@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { EditableField as EditableFieldComponent } from './EditableField'
+import { EditableField as EditableFieldComponent, EditableFieldProps } from './EditableField'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof EditableFieldComponent> = {
+type Story = StoryObj<EditableFieldProps>
+const meta: Meta<EditableFieldProps> = {
     title: 'Components/Editable Field',
     component: EditableFieldComponent,
     tags: ['autodocs'],

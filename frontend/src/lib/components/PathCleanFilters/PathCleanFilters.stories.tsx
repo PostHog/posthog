@@ -6,18 +6,18 @@ import { PathCleaningFilter } from '~/types'
 import { PathCleanFilters, PathCleanFiltersProps } from './PathCleanFilters'
 import { PathCleanFiltersTable } from './PathCleanFiltersTable'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof PathCleanFilters> = {
+type Story = StoryObj<PathCleanFiltersProps>
+const meta: Meta<PathCleanFiltersProps> = {
     title: 'Filters/PathCleanFilters',
     component: PathCleanFilters,
-    render: (props: Partial<PathCleanFiltersProps>) => {
+    render: (props) => {
         const [filters, setFilters] = useState<PathCleaningFilter[]>([
             { alias: 'insights', regex: '/insights/w+/dashboard$' },
             { regex: '/feature_flags/d+$' },
             { alias: 'recordings' },
         ])
 
-        return <PathCleanFilters filters={filters} setFilters={setFilters} {...props} />
+        return <PathCleanFilters {...props} filters={filters} setFilters={setFilters} />
     },
 }
 export default meta

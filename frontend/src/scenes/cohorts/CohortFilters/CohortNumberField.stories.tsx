@@ -8,11 +8,11 @@ import { CohortNumberFieldProps, FilterType } from 'scenes/cohorts/CohortFilters
 
 import { CohortNumberField } from './CohortField'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof CohortNumberField> = {
+type Story = StoryObj<CohortNumberFieldProps>
+const meta: Meta<CohortNumberFieldProps> = {
     title: 'Filters/Cohort Filters/Fields/Number',
     component: CohortNumberField,
-    render: (props: CohortNumberFieldProps) => {
+    render: (props) => {
         useMountedLogic(cohortEditLogic({ id: 1 }))
         const [value, setValue] = useState<number>(30)
         return renderField[FilterType.Number]({

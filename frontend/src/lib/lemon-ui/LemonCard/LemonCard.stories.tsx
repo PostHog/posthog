@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonCard, LemonCardProps } from './LemonCard'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonCard> = {
+type Story = StoryObj<LemonCardProps>
+const meta: Meta<LemonCardProps> = {
     title: 'Lemon UI/Lemon Card',
-    component: LemonCard,
+    component: LemonCard as any,
     tags: ['autodocs'],
-    render: (props: LemonCardProps) => {
+    render: (props) => {
         return (
             <div>
                 <LemonCard {...props}>

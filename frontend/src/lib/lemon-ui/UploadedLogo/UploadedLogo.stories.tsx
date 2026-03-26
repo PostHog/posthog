@@ -2,10 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { UploadedLogo, UploadedLogoProps } from './UploadedLogo'
 
-type Story = StoryObj<typeof UploadedLogo>
-const meta: Meta<typeof UploadedLogo> = {
+type Story = StoryObj<UploadedLogoProps>
+const meta: Meta<UploadedLogoProps> = {
     title: 'Lemon UI/Uploaded Logo',
-    component: UploadedLogo,
+    component: UploadedLogo as any,
     parameters: {
         testOptions: {
             waitForLoadersToDisappear: false,

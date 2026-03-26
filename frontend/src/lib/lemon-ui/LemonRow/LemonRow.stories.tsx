@@ -4,12 +4,12 @@ import { IconInfo } from '@posthog/icons'
 
 import { IconPremium } from 'lib/lemon-ui/icons'
 
-import { LemonRow } from './LemonRow'
+import { LemonRow, LemonRowProps } from './LemonRow'
 
-type Story = StoryObj<typeof LemonRow>
-const meta: Meta<typeof LemonRow> = {
+type Story = StoryObj<LemonRowProps>
+const meta: Meta<LemonRowProps> = {
     title: 'Lemon UI/Lemon Row',
-    component: LemonRow,
+    component: LemonRow as any,
     tags: ['autodocs'],
 }
 export default meta

@@ -8,8 +8,8 @@ import {
     LemonMenuSection,
 } from './LemonMenu'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonMenuOverlayComponent> = {
+type Story = StoryObj<LemonMenuOverlayProps>
+const meta: Meta<LemonMenuOverlayProps> = {
     title: 'Lemon UI/Lemon Menu',
     component: LemonMenuOverlayComponent,
     parameters: {
@@ -31,7 +31,7 @@ This enables intuitive preview of the component, along with snapshotting, but in
         ] as LemonMenuItems,
     },
     tags: ['autodocs'],
-    render: (props: LemonMenuOverlayProps) => {
+    render: (props) => {
         return (
             <div className="rounded border p-1 bg-surface-primary">
                 <LemonMenuOverlayComponent {...props} />

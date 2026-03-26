@@ -7,8 +7,8 @@ import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { ProfileBubbles } from '../ProfilePicture'
 import { LemonDivider, LemonDividerProps } from './LemonDivider'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonDivider> = {
+type Story = StoryObj<LemonDividerProps>
+const meta: Meta<LemonDividerProps> = {
     title: 'Lemon UI/Lemon Divider',
     component: LemonDivider,
     tags: ['autodocs'],

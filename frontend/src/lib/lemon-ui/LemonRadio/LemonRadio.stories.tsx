@@ -3,10 +3,10 @@ import { useState } from 'react'
 
 import { LemonRadio, LemonRadioOption, LemonRadioProps } from './LemonRadio'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonRadio> = {
+type Story = StoryObj<LemonRadioProps<string>>
+const meta: Meta<LemonRadioProps<string>> = {
     title: 'Lemon UI/Lemon Radio',
-    component: LemonRadio,
+    component: LemonRadio as any,
     argTypes: {
         options: {
             control: {
@@ -26,7 +26,7 @@ const meta: Meta<typeof LemonRadio> = {
         ] as LemonRadioOption<string>[],
     },
     tags: ['autodocs'],
-    render: (props: Omit<LemonRadioProps<any>, 'value' | 'onChange'>) => {
+    render: (props) => {
         const [value, setValue] = useState(props.options[1]?.value)
 
         return <LemonRadio {...props} value={value} onChange={(newValue) => setValue(newValue)} />

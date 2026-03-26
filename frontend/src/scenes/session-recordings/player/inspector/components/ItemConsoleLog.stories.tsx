@@ -12,8 +12,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof ItemConsoleLog> = {
+type Story = StoryObj<ItemConsoleLogProps>
+const meta: Meta<ItemConsoleLogProps> = {
     title: 'Components/PlayerInspector/ItemConsole',
     component: ItemConsoleLog,
     decorators: [
@@ -21,7 +21,7 @@ const meta: Meta<typeof ItemConsoleLog> = {
             get: {},
         }),
     ],
-    render: (props: Partial<ItemConsoleLogProps>) => {
+    render: (props) => {
         const propsToUse = props as ItemConsoleLogProps
 
         return (

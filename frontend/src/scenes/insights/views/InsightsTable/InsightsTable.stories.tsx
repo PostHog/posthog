@@ -9,10 +9,10 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
-import { InsightsTable } from './InsightsTable'
+import { InsightsTable, InsightsTableProps } from './InsightsTable'
 
-type Story = StoryObj<typeof InsightsTable>
-const meta: Meta<typeof InsightsTable> = {
+type Story = StoryObj<InsightsTableProps>
+const meta: Meta<InsightsTableProps> = {
     title: 'Insights/InsightsTable',
     component: InsightsTable,
 }

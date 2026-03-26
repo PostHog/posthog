@@ -7,10 +7,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 
-type Story = StoryObj<typeof LemonSelect>
-const meta: Meta<typeof LemonSelect> = {
+type Story = StoryObj<LemonSelectProps<any>>
+const meta: Meta<LemonSelectProps<any>> = {
     title: 'Lemon UI/Lemon Select',
-    component: LemonSelect,
+    component: LemonSelect as any,
     args: {
         options: [
             { value: 'husky', label: 'Husky' },
@@ -19,7 +19,7 @@ const meta: Meta<typeof LemonSelect> = {
         ] as LemonSelectOptions<string>,
     },
     tags: ['autodocs'],
-    render: (props: LemonSelectProps<any>) => {
+    render: (props) => {
         return (
             <div className="flex flex-row items-center w-full border p-4 gap-2">
                 {(['small', 'medium', 'large', undefined] as const).map((size, index) => (

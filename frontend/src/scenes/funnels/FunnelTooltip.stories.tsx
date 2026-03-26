@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { FunnelTooltip } from './FunnelTooltip'
+import { FunnelTooltip, FunnelTooltipProps } from './FunnelTooltip'
 
 const step: FunnelStepWithConversionMetrics = {
     action_id: '$pageview',
@@ -25,8 +25,8 @@ const step: FunnelStepWithConversionMetrics = {
     dropped_people_url: '',
 }
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof FunnelTooltip> = {
+type Story = StoryObj<FunnelTooltipProps>
+const meta: Meta<FunnelTooltipProps> = {
     title: 'Components/FunnelTooltip',
     component: FunnelTooltip,
     args: {

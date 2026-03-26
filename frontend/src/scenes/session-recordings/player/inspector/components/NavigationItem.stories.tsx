@@ -9,10 +9,10 @@ import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector
 import { mswDecorator } from '~/mocks/browser'
 import { PerformanceEvent, RecordingEventType } from '~/types'
 
-type Story = StoryObj<typeof NavigationItem>
-const meta: Meta<typeof NetworkRequestTiming> = {
+type Story = StoryObj<NavigationItemProps>
+const meta: Meta<NavigationItemProps> = {
     title: 'Components/NetworkRequest/NavigationItem',
-    component: NetworkRequestTiming,
+    component: NetworkRequestTiming as any,
     decorators: [
         mswDecorator({
             get: {},

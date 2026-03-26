@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { LemonMarkdown as LemonMarkdownComponent } from './LemonMarkdown'
+import { LemonMarkdown as LemonMarkdownComponent, LemonMarkdownProps } from './LemonMarkdown'
 
-type Story = StoryObj<typeof LemonMarkdownComponent>
-const meta: Meta<typeof LemonMarkdownComponent> = {
+type Story = StoryObj<LemonMarkdownProps>
+const meta: Meta<LemonMarkdownProps> = {
     title: 'Lemon UI/Lemon Markdown',
     component: LemonMarkdownComponent,
     tags: ['autodocs'],

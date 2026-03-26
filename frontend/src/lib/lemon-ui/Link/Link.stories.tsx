@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { urls } from 'scenes/urls'
 
-import { Link } from './Link'
+import { Link, LinkProps } from './Link'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof Link> = {
+type Story = StoryObj<LinkProps>
+const meta: Meta<LinkProps> = {
     title: 'Lemon UI/Link',
-    component: Link,
+    component: Link as any,
     args: {
         children: 'Click me',
     },

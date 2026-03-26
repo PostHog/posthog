@@ -5,10 +5,10 @@ import { useStorybookMocks } from '~/mocks/browser'
 import preflightJSON from '~/mocks/fixtures/_preflight.json'
 import { SSOProvider } from '~/types'
 
-import { SSOSelect } from './SSOSelect'
+import { SSOSelect, SSOSelectInterface } from './SSOSelect'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof SSOSelect> = {
+type Story = StoryObj<SSOSelectInterface>
+const meta: Meta<SSOSelectInterface> = {
     title: 'Components/SSO Select',
     component: SSOSelect,
     render: (args) => {

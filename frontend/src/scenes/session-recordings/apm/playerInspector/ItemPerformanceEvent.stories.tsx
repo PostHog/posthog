@@ -14,8 +14,8 @@ import {
 import { mswDecorator } from '~/mocks/browser'
 import { PerformanceEvent } from '~/types'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof ItemPerformanceEvent> = {
+type Story = StoryObj<ItemPerformanceEventProps>
+const meta: Meta<ItemPerformanceEventProps> = {
     title: 'Components/ItemPerformanceEvent',
     component: ItemPerformanceEvent,
     decorators: [
@@ -23,7 +23,7 @@ const meta: Meta<typeof ItemPerformanceEvent> = {
             get: {},
         }),
     ],
-    render: (props: Partial<ItemPerformanceEventProps>) => {
+    render: (props) => {
         props.item = props.item || undefined
 
         const propsToUse = props as ItemPerformanceEventProps

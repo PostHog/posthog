@@ -5,10 +5,10 @@ import { IconGear } from '@posthog/icons'
 
 import { LemonButton } from '../LemonButton'
 import { LemonCheckbox } from '../LemonCheckbox'
-import { LemonProgressCircle } from './LemonProgressCircle'
+import { LemonProgressCircle, LemonProgressCircleProps } from './LemonProgressCircle'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonProgressCircle> = {
+type Story = StoryObj<LemonProgressCircleProps>
+const meta: Meta<LemonProgressCircleProps> = {
     title: 'Lemon UI/Lemon Progress Circle',
     component: LemonProgressCircle,
     parameters: {

@@ -7,15 +7,15 @@ import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/Lemo
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { formatDate } from 'lib/utils'
 
-type Story = StoryObj<typeof LemonCalendarSelect>
-const meta: Meta<typeof LemonCalendarSelect> = {
+type Story = StoryObj<LemonCalendarSelectProps>
+const meta: Meta<LemonCalendarSelectProps> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select',
     component: LemonCalendarSelect,
     parameters: {
         mockDate: '2023-01-26',
     },
     tags: ['autodocs'],
-    render: (props: LemonCalendarSelectProps) => {
+    render: (props) => {
         const [value, setValue] = useState(dayjs().subtract(10, 'day'))
         const [visible, setVisible] = useState(true)
         const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(props.granularity)

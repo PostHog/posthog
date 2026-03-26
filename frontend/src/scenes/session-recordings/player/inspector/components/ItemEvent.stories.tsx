@@ -13,8 +13,8 @@ import { InspectorListItemEvent } from 'scenes/session-recordings/player/inspect
 import { mswDecorator } from '~/mocks/browser'
 import { RecordingEventType } from '~/types'
 
-type Story = StoryObj<typeof ItemEvent>
-const meta: Meta<typeof ItemEvent> = {
+type Story = StoryObj<ItemEventProps>
+const meta: Meta<ItemEventProps> = {
     title: 'Components/PlayerInspector/ItemEvent',
     component: ItemEvent,
     decorators: [

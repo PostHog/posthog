@@ -11,12 +11,12 @@ import { actionsModel } from '~/models/actionsModel'
 
 import { CohortTaxonomicField } from './CohortField'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof CohortTaxonomicField> = {
+type Story = StoryObj<CohortTaxonomicFieldProps>
+const meta: Meta<CohortTaxonomicFieldProps> = {
     title: 'Filters/Cohort Filters/Fields/Taxonomic',
     component: CohortTaxonomicField,
     decorators: [taxonomicFilterMocksDecorator],
-    render: (props: CohortTaxonomicFieldProps) => {
+    render: (props) => {
         useMountedLogic(actionsModel)
         const [value, setValue] = useState<string | undefined>('')
         const type =

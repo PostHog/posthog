@@ -3,10 +3,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonSnack, LemonSnackProps } from './LemonSnack'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonSnack> = {
+type Story = StoryObj<LemonSnackProps>
+const meta: Meta<LemonSnackProps> = {
     title: 'Lemon UI/Lemon Snack',
-    component: LemonSnack,
+    component: LemonSnack as any,
     args: {
         children: 'Tasty snacks',
     },
@@ -15,7 +15,7 @@ const meta: Meta<typeof LemonSnack> = {
 export default meta
 
 export const Default: Story = {
-    render: (props: LemonSnackProps) => {
+    render: (props) => {
         return <LemonSnack {...props} />
     },
     args: {
@@ -41,7 +41,7 @@ export const Pill = (): JSX.Element => {
 }
 
 export const ComplexContent: Story = {
-    render: (props: LemonSnackProps) => {
+    render: (props) => {
         return <LemonSnack {...props} />
     },
     args: {

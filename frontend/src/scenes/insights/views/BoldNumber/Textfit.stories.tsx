@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { Textfit } from './Textfit'
+import { Textfit, TextfitProps } from './Textfit'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof Textfit> = {
+type Story = StoryObj<TextfitProps>
+const meta: Meta<TextfitProps> = {
     title: 'Lemon UI/TextFit',
     component: Textfit,
     tags: ['autodocs'],

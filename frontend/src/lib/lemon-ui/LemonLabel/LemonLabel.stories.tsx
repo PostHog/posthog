@@ -3,10 +3,10 @@ import { useState } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { LemonLabel } from './LemonLabel'
+import { LemonLabel, LemonLabelProps } from './LemonLabel'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonLabel> = {
+type Story = StoryObj<LemonLabelProps>
+const meta: Meta<LemonLabelProps> = {
     title: 'Lemon UI/Lemon Label',
     component: LemonLabel,
     parameters: {

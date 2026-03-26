@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconChevronDown } from '@posthog/icons'
 
-import { Popover } from './Popover'
+import { Popover, PopoverProps } from './Popover'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof Popover> = {
+type Story = StoryObj<PopoverProps>
+const meta: Meta<PopoverProps> = {
     title: 'Lemon UI/Popover',
-    component: Popover,
+    component: Popover as any,
     tags: ['autodocs', 'test-skip'], // FIXME: This story needs a play test for the popup to show up in snapshots
 }
 export default meta

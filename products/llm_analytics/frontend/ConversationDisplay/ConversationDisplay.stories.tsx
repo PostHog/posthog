@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { ConversationDisplay as ConversationDisplayComponent } from './ConversationDisplay'
+import { ConversationDisplay as ConversationDisplayComponent, ConversationDisplayProps } from './ConversationDisplay'
 
-const meta: Meta<typeof ConversationDisplayComponent> = {
+const meta: Meta<ConversationDisplayProps> = {
     title: 'Scenes-App/LLM Analytics/Conversation Display',
     component: ConversationDisplayComponent,
     render: ({ eventProperties, eventId }) => {
@@ -10,7 +10,7 @@ const meta: Meta<typeof ConversationDisplayComponent> = {
     },
 }
 export default meta
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<ConversationDisplayProps>
 
 export const Basic: Story = {
     args: {

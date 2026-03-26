@@ -5,10 +5,10 @@ import { IconBook, IconCalculator, IconCalendar, IconGear } from '@posthog/icons
 
 import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonSegmentedButtonProps } from './LemonSegmentedButton'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonSegmentedButton> = {
+type Story = StoryObj<LemonSegmentedButtonProps<string>>
+const meta: Meta<LemonSegmentedButtonProps<string>> = {
     title: 'Lemon UI/Lemon Segmented Button',
-    component: LemonSegmentedButton,
+    component: LemonSegmentedButton as any,
     argTypes: {
         options: {
             control: {
@@ -33,7 +33,7 @@ const meta: Meta<typeof LemonSegmentedButton> = {
         ] as LemonSegmentedButtonOption<string>[],
     },
     tags: ['autodocs'],
-    render: (props: Omit<LemonSegmentedButtonProps<any>, 'value' | 'onChange'>) => {
+    render: (props) => {
         const [value, setValue] = useState(props.options[1]?.value)
 
         return <LemonSegmentedButton {...props} value={value} onChange={(newValue) => setValue(newValue)} />

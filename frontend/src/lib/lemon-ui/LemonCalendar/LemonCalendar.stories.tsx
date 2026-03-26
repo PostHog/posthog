@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
 
-import { LemonCalendar } from './LemonCalendar'
+import { LemonCalendar, LemonCalendarProps } from './LemonCalendar'
 
-type Story = StoryObj<typeof LemonCalendar>
-const meta: Meta<typeof LemonCalendar> = {
+type Story = StoryObj<LemonCalendarProps>
+const meta: Meta<LemonCalendarProps> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar',
-    component: LemonCalendar,
+    component: LemonCalendar as any,
     args: {
         onDateClick: (date: dayjs.Dayjs) => {
             // eslint-disable-next-line no-console

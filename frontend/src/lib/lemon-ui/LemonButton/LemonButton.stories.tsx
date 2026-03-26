@@ -13,16 +13,22 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonButtonWithDropdown,
+    LemonButtonWithDropdownProps,
+    LemonButtonWithoutSideActionProps,
+} from './LemonButton'
 import { More } from './More'
 
 const statuses: LemonButtonProps['status'][] = ['default', 'alt', 'danger']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
-type Story = StoryObj<typeof LemonButton>
-const meta: Meta<typeof LemonButton> = {
+type Story = StoryObj<LemonButtonWithoutSideActionProps>
+const meta: Meta<LemonButtonWithoutSideActionProps> = {
     title: 'Lemon UI/Lemon Button',
-    component: LemonButton,
+    component: LemonButton as any,
     tags: ['autodocs'],
     argTypes: {
         icon: {
@@ -83,7 +89,7 @@ export const TypesAndStatuses: Story = () => {
 
 TypesAndStatuses.args = { ...Default.args }
 
-type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
+type PopoverStory = StoryObj<LemonButtonWithDropdownProps>
 
 export const NoPadding = (): JSX.Element => {
     return <StatusesTemplate noText noPadding />
@@ -313,7 +319,7 @@ export const AsLinks = (): JSX.Element => {
 }
 
 export const WithDropdownToTheRight: PopoverStory = {
-    render: (props: LemonButtonWithDropdownProps) => <LemonButtonWithDropdown {...props} />,
+    render: (props) => <LemonButtonWithDropdown {...props} />,
     args: {
         ...Default.args,
         dropdown: {
@@ -331,7 +337,7 @@ export const WithDropdownToTheRight: PopoverStory = {
 }
 
 export const WithDropdownToTheBottom: PopoverStory = {
-    render: (props: LemonButtonWithDropdownProps) => <LemonButtonWithDropdown {...props} />,
+    render: (props) => <LemonButtonWithDropdown {...props} />,
     args: {
         ...Default.args,
         dropdown: {
@@ -350,7 +356,7 @@ export const WithDropdownToTheBottom: PopoverStory = {
 }
 
 export const WithVeryLongPopoverToTheBottom: PopoverStory = {
-    render: (props: LemonButtonWithDropdownProps) => <LemonButtonWithDropdown {...props} />,
+    render: (props) => <LemonButtonWithDropdown {...props} />,
     args: {
         ...Default.args,
         dropdown: {

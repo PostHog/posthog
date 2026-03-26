@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { createRef, useState } from 'react'
 
-import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonFileInput, LemonFileInputProps } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonFileInput> = {
+type Story = StoryObj<LemonFileInputProps>
+const meta: Meta<LemonFileInputProps> = {
     title: 'Lemon UI/Lemon File Input',
     component: LemonFileInput,
     tags: ['autodocs'],

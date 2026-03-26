@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { HogQLEditor } from './HogQLEditor'
+import { HogQLEditor, HogQLEditorProps } from './HogQLEditor'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof HogQLEditor> = {
+type Story = StoryObj<HogQLEditorProps>
+const meta: Meta<HogQLEditorProps> = {
     title: 'Components/HogQLEditor',
     component: HogQLEditor,
     render: (props) => {

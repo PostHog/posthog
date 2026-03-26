@@ -3,12 +3,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { LemonButton } from '../LemonButton'
 import { LemonWidget, LemonWidgetProps } from './LemonWidget'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonWidget> = {
+type Story = StoryObj<LemonWidgetProps>
+const meta: Meta<LemonWidgetProps> = {
     title: 'Lemon UI/Lemon Widget',
     component: LemonWidget,
     tags: ['autodocs'],
-    render: (props: LemonWidgetProps) => {
+    render: (props) => {
         return (
             <div>
                 <LemonWidget {...props}>

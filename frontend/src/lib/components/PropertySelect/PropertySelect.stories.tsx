@@ -6,8 +6,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PropertySelect, PropertySelectProps } from './PropertySelect'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof PropertySelect> = {
+type Story = StoryObj<PropertySelectProps>
+const meta: Meta<PropertySelectProps> = {
     title: 'Filters/Property Select',
     component: PropertySelect,
     decorators: [
@@ -29,7 +29,7 @@ const meta: Meta<typeof PropertySelect> = {
             },
         }),
     ],
-    render: (props: Partial<PropertySelectProps>) => {
+    render: (props) => {
         const [selectedProperties, setSelectProperties] = useState<string[]>([
             '$initial_geoip_postal_code',
             '$initial_geoip_latitude',
@@ -53,11 +53,11 @@ const meta: Meta<typeof PropertySelect> = {
 
         return (
             <PropertySelect
+                {...props}
                 selectedProperties={selectedProperties}
                 onChange={setSelectProperties}
                 taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
                 addText="Add"
-                {...props}
             />
         )
     },

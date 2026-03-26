@@ -11,8 +11,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof ItemSessionChange> = {
+type Story = StoryObj<ItemSessionChangeProps>
+const meta: Meta<ItemSessionChangeProps> = {
     title: 'Components/PlayerInspector/ItemSessionChange',
     component: ItemSessionChange,
     decorators: [
@@ -20,7 +20,7 @@ const meta: Meta<typeof ItemSessionChange> = {
             get: {},
         }),
     ],
-    render: (props: ItemSessionChangeProps) => {
+    render: (props) => {
         return (
             <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
                 <div className="flex flex-col gap-2 min-w-96">

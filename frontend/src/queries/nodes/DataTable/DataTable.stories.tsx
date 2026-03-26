@@ -1,14 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
-import { Query } from '~/queries/Query/Query'
+import { Query, QueryProps } from '~/queries/Query/Query'
+import { Node } from '~/queries/schema/schema-general'
 
 import events from '../DataNode/__mocks__/EventsNode.json'
 import persons from '../DataNode/__mocks__/PersonsNode.json'
 import { examples } from './DataTable.examples'
 
-type Story = StoryObj<typeof Query>
-const meta: Meta<typeof Query> = {
+type Story = StoryObj<QueryProps<Node>>
+const meta: Meta<QueryProps<Node>> = {
     title: 'Queries/DataTable',
     component: Query,
     tags: ['test-skip'],

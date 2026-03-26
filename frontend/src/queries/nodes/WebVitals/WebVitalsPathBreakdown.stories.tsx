@@ -2,12 +2,13 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
-import { Query } from '~/queries/Query/Query'
+import { Query, QueryProps } from '~/queries/Query/Query'
+import { Node } from '~/queries/schema/schema-general'
 
 import webVitalsPathBreakdown from './__mocks__/WebVitalsPathBreakdown.json'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof Query> = {
+type Story = StoryObj<QueryProps<Node>>
+const meta: Meta<QueryProps<Node>> = {
     title: 'Queries/WebVitalsPathBreakdown',
     component: Query,
     parameters: {

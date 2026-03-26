@@ -16,8 +16,8 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
 
-type Story = StoryObj<typeof ActionFilter>
-const meta: Meta<typeof ActionFilter> = {
+type Story = StoryObj<ActionFilterProps>
+const meta: Meta<ActionFilterProps> = {
     title: 'Filters/Action Filter',
     decorators: [taxonomicFilterMocksDecorator],
 }

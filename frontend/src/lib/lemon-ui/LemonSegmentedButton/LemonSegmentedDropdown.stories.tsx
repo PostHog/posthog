@@ -6,10 +6,10 @@ import { IconBook, IconCalculator, IconCalendar, IconGear, IconHome, IconMagicWa
 import { LemonSegmentedButtonOption } from './LemonSegmentedButton'
 import { LemonSegmentedDropdown, LemonSegmentedDropdownProps } from './LemonSegmentedDropdown'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonSegmentedDropdown> = {
+type Story = StoryObj<LemonSegmentedDropdownProps<string>>
+const meta: Meta<LemonSegmentedDropdownProps<string>> = {
     title: 'Lemon UI/Lemon Segmented Dropdown',
-    component: LemonSegmentedDropdown,
+    component: LemonSegmentedDropdown as any,
     argTypes: {
         options: {
             control: {
@@ -36,7 +36,7 @@ const meta: Meta<typeof LemonSegmentedDropdown> = {
         splitIndex: 2,
     },
     tags: ['autodocs'],
-    render: (props: Omit<LemonSegmentedDropdownProps<any>, 'value' | 'onChange'>) => {
+    render: (props) => {
         const [value, setValue] = useState(props.options[0]?.value)
 
         return <LemonSegmentedDropdown {...props} value={value} onChange={(newValue) => setValue(newValue)} />
@@ -83,7 +83,7 @@ export const DropdownSelectedByDefault: Story = {
             storyDescription: 'When an option in the dropdown is selected, it displays that option.',
         },
     },
-    render: (props: Omit<LemonSegmentedDropdownProps<any>, 'value' | 'onChange'>) => {
+    render: (props) => {
         const splitIndex = props.splitIndex ?? props.options.length
         const [value, setValue] = useState(props.options[splitIndex]?.value)
 

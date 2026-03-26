@@ -5,8 +5,8 @@ import { PlayerShareLogicProps } from 'scenes/session-recordings/player/share/pl
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof PlayerShareRecording> = {
+type Story = StoryObj<PlayerShareLogicProps>
+const meta: Meta<PlayerShareLogicProps> = {
     title: 'Replay/Sharing',
     component: PlayerShareRecording,
     decorators: [
@@ -23,7 +23,7 @@ const meta: Meta<typeof PlayerShareRecording> = {
             },
         }),
     ],
-    render: (props: PlayerShareLogicProps) => {
+    render: (props) => {
         return (
             <div>
                 <div className="border p-4">

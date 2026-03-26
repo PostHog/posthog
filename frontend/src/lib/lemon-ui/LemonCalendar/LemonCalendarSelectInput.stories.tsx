@@ -4,15 +4,15 @@ import { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonCalendarSelectInput> = {
+type Story = StoryObj<LemonCalendarSelectInputProps>
+const meta: Meta<LemonCalendarSelectInputProps> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select Input',
     component: LemonCalendarSelectInput,
     parameters: {
         mockDate: '2023-01-26 16:30:00',
     },
     tags: ['autodocs'],
-    render: (props: LemonCalendarSelectInputProps) => {
+    render: (props) => {
         const [value, setValue] = useState<dayjs.Dayjs | null>(dayjs())
 
         return (

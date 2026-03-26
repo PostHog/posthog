@@ -7,15 +7,15 @@ import { formatDateRange } from 'lib/utils'
 
 import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonCalendarRangeInline> = {
+type Story = StoryObj<LemonCalendarRangeProps>
+const meta: Meta<LemonCalendarRangeProps> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Range Inline',
-    component: LemonCalendarRangeInline,
+    component: LemonCalendarRangeInline as any,
     parameters: {
         mockDate: '2023-01-26',
     },
     tags: ['autodocs'],
-    render: (props: LemonCalendarRangeProps) => {
+    render: (props) => {
         const [value, setValue] = useState([dayjs('2022-08-11'), dayjs('2022-08-26')] as
             | [dayjs.Dayjs, dayjs.Dayjs]
             | null)

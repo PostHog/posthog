@@ -57,8 +57,8 @@ const data = {
     ],
 }
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof InsightTooltip> = {
+type Story = StoryObj<InsightTooltipProps>
+const meta: Meta<InsightTooltipProps> = {
     title: 'Components/InsightTooltip',
     component: InsightTooltip,
     args: {
@@ -71,7 +71,7 @@ const meta: Meta<typeof InsightTooltip> = {
         groupTypeLabel: 'people',
     },
     tags: ['test-skip'], // FIXME: The InWrapper story fails at locator.screenshot() for some reason
-    render: (props: InsightTooltipProps) => {
+    render: (props) => {
         useMountedLogic(cohortsModel)
 
         return <InsightTooltip {...props} />

@@ -8,11 +8,11 @@ import { PropertyOperator } from '~/types'
 
 import { CohortPersonPropertiesValuesField } from './CohortField'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof CohortPersonPropertiesValuesField> = {
+type Story = StoryObj<CohortPersonPropertiesValuesFieldProps>
+const meta: Meta<CohortPersonPropertiesValuesFieldProps> = {
     title: 'Filters/Cohort Filters/Fields/Person Properties',
     component: CohortPersonPropertiesValuesField,
-    render: (props: CohortPersonPropertiesValuesFieldProps) => {
+    render: (props) => {
         const [value, setValue] = useState<string | undefined>('Chrome')
         const PersonPropertyValuesComponent = renderField[FilterType.PersonPropertyValues]
         return (

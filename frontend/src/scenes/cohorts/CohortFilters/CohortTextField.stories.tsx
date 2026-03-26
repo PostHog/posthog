@@ -5,11 +5,11 @@ import { CohortTextFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/t
 
 import { CohortTextField } from './CohortField'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof CohortTextField> = {
+type Story = StoryObj<CohortTextFieldProps>
+const meta: Meta<CohortTextFieldProps> = {
     title: 'Filters/Cohort Filters/Fields/Text',
     component: CohortTextField,
-    render: (props: CohortTextFieldProps) => {
+    render: (props) => {
         return renderField[FilterType.Text]({
             ...props,
             value: 'in the last',

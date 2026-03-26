@@ -5,11 +5,11 @@ import { CohortSelectorFieldProps, FieldOptionsType } from 'scenes/cohorts/Cohor
 
 import { CohortSelectorField } from './CohortField'
 
-type Story = StoryObj<typeof CohortSelectorField>
-const meta: Meta<typeof CohortSelectorField> = {
+type Story = StoryObj<CohortSelectorFieldProps>
+const meta: Meta<CohortSelectorFieldProps> = {
     title: 'Filters/Cohort Filters/Fields/Select',
     component: CohortSelectorField,
-    render: (props: CohortSelectorFieldProps) => {
+    render: (props) => {
         const [value, setValue] = useState<string | undefined>(
             Object.keys(props.fieldOptionGroupTypes?.[0] ?? {})?.[0] ?? null
         )

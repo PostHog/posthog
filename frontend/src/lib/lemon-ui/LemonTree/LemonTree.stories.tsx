@@ -6,10 +6,10 @@ import { Link } from '@posthog/lemon-ui'
 
 import { LemonTree, LemonTreeProps } from './LemonTree'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonTree> = {
+type Story = StoryObj<LemonTreeProps>
+const meta: Meta<LemonTreeProps> = {
     title: 'Lemon UI/Lemon Tree',
-    component: LemonTree,
+    component: LemonTree as any,
     args: {
         defaultNodeIcon: <IconArchive />,
         onFolderClick: (item) => {

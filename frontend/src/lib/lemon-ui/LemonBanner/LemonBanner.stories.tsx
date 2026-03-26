@@ -1,10 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import type { ComponentProps } from 'react'
 
-import { LemonBanner } from './LemonBanner'
+import { LemonBanner, LemonBannerProps } from './LemonBanner'
 
-type Story = StoryObj<typeof LemonBanner>
-const meta: Meta<typeof LemonBanner> = {
+type Story = StoryObj<LemonBannerProps>
+const meta: Meta<LemonBannerProps> = {
     title: 'Lemon UI/Lemon Banner',
     component: LemonBanner,
     tags: ['autodocs'],
@@ -17,7 +16,7 @@ const meta: Meta<typeof LemonBanner> = {
 }
 export default meta
 
-const renderWide = (props: ComponentProps<typeof LemonBanner>): JSX.Element => {
+const renderWide = (props: LemonBannerProps): JSX.Element => {
     // We need to explicitly set size on the banner's parent, because LemonBanner is a CSS container
     // See: https://stackoverflow.com/a/73980194/3515268
     return (
@@ -27,7 +26,7 @@ const renderWide = (props: ComponentProps<typeof LemonBanner>): JSX.Element => {
     )
 }
 
-const renderNarrow = (props: ComponentProps<typeof LemonBanner>): JSX.Element => {
+const renderNarrow = (props: LemonBannerProps): JSX.Element => {
     // We need to explicitly set size on the banner's parent, because LemonBanner is a CSS container
     // See: https://stackoverflow.com/a/73980194/3515268
     return (
@@ -37,7 +36,7 @@ const renderNarrow = (props: ComponentProps<typeof LemonBanner>): JSX.Element =>
     )
 }
 
-const renderSceneWidth = (props: ComponentProps<typeof LemonBanner>): JSX.Element => {
+const renderSceneWidth = (props: LemonBannerProps): JSX.Element => {
     return (
         <div id="target" className="w-200">
             <LemonBanner {...props} />

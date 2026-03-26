@@ -8,7 +8,7 @@ import {
     TEXT_CARD_MARKDOWN_EXTENSIONS,
 } from 'lib/components/Cards/TextCard/textCardMarkdown'
 
-import { InlineRichMarkdownEditor } from './InlineRichMarkdownEditor'
+import { InlineRichMarkdownEditor, InlineRichMarkdownEditorProps } from './InlineRichMarkdownEditor'
 
 const INLINE_EXTENSIONS = [
     ...TEXT_CARD_MARKDOWN_EXTENSIONS,
@@ -29,9 +29,9 @@ const storyDefaults = {
     dataAttr: 'story-inline-rich-markdown-editor',
 }
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<InlineRichMarkdownEditorProps>
 
-const meta: Meta<typeof InlineRichMarkdownEditor> = {
+const meta: Meta<InlineRichMarkdownEditorProps> = {
     title: 'Components/Markdown editor/Inline',
     component: InlineRichMarkdownEditor,
     tags: ['autodocs'],

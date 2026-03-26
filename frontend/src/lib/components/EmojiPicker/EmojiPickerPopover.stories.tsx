@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { EmojiPickerPopover, EmojiPickerPopoverProps } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof EmojiPickerPopover> = {
+type Story = StoryObj<EmojiPickerPopoverProps>
+const meta: Meta<EmojiPickerPopoverProps> = {
     title: 'Lemon UI/Emoji Picker Popover',
     component: EmojiPickerPopover,
     tags: ['autodocs'],

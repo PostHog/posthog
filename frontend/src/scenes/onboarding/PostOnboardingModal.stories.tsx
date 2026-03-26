@@ -20,7 +20,7 @@ const meta: Meta<{ productKey: ProductKey }> = {
 
         useEffect(() => {
             openPostOnboardingModal(productKey)
-        }, [productKey])
+        }, [productKey, openPostOnboardingModal])
 
         return <PostOnboardingModal />
     },

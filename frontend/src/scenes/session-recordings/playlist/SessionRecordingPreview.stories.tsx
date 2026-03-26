@@ -4,9 +4,9 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconCursorClick, IconKeyboard } from '@posthog/icons'
 
-import { PropertyIcons } from './SessionRecordingPreview'
+import { PropertyIcons, PropertyIconsProps } from './SessionRecordingPreview'
 
-const meta: Meta<typeof PropertyIcons> = {
+const meta: Meta<PropertyIconsProps> = {
     title: 'Replay/Components/PropertyIcons',
     component: PropertyIcons,
     parameters: {
@@ -17,7 +17,7 @@ const meta: Meta<typeof PropertyIcons> = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<PropertyIconsProps>
 
 const webRecordingProperties = [
     { label: 'Mac OS X', value: 'Mac OS X', property: '$os' },

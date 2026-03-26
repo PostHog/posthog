@@ -3,8 +3,17 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { VerticalNestedDND, VerticalNestedDNDProps } from './VerticalNestedDND'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof VerticalNestedDND> = {
+interface ExampleSubItem {
+    id: UniqueIdentifier
+}
+interface ExampleItem {
+    id: UniqueIdentifier
+    items?: ExampleSubItem[]
+}
+let counter = 0
+
+type Story = StoryObj<VerticalNestedDNDProps<ExampleSubItem, ExampleItem>>
+const meta: Meta<VerticalNestedDNDProps<ExampleSubItem, ExampleItem>> = {
     title: 'Components/VerticalNestedDND',
     component: VerticalNestedDND,
     parameters: {
@@ -13,7 +22,7 @@ const meta: Meta<typeof VerticalNestedDND> = {
         },
     },
     tags: ['autodocs'],
-    render: (props: VerticalNestedDNDProps<ExampleSubItem, ExampleItem>) => {
+    render: (props) => {
         const starterData: ExampleItem[] = [
             {
                 id: 'A',
@@ -71,15 +80,6 @@ const meta: Meta<typeof VerticalNestedDND> = {
     },
 }
 export default meta
-
-interface ExampleSubItem {
-    id: UniqueIdentifier
-}
-interface ExampleItem {
-    id: UniqueIdentifier
-    items?: ExampleSubItem[]
-}
-let counter = 0
 
 export const Base: Story = {
     args: {},

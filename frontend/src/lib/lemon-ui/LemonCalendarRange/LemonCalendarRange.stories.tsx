@@ -7,15 +7,15 @@ import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/lemon-ui/LemonC
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { formatDateRange } from 'lib/utils'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonCalendarRange> = {
+type Story = StoryObj<LemonCalendarRangeProps>
+const meta: Meta<LemonCalendarRangeProps> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Range',
     component: LemonCalendarRange,
     parameters: {
         mockDate: '2023-01-26',
     },
     tags: ['autodocs'],
-    render: (props: LemonCalendarRangeProps) => {
+    render: (props) => {
         const [value, setValue] = useState([
             dayjs('2022-08-11'),
             dayjs('2022-08-26'),

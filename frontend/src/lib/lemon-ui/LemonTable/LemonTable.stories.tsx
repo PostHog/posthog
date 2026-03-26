@@ -11,10 +11,10 @@ import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
 import { LemonTableColumns } from './types'
 
-type Story = StoryObj<typeof LemonTable>
-const meta: Meta<typeof LemonTable> = {
+type Story = StoryObj<LemonTableProps<any>>
+const meta: Meta<LemonTableProps<any>> = {
     title: 'Lemon UI/Lemon Table',
-    component: LemonTable,
+    component: LemonTable as any,
     tags: ['autodocs'],
 }
 export default meta

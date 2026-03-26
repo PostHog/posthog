@@ -1,13 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import {
+    NotebookSelectButton,
+    NotebookSelectButtonProps,
+} from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { NotebookNodeType } from '../types'
 
-type Story = StoryObj<typeof NotebookSelectButton>
-const meta: Meta<typeof NotebookSelectButton> = {
+type Story = StoryObj<NotebookSelectButtonProps>
+const meta: Meta<NotebookSelectButtonProps> = {
     title: 'Scenes-App/Notebooks/Components/Notebook Select Button',
     component: NotebookSelectButton,
     parameters: {

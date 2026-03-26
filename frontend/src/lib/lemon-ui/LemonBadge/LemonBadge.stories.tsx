@@ -7,10 +7,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonBadge, LemonBadgeProps } from './LemonBadge'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonBadge> = {
+type Story = StoryObj<LemonBadgeProps>
+const meta: Meta<LemonBadgeProps> = {
     title: 'Lemon UI/Lemon Badge/Lemon Badge',
-    component: LemonBadge,
+    component: LemonBadge as any,
     tags: ['autodocs'],
 }
 export default meta
@@ -24,7 +24,7 @@ export const Standard: Story = {
     args: { content: '@' },
 }
 
-export const Positioning: StoryObj<typeof LemonBadge> = {
+export const Positioning: StoryObj<LemonBadgeProps> = {
     render: () => {
         return (
             <div className="deprecated-space-y-4 m-2">
@@ -52,7 +52,7 @@ export const Positioning: StoryObj<typeof LemonBadge> = {
     },
 }
 
-export const Sizes: StoryObj<typeof LemonBadge> = {
+export const Sizes: StoryObj<LemonBadgeProps> = {
     render: () => {
         return (
             <div className="flex deprecated-space-x-2 items-center">
@@ -69,7 +69,7 @@ export const Sizes: StoryObj<typeof LemonBadge> = {
     },
 }
 
-export const Status: StoryObj<typeof LemonBadge> = {
+export const Status: StoryObj<LemonBadgeProps> = {
     render: () => {
         const statuses = ['primary', 'success', 'warning', 'danger', 'muted', 'data']
         return (
@@ -85,7 +85,7 @@ export const Status: StoryObj<typeof LemonBadge> = {
     },
 }
 
-export const Active: StoryObj<typeof LemonBadge> = {
+export const Active: StoryObj<LemonBadgeProps> = {
     render: () => {
         return (
             <div className="flex deprecated-space-x-2 items-center my-1 mr-1">

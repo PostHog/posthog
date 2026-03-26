@@ -5,12 +5,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonBadge, LemonBadgeNumberProps } from './LemonBadge'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonBadge.Number> = {
+type Story = StoryObj<LemonBadgeNumberProps>
+const meta: Meta<LemonBadgeNumberProps> = {
     title: 'Lemon UI/Lemon Badge/Lemon Badge Number',
-    component: LemonBadge.Number,
+    component: LemonBadge.Number as any,
     tags: ['autodocs'],
-    render: ({ count, ...props }: LemonBadgeNumberProps) => {
+    render: ({ count, ...props }) => {
         const [countOverride, setCount] = useState(count)
 
         return (

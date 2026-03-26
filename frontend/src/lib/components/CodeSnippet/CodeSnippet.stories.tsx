@@ -2,10 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { CodeSnippet, Language } from './CodeSnippet'
+import { CodeSnippet, CodeSnippetProps, Language } from './CodeSnippet'
 
-type Story = StoryObj<typeof CodeSnippet>
-const meta: Meta<typeof CodeSnippet> = {
+type Story = StoryObj<CodeSnippetProps>
+const meta: Meta<CodeSnippetProps> = {
     title: 'Lemon UI/Code Snippet',
     component: CodeSnippet,
     tags: ['autodocs'],

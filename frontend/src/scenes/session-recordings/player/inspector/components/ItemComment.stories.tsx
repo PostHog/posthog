@@ -18,8 +18,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { mswDecorator } from '~/mocks/browser'
 import { CommentType } from '~/types'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof ItemAnyComment> = {
+type Story = StoryObj<ItemCommentProps>
+const meta: Meta<ItemCommentProps> = {
     title: 'Components/PlayerInspector/ItemComment',
     component: ItemAnyComment,
     decorators: [
@@ -27,7 +27,7 @@ const meta: Meta<typeof ItemAnyComment> = {
             get: {},
         }),
     ],
-    render: (props: Partial<ItemCommentProps>) => {
+    render: (props) => {
         props.item = props.item || makeNotebookItem()
 
         const propsToUse = props as ItemCommentProps

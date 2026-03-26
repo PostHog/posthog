@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { LemonButton } from '../LemonButton'
-import { LemonTab, LemonTabs as LemonTabsComponent } from './LemonTabs'
+import { LemonTab, LemonTabs as LemonTabsComponent, LemonTabsProps } from './LemonTabs'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonTabsComponent> = {
+type Story = StoryObj<LemonTabsProps<string>>
+const meta: Meta<LemonTabsProps<string>> = {
     title: 'Lemon UI/Lemon Tabs',
-    component: LemonTabsComponent,
+    component: LemonTabsComponent as any,
     argTypes: {
         tabs: {
             control: {

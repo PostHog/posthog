@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
-import { ExportType } from '~/exporter/types'
+import { ExportType, ExportedData } from '~/exporter/types'
 
 import { Exporter } from '../Exporter'
 
-type Story = StoryObj<typeof Exporter>
-const meta: Meta<typeof Exporter> = {
+type Story = StoryObj<ExportedData>
+const meta: Meta<ExportedData> = {
     title: 'Exporter/Funnels',
     component: Exporter,
     args: {

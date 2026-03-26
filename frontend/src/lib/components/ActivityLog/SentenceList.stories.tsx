@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { SentenceList } from './SentenceList'
+import { SentenceList, SentenceListProps } from './SentenceList'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof SentenceList> = {
+type Story = StoryObj<SentenceListProps>
+const meta: Meta<SentenceListProps> = {
     title: 'Components/SentenceList',
     component: SentenceList,
     parameters: {},

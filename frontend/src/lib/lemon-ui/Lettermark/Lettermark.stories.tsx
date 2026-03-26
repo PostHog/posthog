@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { range } from 'lib/utils'
 
-import { Lettermark, LettermarkColor, NUM_LETTERMARK_STYLES } from './Lettermark'
+import { Lettermark, LettermarkColor, LettermarkProps, NUM_LETTERMARK_STYLES } from './Lettermark'
 
-type Story = StoryObj<typeof Lettermark>
-const meta: Meta<typeof Lettermark> = {
+type Story = StoryObj<LettermarkProps>
+const meta: Meta<LettermarkProps> = {
     title: 'Lemon UI/Lettermark',
-    component: Lettermark,
+    component: Lettermark as any,
     parameters: {
         docs: {
             description: {

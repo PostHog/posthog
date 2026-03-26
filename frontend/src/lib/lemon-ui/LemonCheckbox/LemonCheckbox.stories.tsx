@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { LemonCheckbox } from './LemonCheckbox'
+import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 
-type Story = StoryObj<typeof meta>
-const meta: Meta<typeof LemonCheckbox> = {
+type Story = StoryObj<LemonCheckboxProps>
+const meta: Meta<LemonCheckboxProps> = {
     title: 'Lemon UI/Lemon Checkbox',
     component: LemonCheckbox,
     tags: ['autodocs'],
