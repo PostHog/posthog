@@ -57,6 +57,8 @@ pub enum Error {
     DistinctIdTooLarge,
     #[error("event submitted without a uuid")]
     MissingEventUuid,
+    #[error("duplicate event uuid: {0}")]
+    DuplicateEventUuid(String),
     #[error("event submitted with invalid timestamp")]
     InvalidEventTimestamp,
 
@@ -116,6 +118,7 @@ impl Error {
             Self::MissingDistinctId => "missing_distinct_id",
             Self::DistinctIdTooLarge => "distinct_id_too_large",
             Self::MissingEventUuid => "missing_event_uuid",
+            Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
@@ -169,6 +172,7 @@ impl Error {
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
+            | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::RequestTimeout
             | Self::MissingApiToken
@@ -215,6 +219,7 @@ impl Error {
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
             | Self::MissingEventUuid
+            | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp => StatusCode::BAD_REQUEST,
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,

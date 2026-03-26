@@ -64,8 +64,8 @@ pub async fn handle_request(
             .await
         {
             let err = v1::Error::RateLimited(format!(
-                "token rate limit exceeded (count={}, threshold={})",
-                limited.current_count as u64, limited.threshold
+                "token rate limit exceeded (count={}, threshold={}, interval={:?})",
+                limited.current_count as u64, limited.threshold, limited.window_interval,
             ));
             log_stat_error!(err, ctx = &context);
             return Err(err);

@@ -6,6 +6,18 @@ use serde_json::Value;
 
 use crate::v1::sinks::Destination;
 
+/// Per-event outcome in the batch response.
+/// Maps to HTTP semantics: Ok (2xx), Drop (4xx), Limited (429), Retry (5xx).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventResult {
+    #[default]
+    Ok,
+    Drop,
+    Limited,
+    Retry,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BatchMetadata {
     pub created_at: String,
@@ -36,10 +48,9 @@ pub struct WrappedEvent {
     pub event: CaptureV1Event,
     // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
     pub adjusted_timestamp: Option<DateTime<Utc>>,
-    // 0-indexed ordinal into the submitted batch
     pub ordinal: usize,
-    // 200 for valid/redirected, 400 for invalid or dropped
-    pub status_code: u16,
+    pub result: EventResult,
+    pub details: Option<&'static str>,
     pub destination: Destination,
     pub skip_person_processing: bool,
 }

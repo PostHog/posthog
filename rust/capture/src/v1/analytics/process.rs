@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::response::Response;
-use super::types::{CaptureV1Batch, CaptureV1Event, WrappedEvent};
+use super::types::{CaptureV1Batch, CaptureV1Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::router;
@@ -56,45 +56,47 @@ fn validate_batch(batch: &CaptureV1Batch) -> Result<(), Error> {
         ))
     })?;
 
-    for event in &batch.batch {
-        Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
-    }
-
     Ok(())
 }
 
 fn validate_events(context: &Context, batch: CaptureV1Batch) -> Vec<WrappedEvent> {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
+    let mut uuids = HashSet::new();
 
     let events: Vec<WrappedEvent> = batch
         .batch
         .into_iter()
         .enumerate()
-        .map(|(ordinal, event)| match validate_event(&event) {
-            Ok(raw_ts) => {
-                metrics::counter!(CAPTURE_PARSED_EVENTS, "result" => "valid").increment(1);
-                let adjusted = normalize_timestamp(context, &event, raw_ts);
-                WrappedEvent {
-                    event,
-                    adjusted_timestamp: Some(adjusted),
-                    ordinal,
-                    status_code: 200,
-                    destination: Destination::default(),
-                    skip_person_processing: false,
+        .map(
+            |(ordinal, event)| match validate_event(&mut uuids, &event) {
+                Ok(raw_ts) => {
+                    metrics::counter!(CAPTURE_PARSED_EVENTS, "result" => "valid").increment(1);
+                    let adjusted = normalize_timestamp(context, &event, raw_ts);
+                    WrappedEvent {
+                        event,
+                        adjusted_timestamp: Some(adjusted),
+                        ordinal,
+                        result: EventResult::Ok,
+                        details: None,
+                        destination: Destination::default(),
+                        skip_person_processing: false,
+                    }
                 }
-            }
-            Err(err) => {
-                *malformed.entry(err.tag()).or_insert(0) += 1;
-                WrappedEvent {
-                    event,
-                    adjusted_timestamp: None,
-                    ordinal,
-                    status_code: 400,
-                    destination: Destination::default(),
-                    skip_person_processing: false,
+                Err(err) => {
+                    let tag = err.tag();
+                    *malformed.entry(tag).or_insert(0) += 1;
+                    WrappedEvent {
+                        event,
+                        adjusted_timestamp: None,
+                        ordinal,
+                        result: EventResult::Drop,
+                        details: Some(tag),
+                        destination: Destination::default(),
+                        skip_person_processing: false,
+                    }
                 }
-            }
-        })
+            },
+        )
         .collect();
 
     if !malformed.is_empty() {
@@ -133,7 +135,10 @@ fn observe_malformed_events(context: &Context, malformed: &HashMap<&'static str,
     );
 }
 
-fn validate_event(event: &CaptureV1Event) -> Result<DateTime<Utc>, Error> {
+fn validate_event(
+    uuids: &mut HashSet<Uuid>,
+    event: &CaptureV1Event,
+) -> Result<DateTime<Utc>, Error> {
     if event.event.is_empty() {
         return Err(Error::MissingEventName);
     }
@@ -146,6 +151,12 @@ fn validate_event(event: &CaptureV1Event) -> Result<DateTime<Utc>, Error> {
     if event.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
         return Err(Error::DistinctIdTooLarge);
     }
+
+    let parsed = Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
+    if !uuids.insert(parsed) {
+        return Err(Error::DuplicateEventUuid(event.uuid.clone()));
+    }
+
     let ts = DateTime::parse_from_rfc3339(&event.timestamp)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|_| Error::InvalidEventTimestamp)?;
@@ -183,7 +194,7 @@ fn apply_historical_rerouting(
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.status_code != 200 || event.destination != Destination::AnalyticsMain {
+        if event.result != EventResult::Ok || event.destination != Destination::AnalyticsMain {
             continue;
         }
 
@@ -218,7 +229,7 @@ async fn apply_restrictions(
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.status_code != 200 {
+        if event.result != EventResult::Ok {
             continue;
         }
 
@@ -233,7 +244,7 @@ async fn apply_restrictions(
         let applied = service.get_restrictions(token, &event_ctx).await;
 
         if applied.should_drop() {
-            event.status_code = 400;
+            event.result = EventResult::Drop;
             event.destination = Destination::Drop;
             metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "event_restriction")
                 .increment(1);
@@ -265,13 +276,13 @@ async fn apply_token_distinct_id_limits(
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.status_code != 200 {
+        if event.result != EventResult::Ok {
             continue;
         }
         let cache_key =
             GlobalRateLimitKey::TokenDistinctId(token, &event.event.distinct_id).to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
-            event.status_code = 429;
+            event.result = EventResult::Limited;
             event.destination = Destination::Drop;
             metrics::counter!(CAPTURE_V1_EVENTS_RATE_LIMITED, "reason" => "token_distinct_id")
                 .increment(1);
@@ -340,39 +351,34 @@ mod tests {
     }
 
     #[test]
-    fn batch_bad_uuid() {
+    fn event_bad_uuid() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.uuid = "not-a-uuid".to_string();
-        let batch = valid_batch(vec![event]);
-        let err = validate_batch(&batch).unwrap_err();
-        assert!(matches!(err, Error::MissingEventUuid));
+        assert!(matches!(
+            validate_event(&mut uuids, &event),
+            Err(Error::MissingEventUuid)
+        ));
     }
 
     #[test]
-    fn batch_empty_uuid() {
+    fn event_empty_uuid() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.uuid = String::new();
-        let batch = valid_batch(vec![event]);
-        let err = validate_batch(&batch).unwrap_err();
-        assert!(matches!(err, Error::MissingEventUuid));
-    }
-
-    #[test]
-    fn batch_multiple_events_second_bad_uuid() {
-        let good = valid_event();
-        let mut bad = valid_event();
-        bad.uuid = "garbage".to_string();
-        let batch = valid_batch(vec![good, bad]);
-        let err = validate_batch(&batch).unwrap_err();
-        assert!(matches!(err, Error::MissingEventUuid));
+        assert!(matches!(
+            validate_event(&mut uuids, &event),
+            Err(Error::MissingEventUuid)
+        ));
     }
 
     // --- validate_event ---
 
     #[test]
     fn event_valid() {
+        let mut uuids = HashSet::new();
         let event = valid_event();
-        let ts = validate_event(&event);
+        let ts = validate_event(&mut uuids, &event);
         assert!(ts.is_ok());
         assert_eq!(
             ts.unwrap(),
@@ -384,75 +390,98 @@ mod tests {
 
     #[test]
     fn event_empty_name() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.event = String::new();
         assert!(matches!(
-            validate_event(&event),
+            validate_event(&mut uuids, &event),
             Err(Error::MissingEventName)
         ));
     }
 
     #[test]
     fn event_name_too_long() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.event = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH + 1);
         assert!(matches!(
-            validate_event(&event),
+            validate_event(&mut uuids, &event),
             Err(Error::EventNameTooLong)
         ));
     }
 
     #[test]
     fn event_name_at_max_length_ok() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.event = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH);
-        assert!(validate_event(&event).is_ok());
+        assert!(validate_event(&mut uuids, &event).is_ok());
     }
 
     #[test]
     fn event_empty_distinct_id() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.distinct_id = String::new();
         assert!(matches!(
-            validate_event(&event),
+            validate_event(&mut uuids, &event),
             Err(Error::MissingDistinctId)
         ));
     }
 
     #[test]
     fn event_distinct_id_too_large() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.distinct_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1);
         assert!(matches!(
-            validate_event(&event),
+            validate_event(&mut uuids, &event),
             Err(Error::DistinctIdTooLarge)
         ));
     }
 
     #[test]
     fn event_distinct_id_at_max_size_ok() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.distinct_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE);
-        assert!(validate_event(&event).is_ok());
+        assert!(validate_event(&mut uuids, &event).is_ok());
     }
 
     #[test]
     fn event_bad_timestamp() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.timestamp = "yesterday".to_string();
         assert!(matches!(
-            validate_event(&event),
+            validate_event(&mut uuids, &event),
             Err(Error::InvalidEventTimestamp)
         ));
     }
 
     #[test]
     fn event_empty_timestamp() {
+        let mut uuids = HashSet::new();
         let mut event = valid_event();
         event.timestamp = String::new();
         assert!(matches!(
-            validate_event(&event),
+            validate_event(&mut uuids, &event),
             Err(Error::InvalidEventTimestamp)
+        ));
+    }
+
+    #[test]
+    fn event_duplicate_uuid() {
+        let mut uuids = HashSet::new();
+        let event = valid_event();
+        assert!(validate_event(&mut uuids, &event).is_ok());
+        let dup = CaptureV1Event {
+            uuid: event.uuid.clone(),
+            ..valid_event()
+        };
+        assert!(matches!(
+            validate_event(&mut uuids, &dup),
+            Err(Error::DuplicateEventUuid(_))
         ));
     }
 
@@ -582,7 +611,8 @@ mod tests {
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
             ordinal,
-            status_code: 200,
+            result: EventResult::Ok,
+            details: None,
             destination: Destination::default(),
             skip_person_processing: false,
         }
@@ -599,7 +629,8 @@ mod tests {
             },
             adjusted_timestamp: None,
             ordinal,
-            status_code: 400,
+            result: EventResult::Drop,
+            details: Some("missing_event_name"),
             destination: Destination::default(),
             skip_person_processing: false,
         }
@@ -628,7 +659,7 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(!events[0].skip_person_processing);
     }
@@ -653,9 +684,9 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 400);
+        assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::Drop);
-        assert_eq!(events[1].status_code, 400);
+        assert_eq!(events[1].result, EventResult::Drop);
         assert_eq!(events[1].destination, Destination::Drop);
     }
 
@@ -679,11 +710,11 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        // malformed event stays 400 with original destination, not re-evaluated
-        assert_eq!(events[0].status_code, 400);
+        // malformed event stays Drop with original destination, not re-evaluated
+        assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         // valid event gets dropped by restriction
-        assert_eq!(events[1].status_code, 400);
+        assert_eq!(events[1].result, EventResult::Drop);
         assert_eq!(events[1].destination, Destination::Drop);
     }
 
@@ -704,7 +735,7 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::Overflow);
     }
 
@@ -725,7 +756,7 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::Dlq);
     }
 
@@ -746,7 +777,7 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(
             events[0].destination,
             Destination::Custom("custom_analytics".to_string())
@@ -770,7 +801,7 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(events[0].skip_person_processing);
     }
@@ -804,7 +835,7 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::Dlq);
     }
 
@@ -825,7 +856,7 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
 
@@ -900,9 +931,9 @@ mod tests {
 
         apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
-        assert_eq!(events[1].status_code, 200);
+        assert_eq!(events[1].result, EventResult::Ok);
         assert_eq!(events[1].destination, Destination::AnalyticsMain);
     }
 
@@ -916,9 +947,9 @@ mod tests {
 
         apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
 
-        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
-        assert_eq!(events[1].status_code, 429);
+        assert_eq!(events[1].result, EventResult::Limited);
         assert_eq!(events[1].destination, Destination::Drop);
     }
 
@@ -929,7 +960,7 @@ mod tests {
 
         apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
 
-        assert_eq!(events[0].status_code, 400);
+        assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::default());
     }
 
@@ -945,7 +976,11 @@ mod tests {
         apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
 
         for (i, event) in events.iter().enumerate() {
-            assert_eq!(event.status_code, 429, "event {i} should be 429");
+            assert_eq!(
+                event.result,
+                EventResult::Limited,
+                "event {i} should be Limited"
+            );
             assert_eq!(
                 event.destination,
                 Destination::Drop,
@@ -962,16 +997,16 @@ mod tests {
             wrapped_event(1, "$identify", "user-2"),
         ];
         // Simulate event 0 already dropped by restrictions
-        events[0].status_code = 400;
+        events[0].result = EventResult::Drop;
         events[0].destination = Destination::Drop;
 
         apply_token_distinct_id_limits(&limiter, "phc_tok", &mut events).await;
 
-        // Event 0 untouched (was already 400)
-        assert_eq!(events[0].status_code, 400);
+        // Event 0 untouched (was already Drop)
+        assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::Drop);
         // Event 1 rate-limited
-        assert_eq!(events[1].status_code, 429);
+        assert_eq!(events[1].result, EventResult::Limited);
         assert_eq!(events[1].destination, Destination::Drop);
     }
 
@@ -1016,7 +1051,8 @@ mod tests {
             },
             adjusted_timestamp: Some(timestamp),
             ordinal,
-            status_code: 200,
+            result: EventResult::Ok,
+            details: None,
             destination: Destination::default(),
             skip_person_processing: false,
         }
@@ -1090,7 +1126,7 @@ mod tests {
         let cfg = router::HistoricalConfig::new(true, 30);
         let ctx = test_context(true);
         let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
-        events[0].status_code = 400;
+        events[0].result = EventResult::Drop;
         events[0].destination = Destination::Drop;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
