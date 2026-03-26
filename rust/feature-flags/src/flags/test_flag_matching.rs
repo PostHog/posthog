@@ -12,7 +12,7 @@ mod tests {
         flags::{
             flag_group_type_mapping::GroupTypeCacheManager,
             flag_match_reason::FeatureFlagMatchReason,
-            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
+            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
             flag_matching_utils::{
                 get_fetch_calls_count, get_hash_key_override_lookup_count, reset_fetch_calls_count,
                 reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
@@ -34,6 +34,15 @@ mod tests {
 
     fn empty_group_type_cache() -> Arc<GroupTypeCacheManager> {
         mock_group_type_cache(HashMap::new())
+    }
+
+    /// Builds a person-only PropertyContext for tests that don't involve groups.
+    fn person_property_context(props: HashMap<String, serde_json::Value>) -> PropertyContext {
+        PropertyContext {
+            person_properties: Some(props),
+            group_properties: HashMap::new(),
+            aggregation: None,
+        }
     }
 
     #[tokio::test]
@@ -1459,7 +1468,13 @@ mod tests {
             None,
         );
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
+            .is_condition_match(
+                &flag,
+                &condition,
+                &person_property_context(HashMap::new()),
+                None,
+                &None,
+            )
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1526,7 +1541,13 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(1, FlagValue::Boolean(true));
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
+            .is_condition_match(
+                &flag,
+                &condition,
+                &person_property_context(HashMap::new()),
+                None,
+                &None,
+            )
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1625,7 +1646,13 @@ mod tests {
 
         // All filters match: should pass
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
+            .is_condition_match(
+                &flag,
+                &condition,
+                &person_property_context(person_properties.clone()),
+                None,
+                &None,
+            )
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1650,7 +1677,13 @@ mod tests {
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
         let (is_match, reason) = matcher2
-            .is_condition_match(&flag, &condition, &mismatched_properties, None, None, &None)
+            .is_condition_match(
+                &flag,
+                &condition,
+                &person_property_context(mismatched_properties),
+                None,
+                &None,
+            )
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -1670,7 +1703,13 @@ mod tests {
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(false));
 
         let (is_match, reason) = matcher3
-            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
+            .is_condition_match(
+                &flag,
+                &condition,
+                &person_property_context(person_properties),
+                None,
+                &None,
+            )
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -2318,8 +2357,7 @@ mod tests {
             .is_condition_match(
                 &flag,
                 &flag.filters.groups[0],
-                &HashMap::new(),
-                None,
+                &person_property_context(HashMap::new()),
                 None,
                 &None,
             )
@@ -10301,5 +10339,109 @@ mod tests {
         // Group condition (index 0) matches first since both are 100% rollout
         assert!(result.matches);
         assert_eq!(result.condition_index, Some(0));
+    }
+
+    /// Scenario 3: A single condition combines person and group property filters. The
+    /// condition is group-aggregated (rollout hashes on the group key), but person filters
+    /// act as an additional gate — only pro users within enterprise companies.
+    #[rstest::rstest]
+    #[case("pro", "enterprise", true, "both filters match")]
+    #[case("free", "enterprise", false, "person filter fails")]
+    #[case("pro", "startup", false, "group filter fails")]
+    #[tokio::test]
+    async fn test_mixed_targeting_single_condition_with_person_and_group_filters(
+        #[case] plan: &str,
+        #[case] company_size: &str,
+        #[case] expected_match: bool,
+        #[case] scenario: &str,
+    ) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("mixed-single-condition".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "plan".to_string(),
+                            value: Some(json!("pro")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                        PropertyFilter {
+                            key: "size".to_string(),
+                            value: Some(json!("enterprise")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(0),
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(Some(0)),
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("company".to_string(), 0)].into_iter().collect());
+
+        let groups = HashMap::from([("company".to_string(), json!("acme"))]);
+        let person_overrides = HashMap::from([("plan".to_string(), json!(plan))]);
+        let group_overrides = HashMap::from([(
+            "company".to_string(),
+            HashMap::from([("size".to_string(), json!(company_size))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(
+                &flag,
+                Some(&person_overrides),
+                Some(&group_overrides),
+                None,
+                &None,
+            )
+            .unwrap();
+        assert_eq!(
+            result.matches, expected_match,
+            "Scenario '{scenario}': expected matches={expected_match}"
+        );
     }
 }
