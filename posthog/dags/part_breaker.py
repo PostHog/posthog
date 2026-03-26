@@ -727,6 +727,7 @@ def break_part(
         _ensure_staging_table(client, source_table, staging_target)
 
         ssh: paramiko.SSHClient | None = None
+        freeze_name: str | None = None
 
         try:
             # -- Step 2: Pre-flight checks --
@@ -989,10 +990,11 @@ def break_part(
         except Exception:
             # Clean up on failure to avoid leaking shadow disk space and staging data
             context.log.warning("Error during part break — cleaning up")
-            try:
-                client.execute(f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'")
-            except Exception as e:
-                context.log.warning(f"Failed to UNFREEZE {freeze_name}: {e}")
+            if freeze_name is not None:
+                try:
+                    client.execute(f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'")
+                except Exception as e:
+                    context.log.warning(f"Failed to UNFREEZE {freeze_name}: {e}")
             try:
                 _truncate_staging(client, staging_source)
             except Exception as e:
