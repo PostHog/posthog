@@ -602,7 +602,12 @@ def _wait_for_replication(client: Client, source_table: str, target_log_index: i
                 all_synced = False
                 behind_replicas.append(f"{replica_name} (no log_pointer — replica may be down/initializing)")
                 continue
-            log_pointer = int(pointer_rows[0][0])
+            try:
+                log_pointer = int(pointer_rows[0][0])
+            except (ValueError, TypeError):
+                all_synced = False
+                behind_replicas.append(f"{replica_name} (invalid log_pointer value: {pointer_rows[0][0]!r})")
+                continue
             if log_pointer < target_log_index:
                 all_synced = False
                 behind_replicas.append(
@@ -874,6 +879,19 @@ def break_part(
                 )
 
             # -- Step 9: DETACH new parts from staging target --
+            # Check for stale detached parts from a previous failed run before detaching.
+            # TRUNCATE removes active parts but leaves detached/ contents.
+            pre_detach_ls = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}").strip()
+            if pre_detach_ls:
+                # Only flag parts matching our partition — ignore CH-internal entries
+                stale_parts = [p for p in pre_detach_ls.split("\n") if p and p.startswith(f"{partition_id}_")]
+                if stale_parts:
+                    raise dagster.Failure(
+                        description=f"Staging target {staging_target} has {len(stale_parts)} stale detached part(s) "
+                        f"for partition {partition_id} from a previous run. "
+                        f"Clean up manually before retrying: {staging_tgt_detached}"
+                    )
+
             context.log.info(f"Detaching parts from {staging_target}...")
             client.execute(
                 f"ALTER TABLE {database}.{staging_target} DETACH PARTITION '{partition_id}'",
