@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import posthog from 'posthog-js'
 import { Fragment, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
@@ -44,7 +45,14 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: E
                 {isExpandable ? (
                     <LemonButton
                         fullWidth
-                        onClick={() => setIsRowExpanded(!isRowExpanded)}
+                        onClick={() => {
+                            const newState = !isRowExpanded
+                            setIsRowExpanded(newState)
+                            posthog.capture('editor panel section toggled', {
+                                section: title,
+                                action: newState ? 'opened' : 'closed',
+                            })
+                        }}
                         sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
                         title={isRowExpanded ? 'Show less' : 'Show more'}
                         data-attr={'editor-filter-group-collapse-' + slugify(title)}
