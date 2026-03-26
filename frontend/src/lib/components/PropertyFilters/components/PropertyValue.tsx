@@ -126,29 +126,7 @@ export function PropertyValue({
     )
 
     const optionsLoadedAt = useRef<number | null>(null)
-
-    const setValue = (newValue: PropertyValueProps['value']): void => {
-        const selectedValues =
-            newValue === null || newValue === undefined ? [] : Array.isArray(newValue) ? newValue : [newValue]
-
-        if (selectedValues.length > 0) {
-            const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
-            const fromSuggestion = selectedValues.every((v) => availableValues.has(toString(v)))
-
-            posthog.capture('property_value_selected', {
-                property_key: propertyKey,
-                property_type: type,
-                from_suggestion: fromSuggestion,
-                options_count: displayOptions.length,
-                time_to_select_ms: optionsLoadedAt.current
-                    ? Math.floor(performance.now() - optionsLoadedAt.current)
-                    : null,
-                had_search_input: currentSearchInput.current !== '',
-            })
-        }
-
-        onSet(newValue)
-    }
+    const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     // preload values if preloadValues prop is set
     useEffect(() => {
@@ -433,7 +411,25 @@ export function PropertyValue({
                           }
                         : undefined
                 }
-                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+                onChange={(nextVal) => {
+                    const newValues = nextVal.filter((v) => !formattedValues.includes(String(v)))
+                    if (newValues.length > 0) {
+                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+                        const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
+
+                        posthog.capture('property_value_selected', {
+                            property_key: propertyKey,
+                            property_type: type,
+                            from_suggestion: fromSuggestion,
+                            options_count: displayOptions.length,
+                            time_to_select_ms: optionsLoadedAt.current
+                                ? Math.floor(performance.now() - optionsLoadedAt.current)
+                                : null,
+                            had_search_input: currentSearchInput.current !== '',
+                        })
+                    }
+                    isMultiSelect ? setValue(nextVal) : setValue(nextVal[0])
+                }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}
