@@ -118,7 +118,7 @@ export function PathNodeCard({
                     openPersonsModal={openPersonsModal}
                     setFilter={updateInsightFilter}
                     filter={pathsFilter}
-                    showFullUrls={pathsFilter.showFullUrls !== false}
+                    showFullUrls={!!pathsFilter.showFullUrls}
                     tooltipContent={pageUrl(node, true, true)}
                 />
             </div>

@@ -993,8 +993,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0].value, 2)
 
     @freeze_time("2012-01-15T03:21:34.000Z")
-    def test_path_replacements_default_applies_team_cleaning(self):
-        """pathReplacements=None (omitted) should apply team path cleaning filters by default."""
+    def test_path_replacements_none_does_not_apply_team_cleaning(self):
+        """pathReplacements=None (omitted) should not apply team cleaning — the frontend sets True explicitly."""
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_event(
             properties={"$current_url": "/merchant/123/dashboard"},
@@ -1014,7 +1014,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.team.path_cleaning_filters = [{"alias": "/merchant/:id/dashboard", "regex": "/merchant/\\d+/dashboard"}]
         self.team.save()
 
-        # pathReplacements omitted (None) — team cleaning should apply
+        # pathReplacements omitted (None) — team cleaning should NOT apply
         result = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
@@ -1023,10 +1023,9 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         ).run()
         assert isinstance(result, CachedPathsQueryResponse)
-        # Both URLs should be cleaned to the same path, so there's only one node
-        for r in result.results:
-            assert "123" not in r.source and "123" not in r.target
-            assert "456" not in r.source and "456" not in r.target
+        sources_and_targets = [r.source + r.target for r in result.results]
+        combined = " ".join(sources_and_targets)
+        assert "123" in combined or "456" in combined
 
     @freeze_time("2012-01-15T03:21:34.000Z")
     def test_path_replacements_false_skips_team_cleaning(self):
