@@ -217,23 +217,23 @@ export function VercelConnect(): JSX.Element {
                         (() => {
                             const org = sessionInfo?.organizations.find((o) => o.id === selectedOrg)
                             const availableTeams = org?.teams.filter((t) => !t.already_linked) || []
-                            if (availableTeams.length > 1) {
-                                return (
-                                    <div className="mb-6">
-                                        <LemonSelect
-                                            fullWidth
-                                            placeholder="Select a project"
-                                            value={selectedTeam}
-                                            onChange={(value) => setSelectedTeam(value)}
-                                            options={availableTeams.map((t) => ({
-                                                value: t.id,
-                                                label: t.name,
-                                            }))}
-                                        />
-                                    </div>
-                                )
+                            if (availableTeams.length === 0) {
+                                return null
                             }
-                            return null
+                            return (
+                                <div className="mb-6">
+                                    <LemonSelect
+                                        fullWidth
+                                        placeholder="Select a project"
+                                        value={selectedTeam}
+                                        onChange={(value) => setSelectedTeam(value)}
+                                        options={availableTeams.map((t) => ({
+                                            value: t.id,
+                                            label: t.name,
+                                        }))}
+                                    />
+                                </div>
+                            )
                         })()}
 
                     <LemonButton
