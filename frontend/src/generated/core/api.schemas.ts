@@ -1326,6 +1326,11 @@ export interface ScheduledChangeApi {
     readonly updated_at: string
     is_recurring?: boolean
     recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
     /** @nullable */
     readonly last_executed_at: string | null
     /** @nullable */
@@ -1361,6 +1366,11 @@ export interface PatchedScheduledChangeApi {
     readonly updated_at?: string
     is_recurring?: boolean
     recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
     /** @nullable */
     readonly last_executed_at?: string | null
     /** @nullable */

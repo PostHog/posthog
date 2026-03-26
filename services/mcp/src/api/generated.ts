@@ -19798,6 +19798,11 @@ export namespace Schemas {
       readonly updated_at: string;
       is_recurring?: boolean;
       recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at: string | null;
       /** @nullable */
@@ -23482,6 +23487,11 @@ export namespace Schemas {
       readonly updated_at?: string;
       is_recurring?: boolean;
       recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
       /** @nullable */
