@@ -57,8 +57,10 @@ runs:
                     if git apply --check "$patch" 2>/dev/null; then
                       echo "Applying $patch"
                       git apply --index "$patch"
-                    else
+                    elif git apply --reverse --check "$patch" 2>/dev/null; then
                       echo "Skipping $patch (already applied)"
+                    else
+                      echo "::warning::Patch $patch could not be applied — skipping"
                     fi
                   done
                   echo "::endgroup::"
