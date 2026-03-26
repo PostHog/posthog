@@ -4,8 +4,10 @@ from typing import Optional, Union
 
 from django.utils.timezone import now
 
+from posthog.schema import ProductKey
+
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -44,6 +46,7 @@ class RelatedActorsQuery:
         return self.group_type_index is not None
 
     def run(self, variant: str = "control") -> list[SerializedActor]:
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
 

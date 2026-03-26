@@ -199,6 +199,11 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
             "connections, and migrations so one product can't bring down the app. "
             "This is new but fully working. Reach out in #team-devex with questions."
         )
+        click.secho(
+            "  ⚠ Adding a route here is only the Django side. The database must also "
+            "be provisioned by #team-infrastructure (Terraform + charts).",
+            fg="yellow",
+        )
         existing_dbs = _get_existing_databases()
         if existing_dbs:
             click.echo(f"  Existing databases: {', '.join(existing_dbs)}")
