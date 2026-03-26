@@ -42,6 +42,7 @@ class TestValidateAlertConfig:
                 _base_config(),
                 _base_threshold(),
                 None,
+                None,
             ),
             (
                 "valid_relative_increase",
@@ -50,12 +51,14 @@ class TestValidateAlertConfig:
                 _base_config(),
                 _base_threshold(),
                 None,
+                None,
             ),
             (
                 "none_condition",
                 _base_query(),
                 None,
                 _base_config(),
+                None,
                 None,
                 "Alert has invalid condition: None",
             ),
@@ -65,6 +68,7 @@ class TestValidateAlertConfig:
                 {},
                 _base_config(),
                 None,
+                None,
                 "Alert has invalid condition",
             ),
             (
@@ -73,12 +77,14 @@ class TestValidateAlertConfig:
                 {"type": "bogus"},
                 _base_config(),
                 None,
+                None,
                 "Alert has invalid condition",
             ),
             (
                 "missing_config",
                 _base_query(),
                 _base_condition(),
+                None,
                 None,
                 None,
                 "Unsupported alert config type: None",
@@ -89,6 +95,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 {"series_index": 0},
                 None,
+                None,
                 "Unsupported alert config type",
             ),
             (
@@ -97,6 +104,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 {"type": "TrendsAlertConfig"},
                 None,
+                None,
                 "Alert has invalid TrendsAlertConfig",
             ),
             (
@@ -104,6 +112,7 @@ class TestValidateAlertConfig:
                 {"kind": "FunnelsQuery", "series": []},
                 _base_condition(),
                 _base_config(),
+                None,
                 None,
                 "query kind 'FunnelsQuery' is not supported",
             ),
@@ -114,12 +123,14 @@ class TestValidateAlertConfig:
                 _base_config(),
                 _base_threshold(),
                 None,
+                None,
             ),
             (
                 "relative_on_pie",
                 _base_query(display="ActionsPie"),
                 _base_condition("relative_increase"),
                 _base_config(),
+                None,
                 None,
                 "not compatible with non time series",
             ),
@@ -129,6 +140,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_decrease"),
                 _base_config(),
                 None,
+                None,
                 "not compatible with non time series",
             ),
             (
@@ -137,6 +149,7 @@ class TestValidateAlertConfig:
                 _base_condition("absolute_value"),
                 _base_config(),
                 _base_threshold("percentage"),
+                None,
                 "Absolute value alerts require an absolute threshold, but a percentage threshold was configured",
             ),
             (
@@ -145,6 +158,7 @@ class TestValidateAlertConfig:
                 _base_condition("absolute_value"),
                 {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
                 _base_threshold("absolute", {"lower": 0}),
+                None,
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
             ),
             (
@@ -153,6 +167,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_increase"),
                 {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
                 _base_threshold("absolute", {"lower": 0}),
+                None,
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
             ),
             (
@@ -160,6 +175,7 @@ class TestValidateAlertConfig:
                 _base_query(series_count=1),
                 _base_condition(),
                 _base_config(series_index=5),
+                None,
                 None,
                 r"series_index 5 is out of range \(query has 1 series\)",
             ),
@@ -180,6 +196,7 @@ class TestValidateAlertConfig:
                 _base_config(series_index=1),
                 _base_threshold(),
                 None,
+                None,
             ),
             (
                 "series_index_out_of_range_with_formulas",
@@ -197,7 +214,26 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(series_index=2),
                 None,
+                None,
                 r"series_index 2 is out of range \(query has 2 series\)",
+            ),
+            (
+                "valid_calculation_interval",
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "invalid_calculation_interval",
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                "every_5_minutes",
+                "Invalid calculation interval: every_5_minutes",
             ),
         ]
     )
@@ -208,10 +244,11 @@ class TestValidateAlertConfig:
         condition: dict[str, Any] | None,
         config: dict[str, Any] | None,
         threshold_config: dict[str, Any] | None,
+        calculation_interval: str | None,
         expected_error_fragment: str | None,
     ) -> None:
         if expected_error_fragment is None:
-            validate_alert_config(query, condition, config, threshold_config)
+            validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         else:
             with pytest.raises(ValueError, match=expected_error_fragment):
-                validate_alert_config(query, condition, config, threshold_config)
+                validate_alert_config(query, condition, config, threshold_config, calculation_interval)
