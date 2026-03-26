@@ -60,7 +60,7 @@ export function InlineTagEditor({
                             className="border border-dashed cursor-pointer"
                             size="small"
                         >
-                            {hasTags ? 'Edit' : 'Add tag'}
+                            {hasTags ? undefined : 'Add tag'}
                         </LemonTag>
                     </LemonDropdown>
                 </>
