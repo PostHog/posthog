@@ -3,6 +3,11 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use super::constants::{
+    CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
+    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
+    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, FUTURE_EVENT_HOURS_CUTOFF_MS,
+};
 use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
@@ -11,11 +16,6 @@ use crate::router;
 use crate::v1::context::Context;
 use crate::v1::sinks::Destination;
 use crate::v1::Error;
-
-const CAPTURE_PARSED_EVENTS: &str = "capture_v1_parsed_events";
-const CAPTURE_V1_MAX_EVENT_NAME_LENGTH: usize = 200;
-const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
-const FUTURE_EVENT_HOURS_CUTOFF_MS: i64 = 23 * 3600 * 1000;
 
 pub async fn process_batch(
     state: &router::State,
@@ -45,7 +45,8 @@ pub async fn process_batch(
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
 
-    unimplemented!()
+    // TODO: publish to v1::Sink, collect results, format + return response
+    Err(Error::ServiceUnavailable("not yet implemented".into()))
 }
 
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
@@ -77,7 +78,7 @@ fn validate_events(context: &Context, batch: Batch) -> Vec<WrappedEvent> {
 
             match validation {
                 Ok(raw_ts) => {
-                    metrics::counter!(CAPTURE_PARSED_EVENTS, "result" => "valid").increment(1);
+                    metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
                     let adjusted = normalize_timestamp(context, &event, raw_ts);
                     WrappedEvent {
                         event,
@@ -115,7 +116,7 @@ fn validate_events(context: &Context, batch: Batch) -> Vec<WrappedEvent> {
 
 fn observe_malformed_events(context: &Context, malformed: &HashMap<&'static str, u64>) {
     for (error_tag, count) in malformed {
-        metrics::counter!(CAPTURE_PARSED_EVENTS, "result" => "malformed", "error" => *error_tag)
+        metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "malformed", "error" => *error_tag)
             .increment(*count);
     }
 
@@ -184,8 +185,6 @@ fn normalize_timestamp(
     adjusted
 }
 
-const CAPTURE_V1_EVENTS_REROUTED_HISTORICAL: &str = "capture_v1_events_rerouted_historical";
-
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
     context: &Context,
@@ -217,8 +216,6 @@ fn apply_historical_rerouting(
         }
     }
 }
-
-const CAPTURE_V1_EVENTS_DROPPED: &str = "capture_v1_events_dropped";
 
 async fn apply_restrictions(
     service: &EventRestrictionService,
@@ -296,7 +293,7 @@ async fn apply_token_distinct_id_limits(
 
     if allowed_count > 0 {
         metrics::counter!(
-            super::handler::CAPTURE_V1_RATE_LIMITER,
+            CAPTURE_V1_RATE_LIMITER,
             "limiter" => "token_distinct_id",
             "outcome" => "allowed",
         )
@@ -313,7 +310,7 @@ async fn apply_token_distinct_id_limits(
         };
 
         metrics::counter!(
-            super::handler::CAPTURE_V1_RATE_LIMITER,
+            CAPTURE_V1_RATE_LIMITER,
             "limiter" => "token_distinct_id",
             "outcome" => "limited",
         )

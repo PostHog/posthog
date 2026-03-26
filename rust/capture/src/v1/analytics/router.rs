@@ -5,11 +5,9 @@ use axum::response::Response;
 use axum::Router;
 use chrono::Utc;
 
-use super::header::POSTHOG_REQUEST_ID;
+use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING};
 use crate::router::State;
-
-pub const CAPTURE_V1_PATH: &str = "/i/v1/general/analytics/events";
-const CAPTURE_V1_PATH_TRAILING: &str = "/i/v1/general/analytics/events/";
+use crate::v1::constants::POSTHOG_REQUEST_ID;
 
 pub fn router() -> Router<State> {
     Router::new()

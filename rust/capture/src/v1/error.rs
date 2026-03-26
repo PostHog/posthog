@@ -6,12 +6,9 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::Level;
 
+use crate::v1::analytics::constants::{ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS};
+use crate::v1::constants::{CAPTURE_V1_ERROR_METRIC, CAPTURE_V1_UNKNOWN_PATH};
 use crate::v1::context::Context;
-
-use crate::v1::analytics::header::{ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS};
-
-const ERROR_METRIC_KEY: &str = "capture_v1_analytics_error";
-const CAPTURE_V1_UNKNOWN_PATH: &str = "unknown";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorResponse {
@@ -204,7 +201,7 @@ impl Error {
             .unwrap_or_else(|| CAPTURE_V1_UNKNOWN_PATH.to_owned());
         let status = self.status_code().as_str().to_owned();
         counter!(
-            ERROR_METRIC_KEY,
+            CAPTURE_V1_ERROR_METRIC,
             "error" => self.tag(),
             "level" => self.level_tag(),
             "path" => path,

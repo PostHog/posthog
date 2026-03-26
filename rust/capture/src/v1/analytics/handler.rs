@@ -3,15 +3,14 @@ use axum::extract::{MatchedPath, Query as AxumQuery, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 
-use super::header::*;
+use super::constants::*;
 use super::query::Query;
 use super::response::Response;
 use super::types::Batch;
 use crate::global_rate_limiter::GlobalRateLimitKey;
+use crate::v1::constants::*;
 use crate::v1::context::Context;
 use crate::{log_stat_error, router, v1};
-
-pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
 
 pub async fn handle_request(
     state: State<router::State>,

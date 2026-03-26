@@ -6,9 +6,8 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
+use crate::v1::constants::CAPTURE_V1_BODY_READ_TIMEOUT;
 use crate::v1::Error;
-
-const METRIC_BODY_READ_TIMEOUT: &str = "capture_v1_body_read_timeout_total";
 
 /// Extract body bytes from a streaming Body with a per-chunk timeout.
 ///
@@ -32,7 +31,7 @@ pub async fn extract_body_with_timeout(
             Some(timeout) => match tokio::time::timeout(timeout, stream.next()).await {
                 Ok(result) => result,
                 Err(_elapsed) => {
-                    metrics::counter!(METRIC_BODY_READ_TIMEOUT, "path" => path.to_string())
+                    metrics::counter!(CAPTURE_V1_BODY_READ_TIMEOUT, "path" => path.to_string())
                         .increment(1);
                     return Err(Error::BodyReadTimeout(buf.len()));
                 }

@@ -7,19 +7,10 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::token::validate_token;
-use crate::v1::analytics::header::*;
+use crate::v1::analytics::constants::SUPPORTED_ENCODINGS;
 use crate::v1::analytics::query::Query;
+use crate::v1::constants::*;
 use crate::v1::Error;
-
-const REQUIRED_HEADERS: &[&str] = &[
-    POSTHOG_API_TOKEN,
-    POSTHOG_SDK_INFO,
-    POSTHOG_ATTEMPT,
-    POSTHOG_REQUEST_ID,
-    POSTHOG_ATTEMPT_TIMESTAMP,
-    "content-type",
-    "user-agent",
-];
 
 #[derive(Debug)]
 pub struct Context {
@@ -196,6 +187,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 
     fn test_context(headers: &HeaderMap) -> Result<Context, Error> {
         Context::new(
@@ -203,7 +195,7 @@ mod tests {
             &InsecureClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             &AxumQuery(Query::default()),
             Method::POST,
-            crate::v1::analytics::router::CAPTURE_V1_PATH,
+            CAPTURE_V1_PATH,
         )
     }
 
