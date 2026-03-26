@@ -7,6 +7,22 @@ import (
 	"testing"
 )
 
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeYAML(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp(t.TempDir(), "*.yaml")
@@ -212,9 +228,7 @@ func TestResolveConfigPath(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "mprocs.yaml"), []byte("procs: {}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		orig, _ := os.Getwd()
-		t.Cleanup(func() { os.Chdir(orig) })
-		os.Chdir(dir)
+		chdir(t, dir)
 
 		got, err := ResolveConfigPath("")
 		if err != nil {
@@ -227,9 +241,7 @@ func TestResolveConfigPath(t *testing.T) {
 
 	t.Run("error when no mprocs.yaml exists", func(t *testing.T) {
 		dir := t.TempDir()
-		orig, _ := os.Getwd()
-		t.Cleanup(func() { os.Chdir(orig) })
-		os.Chdir(dir)
+		chdir(t, dir)
 
 		_, err := ResolveConfigPath("")
 		if err == nil {
@@ -245,9 +257,7 @@ func TestResolveConfigPath(t *testing.T) {
 		if err := os.Mkdir(filepath.Join(dir, "mprocs.yaml"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		orig, _ := os.Getwd()
-		t.Cleanup(func() { os.Chdir(orig) })
-		os.Chdir(dir)
+		chdir(t, dir)
 
 		_, err := ResolveConfigPath("")
 		if err == nil {
