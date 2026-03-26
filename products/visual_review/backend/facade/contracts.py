@@ -91,6 +91,22 @@ class UploadTarget:
 
 
 @dataclass(frozen=True)
+class AddSnapshotsInput:
+    """Batch of snapshots to add to an existing run (shard-based flow)."""
+
+    snapshots: list[SnapshotManifestItem]
+    baseline_hashes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AddSnapshotsResult:
+    """Result of adding snapshots to a run."""
+
+    added: int
+    uploads: list[UploadTarget]
+
+
+@dataclass(frozen=True)
 class CreateRunResult:
     """Result of creating a run."""
 

@@ -12,7 +12,7 @@ from django.db import (
     models as db_models,
     transaction,
 )
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.utils import timezone
 
 import structlog
@@ -365,9 +365,31 @@ def create_run(
     if superseded_ids:
         Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
+    _added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines, removed)
+    _update_run_counts(run)
+
+    transaction.on_commit(
+        lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
+    )
+
+    return run, uploads
+
+
+def _register_snapshots(
+    run: Run,
+    repo: Repo,
+    snapshots: list[dict],
+    verified_baselines: dict[str, str],
+    removed: list[str] | None = None,
+) -> tuple[int, list[dict]]:
+    """Register snapshots on a run and return upload targets.
+
+    Reused by create_run (full/delta manifest) and add_snapshots_to_run (shard flow).
+    Idempotent per (run, identifier) via unique constraint — safe for shard retries.
+    """
+    repo_id = repo.id
     all_hashes: set[str] = set()
-    # Store width/height from manifest for later artifact creation
-    hash_metadata: dict[str, dict] = {}
+    added_count = 0
 
     for snap in snapshots:
         identifier = snap["identifier"]
@@ -375,19 +397,12 @@ def create_run(
         baseline_hash = verified_baselines.get(identifier)
 
         all_hashes.add(current_hash)
-        hash_metadata[current_hash] = {
-            "width": snap.get("width"),
-            "height": snap.get("height"),
-        }
         if baseline_hash:
             all_hashes.add(baseline_hash)
 
-        # Look up existing artifacts
         current_artifact = get_artifact(repo_id, current_hash)
         baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
 
-        # Determine initial result based on baseline_hash presence, not artifact existence
-        # (baseline artifact might not be uploaded yet)
         if baseline_hash is None:
             result = SnapshotResult.NEW
         elif current_hash == baseline_hash:
@@ -395,47 +410,43 @@ def create_run(
         else:
             result = SnapshotResult.CHANGED
 
-        RunSnapshot.objects.create(
+        _snapshot, created = RunSnapshot.objects.get_or_create(
             run=run,
-            team_id=repo.team_id,
             identifier=identifier,
-            current_hash=current_hash,
-            baseline_hash=baseline_hash or "",
-            current_artifact=current_artifact,
-            baseline_artifact=baseline_artifact,
-            result=result,
-            # Store metadata on snapshot for artifact creation during complete
-            current_width=snap.get("width"),
-            current_height=snap.get("height"),
-            # Flexible metadata (browser, viewport, is_critical, etc.)
-            metadata=snap.get("metadata") or {},
+            defaults={
+                "team_id": repo.team_id,
+                "current_hash": current_hash,
+                "baseline_hash": baseline_hash or "",
+                "current_artifact": current_artifact,
+                "baseline_artifact": baseline_artifact,
+                "result": result,
+                "current_width": snap.get("width"),
+                "current_height": snap.get("height"),
+                "metadata": snap.get("metadata") or {},
+            },
         )
+        if created:
+            added_count += 1
 
-    # Create RunSnapshot rows for removed identifiers
-    for identifier in removed:
+    for identifier in removed or []:
         baseline_hash = verified_baselines.get(identifier)
         baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
-        RunSnapshot.objects.create(
+        _snapshot, created = RunSnapshot.objects.get_or_create(
             run=run,
-            team_id=repo.team_id,
             identifier=identifier,
-            current_hash="",
-            baseline_hash=baseline_hash or "",
-            baseline_artifact=baseline_artifact,
-            result=SnapshotResult.REMOVED,
-            metadata={},
+            defaults={
+                "team_id": repo.team_id,
+                "current_hash": "",
+                "baseline_hash": baseline_hash or "",
+                "baseline_artifact": baseline_artifact,
+                "result": SnapshotResult.REMOVED,
+                "metadata": {},
+            },
         )
+        if created:
+            added_count += 1
 
-    # Calculate initial summary counts
-    # changed/new come from the snapshots sent (only delta in delta mode)
-    # unchanged_count is reported by the CLI (not stored as individual rows)
-    snapshots_list = list(run.snapshots.all())
-    run.changed_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.CHANGED)
-    run.new_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.NEW)
-    run.removed_count = len(removed)
-    run.save(update_fields=["changed_count", "new_count", "removed_count"])
-
-    # Find missing hashes and generate upload URLs
+    # Generate upload URLs for missing artifacts
     missing_hashes = find_missing_hashes(repo_id, list(all_hashes))
     storage = ArtifactStorage(str(repo_id))
 
@@ -451,12 +462,47 @@ def create_run(
                 }
             )
 
-    # Post pending status after transaction commits
-    transaction.on_commit(
-        lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
-    )
+    return added_count, uploads
 
-    return run, uploads
+
+def _update_run_counts(run: Run) -> None:
+    """Recalculate result counts from RunSnapshot rows."""
+    counts = run.snapshots.values("result").annotate(n=Count("id"))
+    by_result = {row["result"]: row["n"] for row in counts}
+
+    run.changed_count = by_result.get(SnapshotResult.CHANGED, 0)
+    run.new_count = by_result.get(SnapshotResult.NEW, 0)
+    run.removed_count = by_result.get(SnapshotResult.REMOVED, 0)
+    run.save(update_fields=["changed_count", "new_count", "removed_count"])
+
+
+@transaction.atomic(using=WRITER_DB)
+def add_snapshots_to_run(
+    run_id: UUID,
+    team_id: int,
+    snapshots: list[dict],
+    baseline_hashes: dict[str, str],
+    unchanged_count: int = 0,
+) -> tuple[int, list[dict]]:
+    """Add a batch of snapshots to an existing run (shard-based flow).
+
+    Returns (added_count, upload_targets). Idempotent — safe for retries.
+    """
+    run = get_run(run_id, team_id=team_id)
+
+    if run.status != RunStatus.PENDING:
+        raise ValueError(f"Can only add snapshots to pending runs (current status: {run.status})")
+
+    repo = run.repo
+    verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
+
+    added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
+
+    # Atomically increment total (safe for concurrent shards)
+    Run.objects.filter(id=run_id).update(total_snapshots=F("total_snapshots") + added + unchanged_count)
+    _update_run_counts(run)
+
+    return added, uploads
 
 
 def mark_run_processing(run_id: UUID) -> Run:

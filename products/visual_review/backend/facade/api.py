@@ -181,6 +181,33 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
     return contracts.CreateRunResult(run_id=run.id, uploads=upload_targets)
 
 
+def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int) -> contracts.AddSnapshotsResult:
+    """Add a batch of snapshots to an existing run (shard-based flow)."""
+    snapshots = [
+        {
+            "identifier": s.identifier,
+            "content_hash": s.content_hash,
+            "width": s.width,
+            "height": s.height,
+            "metadata": dict(s.metadata) if s.metadata else {},
+        }
+        for s in input.snapshots
+    ]
+
+    added, uploads = logic.add_snapshots_to_run(
+        run_id=run_id,
+        team_id=team_id,
+        snapshots=snapshots,
+        baseline_hashes=input.baseline_hashes,
+    )
+
+    upload_targets = [
+        contracts.UploadTarget(content_hash=u["content_hash"], url=u["url"], fields=u["fields"]) for u in uploads
+    ]
+
+    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets)
+
+
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     run = logic.get_run(run_id, team_id=team_id)
     return _to_run(run)

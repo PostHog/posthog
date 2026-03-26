@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
 from ..facade.contracts import (
+    AddSnapshotsInput,
     ApproveRunInput,
     ApproveRunRequestInput,
     CreateRepoInput,
@@ -32,6 +33,8 @@ from ..facade.contracts import (
     UpdateRepoRequestInput,
 )
 from .serializers import (
+    AddSnapshotsInputSerializer,
+    AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     AutoApproveResultSerializer,
     CreateRepoInputSerializer,
@@ -123,7 +126,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve"]
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots"]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
 
     @extend_schema(
@@ -177,6 +180,23 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer = SnapshotSerializer(instance=page, many=True)
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
+
+    @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
+    @action(detail=True, methods=["post"], url_path="add-snapshots")
+    @validated_request(AddSnapshotsInputSerializer)
+    def add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str, **kwargs) -> Response:
+        """Add a batch of snapshots to a pending run (shard-based flow)."""
+        try:
+            result = api.add_snapshots(
+                input=request.validated_data,
+                run_id=UUID(pk),
+                team_id=self.team_id,
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(AddSnapshotsResultSerializer(instance=result).data)
 
     @extend_schema(
         parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
