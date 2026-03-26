@@ -13,6 +13,7 @@ def register_all_admin():
         DashboardAdmin,
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
+        DataDeletionRequestAdmin,
         DataWarehouseTableAdmin,
         DuckgresServerAdmin,
         DuckLakeCatalogAdmin,
@@ -53,6 +54,7 @@ def register_all_admin():
         Dashboard,
         DashboardTemplate,
         DataColorTheme,
+        DataDeletionRequest,
         DataWarehouseTable,
         DuckgresServer,
         DuckLakeCatalog,
@@ -117,6 +119,7 @@ def register_all_admin():
     admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
     admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
+    admin.site.register(DataDeletionRequest, DataDeletionRequestAdmin)
     admin.site.register(InstanceSetting, InstanceSettingAdmin)
     admin.site.register(Integration, IntegrationAdmin)
     admin.site.register(PluginConfig, PluginConfigAdmin)

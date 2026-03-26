@@ -3,7 +3,12 @@ use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::cohorts::cohort_models::Cohort;
 use crate::properties::property_models::PropertyFilter;
+
+// NOTE: The `evaluation_tags` field was renamed to `evaluation_contexts` in the Python
+// serializer (PR #52186). The Rust field keeps the old name for internal compatibility,
+// but uses `#[serde(rename = "evaluation_contexts")]` to match the JSON key.
 
 /// Deserializes a JSON object with string keys into `HashMap<i32, HashSet<i32>>`.
 /// JSON only supports string keys, so Python serializes `{1: [2, 3]}` as `{"1": [2, 3]}`.
@@ -47,7 +52,7 @@ where
 
 /// Pre-computed dependency metadata, built by Django at cache-write time.
 /// Shipped as a top-level field alongside the flags array in the hypercache.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct EvaluationMetadata {
     /// Flag IDs grouped by evaluation stage. Stage 0 (no deps) first.
     pub dependency_stages: Vec<Vec<i32>>,
@@ -61,12 +66,17 @@ pub struct EvaluationMetadata {
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
 }
 
-/// Wrapper struct for deserializing hypercache format: {"flags": [...]}
+/// Wrapper struct for deserializing hypercache format: {"flags": [...], "cohorts": [...]}
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
     #[serde(default)]
     pub evaluation_metadata: Option<EvaluationMetadata>,
+    /// Cohort definitions referenced by flags (including transitive deps).
+    /// Precomputed by Django at cache-write time so the Rust service can skip
+    /// the separate CohortCacheManager PG query.
+    #[serde(default)]
+    pub cohorts: Option<Vec<Cohort>>,
 }
 
 /// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
@@ -139,6 +149,11 @@ pub struct FlagFilters {
     /// fallback to regular conditions.
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
+    /// New format for early access feature enrollment. When `true`, the flag is evaluated
+    /// against the person property `$feature_enrollment/{flag_key}`. Takes precedence over
+    /// `super_groups` when both are present.
+    #[serde(default)]
+    pub feature_enrollment: Option<bool>,
     /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
     /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
@@ -174,7 +189,9 @@ pub struct FeatureFlag {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default)]
+    /// Evaluation context tags for this flag. JSON key is `evaluation_contexts`,
+    /// but Rust field remains `evaluation_tags` for internal compatibility.
+    #[serde(default, rename = "evaluation_contexts")]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
@@ -191,6 +208,8 @@ impl FeatureFlag {
     }
 }
 
+/// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
+/// always named `evaluation_tags` in the SQL query, so no alias is needed.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct FeatureFlagRow {
     pub id: i32,
@@ -223,4 +242,9 @@ pub struct FeatureFlagList {
     /// or old cache entries.
     #[serde(skip)]
     pub evaluation_metadata: Option<EvaluationMetadata>,
+    /// Cohort definitions referenced by flags (including transitive deps),
+    /// precomputed by Django at cache-write time.
+    /// When present, the matcher uses these instead of querying CohortCacheManager.
+    #[serde(skip)]
+    pub cohorts: Option<Vec<Cohort>>,
 }

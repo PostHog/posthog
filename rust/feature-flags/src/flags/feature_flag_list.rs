@@ -1,13 +1,22 @@
 use crate::api::errors::{simplify_serde_error, FlagError};
+use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
+    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
+    HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
 use common_hypercache::HYPER_CACHE_EMPTY_VALUE;
 use common_types::TeamId;
 use metrics::counter;
+
+/// Parsed hypercache result: flags, optional evaluation metadata, optional preloaded cohorts.
+type HypercacheParseResult = (
+    Vec<FeatureFlag>,
+    Option<EvaluationMetadata>,
+    Option<Vec<Cohort>>,
+);
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
@@ -17,25 +26,50 @@ impl FeatureFlagList {
         }
     }
 
-    /// Parses a JSON Value from hypercache into flags and optional evaluation metadata.
+    /// Pre-compiles all regex patterns in property filters across all flags.
+    /// Called once after deserialization, before evaluation begins.
+    pub fn prepare_regexes(&mut self) {
+        for flag in &mut self.flags {
+            Self::prepare_group_regexes(&mut flag.filters.groups);
+            // super_groups currently only use Exact operators (early access enrollment),
+            // so prepare_regex() will no-op for each filter. We walk them anyway for
+            // forward-compatibility if super_groups ever gain regex-based filters.
+            if let Some(super_groups) = &mut flag.filters.super_groups {
+                Self::prepare_group_regexes(super_groups);
+            }
+        }
+    }
+
+    fn prepare_group_regexes(groups: &mut [FlagPropertyGroup]) {
+        for group in groups {
+            if let Some(properties) = &mut group.properties {
+                for filter in properties.iter_mut() {
+                    filter.prepare_regex();
+                }
+            }
+        }
+    }
+
+    /// Parses a JSON Value from hypercache into flags, optional evaluation metadata,
+    /// and optional preloaded cohort definitions.
     ///
     /// Handles:
     /// - Null values (returns empty vec)
     /// - Sentinel "__missing__" value (returns empty vec)
-    /// - Standard hypercache format `{"flags": [...], "evaluation_metadata": {...}}`
+    /// - Standard hypercache format `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]}`
     pub fn parse_hypercache_value(
         data: serde_json::Value,
         team_id: TeamId,
-    ) -> Result<(Vec<FeatureFlag>, Option<EvaluationMetadata>), FlagError> {
+    ) -> Result<HypercacheParseResult, FlagError> {
         // Handle null (can happen when hypercache returns empty)
         if data.is_null() {
-            return Ok((vec![], None));
+            return Ok((vec![], None, None));
         }
 
         // Check for the sentinel value indicating no flags for this team
         if data.as_str() == Some(HYPER_CACHE_EMPTY_VALUE) {
             tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
-            return Ok((vec![], None));
+            return Ok((vec![], None, None));
         }
 
         // Parse the hypercache format: {"flags": [...], "evaluation_metadata": {...}}
@@ -57,9 +91,14 @@ impl FeatureFlagList {
             ))
         })?;
 
-        tracing::debug!("Parsed {} flags for team {}", wrapper.flags.len(), team_id);
+        tracing::debug!(
+            "Parsed {} flags and {} cohorts for team {}",
+            wrapper.flags.len(),
+            wrapper.cohorts.as_ref().map_or(0, |c| c.len()),
+            team_id,
+        );
 
-        Ok((wrapper.flags, wrapper.evaluation_metadata))
+        Ok((wrapper.flags, wrapper.evaluation_metadata, wrapper.cohorts))
     }
 
     /// Returns feature flags from postgres given a team_id
@@ -176,7 +215,8 @@ impl FeatureFlagList {
 mod tests {
     use super::*;
     use crate::{
-        flags::test_helpers::get_flags_from_redis,
+        flags::{flag_models::FlagFilters, test_helpers::get_flags_from_redis},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
             insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_invalid_pg_client,
             setup_redis_client, TestContext,
@@ -644,7 +684,7 @@ mod tests {
 
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let (flags, metadata) = result.unwrap();
+        let (flags, metadata, _cohorts) = result.unwrap();
         assert!(metadata.is_none());
         assert_eq!(flags.len(), 2);
         assert_eq!(flags[0].key, "test_flag");
@@ -677,7 +717,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "all",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {
@@ -711,7 +750,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "client",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {
@@ -737,7 +775,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "all",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {
@@ -771,7 +808,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "all",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {
@@ -803,7 +839,7 @@ mod tests {
 
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let (flags, evaluation_metadata) = result.unwrap();
+        let (flags, evaluation_metadata, _cohorts) = result.unwrap();
         let meta = evaluation_metadata.unwrap();
         assert_eq!(meta.dependency_stages.len(), 2);
         assert_eq!(meta.dependency_stages[0], vec![766, 768, 769]);
@@ -831,7 +867,7 @@ mod tests {
         let data = serde_json::Value::Null;
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let (flags, metadata) = result.unwrap();
+        let (flags, metadata, _cohorts) = result.unwrap();
         assert!(flags.is_empty());
         assert!(metadata.is_none());
     }
@@ -841,7 +877,7 @@ mod tests {
         let data = json!("__missing__");
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let (flags, metadata) = result.unwrap();
+        let (flags, metadata, _cohorts) = result.unwrap();
         assert!(flags.is_empty());
         assert!(metadata.is_none());
     }
@@ -851,7 +887,7 @@ mod tests {
         let data = json!({"flags": []});
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let (flags, metadata) = result.unwrap();
+        let (flags, metadata, _cohorts) = result.unwrap();
         assert!(flags.is_empty());
         assert!(metadata.is_none());
     }
@@ -927,7 +963,7 @@ mod tests {
 
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let (flags, metadata) = result.unwrap();
+        let (flags, metadata, _cohorts) = result.unwrap();
         assert!(metadata.is_none());
         assert_eq!(flags.len(), 1);
         let flag = &flags[0];
@@ -939,6 +975,57 @@ mod tests {
         assert_eq!(flag.evaluation_runtime, Some("frontend".to_string()));
         assert_eq!(flag.filters.groups.len(), 1);
         assert_eq!(flag.filters.groups[0].rollout_percentage, Some(50.0));
+    }
+
+    #[test]
+    fn test_parse_hypercache_value_with_cohorts() {
+        let data = json!({
+            "flags": [],
+            "cohorts": [{
+                "id": 42,
+                "name": "Test Cohort",
+                "description": null,
+                "team_id": 123,
+                "deleted": false,
+                "filters": {"properties": {"type": "AND", "values": []}},
+                "query": null,
+                "version": 1,
+                "pending_version": null,
+                "count": 100,
+                "is_calculating": false,
+                "is_static": false,
+                "errors_calculating": 0,
+                "groups": [],
+                "created_by_id": null,
+                "cohort_type": null
+            }]
+        });
+        let result = FeatureFlagList::parse_hypercache_value(data, 123);
+        assert!(result.is_ok());
+        let (_flags, _metadata, cohorts) = result.unwrap();
+        let cohorts = cohorts.expect("cohorts should be Some");
+        assert_eq!(cohorts.len(), 1);
+        assert_eq!(cohorts[0].id, 42);
+        assert_eq!(cohorts[0].name, Some("Test Cohort".to_string()));
+        assert_eq!(cohorts[0].team_id, 123);
+        assert!(!cohorts[0].deleted);
+    }
+
+    #[test]
+    fn test_parse_hypercache_value_without_cohorts_defaults_to_none() {
+        let data = json!({
+            "flags": [{
+                "id": 1,
+                "team_id": 123,
+                "name": "flag",
+                "key": "flag-key",
+                "filters": {"groups": []}
+            }]
+        });
+        let result = FeatureFlagList::parse_hypercache_value(data, 123);
+        assert!(result.is_ok());
+        let (_flags, _metadata, cohorts) = result.unwrap();
+        assert!(cohorts.is_none());
     }
 
     #[test]
@@ -961,5 +1048,147 @@ mod tests {
             result,
             Err(FlagError::DataParsingErrorWithContext(_))
         ));
+    }
+
+    #[test]
+    fn test_prepare_regexes_compiles_regex_filters_only() {
+        let mut flag_list = FeatureFlagList::new(vec![FeatureFlag {
+            id: 1,
+            team_id: 1,
+            name: None,
+            key: "test_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!(r"^test@.*\.com$")),
+                            operator: Some(OperatorType::Regex),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                        PropertyFilter {
+                            key: "name".to_string(),
+                            value: Some(json!("Alice")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            },
+            active: true,
+            deleted: false,
+            ensure_experience_continuity: None,
+            version: None,
+            evaluation_runtime: None,
+            evaluation_tags: None,
+            bucketing_identifier: None,
+        }]);
+
+        flag_list.prepare_regexes();
+
+        let props = flag_list.flags[0].filters.groups[0]
+            .properties
+            .as_ref()
+            .unwrap();
+        assert!(
+            matches!(
+                props[0].compiled_regex,
+                Some(crate::properties::property_models::CompiledRegex::Compiled(
+                    _
+                ))
+            ),
+            "Regex filter should have compiled regex"
+        );
+        assert!(
+            props[1].compiled_regex.is_none(),
+            "Exact filter should NOT have compiled regex"
+        );
+    }
+
+    // =========================================================================
+    // Tests for evaluation_contexts JSON key (renamed from evaluation_tags)
+    // =========================================================================
+
+    #[test]
+    fn test_deserialize_flag_with_evaluation_contexts() {
+        // Cache entries use `evaluation_contexts` key (renamed from `evaluation_tags` in PR #52186)
+        let data = json!({
+            "id": 1,
+            "key": "test_flag",
+            "team_id": 123,
+            "active": true,
+            "deleted": false,
+            "filters": { "groups": [] },
+            "evaluation_contexts": ["app", "dashboard"]
+        });
+
+        let flag: FeatureFlag =
+            serde_json::from_value(data).expect("Should deserialize with evaluation_contexts");
+        assert_eq!(flag.key, "test_flag");
+        // Rust field is still named `evaluation_tags` for internal compatibility
+        let tags = flag.evaluation_tags.expect("Should have evaluation_tags");
+        assert_eq!(tags.len(), 2);
+        assert!(tags.contains(&"app".to_string()));
+        assert!(tags.contains(&"dashboard".to_string()));
+    }
+
+    #[test]
+    fn test_deserialize_flag_without_evaluation_contexts() {
+        let data = json!({
+            "id": 2,
+            "key": "no_contexts_flag",
+            "team_id": 123,
+            "active": true,
+            "deleted": false,
+            "filters": { "groups": [] }
+        });
+
+        let flag: FeatureFlag =
+            serde_json::from_value(data).expect("Should deserialize without evaluation_contexts");
+        assert_eq!(flag.key, "no_contexts_flag");
+        assert!(flag.evaluation_tags.is_none());
+    }
+
+    #[test]
+    fn test_serialize_flag_uses_evaluation_contexts_key() {
+        let flag = FeatureFlag {
+            id: 3,
+            team_id: 123,
+            name: Some("Serialization Test".to_string()),
+            key: "serialize_test".to_string(),
+            filters: FlagFilters::default(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: None,
+            version: None,
+            evaluation_runtime: None,
+            evaluation_tags: Some(vec!["context-1".to_string(), "context-2".to_string()]),
+            bucketing_identifier: None,
+        };
+
+        let json_str = serde_json::to_string(&flag).expect("Should serialize");
+        // Rust field `evaluation_tags` serializes to JSON key `evaluation_contexts`
+        assert!(
+            json_str.contains("evaluation_contexts"),
+            "Should use evaluation_contexts key when serializing"
+        );
+        assert!(
+            !json_str.contains("evaluation_tags"),
+            "Should NOT use evaluation_tags key when serializing"
+        );
     }
 }

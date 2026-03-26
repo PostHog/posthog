@@ -30,6 +30,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     updated_at: '2021-05-05T12:00:00Z',
     created_by: null,
     experiment_set: [],
+    experiment_set_metadata: [],
     ensure_experience_continuity: false,
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,
@@ -41,7 +42,6 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-    evaluation_tags: [],
     evaluation_contexts: [],
     bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
 }

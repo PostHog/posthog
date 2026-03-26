@@ -1,18 +1,12 @@
-import json
-import uuid
-import zlib
-import base64
-import hashlib
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
 from django.core import signing
-from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import InvalidToken
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,6 +16,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
 
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
 from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -32,34 +27,22 @@ ALLOWED_REDIRECT_DOMAINS = {
 }
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
-USED_TOKEN_CACHE_PREFIX = "vercel_connect_used:"
-
-
-def _get_fernet() -> Fernet:
-    key = base64.urlsafe_b64encode(hashlib.sha256(settings.VERCEL_CLIENT_INTEGRATION_SECRET.encode()).digest())
-    return Fernet(key)
+CONNECT_SALT = "vercel_connect"
 
 
 def _sign_connect_session(data: dict) -> str:
-    data["jti"] = str(uuid.uuid4())
-    payload = zlib.compress(json.dumps(data).encode())
-    return _get_fernet().encrypt(payload).decode()
+    return encrypt_payload(data, salt=CONNECT_SALT, jti=True)
 
 
 def _load_connect_session(token: str) -> dict:
     try:
-        decrypted = _get_fernet().decrypt(token.encode(), ttl=CONNECT_SESSION_TIMEOUT)
+        return decrypt_payload(token, salt=CONNECT_SALT, ttl=CONNECT_SESSION_TIMEOUT)
     except InvalidToken:
         raise signing.BadSignature("Invalid or expired token")
-    return json.loads(zlib.decompress(decrypted))
 
 
 def _mark_token_used(jti: str) -> bool:
-    cache_key = f"{USED_TOKEN_CACHE_PREFIX}{jti}"
-    if cache.get(cache_key):
-        return False
-    cache.set(cache_key, True, timeout=CONNECT_SESSION_TIMEOUT)
-    return True
+    return mark_token_used(jti, ttl=CONNECT_SESSION_TIMEOUT)
 
 
 def _validate_next_url(url: str) -> str:

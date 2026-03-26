@@ -148,12 +148,7 @@ export function DashboardAdvancedOptions(): JSX.Element | null {
         return null
     }
 
-    return (
-        <DashboardEditBar
-            showDateFilter={false}
-            className="flex gap-2 items-end flex-wrap border rounded p-2 md:[&>*]:grow-0 [&>*]:grow"
-        />
-    )
+    return <DashboardEditBar showDateFilter={false} className="flex gap-2 items-end flex-wrap border rounded p-2" />
 }
 
 interface DashboardFilterBarProps {
@@ -164,9 +159,9 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
     const { placement, dashboard, dashboardMode, hasVariables, dashboardFiltersEnabled } = useValues(dashboardLogic)
 
     return (
-        <div className="flex flex-col gap-2 w-full">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex gap-2 justify-between">
-                <div className="flex flex-col md:flex-row gap-2 justify-between shrink-0 items-start lg:items-center">
+                <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:justify-between items-start lg:items-center">
                     {![
                         DashboardPlacement.Public,
                         DashboardPlacement.Export,
