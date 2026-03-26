@@ -57,10 +57,10 @@ export function QueryWindow({
         suggestedQueryInput,
         editingView,
         selectedConnectionId,
-        skipHogQLLayerEnabled,
+        sendRawQueryEnabled,
     } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, setSkipHogQLLayer } =
+    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, setSendRawQuery } =
         useActions(sqlEditorLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
@@ -70,11 +70,11 @@ export function QueryWindow({
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
-    const canSkipHogQLLayer = isDirectQueryEnabled && !!selectedConnectionId
-    const skipHogQLLayerLabel = (
+    const canSendRawQuery = isDirectQueryEnabled && !!selectedConnectionId
+    const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
-            <span>Skip HogQL layer</span>
-            <Tooltip title="Run this query directly against the selected external connection without translating it through HogQL first. Use this for raw SQL that HogQL does not support.">
+            <span>Send raw query</span>
+            <Tooltip title="Send this query directly to the selected external connection without translating it through HogQL first. Use this for raw SQL that HogQL does not support.">
                 <span
                     className="inline-flex cursor-help"
                     onClick={(event) => {
@@ -106,18 +106,18 @@ export function QueryWindow({
                   },
               ]
             : []),
-        ...(canSkipHogQLLayer
+        ...(canSendRawQuery
             ? [
                   {
                       custom: true,
                       label: () => (
                           <LemonSwitch
-                              checked={skipHogQLLayerEnabled}
-                              onChange={setSkipHogQLLayer}
-                              label={skipHogQLLayerLabel}
+                              checked={sendRawQueryEnabled}
+                              onChange={setSendRawQuery}
+                              label={sendRawQueryLabel}
                               size="small"
                               fullWidth
-                              data-attr="sql-editor-skip-hogql-layer-toggle"
+                              data-attr="sql-editor-send-raw-query-toggle"
                           />
                       ),
                   },

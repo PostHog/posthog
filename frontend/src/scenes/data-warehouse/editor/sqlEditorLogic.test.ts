@@ -430,7 +430,34 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.c).toEqual('conn-123')
         })
 
-        it('reads skip hogql layer from hash and keeps it in URL sync', async () => {
+        it('reads send raw query from hash and keeps it in URL sync', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
+                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
+            })
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(router.values.hashParams.c).toEqual('conn-123')
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+        })
+
+        it('reads the legacy skip hogql layer hash key and rewrites it to raw', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -446,18 +473,17 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
 
             expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
-            expect(logic.values.skipHogQLLayerEnabled).toEqual(true)
-            expect(String(router.values.hashParams.shl)).toEqual('1')
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
 
             logic.actions.setQueryInput('SELECT 2')
             await new Promise((resolve) => setTimeout(resolve, 600))
 
-            expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.c).toEqual('conn-123')
-            expect(String(router.values.hashParams.shl)).toEqual('1')
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+            expect(router.values.hashParams.shl).toBeUndefined()
         })
 
-        it('ignores skip hogql layer from hash for PostHog warehouse', async () => {
+        it('ignores send raw query from hash for PostHog warehouse', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -468,16 +494,16 @@ describe('sqlEditorLogic', () => {
                 [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
             })
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', shl: '1' })
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', raw: '1' })
 
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
 
             expect(logic.values.sourceQuery.source.connectionId).toBeUndefined()
-            expect(logic.values.skipHogQLLayerEnabled).toEqual(false)
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
         })
 
-        it('keeps skip hogql layer enabled after the first toggle', async () => {
+        it('keeps send raw query enabled after the first toggle', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -492,15 +518,15 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
 
-            logic.actions.setSkipHogQLLayer(true)
+            logic.actions.setSendRawQuery(true)
             await new Promise((resolve) => setTimeout(resolve, 0))
 
-            expect(logic.values.skipHogQLLayerEnabled).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
-            expect(String(router.values.hashParams.shl)).toEqual('1')
+            expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 
-        it("doesn't enable skip hogql layer for PostHog warehouse", async () => {
+        it("doesn't enable send raw query for PostHog warehouse", async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -515,12 +541,12 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
 
-            logic.actions.setSkipHogQLLayer(true)
+            logic.actions.setSendRawQuery(true)
             await new Promise((resolve) => setTimeout(resolve, 0))
 
-            expect(logic.values.skipHogQLLayerEnabled).toEqual(false)
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
-            expect(router.values.hashParams.shl).toBeUndefined()
+            expect(router.values.hashParams.raw).toBeUndefined()
         })
 
         it('loads the scoped schema only once when a connection id is present in the hash', async () => {
@@ -550,7 +576,7 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
 
-        it('passes skip hogql layer when running a direct query', async () => {
+        it('passes sendRawQuery when running a direct query', async () => {
             const performQuerySpy = jest
                 .spyOn(queryRunner, 'performQuery')
                 .mockResolvedValue({ results: [], columns: [], types: [] } as never)
@@ -636,7 +662,7 @@ describe('sqlEditorLogic', () => {
                 sendRawQuery: undefined,
             })
             expect(performQuerySpy.mock.calls[0][0].connectionId).toBeUndefined()
-            expect(logic.values.skipHogQLLayerEnabled).toEqual(false)
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
 
             performQuerySpy.mockRestore()

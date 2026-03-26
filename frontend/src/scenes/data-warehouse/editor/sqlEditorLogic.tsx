@@ -153,7 +153,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
         hash['c'] = connectionId
         if (values.sourceQuery?.source.sendRawQuery) {
-            hash['shl'] = '1'
+            hash['raw'] = '1'
         }
     }
     if (values.activeTab?.view) {
@@ -306,7 +306,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
-        setSkipHogQLLayer: (skipHogQLLayer: boolean) => ({ skipHogQLLayer }),
+        setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -341,11 +341,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,
-                setSkipHogQLLayer: (state, { skipHogQLLayer }) => ({
+                setSendRawQuery: (state, { sendRawQuery }) => ({
                     ...state,
                     source: normalizeRawQuerySource({
                         ...state.source,
-                        sendRawQuery: skipHogQLLayer || undefined,
+                        sendRawQuery: sendRawQuery || undefined,
                     }),
                 }),
             },
@@ -738,7 +738,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             }
         },
-        setSkipHogQLLayer: ({ skipHogQLLayer }) => {
+        setSendRawQuery: ({ sendRawQuery }) => {
             const currentSourceQuery = values.sourceQuery
             const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
                 currentSourceQuery as typeof currentSourceQuery & { connectionId?: string }
@@ -747,7 +747,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 ...sourceQueryWithoutLegacyConnectionId,
                 source: normalizeRawQuerySource({
                     ...currentSourceQuery.source,
-                    sendRawQuery: skipHogQLLayer || undefined,
+                    sendRawQuery: sendRawQuery || undefined,
                 }),
             } as typeof currentSourceQuery)
             actions.syncUrlWithQuery()
@@ -1284,7 +1284,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
             },
         ],
-        skipHogQLLayerEnabled: [
+        sendRawQueryEnabled: [
             (s) => [s.sourceQuery, s.selectedConnectionId],
             (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
         ],
@@ -1533,6 +1533,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.c &&
+                !hashParams.raw &&
                 !hashParams.view &&
                 !hashParams.insight &&
                 values.queryInput !== null
@@ -1546,14 +1547,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 hashParams.c !== ''
                     ? hashParams.c
                     : undefined
-            const skipHogQLLayerFromHash =
+            const sendRawQueryFromHash =
                 connectionIdFromHash !== undefined &&
                 values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                String(hashParams.shl) === '1'
+                (String(hashParams.raw) === '1' || String(hashParams.shl) === '1')
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
-            const currentSkipHogQLLayer = values.sourceQuery.source.sendRawQuery ?? false
+            const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
 
-            if (connectionIdFromHash !== currentConnectionId || skipHogQLLayerFromHash !== currentSkipHogQLLayer) {
+            if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
                 const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
                     values.sourceQuery as typeof values.sourceQuery & { connectionId?: string }
 
@@ -1562,7 +1563,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     source: normalizeRawQuerySource({
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
-                        sendRawQuery: skipHogQLLayerFromHash || undefined,
+                        sendRawQuery: sendRawQueryFromHash || undefined,
                     }),
                 })
             }
