@@ -21,10 +21,10 @@ export class StartPipelineBuilder<T, C> {
     branching<TBranch extends string, U, RBranch extends string = never>(
         decisionFn: BranchDecisionFn<T, TBranch>,
         callback: (
-            builder: BranchingPipelineBuilder<T, T, U, C, TBranch>
-        ) => BranchingPipelineBuilder<T, T, U, C, TBranch, never, RBranch>
+            builder: BranchingPipelineBuilder<T, T, U, C, TBranch, TBranch>
+        ) => BranchingPipelineBuilder<T, T, U, C, TBranch, never, never, RBranch>
     ): PipelineBuilder<T, U, C, RBranch> {
-        const branchingBuilder = new BranchingPipelineBuilder<T, T, U, C, TBranch>(
+        const branchingBuilder = new BranchingPipelineBuilder<T, T, U, C, TBranch, TBranch>(
             decisionFn,
             new StartPipeline<T, C>()
         )
@@ -43,10 +43,10 @@ export class PipelineBuilder<TInput, TOutput, C, R extends string = never> {
     branching<TBranch extends string, U, RBranch extends string = never>(
         decisionFn: BranchDecisionFn<TOutput, TBranch>,
         callback: (
-            builder: BranchingPipelineBuilder<TInput, TOutput, U, C, TBranch, R>
-        ) => BranchingPipelineBuilder<TInput, TOutput, U, C, TBranch, R, RBranch>
+            builder: BranchingPipelineBuilder<TInput, TOutput, U, C, TBranch, TBranch, R>
+        ) => BranchingPipelineBuilder<TInput, TOutput, U, C, TBranch, never, R, RBranch>
     ): PipelineBuilder<TInput, U, C, R | RBranch> {
-        const branchingBuilder = new BranchingPipelineBuilder<TInput, TOutput, U, C, TBranch, R>(
+        const branchingBuilder = new BranchingPipelineBuilder<TInput, TOutput, U, C, TBranch, TBranch, R>(
             decisionFn,
             this.pipeline
         )
@@ -59,12 +59,19 @@ export class PipelineBuilder<TInput, TOutput, C, R extends string = never> {
     }
 }
 
+/**
+ * Builder for branching pipelines that tracks remaining branches via TRemaining.
+ *
+ * Each branch() call removes a branch from TRemaining via Exclude.
+ * build() requires TRemaining = never, ensuring all branches are supplied at compile time.
+ */
 export class BranchingPipelineBuilder<
     TInput,
     TIntermediate,
     TOutput,
     C,
     TBranch extends string,
+    TRemaining extends TBranch = TBranch,
     RPrev extends string = never,
     RBranch extends string = never,
 > {
@@ -74,23 +81,32 @@ export class BranchingPipelineBuilder<
         private branches: Partial<Record<TBranch, Pipeline<TIntermediate, TOutput, C, RBranch>>> = {}
     ) {}
 
-    branch<R2 extends string = never>(
-        branchName: TBranch,
+    branch<B extends TRemaining, R2 extends string = never>(
+        branchName: B,
         callback: (builder: StartPipelineBuilder<TIntermediate, C>) => PipelineBuilder<TIntermediate, TOutput, C, R2>
-    ): BranchingPipelineBuilder<TInput, TIntermediate, TOutput, C, TBranch, RPrev, RBranch | R2> {
+    ): BranchingPipelineBuilder<
+        TInput,
+        TIntermediate,
+        TOutput,
+        C,
+        TBranch,
+        Exclude<TRemaining, B>,
+        RPrev,
+        RBranch | R2
+    > {
         const branchPipeline = callback(new StartPipelineBuilder<TIntermediate, C>()).build()
-        const updatedBranches = {
+        // Split spread and computed key into two statements — the spread preserves
+        // covariance (Pipeline is covariant in R), and the key assignment is type-safe.
+        const updatedBranches: Partial<Record<TBranch, Pipeline<TIntermediate, TOutput, C, RBranch | R2>>> = {
             ...this.branches,
-            [branchName]: branchPipeline,
-        } as Partial<Record<TBranch, Pipeline<TIntermediate, TOutput, C, RBranch | R2>>>
+        }
+        updatedBranches[branchName] = branchPipeline
         return new BranchingPipelineBuilder(this.decisionFn, this.previousPipeline, updatedBranches)
     }
 
-    build(): Pipeline<TInput, TOutput, C, RPrev | RBranch> {
-        return new BranchingPipeline(
-            this.decisionFn,
-            this.branches as Record<TBranch, Pipeline<TIntermediate, TOutput, C, RBranch>>,
-            this.previousPipeline
-        )
+    build(
+        this: BranchingPipelineBuilder<TInput, TIntermediate, TOutput, C, TBranch, never, RPrev, RBranch>
+    ): Pipeline<TInput, TOutput, C, RPrev | RBranch> {
+        return new BranchingPipeline(this.decisionFn, this.branches, this.previousPipeline)
     }
 }

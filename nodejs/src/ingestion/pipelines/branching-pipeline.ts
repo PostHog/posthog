@@ -23,7 +23,7 @@ export class BranchingPipeline<
 {
     constructor(
         private decisionFn: BranchDecisionFn<TIntermediate, TBranch>,
-        private branches: Record<TBranch, Pipeline<TIntermediate, TOutput, C, RBranch>>,
+        private branches: Partial<Record<TBranch, Pipeline<TIntermediate, TOutput, C, RBranch>>>,
         private previousPipeline: Pipeline<TInput, TIntermediate, C, RPrev>
     ) {}
 
