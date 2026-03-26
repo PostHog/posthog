@@ -20,7 +20,6 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -158,17 +157,12 @@ export const ActivityLogRow = ({
             return
         }
         const { pathname, search, hash } = router.values.currentLocation
-        const newParams = new URLSearchParams(search || '')
-        // Remove any existing activity param so we can set the current one
-        newParams.delete('activity')
-        // Ensure the History tab is restored when deep-linking from feature flag pages
-        if (pathname && removeProjectIdIfPresent(pathname).startsWith('/feature_flags/') && !newParams.has('tab')) {
-            newParams.set('tab', 'history')
-        }
-        newParams.set('activity', logItem.id)
-        const searchString = newParams.toString()
-        const url = `${window.location.origin}${pathname}${searchString ? `?${searchString}` : ''}${hash || ''}`
-        void copyToClipboard(url, 'activity link')
+        const url = new URL(pathname, window.location.origin)
+        url.search = search || ''
+        url.hash = hash || ''
+        url.searchParams.delete('activity')
+        url.searchParams.set('activity', logItem.id)
+        void copyToClipboard(url.toString(), 'activity link')
     }
 
     return (

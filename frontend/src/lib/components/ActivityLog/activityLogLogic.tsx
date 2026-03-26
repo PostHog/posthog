@@ -306,19 +306,13 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
+            // Catch-all for pages that don't need pagination handling (surveys, product
+            // tours, experiments, etc.) but still support ?activity= deep linking.
             '*': (_, searchParams) => syncActivityHighlight(searchParams),
         }
     }),
     events(({ actions, values }) => ({
         afterMount: () => {
-            // Initialize highlightedActivityId from current URL search params
-            const activityId = router.values.searchParams.activity
-            if (activityId && activityId !== values.highlightedActivityId) {
-                actions.setHighlightedActivityId(activityId)
-            } else if (!activityId && values.highlightedActivityId !== null) {
-                actions.setHighlightedActivityId(null)
-            }
-
             if (!values.activity.results.length && !values.activityLoading) {
                 actions.fetchActivity()
             }
