@@ -560,7 +560,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
     @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.query.psycopg.connect")
-    def test_skip_hogql_layer_executes_raw_query_and_preserves_hogql_when_printable(
+    def test_send_raw_query_executes_raw_query_and_preserves_hogql_when_printable(
         self, mock_connect, mock_capture_exception
     ):
         source = ExternalDataSource.objects.create(
@@ -594,7 +594,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT 1 AS value",
             team=self.team,
             connection_id=str(source.id),
-            skip_hogql_layer=True,
+            send_raw_query=True,
         )
 
         response = executor.execute()
@@ -608,7 +608,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
     @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.query.psycopg.connect")
-    def test_skip_hogql_layer_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -640,7 +640,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             query="SELECT 1::int AS value",
             team=self.team,
             connection_id=str(source.id),
-            skip_hogql_layer=True,
+            send_raw_query=True,
         )
 
         response = executor.execute()

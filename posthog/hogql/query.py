@@ -156,7 +156,7 @@ class HogQLQueryExecutor:
     direct_postgres_source_id: Optional[str] = None
     direct_postgres_values: dict[str, object] | None = None
     connection_id: Optional[str] = None
-    skip_hogql_layer: bool = False
+    send_raw_query: bool = False
     user: Optional[User] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
@@ -594,7 +594,7 @@ class HogQLQueryExecutor:
 
     def _execute_raw_direct_postgres_query(self) -> None:
         if not isinstance(self.query, str):
-            raise ExposedHogQLError("Skipping the HogQL layer requires a raw query string.")
+            raise ExposedHogQLError("Sending a raw query requires a raw query string.")
 
         source = get_direct_connection_source_none_or_raise(
             self.team,
@@ -606,7 +606,7 @@ class HogQLQueryExecutor:
         self.direct_postgres_sql = str(self.query)
         self._execute_direct_postgres_query()
 
-    def _capture_skipped_hogql_translation_error(self) -> None:
+    def _capture_send_raw_query_translation_error(self) -> None:
         if not isinstance(self.query, str) or self.connection_id is None:
             return
 
@@ -632,7 +632,8 @@ class HogQLQueryExecutor:
             capture_exception(
                 error,
                 {
-                    "component": "skip_hogql_layer_parse_and_print",
+                    "component": "send_raw_query_parse_and_print",
+                    "send_raw_query": True,
                     "team_id": self.team.pk,
                     "connection_id": self.connection_id,
                     "query_type": self.query_type,
@@ -711,9 +712,9 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
-        if self.skip_hogql_layer and self.connection_id is not None:
+        if self.send_raw_query and self.connection_id is not None:
             self._execute_raw_direct_postgres_query()
-            self._capture_skipped_hogql_translation_error()
+            self._capture_send_raw_query_translation_error()
         else:
             prepared_execution = self._prepare_execution()
 

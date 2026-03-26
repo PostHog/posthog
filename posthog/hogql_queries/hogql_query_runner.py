@@ -114,7 +114,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 limit_context=self.limit_context,
                 workload=self.workload,
                 settings=self.settings,
-                skip_hogql_layer=True,
+                send_raw_query=True,
             )
 
         query = self.to_query()

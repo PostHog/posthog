@@ -225,7 +225,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         mock_execute_hogql_query.assert_called_once()
         self.assertEqual(mock_execute_hogql_query.call_args.kwargs["query"], "select 1::int as value")
         self.assertEqual(mock_execute_hogql_query.call_args.kwargs["connection_id"], str(source.id))
-        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["skip_hogql_layer"], True)
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["send_raw_query"], True)
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
     def test_send_raw_query_is_ignored_without_direct_connection(self, mock_execute_hogql_query):
@@ -243,7 +243,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [(10,)])
         mock_execute_hogql_query.assert_called_once()
         self.assertIsInstance(mock_execute_hogql_query.call_args.kwargs["query"], ast.SelectQuery)
-        self.assertNotIn("skip_hogql_layer", mock_execute_hogql_query.call_args.kwargs)
+        self.assertNotIn("send_raw_query", mock_execute_hogql_query.call_args.kwargs)
 
     def test_soft_deleted_connection_id_raises_exposed_hogql_error(self):
         source = ExternalDataSource.objects.create(
