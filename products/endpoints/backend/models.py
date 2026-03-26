@@ -254,7 +254,7 @@ class EndpointVersion(models.Model):
         if not clickhouse_sql:
             return []
 
-        tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.QUERY)
+        tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
 
         # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
         rows = sync_execute(
