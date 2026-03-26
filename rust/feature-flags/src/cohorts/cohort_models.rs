@@ -1,5 +1,4 @@
 use crate::properties::property_models::PropertyFilter;
-use crate::utils::mock::Mock;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -153,17 +152,23 @@ pub struct CohortValues {
     pub values: Vec<PropertyFilter>,
 }
 
+#[cfg(test)]
 #[allow(clippy::needless_update)]
-impl Mock for Cohort {
-    fn mock() -> Self {
-        Cohort {
-            id: 1,
-            name: Some("Test Cohort".to_string()),
-            description: Some("Test cohort description".to_string()),
-            team_id: 1,
-            version: Some(1),
-            groups: serde_json::json!({}),
-            ..Default::default()
+mod mock_impls {
+    use super::*;
+    use crate::utils::mock::Mock;
+
+    impl Mock for Cohort {
+        fn mock() -> Self {
+            Cohort {
+                id: 1,
+                name: Some("Test Cohort".to_string()),
+                description: Some("Test cohort description".to_string()),
+                team_id: 1,
+                version: Some(1),
+                groups: serde_json::json!({}),
+                ..Default::default()
+            }
         }
     }
 }
