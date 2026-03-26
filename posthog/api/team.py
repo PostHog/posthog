@@ -40,12 +40,10 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
-from posthog.models.feature_flag import TeamDefaultEvaluationTag
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
-from posthog.models.tag import Tag
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -1297,7 +1295,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         # Team-level config actions that any member should be able to edit via the UI.
         # Only downgrade for session auth to preserve read-only API key semantics.
-        if self.action in ("default_release_conditions", "default_evaluation_tags"):
+        if self.action in ("default_release_conditions", "default_evaluation_contexts"):
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 return ["project:read"]
@@ -1436,75 +1434,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["GET", "POST", "DELETE"],
-        detail=True,
-        permission_classes=[IsAuthenticated],
-    )
-    def default_evaluation_tags(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default evaluation tags for a team"""
-        team = self.get_object()
-
-        if request.method == "GET":
-            # Return list of default evaluation tags
-            default_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")
-            tags_data = [{"id": dt.id, "name": dt.tag.name} for dt in default_tags]
-            return response.Response(
-                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_contexts_enabled}
-            )
-
-        elif request.method == "POST":
-            # Add a default evaluation tag
-            tag_name = request.data.get("tag_name", "").strip().lower()
-            if not tag_name:
-                return response.Response({"error": "tag_name is required"}, status=400)
-
-            with transaction.atomic():
-                # Select and lock all existing tags for this team
-                existing_tags = list(TeamDefaultEvaluationTag.objects.filter(team=team).select_for_update())
-                if len(existing_tags) >= 10:
-                    return response.Response({"error": "Maximum of 10 default evaluation tags allowed"}, status=400)
-
-                tag, _ = Tag.objects.get_or_create(name=tag_name, team=team)
-                default_tag, created = TeamDefaultEvaluationTag.objects.get_or_create(team=team, tag=tag)
-
-                if created:
-                    report_user_action(
-                        request.user,
-                        "default evaluation tag added",
-                        {"team_id": team.id, "tag_name": tag_name},
-                        team=team,
-                        request=request,
-                    )
-
-            return response.Response({"id": default_tag.id, "name": tag.name, "created": created})
-
-        else:  # DELETE
-            # Remove a default evaluation tag
-            # Handle both request.data and query params for DELETE (test client compatibility)
-            tag_name = request.data.get("tag_name", "") or request.GET.get("tag_name", "")
-            tag_name = tag_name.strip().lower()
-            if not tag_name:
-                return response.Response({"error": "tag_name is required"}, status=400)
-
-            with transaction.atomic():
-                try:
-                    tag = Tag.objects.get(name=tag_name, team=team)
-                    deleted_count, _ = TeamDefaultEvaluationTag.objects.filter(team=team, tag=tag).delete()
-
-                    if deleted_count > 0:
-                        report_user_action(
-                            request.user,
-                            "default evaluation tag removed",
-                            {"team_id": team.id, "tag_name": tag_name},
-                            team=team,
-                            request=request,
-                        )
-
-                    return response.Response({"success": True})
-                except Tag.DoesNotExist:
-                    return response.Response({"error": "Tag not found"}, status=404)
 
     @action(
         methods=["GET", "PUT"],

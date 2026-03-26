@@ -1,3 +1,4 @@
+import time
 import traceback
 from collections import defaultdict
 from collections.abc import Callable
@@ -22,6 +23,8 @@ from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.slo.events import emit_slo_completed, emit_slo_started
+from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
 from posthog.tasks.alerts.trends import check_trends_alert, check_trends_alert_with_detector
 from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
@@ -171,13 +174,18 @@ def check_alerts_task() -> None:
         ),
     )
 
-    grouped_by_team = defaultdict(list)
+    grouped_by_team: defaultdict[int, list[tuple[str, int, str | None]]] = defaultdict(list)
     for alert in sorted_alerts:
-        grouped_by_team[alert.team].append(alert.id)
+        grouped_by_team[alert.team_id].append((str(alert.id), alert.team_id, alert.calculation_interval))
 
-    for alert_ids in grouped_by_team.values():
+    for alert_data in grouped_by_team.values():
         # We chain the task execution to prevent queries *for a single team* running at the same time
-        chain(*(check_alert_task.si(str(alert_id)).set(expires=expire_after) for alert_id in alert_ids))()
+        chain(
+            *(
+                check_alert_task.si(alert_id, team_id, calculation_interval).set(expires=expire_after)
+                for alert_id, team_id, calculation_interval in alert_data
+            )
+        )()
 
 
 @shared_task(
@@ -186,9 +194,43 @@ def check_alerts_task() -> None:
     expires=60 * 60,
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
-def check_alert_task(alert_id: str) -> None:
-    with ph_scoped_capture() as capture_ph_event:
-        check_alert(alert_id, capture_ph_event)
+def check_alert_task(alert_id: str, team_id: int = 0, calculation_interval: str | None = None) -> None:
+    outcome = SloOutcome.FAILURE
+    started_at = time.monotonic()
+    error_extra: dict | None = None
+    try:
+        emit_slo_started(
+            distinct_id=alert_id,
+            properties=SloStartedProperties(
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_CHECK,
+                team_id=team_id,
+                resource_id=alert_id,
+            ),
+            extra_properties={"calculation_interval": calculation_interval},
+        )
+        with ph_scoped_capture() as capture_ph_event:
+            check_alert(alert_id, capture_ph_event)
+        outcome = SloOutcome.SUCCESS
+    except Exception as exc:
+        error_extra = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+        }
+        raise
+    finally:
+        emit_slo_completed(
+            distinct_id=alert_id,
+            properties=SloCompletedProperties(
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_CHECK,
+                team_id=team_id,
+                resource_id=alert_id,
+                outcome=outcome,
+                duration_ms=(time.monotonic() - started_at) * 1000,
+            ),
+            extra_properties={"calculation_interval": calculation_interval, **(error_extra or {})},
+        )
 
 
 @retry(
