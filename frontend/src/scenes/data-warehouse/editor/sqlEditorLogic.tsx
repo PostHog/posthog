@@ -740,11 +740,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
         setSendRawQuery: ({ sendRawQuery }) => {
             const currentSourceQuery = values.sourceQuery
-            const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
+            const { connectionId: _ignoredConnectionId, ...sourceQueryWithoutConnectionId } =
                 currentSourceQuery as typeof currentSourceQuery & { connectionId?: string }
 
             actions.setSourceQuery({
-                ...sourceQueryWithoutLegacyConnectionId,
+                ...sourceQueryWithoutConnectionId,
                 source: normalizeRawQuerySource({
                     ...currentSourceQuery.source,
                     sendRawQuery: sendRawQuery || undefined,
@@ -1550,16 +1550,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const sendRawQueryFromHash =
                 connectionIdFromHash !== undefined &&
                 values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                (String(hashParams.raw) === '1' || String(hashParams.shl) === '1')
+                String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
 
             if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
-                const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
+                const { connectionId: _ignoredConnectionId, ...sourceQueryWithoutConnectionId } =
                     values.sourceQuery as typeof values.sourceQuery & { connectionId?: string }
 
                 actions.setSourceQuery({
-                    ...sourceQueryWithoutLegacyConnectionId,
+                    ...sourceQueryWithoutConnectionId,
                     source: normalizeRawQuerySource({
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,

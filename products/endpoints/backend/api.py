@@ -3,9 +3,8 @@ import uuid
 import builtins
 import dataclasses
 from collections.abc import Iterator
-from copy import deepcopy
 from datetime import timedelta
-from typing import Any, Optional, Union, cast
+from typing import Optional, Union, cast
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -339,31 +338,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "reason": reason if not can_mat else None,
         }
 
-    def _normalize_legacy_query_fields(self, value: Any) -> Any:
-        if isinstance(value, list):
-            return [self._normalize_legacy_query_fields(item) for item in value]
-
-        if isinstance(value, tuple):
-            return tuple(self._normalize_legacy_query_fields(item) for item in value)
-
-        if isinstance(value, dict):
-            normalized = {
-                key: self._normalize_legacy_query_fields(item)
-                for key, item in value.items()
-                if key not in {"skipDirectHogQL", "runDirectly"}
-            }
-            if "sendRawQuery" not in normalized:
-                if "runDirectly" in value:
-                    normalized["sendRawQuery"] = self._normalize_legacy_query_fields(value["runDirectly"])
-                elif "skipDirectHogQL" in value:
-                    normalized["sendRawQuery"] = self._normalize_legacy_query_fields(value["skipDirectHogQL"])
-            return normalized
-
-        return value
-
-    def _get_normalized_version_query(self, version: EndpointVersion) -> dict:
-        return cast(dict, self._normalize_legacy_query_fields(deepcopy(version.query)))
-
     def _serialize(
         self,
         obj: Endpoint | EndpointVersion,
@@ -391,7 +365,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "id": str(endpoint.id),
             "name": endpoint.name,
             "description": version.description,
-            "query": self._get_normalized_version_query(version),
+            "query": version.query,
             "is_active": version.is_active if isinstance(obj, EndpointVersion) else endpoint.is_active,
             "cache_age_seconds": version.cache_age_seconds,
             "endpoint_path": endpoint.endpoint_path,
@@ -997,14 +971,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
             )
 
-        query = self._get_normalized_version_query(version)
-        mat_query = _prepare_insight_query_for_endpoint(query)
+        mat_query = _prepare_insight_query_for_endpoint(version.query)
         hogql_query = convert_insight_query_to_hogql(mat_query, self.team)
 
         variable_infos: list = []
-        if query.get("variables"):
+        if version.query.get("variables"):
             can_materialize, reason, variable_infos = analyze_variables_for_materialization(
-                query, bucket_overrides=bucket_overrides
+                version.query, bucket_overrides=bucket_overrides
             )
 
             if can_materialize and variable_infos:
@@ -1150,7 +1123,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # Check if variables are valid for materialized execution
         if data.variables:
-            query = self._get_normalized_version_query(version)
+            query = version.query
             query_kind = query.get("kind")
 
             if query_kind == "HogQLQuery":
@@ -1178,7 +1151,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def _get_materialized_variables(self, version: EndpointVersion) -> builtins.list:
         """Return the materializable variable infos for an endpoint query."""
-        query = self._get_normalized_version_query(version)
+        query = version.query
         if not query or not query.get("variables"):
             return []
 
@@ -1431,7 +1404,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Returns (select_query, original_limit) — caller is responsible for pagination.
         Used by both execution and preview paths.
         """
-        query = self._get_normalized_version_query(version)
+        query = version.query
         query_kind = query.get("kind")
 
         select_columns: list[ast.Expr] = [ast.Field(chain=["*"])]
@@ -1489,7 +1462,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 raise ValidationError("No materialized query found for this endpoint")
             saved_query = version.saved_query
 
-            query = self._get_normalized_version_query(version)
+            query = version.query
             query_kind = query.get("kind")
 
             select_query, original_limit = self._build_materialized_select_query(
@@ -1737,7 +1710,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         if version is None:
             return False
-        if self._get_normalized_version_query(version).get("kind") != "HogQLQuery":
+        if version.query.get("kind") != "HogQLQuery":
             return False
 
         user_email = getattr(self.request.user, "email", "") if self.request else ""
@@ -2034,7 +2007,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if version is None:
             raise ValidationError("No active version found for this endpoint.")
 
-        query = self._get_normalized_version_query(version)
+        query = version.query
         is_materialized = bool(version.is_materialized and version.saved_query)
 
         if version and not version.is_active:
@@ -2216,17 +2189,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             bucket_overrides = raw_overrides
             _validate_bucket_overrides(bucket_overrides)
 
-        query = self._get_normalized_version_query(version)
-        hogql_query = convert_insight_query_to_hogql(query, self.team)
+        hogql_query = convert_insight_query_to_hogql(version.query, self.team)
 
         range_pairs: list[dict] = []
         aggregates: list[dict] = []
         transformed_query_str: str | None = None
         variable_infos: list = []
 
-        if query.get("variables"):
+        if version.query.get("variables"):
             can_materialize_vars, var_reason, variable_infos = analyze_variables_for_materialization(
-                query, bucket_overrides=bucket_overrides
+                version.query, bucket_overrides=bucket_overrides
             )
 
             if not can_materialize_vars:

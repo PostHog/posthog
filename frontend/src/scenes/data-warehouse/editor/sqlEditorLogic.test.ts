@@ -457,32 +457,6 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 
-        it('reads the legacy skip hogql layer hash key and rewrites it to raw', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
-
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123', shl: '1' })
-
-            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
-
-            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
-            expect(logic.values.sendRawQueryEnabled).toEqual(true)
-
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
-
-            expect(router.values.hashParams.c).toEqual('conn-123')
-            expect(String(router.values.hashParams.raw)).toEqual('1')
-            expect(router.values.hashParams.shl).toBeUndefined()
-        })
-
         it('ignores send raw query from hash for PostHog warehouse', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

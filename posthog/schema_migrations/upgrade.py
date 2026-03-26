@@ -17,17 +17,6 @@ def upgrade_node(node: Any) -> Any:
         return tuple(upgrade_node(item) for item in node)
 
     if isinstance(node, dict):
-        if "skipDirectHogQL" in node or "runDirectly" in node:
-            if "sendRawQuery" not in node:
-                if "runDirectly" in node:
-                    node["sendRawQuery"] = node["runDirectly"]
-                else:
-                    node["sendRawQuery"] = node["skipDirectHogQL"]
-            if "runDirectly" in node:
-                del node["runDirectly"]
-        if "skipDirectHogQL" in node:
-            del node["skipDirectHogQL"]
-
         if "kind" in node and node["kind"] in LATEST_VERSIONS:
             while (version := (node.get("version") or 1)) < LATEST_VERSIONS[node["kind"]]:
                 if version not in MIGRATIONS[node["kind"]]:
