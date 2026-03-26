@@ -79,15 +79,13 @@ class TestTrack:
         )
         monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
         monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
-        with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda s, *a: None
-            mock_urlopen.return_value.status = 200
+        with patch("hogli.telemetry.requests.post") as mock_post:
+            mock_post.return_value.status_code = 200
             telemetry.track("command_completed", {"command": "test"})
             telemetry.flush(timeout=2.0)
-            req = mock_urlopen.call_args[0][0]
-            assert req.full_url == "http://localhost/batch/"
-            body = json.loads(req.data)
+            mock_post.assert_called_once()
+            assert mock_post.call_args[0][0] == "http://localhost/batch/"
+            body = mock_post.call_args[1]["json"]
             assert body["api_key"] == "test-key"
 
     def test_noops_when_disabled(self, telemetry_config: Path):

@@ -1,7 +1,7 @@
 """Anonymous opt-out telemetry for hogli CLI.
 
 Events are queued in-process and flushed as a single batch POST to
-PostHog's ``/batch/`` endpoint using only stdlib (``urllib.request``).
+PostHog's ``/batch/`` endpoint.
 
 Opt-out precedence:
     CI=* -> POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false
@@ -17,11 +17,12 @@ import json
 import uuid
 import atexit
 import threading
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
+
+import click
+import requests
 
 # Write-only project token -- routes events to the correct PostHog project.
 # It cannot read data; safe to embed in source code.
@@ -111,7 +112,7 @@ class TelemetryClient:
         if config.get("first_run_notice_shown"):
             return
 
-        sys.stderr.write(
+        click.echo(
             "\n"
             "hogli collects anonymous usage data to help improve the developer experience.\n"
             "No personal information is collected -- only command names and timing.\n"
@@ -121,7 +122,8 @@ class TelemetryClient:
             "  POSTHOG_TELEMETRY_OPT_OUT=1  (per-session / CI)\n"
             "  DO_NOT_TRACK=1               (cross-tool convention)\n"
             "\n"
-            "Run `hogli telemetry:status` for details.\n\n"
+            "Run `hogli telemetry:status` for details.\n",
+            err=True,
         )
 
         config["first_run_notice_shown"] = True
@@ -172,18 +174,12 @@ class TelemetryClient:
         api_key = self._api_key
         url = f"{host}/batch/"
 
-        payload = json.dumps({"api_key": api_key, "batch": batch}).encode()
-        _debug(f"POST {url} ({len(batch)} events)", {"api_key": api_key, "batch": batch})
+        body = {"api_key": api_key, "batch": batch}
+        _debug(f"POST {url} ({len(batch)} events)", body)
 
         try:
-            req = urllib.request.Request(
-                url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                _debug(f"POST {url} -> {resp.status}")
+            resp = requests.post(url, json=body, timeout=5)
+            _debug(f"POST {url} -> {resp.status_code}")
         except Exception as exc:
             _debug(f"POST failed: {exc}")
 
