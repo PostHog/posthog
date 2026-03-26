@@ -345,8 +345,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(len(response.json()["results"]), 2)
         self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
+
+    def test_dashboard_template_insights_default_to_saved(self) -> None:
+        from posthog.helpers.dashboard_templates import create_dashboard_from_template
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test")
+        create_dashboard_from_template("DEFAULT_APP", dashboard)
+
+        insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
+        self.assertGreater(insights.count(), 0)
+        for insight in insights:
+            self.assertTrue(insight.saved, f"Insight '{insight.name}' should have saved=True")
 
     def test_get_favorited_insight_items(self) -> None:
         filter_dict = {

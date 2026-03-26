@@ -539,9 +539,7 @@ export const experimentLogic = kea<experimentLogicType>([
             [
                 'reportExperimentCreated',
                 'reportExperimentViewed',
-                'reportExperimentCompleted',
-                'reportExperimentStopped',
-                'reportExperimentReset',
+
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantShipped',
                 'reportExperimentVariantScreenshotUploaded',
@@ -710,6 +708,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
         removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
+        clearMetricsResults: true,
         setLegacyPrimaryMetricsResults: (
             results: (
                 | CachedLegacyExperimentQueryResponse
@@ -1089,6 +1088,7 @@ export const experimentLogic = kea<experimentLogicType>([
             )[],
             {
                 setLegacyPrimaryMetricsResults: (_, { results }) => results,
+                clearMetricsResults: () => [],
             },
         ],
         primaryMetricsResults: [
@@ -1097,6 +1097,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setPrimaryMetricsResults: (_, { results }) => results,
                 loadPrimaryMetricsResults: () => [],
                 loadExperiment: () => [],
+                clearMetricsResults: () => [],
             },
         ],
         primaryMetricsResultsLoading: [
@@ -1111,6 +1112,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setPrimaryMetricsResultsErrors: (_, { errors }) => errors,
                 loadPrimaryMetricsResults: () => [],
                 loadExperiment: () => [],
+                clearMetricsResults: () => [],
             },
         ],
         // SECONDARY METRICS
@@ -1123,6 +1125,7 @@ export const experimentLogic = kea<experimentLogicType>([
             )[],
             {
                 setLegacySecondaryMetricsResults: (_, { results }) => results,
+                clearMetricsResults: () => [],
             },
         ],
         secondaryMetricsResults: [
@@ -1131,6 +1134,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setSecondaryMetricsResults: (_, { results }) => results,
                 loadSecondaryMetricsResults: () => [],
                 loadExperiment: () => [],
+                clearMetricsResults: () => [],
             },
         ],
         secondaryMetricsResultsLoading: [
@@ -1145,6 +1149,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setSecondaryMetricsResultsErrors: (_, { errors }) => errors,
                 loadSecondaryMetricsResults: () => [],
                 loadExperiment: () => [],
+                clearMetricsResults: () => [],
             },
         ],
         editingPrimaryMetricUuid: [
@@ -1430,23 +1435,19 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
         },
         endExperiment: async () => {
-            const endDate = dayjs()
-            actions.updateExperiment({
-                end_date: endDate.toISOString(),
-                conclusion: values.experiment.conclusion,
-                conclusion_comment: values.experiment.conclusion_comment,
-            })
-            const duration = endDate.diff(values.experiment?.start_date, 'second')
-            values.experiment &&
-                actions.reportExperimentCompleted(
-                    values.experiment,
-                    endDate,
-                    duration,
-                    values.experiment.metrics?.[0]?.uuid
-                        ? values.isPrimaryMetricSignificant(values.experiment.metrics[0].uuid)
-                        : false
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
+                    {
+                        conclusion: values.experiment.conclusion,
+                        conclusion_comment: values.experiment.conclusion_comment,
+                    }
                 )
-            values.experiment && eventUsageLogic.actions.reportExperimentStopped(values.experiment)
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to end experiment')
+            }
         },
         endExperimentWithoutShipping: async () => {
             actions.endExperiment()
@@ -1619,20 +1620,17 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true, 'config_change')
         },
         resetRunningExperiment: async () => {
-            actions.updateExperiment({
-                start_date: null,
-                end_date: null,
-                archived: false,
-                conclusion: null,
-                conclusion_comment: null,
-            })
-            values.experiment && actions.reportExperimentReset(values.experiment)
-            actions.setLegacyPrimaryMetricsResults([])
-            actions.setLegacySecondaryMetricsResults([])
-            actions.setPrimaryMetricsResults([])
-            actions.setPrimaryMetricsResultsErrors([])
-            actions.setSecondaryMetricsResults([])
-            actions.setSecondaryMetricsResultsErrors([])
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/reset`
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                // Metric results live in separate reducers not covered by setExperiment
+                actions.clearMetricsResults()
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to reset experiment')
+            }
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)

@@ -59,6 +59,21 @@
     'short_id',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_Survey
+  list([
+    'headline_response_count',
+    'headline_summary',
+    'internal_response_sampling_flag',
+    'internal_targeting_flag',
+    'linked_flag',
+    'question_summaries',
+    'targeting_flag',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_Survey_actions
+  list([
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Text
   list([
     'last_modified_at',
@@ -138,6 +153,41 @@
     'updated_at',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_Survey
+  list([
+    'appearance',
+    'archived',
+    'conditions',
+    'created_at',
+    'current_iteration',
+    'current_iteration_start_date',
+    'description',
+    'enable_iframe_embedding',
+    'enable_partial_responses',
+    'end_date',
+    'form_content',
+    'iteration_count',
+    'iteration_frequency_days',
+    'iteration_start_dates',
+    'name',
+    'questions',
+    'response_sampling_daily_limits',
+    'response_sampling_interval',
+    'response_sampling_interval_type',
+    'response_sampling_limit',
+    'response_sampling_start_date',
+    'responses_limit',
+    'schedule',
+    'start_date',
+    'translations',
+    'type',
+    'updated_at',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_Survey_actions
+  list([
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Text
   list([
     'body',
@@ -178,6 +228,21 @@
     'last_modified_by',
     'subscriptions_dashboard_export',
     'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_Survey
+  list([
+    'actions',
+    'created_by',
+    'linked_insight',
+    'product_tours',
+    'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_Survey_actions
+  list([
+    'action',
+    'survey',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_Text
@@ -417,6 +482,58 @@
     'threshold_set',
     'type',
     'url',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_Survey
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    'Schedule',
+    'SurveySamplingIntervalType',
+    'SurveyType',
+    '__doc__',
+    '__module__',
+    '_meta',
+    'created_by_id',
+    'get_file_system_representation',
+    'get_file_system_unfiled',
+    'get_internal_flag_ids',
+    'get_next_by_created_at',
+    'get_next_by_updated_at',
+    'get_previous_by_created_at',
+    'get_previous_by_updated_at',
+    'get_response_sampling_interval_type_display',
+    'get_schedule_display',
+    'get_type_display',
+    'headline_response_count',
+    'headline_summary',
+    'id',
+    'internal_response_sampling_flag',
+    'internal_response_sampling_flag_id',
+    'internal_targeting_flag',
+    'internal_targeting_flag_id',
+    'is_publicly_shareable',
+    'linked_flag',
+    'linked_flag_id',
+    'linked_insight_id',
+    'question_summaries',
+    'response_archives',
+    'targeting_flag',
+    'targeting_flag_id',
+    'team_id',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_Survey_actions
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    '__doc__',
+    '__module__',
+    '_meta',
+    'action_id',
+    'id',
+    'objects',
+    'survey_id',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_Text

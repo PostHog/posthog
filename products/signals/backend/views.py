@@ -25,7 +25,8 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models import Team
 from posthog.permissions import APIScopePermission
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
@@ -84,6 +85,48 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             source_product=data["source_product"],
             source_type=data["source_type"],
             source_id=str(uuid.uuid4()),
+            description=data["description"],
+            weight=data["weight"],
+            extra=data["extra"],
+        )
+
+        return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
+
+
+class InternalEmitSignalSerializer(serializers.Serializer):
+    source_product = serializers.CharField(max_length=100)
+    source_type = serializers.CharField(max_length=100)
+    source_id = serializers.CharField(max_length=512)
+    description = serializers.CharField()
+    weight = serializers.FloatField(default=0.5, min_value=0.0, max_value=1.0)
+    extra = serializers.DictField(required=False, default=dict)
+
+
+class InternalSignalViewSet(viewsets.ViewSet):
+    """
+    Internal-only endpoint for service-to-service signal emission (e.g. from cymbal).
+    Authenticated via X-Internal-Api-Secret header, not exposed to external ingress.
+    """
+
+    authentication_classes = [InternalAPIAuthentication]
+
+    @extend_schema(exclude=True)
+    def emit(self, request: Request, team_id: str, *args, **kwargs):
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = InternalEmitSignalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+
+        async_to_sync(emit_signal)(
+            team=team,
+            source_product=data["source_product"],
+            source_type=data["source_type"],
+            source_id=data["source_id"],
             description=data["description"],
             weight=data["weight"],
             extra=data["extra"],
