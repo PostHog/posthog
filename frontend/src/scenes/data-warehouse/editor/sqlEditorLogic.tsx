@@ -138,10 +138,21 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     types: string[][]
 }
 
+type LegacyDataVisualizationNode = DataVisualizationNode & { connectionId?: string }
+
 function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     return {
         ...source,
         sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
+    }
+}
+
+function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
+    const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
+
+    return {
+        ...sanitizedSourceQuery,
+        source: normalizeRawQuerySource(sourceQuery.source),
     }
 }
 
@@ -340,14 +351,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 display: ChartDisplayType.Auto,
             } as DataVisualizationNode,
             {
-                setSourceQuery: (_, { sourceQuery }) => sourceQuery,
-                setSendRawQuery: (state, { sendRawQuery }) => ({
-                    ...state,
-                    source: normalizeRawQuerySource({
-                        ...state.source,
-                        sendRawQuery: sendRawQuery || undefined,
-                    }),
-                }),
+                setSourceQuery: (_, { sourceQuery }) => sanitizeSourceQuery(sourceQuery),
             },
         ],
         lastRunQuery: [
@@ -730,26 +734,25 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
+            const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
             const currentTab = values.activeTab
             if (currentTab) {
                 actions.updateTab({
                     ...currentTab,
-                    sourceQuery,
+                    sourceQuery: nextSourceQuery,
                 })
             }
         },
         setSendRawQuery: ({ sendRawQuery }) => {
             const currentSourceQuery = values.sourceQuery
-            const { connectionId: _ignoredConnectionId, ...sourceQueryWithoutConnectionId } =
-                currentSourceQuery as typeof currentSourceQuery & { connectionId?: string }
 
             actions.setSourceQuery({
-                ...sourceQueryWithoutConnectionId,
-                source: normalizeRawQuerySource({
+                ...currentSourceQuery,
+                source: {
                     ...currentSourceQuery.source,
                     sendRawQuery: sendRawQuery || undefined,
-                }),
-            } as typeof currentSourceQuery)
+                },
+            })
             actions.syncUrlWithQuery()
         },
         initialize: async () => {
@@ -1555,16 +1558,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
 
             if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
-                const { connectionId: _ignoredConnectionId, ...sourceQueryWithoutConnectionId } =
-                    values.sourceQuery as typeof values.sourceQuery & { connectionId?: string }
-
                 actions.setSourceQuery({
-                    ...sourceQueryWithoutConnectionId,
-                    source: normalizeRawQuerySource({
+                    ...values.sourceQuery,
+                    source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
                         sendRawQuery: sendRawQueryFromHash || undefined,
-                    }),
+                    },
                 })
             }
 

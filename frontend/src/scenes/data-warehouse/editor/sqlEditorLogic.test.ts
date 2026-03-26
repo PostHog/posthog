@@ -500,6 +500,40 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 
+        it('strips legacy top-level connection ids when source query changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            const sourceQueryWithLegacyConnectionId = {
+                ...logic.values.sourceQuery,
+                connectionId: 'legacy-conn-123',
+                source: {
+                    ...logic.values.sourceQuery.source,
+                    connectionId: 'conn-123',
+                    sendRawQuery: true,
+                },
+            } as DataVisualizationNode & { connectionId?: string }
+
+            logic.actions.setSourceQuery(sourceQueryWithLegacyConnectionId as DataVisualizationNode)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect('connectionId' in logic.values.sourceQuery).toEqual(false)
+            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.activeTab?.sourceQuery).not.toBeUndefined()
+            expect(
+                logic.values.activeTab?.sourceQuery ? 'connectionId' in logic.values.activeTab.sourceQuery : false
+            ).toEqual(false)
+        })
+
         it("doesn't enable send raw query for PostHog warehouse", async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
