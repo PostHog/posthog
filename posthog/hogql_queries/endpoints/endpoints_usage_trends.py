@@ -121,7 +121,7 @@ class EndpointsUsageTrendsQueryRunner(EndpointsUsageQueryRunner[EndpointsUsageTr
     def _calculate(self) -> EndpointsUsageTrendsQueryResponse:
         from posthog.clickhouse.query_tagging import Feature, tag_queries
 
-        tag_queries(name="endpoints_usage_trends", product=ProductKey.ENDPOINTS, feature=Feature.QUERY)
+        tag_queries(name="endpoints_usage_trends", product=ProductKey.ENDPOINTS, feature=Feature.USAGE_REPORT)
         response = execute_hogql_query(
             query_type="endpoints_usage_trends_query",
             query=self.to_query(),
