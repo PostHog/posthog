@@ -31,7 +31,7 @@ const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 export const Syncs = ({ id }: SyncsProps): JSX.Element => {
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(
+    const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(
         dataWarehouseSourceSettingsLogic({ id, availableSources: {} })
     )
     const { loadMoreJobs, setSelectedSchemas } = useActions(
@@ -39,15 +39,12 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
     )
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
-    const schemaOptions = Array.from(new Map(jobs.map((job) => [job.schema.name, job.schema])).values())
+    const schemaOptions = (source?.schemas ?? [])
         .sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name))
         .map((schema) => ({
             key: schema.name,
             label: schema.label ?? schema.name,
         }))
-
-    const filteredJobs =
-        selectedSchemas.length > 0 ? jobs.filter((job) => selectedSchemas.includes(job.schema.name)) : jobs
 
     return (
         <>
@@ -72,7 +69,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
             )}
             <LemonTable
                 hideScrollbar
-                dataSource={filteredJobs}
+                dataSource={jobs}
                 rowKey="id"
                 loading={jobsLoading}
                 disableTableWhileLoading={false}
