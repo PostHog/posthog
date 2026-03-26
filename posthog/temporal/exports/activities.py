@@ -60,11 +60,10 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             # while preserving the exception class name for retry policy matching.
             # Only known transient errors (CH/network) are worth retrying — unknown
             # errors like Chrome crashes or programming errors should fail fast.
-            # Detail order: [exception_class, error_trace]
+            # exception_class is on .type; details carry [error_trace]
             # See: posthog.temporal.exports.types.extract_error_details
             raise ApplicationError(
                 str(e),
-                exception_class,
                 error_trace,
                 type=exception_class,
                 non_retryable=exception_class not in SYSTEM_ERROR_NAMES,

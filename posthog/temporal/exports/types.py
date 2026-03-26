@@ -22,10 +22,10 @@ def extract_error_details(exc: BaseException) -> ExportErrorDetails:
     if not isinstance(exc, ActivityError) or not isinstance(exc.cause, ApplicationError):
         return ExportErrorDetails()
 
-    details = exc.cause.details
+    cause = exc.cause
     return ExportErrorDetails(
-        exception_class=details[0] if len(details) >= 1 and isinstance(details[0], str) else None,
-        error_trace=details[1] if len(details) >= 2 and isinstance(details[1], str) else None,
+        exception_class=cause.type,
+        error_trace=cause.details[0] if len(cause.details) >= 1 and isinstance(cause.details[0], str) else None,
     )
 
 
