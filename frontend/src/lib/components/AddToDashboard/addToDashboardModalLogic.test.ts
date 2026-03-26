@@ -11,6 +11,7 @@ import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
+    AppContext,
     DashboardBasicType,
     DashboardType,
     InsightShortId,
@@ -99,6 +100,8 @@ describe('addToDashboardModalLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        // Tests may set `current_user: null`; clear so the next test gets a fresh `initKeaTests` bootstrap.
+        delete window.POSTHOG_APP_CONTEXT
     })
 
     it('addNewDashboard sets redirectAfterCreation to false on newDashboardLogic', async () => {
@@ -182,6 +185,111 @@ describe('addToDashboardModalLogic', () => {
                 expect.objectContaining({ id: 3 }),
                 expect.objectContaining({ id: 1 }),
                 expect.objectContaining({ id: 4 }),
+            ],
+        })
+    })
+
+    it('when user is not loaded, dashboards with no creator are not grouped as mine', async () => {
+        window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
+        const insightOnlyOnDash2: QueryBasedInsightModel = {
+            ...MOCK_INSIGHT,
+            dashboards: [2],
+            dashboard_tiles: [{ dashboard_id: 2 }] as any,
+        }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [insightOnlyOnDash2],
+                },
+                '/api/environments/:team_id/dashboards/': {
+                    results: [
+                        mkDashboard(2, 'Current', false, MOCK_USER_UUID),
+                        mkDashboard(1, 'No creator', false, null),
+                        mkDashboard(3, 'Other', false, OTHER_USER_UUID),
+                    ],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/insights/:id': async (req) => {
+                    const payload = await req.json()
+                    return [200, { ...insightOnlyOnDash2, ...payload }]
+                },
+            },
+        })
+        initKeaTests()
+
+        const dashboards = dashboardsModel()
+        dashboards.mount()
+        await expectLogic(dashboards, () => {
+            dashboards.actions.loadDashboards()
+        }).toFinishAllListeners()
+
+        const insightProps = { dashboardItemId: Insight1 }
+        const insightLog = insightLogic(insightProps)
+        insightLog.mount()
+        insightLog.actions.loadInsightSuccess(insightOnlyOnDash2)
+
+        logic = addToDashboardModalLogic(insightProps)
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            orderedDashboards: [
+                expect.objectContaining({ id: 2 }),
+                expect.objectContaining({ id: 1 }),
+                expect.objectContaining({ id: 3 }),
+            ],
+        })
+    })
+
+    it('places mine pinned in the mine bucket before others pinned', async () => {
+        const insightOnlyOnDash2: QueryBasedInsightModel = {
+            ...MOCK_INSIGHT,
+            dashboards: [2],
+            dashboard_tiles: [{ dashboard_id: 2 }] as any,
+        }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [insightOnlyOnDash2],
+                },
+                '/api/environments/:team_id/dashboards/': {
+                    results: [
+                        mkDashboard(2, 'Current', false, MOCK_USER_UUID),
+                        mkDashboard(3, 'Unpinned mine', false, MOCK_USER_UUID),
+                        mkDashboard(4, 'Pinned mine', true, MOCK_USER_UUID),
+                        mkDashboard(5, 'Other pinned', true, OTHER_USER_UUID),
+                    ],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/insights/:id': async (req) => {
+                    const payload = await req.json()
+                    return [200, { ...insightOnlyOnDash2, ...payload }]
+                },
+            },
+        })
+        initKeaTests()
+
+        const dashboards = dashboardsModel()
+        dashboards.mount()
+        await expectLogic(dashboards, () => {
+            dashboards.actions.loadDashboards()
+        }).toFinishAllListeners()
+
+        const insightProps = { dashboardItemId: Insight1 }
+        const insightLog = insightLogic(insightProps)
+        insightLog.mount()
+        insightLog.actions.loadInsightSuccess(insightOnlyOnDash2)
+
+        logic = addToDashboardModalLogic(insightProps)
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            orderedDashboards: [
+                expect.objectContaining({ id: 2 }),
+                expect.objectContaining({ id: 4 }),
+                expect.objectContaining({ id: 3 }),
+                expect.objectContaining({ id: 5 }),
             ],
         })
     })
