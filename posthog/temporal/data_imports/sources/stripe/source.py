@@ -220,8 +220,7 @@ Once created, copy the **Signing secret** from the webhook details page and add 
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=_is_webhook_feature_flag_enabled(team_id)
-                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_incremental=False,
                 supports_webhooks=_is_webhook_feature_flag_enabled(team_id)
                 and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS

@@ -11,6 +11,7 @@ export const getCategoryDisplayName = (category: string): string => {
         early_access_feature: 'Early access features',
         suggested: 'Suggested',
         recents: 'Recents',
+        starred: 'Starred',
         folders: 'Folders',
         persons: 'Persons',
         groups: 'Groups',

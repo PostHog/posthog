@@ -2,7 +2,6 @@
 
 import grpc
 
-from ....personhog.leader.v1 import leader_pb2 as personhog_dot_leader_dot_v1_dot_leader__pb2
 from ....personhog.types.v1 import (
     cohort_pb2 as personhog_dot_types_dot_v1_dot_cohort__pb2,
     feature_flag_pb2 as personhog_dot_types_dot_v1_dot_feature__flag__pb2,
@@ -162,8 +161,8 @@ class PersonHogServiceStub:
         )
         self.UpdatePersonProperties = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/UpdatePersonProperties",
-            request_serializer=personhog_dot_leader_dot_v1_dot_leader__pb2.UpdatePersonPropertiesRequest.SerializeToString,
-            response_deserializer=personhog_dot_leader_dot_v1_dot_leader__pb2.UpdatePersonPropertiesResponse.FromString,
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
             _registered_method=True,
         )
 
@@ -404,8 +403,8 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
         ),
         "UpdatePersonProperties": grpc.unary_unary_rpc_method_handler(
             servicer.UpdatePersonProperties,
-            request_deserializer=personhog_dot_leader_dot_v1_dot_leader__pb2.UpdatePersonPropertiesRequest.FromString,
-            response_serializer=personhog_dot_leader_dot_v1_dot_leader__pb2.UpdatePersonPropertiesResponse.SerializeToString,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -1035,8 +1034,8 @@ class PersonHogService:
             request,
             target,
             "/personhog.service.v1.PersonHogService/UpdatePersonProperties",
-            personhog_dot_leader_dot_v1_dot_leader__pb2.UpdatePersonPropertiesRequest.SerializeToString,
-            personhog_dot_leader_dot_v1_dot_leader__pb2.UpdatePersonPropertiesResponse.FromString,
+            personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
             options,
             channel_credentials,
             insecure,
