@@ -23,7 +23,7 @@ tools:
             List all notebooks in the project. Supports filtering by search term, created_by,
             last_modified_by, date_from, date_to, and contains. Returns title, short_id, and
             creation/modification metadata.
-        mcp_version: 1
+
     notebooks-create:
         operation: notebooks_create
         enabled: true
@@ -55,7 +55,7 @@ tools:
         description: >
             Get a specific notebook by its short_id. Returns the full notebook including
             title, content, version, and creation/modification metadata.
-        mcp_version: 1
+
     notebooks-update:
         operation: notebooks_update
         enabled: false

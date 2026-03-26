@@ -46,7 +46,7 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
     )
 
     // Don't show paths modal if aggregating by groups - paths is user-based!
-    if (querySource?.aggregation_group_type_index != undefined) {
+    if (querySource?.aggregation_group_type_index != null) {
         return null
     }
 

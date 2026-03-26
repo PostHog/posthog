@@ -7,10 +7,13 @@ from typing import Union
 import dagster
 from dagster import BackfillPolicy, DailyPartitionsDefinition
 
+from posthog.schema import ProductKey
+
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.dags.common import JobOwners, dagster_tags
 from posthog.models.web_preaggregated.sql import (
     REPLACE_WEB_BOUNCES_V2_STAGING_SQL,
@@ -106,7 +109,8 @@ def pre_aggregate_web_analytics_data(
 
         context.log.info(f"Populating staging table with hourly data from {date_start} to {date_end}")
         context.log.info(insert_query)
-        sync_execute(insert_query)
+        with tags_context(product=ProductKey.WEB_ANALYTICS, feature=Feature.PREAGGREGATION):
+            sync_execute(insert_query)
 
         # 3. Sync replicas before partition swapping to ensure consistency
         sync_partitions_on_replicas(context, cluster, staging_table_name)
