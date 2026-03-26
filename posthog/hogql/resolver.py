@@ -1541,7 +1541,13 @@ class Resolver(CloningVisitor):
             type = ast.AsteriskType(table_type=table_type)
 
         # Field in scope
-        if not type and len(node.chain) == 1 and name in scope.columns:
+        if (
+            not type
+            and len(node.chain) == 1
+            and self.dialect == "postgres"
+            and name.lower() in POSTGRES_KEYWORD_TYPES
+            and name in scope.columns
+        ):
             type = scope.get_child(name, self.context)
 
         if not type:
