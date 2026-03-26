@@ -1,1 +1,1 @@
-1070_add_unique_cohort_kind_per_team
+1071_move_tokens_to_sensitive_config
