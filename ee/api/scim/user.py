@@ -31,6 +31,14 @@ def _validate_email_domain_matches(email: str, organization_domain: Organization
         raise ValueError(f"Email domain '{email_domain}' does not match any verified domain for this organization")
 
 
+def _validate_email_change_allowed(user: User, new_email: str, organization_domain: OrganizationDomain) -> None:
+    """Block SCIM email changes for users who belong to other organizations (prevents cross-tenant account takeover)."""
+    if user.email.lower() == new_email.lower():
+        return
+    if OrganizationMembership.objects.filter(user=user).exclude(organization=organization_domain.organization).exists():
+        raise ValueError("Cannot change email for a user who belongs to other organizations")
+
+
 class PostHogSCIMUser(SCIMUser):
     """
     Adapter to map SCIM User schema to PostHog User model.
@@ -244,6 +252,7 @@ class PostHogSCIMUser(SCIMUser):
                 raise ValueError("Email belongs to another user")
 
             _validate_email_domain_matches(email, self._organization_domain)
+            _validate_email_change_allowed(self.obj, email, self._organization_domain)
 
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
@@ -349,6 +358,7 @@ class PostHogSCIMUser(SCIMUser):
 
                 if email:
                     _validate_email_domain_matches(email, self._organization_domain)
+                    _validate_email_change_allowed(self.obj, email, self._organization_domain)
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
@@ -411,6 +421,7 @@ class PostHogSCIMUser(SCIMUser):
 
                 if email:
                     _validate_email_domain_matches(email, self._organization_domain)
+                    _validate_email_change_allowed(self.obj, email, self._organization_domain)
                     self.obj.email = email
                     self.obj.save()
 

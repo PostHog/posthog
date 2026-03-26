@@ -415,6 +415,102 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         user = User.objects.get(id=user_id)
         assert user.email == "valid@example.com"
 
+    def _create_multi_org_user(self) -> tuple[str, Organization]:
+        """Create a SCIM-provisioned user who also belongs to another org."""
+        self.client.credentials(**self.scim_headers)
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users",
+            self._scim_user_data("victim@example.com"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        user_id = response.json()["id"]
+
+        other_org = Organization.objects.create(name="VictimOrg")
+        user = User.objects.get(id=user_id)
+        OrganizationMembership.objects.create(user=user, organization=other_org)
+
+        return user_id, other_org
+
+    def test_put_rejects_email_change_for_multi_org_user(self):
+        user_id, _other_org = self._create_multi_org_user()
+
+        # Add a second verified domain so the new email passes domain validation
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="partner.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            self._scim_user_data("attacker-controlled@partner.com"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        user = User.objects.get(id=user_id)
+        assert user.email == "victim@example.com"
+
+    def test_patch_replace_rejects_email_change_for_multi_org_user(self):
+        user_id, _other_org = self._create_multi_org_user()
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "replace", "path": "emails", "value": [{"value": "attacker@example.com"}]}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        user = User.objects.get(id=user_id)
+        assert user.email == "victim@example.com"
+
+    def test_patch_add_rejects_email_change_for_multi_org_user(self):
+        user_id, _other_org = self._create_multi_org_user()
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "add", "path": "emails", "value": [{"value": "attacker@example.com"}]}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        user = User.objects.get(id=user_id)
+        assert user.email == "victim@example.com"
+
+    def test_put_allows_email_change_for_single_org_user(self):
+        """Email changes should still work for users who only belong to the SCIM org."""
+        self.client.credentials(**self.scim_headers)
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="partner.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users",
+            self._scim_user_data("solo@example.com"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        user_id = response.json()["id"]
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            self._scim_user_data("solo@partner.com"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        user = User.objects.get(id=user_id)
+        assert user.email == "solo@partner.com"
+
 
 class TestSCIMAuditLogging(APILicensedTest):
     """Verify that SCIM mutations create activity log entries."""
