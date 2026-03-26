@@ -7,32 +7,32 @@ class TestPublicSourceConfigs(APIBaseTest):
     def test_list_returns_source_configs(self):
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
-        assert isinstance(response.json(), list)
-        assert len(response.json()) > 0
 
-        first = response.json()[0]
-        assert "name" in first
-        assert "label" in first
-        assert "iconPath" in first
+        data = response.json()
+        assert isinstance(data, dict)
+        assert len(data) > 0
 
-    def test_does_not_expose_sensitive_fields(self):
+        first_config = next(iter(data.values()))
+        assert "name" in first_config
+        assert "label" in first_config
+        assert "iconPath" in first_config
+        assert "fields" in first_config
+
+    def test_matches_wizard_response(self):
+        """Public endpoint should return the same data as the authenticated /wizard endpoint."""
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
 
-        for source in response.json():
-            assert "fields" not in source
-            assert "webhookFields" not in source
+        wizard_response = self.client.get("/api/environments/@current/external_data_sources/wizard/")
+        assert wizard_response.status_code == status.HTTP_200_OK
+
+        assert response.json() == wizard_response.json()
 
     def test_accessible_without_authentication(self):
         self.client.logout()
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
-        assert isinstance(response.json(), list)
-        assert len(response.json()) > 0
 
-    def test_results_are_sorted_alphabetically(self):
-        response = self.client.get("/api/public_source_configs/")
-        assert response.status_code == status.HTTP_200_OK
-
-        labels = [s.get("label") or s.get("name") or "" for s in response.json()]
-        assert labels == sorted(labels, key=str.lower)
+        data = response.json()
+        assert isinstance(data, dict)
+        assert len(data) > 0
