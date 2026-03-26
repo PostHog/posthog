@@ -20,7 +20,7 @@ pub async fn handle_request(
     path: MatchedPath,
     body: Body,
 ) -> Result<Response, v1::Error> {
-    let context = Context::new(&headers, &ip, &query, method.clone(), path.as_str())
+    let mut context = Context::new(&headers, &ip, &query, method.clone(), path.as_str())
         .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
 
     // TODO: purposely chatty, for now
@@ -78,7 +78,7 @@ pub async fn handle_request(
         return Err(err);
     }
 
-    match super::process::process_batch(&state, &context, batch).await {
+    match super::process::process_batch(&state, &mut context, batch).await {
         Ok(resp) => Ok(resp),
         Err(err) => {
             log_stat_error!(err, ctx = &context);

@@ -19,12 +19,13 @@ const FUTURE_EVENT_HOURS_CUTOFF_MS: i64 = 23 * 3600 * 1000;
 
 pub async fn process_batch(
     state: &router::State,
-    context: &Context,
+    context: &mut Context,
     batch: CaptureV1Batch,
 ) -> Result<Response, Error> {
     tracing::info!(ctx = ?context, "process_batch called");
 
     validate_batch(&batch)?;
+    context.set_batch_metadata(&batch.metadata);
 
     let mut events: Vec<WrappedEvent> = validate_events(context, batch);
 
@@ -46,10 +47,10 @@ pub async fn process_batch(
 }
 
 fn validate_batch(batch: &CaptureV1Batch) -> Result<(), Error> {
-    DateTime::parse_from_rfc3339(&batch.created_at).map_err(|_| {
+    DateTime::parse_from_rfc3339(&batch.metadata.created_at).map_err(|_| {
         Error::InvalidBatch(format!(
             "created_at is not valid RFC 3339: {}",
-            batch.created_at
+            batch.metadata.created_at
         ))
     })?;
 
@@ -245,7 +246,7 @@ mod tests {
     use crate::event_restrictions::{
         Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
-    use crate::v1::analytics::types::{CaptureV1Batch, CaptureV1Event};
+    use crate::v1::analytics::types::{BatchMetadata, CaptureV1Batch, CaptureV1Event};
     use crate::v1::sinks::Destination;
     use crate::v1::Error;
 
@@ -261,7 +262,11 @@ mod tests {
 
     fn valid_batch(events: Vec<CaptureV1Event>) -> CaptureV1Batch {
         CaptureV1Batch {
-            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            metadata: BatchMetadata {
+                created_at: "2026-03-19T14:30:00.000Z".to_string(),
+                historical_migration: false,
+                capture_internal: false,
+            },
             batch: events,
         }
     }
@@ -277,7 +282,11 @@ mod tests {
     #[test]
     fn batch_bad_created_at() {
         let batch = CaptureV1Batch {
-            created_at: "not-a-timestamp".to_string(),
+            metadata: BatchMetadata {
+                created_at: "not-a-timestamp".to_string(),
+                historical_migration: false,
+                capture_internal: false,
+            },
             batch: vec![valid_event()],
         };
         let err = validate_batch(&batch).unwrap_err();

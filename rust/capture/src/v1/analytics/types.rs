@@ -7,8 +7,17 @@ use serde_json::Value;
 use crate::v1::sinks::Destination;
 
 #[derive(Debug, Deserialize)]
-pub struct CaptureV1Batch {
+pub struct BatchMetadata {
     pub created_at: String,
+    #[serde(default)]
+    pub historical_migration: bool,
+    #[serde(default)]
+    pub capture_internal: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CaptureV1Batch {
+    pub metadata: BatchMetadata,
     pub batch: Vec<CaptureV1Event>,
 }
 
@@ -78,7 +87,7 @@ mod tests {
     #[test]
     fn parse_valid_batch() {
         let json = r#"{
-            "created_at": "2026-03-19T14:30:00.000Z",
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
             "batch": [{
                 "event": "$pageview",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
@@ -88,7 +97,9 @@ mod tests {
         }"#;
 
         let batch: CaptureV1Batch = serde_json::from_str(json).unwrap();
-        assert_eq!(batch.created_at, "2026-03-19T14:30:00.000Z");
+        assert_eq!(batch.metadata.created_at, "2026-03-19T14:30:00.000Z");
+        assert!(!batch.metadata.historical_migration);
+        assert!(!batch.metadata.capture_internal);
         assert_eq!(batch.batch.len(), 1);
 
         let event = &batch.batch[0];
@@ -102,7 +113,7 @@ mod tests {
     #[test]
     fn parse_batch_with_properties() {
         let json = r#"{
-            "created_at": "2026-03-19T14:30:00.000Z",
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
             "batch": [{
                 "event": "$identify",
                 "uuid": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
@@ -130,6 +141,7 @@ mod tests {
     #[test]
     fn parse_batch_missing_created_at() {
         let json = r#"{
+            "metadata": {},
             "batch": [{
                 "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
@@ -142,14 +154,14 @@ mod tests {
 
     #[test]
     fn parse_batch_missing_batch_field() {
-        let json = r#"{"created_at": "2026-03-19T14:30:00.000Z"}"#;
+        let json = r#"{"metadata": {"created_at": "2026-03-19T14:30:00.000Z"}}"#;
         assert!(serde_json::from_str::<CaptureV1Batch>(json).is_err());
     }
 
     #[test]
     fn parse_event_missing_event_name() {
         let json = r#"{
-            "created_at": "2026-03-19T14:30:00.000Z",
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
             "batch": [{
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d",
@@ -162,7 +174,7 @@ mod tests {
     #[test]
     fn parse_event_missing_uuid() {
         let json = r#"{
-            "created_at": "2026-03-19T14:30:00.000Z",
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
             "batch": [{
                 "event": "e",
                 "distinct_id": "d",
@@ -175,7 +187,7 @@ mod tests {
     #[test]
     fn parse_event_missing_distinct_id() {
         let json = r#"{
-            "created_at": "2026-03-19T14:30:00.000Z",
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
             "batch": [{
                 "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
@@ -188,7 +200,7 @@ mod tests {
     #[test]
     fn parse_event_missing_timestamp() {
         let json = r#"{
-            "created_at": "2026-03-19T14:30:00.000Z",
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
             "batch": [{
                 "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
@@ -200,7 +212,7 @@ mod tests {
 
     #[test]
     fn parse_batch_empty_array() {
-        let json = r#"{"created_at": "2026-03-19T14:30:00.000Z", "batch": []}"#;
+        let json = r#"{"metadata": {"created_at": "2026-03-19T14:30:00.000Z"}, "batch": []}"#;
         let batch: CaptureV1Batch = serde_json::from_str(json).unwrap();
         assert!(batch.batch.is_empty());
     }
@@ -208,7 +220,7 @@ mod tests {
     #[test]
     fn parse_batch_extra_fields_ignored() {
         let json = r#"{
-            "created_at": "2026-03-19T14:30:00.000Z",
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z", "unknown_meta_field": 99 },
             "unknown_top_field": true,
             "batch": [{
                 "event": "e",
@@ -221,6 +233,47 @@ mod tests {
         let batch: CaptureV1Batch = serde_json::from_str(json).unwrap();
         assert_eq!(batch.batch.len(), 1);
         assert_eq!(batch.batch[0].event, "e");
+    }
+
+    #[test]
+    fn parse_batch_metadata_defaults() {
+        let json = r#"{
+            "metadata": { "created_at": "2026-03-19T14:30:00.000Z" },
+            "batch": []
+        }"#;
+        let batch: CaptureV1Batch = serde_json::from_str(json).unwrap();
+        assert_eq!(batch.metadata.created_at, "2026-03-19T14:30:00.000Z");
+        assert!(!batch.metadata.historical_migration);
+        assert!(!batch.metadata.capture_internal);
+    }
+
+    #[test]
+    fn parse_batch_metadata_explicit_true() {
+        let json = r#"{
+            "metadata": {
+                "created_at": "2026-03-19T14:30:00.000Z",
+                "historical_migration": true,
+                "capture_internal": true
+            },
+            "batch": []
+        }"#;
+        let batch: CaptureV1Batch = serde_json::from_str(json).unwrap();
+        assert_eq!(batch.metadata.created_at, "2026-03-19T14:30:00.000Z");
+        assert!(batch.metadata.historical_migration);
+        assert!(batch.metadata.capture_internal);
+    }
+
+    #[test]
+    fn parse_batch_missing_metadata() {
+        let json = r#"{
+            "batch": [{
+                "event": "e",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "d",
+                "timestamp": "2026-03-19T14:30:00.000Z"
+            }]
+        }"#;
+        assert!(serde_json::from_str::<CaptureV1Batch>(json).is_err());
     }
 
     #[test]

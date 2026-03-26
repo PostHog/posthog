@@ -37,6 +37,9 @@ pub struct Context {
     pub method: Method,
     pub path: String,
     pub server_received_at: DateTime<Utc>,
+    pub created_at: Option<String>,
+    pub capture_internal: bool,
+    pub historical_migration: bool,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -163,7 +166,16 @@ impl Context {
             method,
             path: path.to_string(),
             server_received_at: Utc::now(),
+            created_at: None,
+            capture_internal: false,
+            historical_migration: false,
         })
+    }
+
+    pub fn set_batch_metadata(&mut self, metadata: &crate::v1::analytics::types::BatchMetadata) {
+        self.created_at = Some(metadata.created_at.clone());
+        self.capture_internal = metadata.capture_internal;
+        self.historical_migration = metadata.historical_migration;
     }
 }
 
@@ -223,6 +235,9 @@ mod tests {
         assert_eq!(ctx.content_type, "application/json");
         assert!(ctx.authorization.is_none());
         assert!(ctx.content_encoding.is_none());
+        assert!(ctx.created_at.is_none());
+        assert!(!ctx.capture_internal);
+        assert!(!ctx.historical_migration);
     }
 
     #[test]
