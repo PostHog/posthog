@@ -38,8 +38,8 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter } = useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter } = useActions(symbolSetLogic)
+    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading } = useValues(symbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets } = useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -57,14 +57,48 @@ export function SymbolSets(): JSX.Element {
                 will only apply to all future exceptions ingested.
             </p>
             <div className="space-y-2">
-                <div className="flex justify-end items-center gap-2">
-                    <span className="mb-0">Status:</span>
-                    <LemonSegmentedButton
-                        size="xsmall"
-                        value={symbolSetStatusFilter}
-                        options={SYMBOL_SET_FILTER_OPTIONS}
-                        onChange={setSymbolSetStatusFilter}
-                    />
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        {selectedSymbolSetIds.length > 0 && (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    icon={<IconTrash />}
+                                    loading={deleteSymbolSetResponseLoading}
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: 'Delete symbol sets',
+                                            description: `Are you sure you want to delete ${pluralize(selectedSymbolSetIds.length, 'symbol set', 'symbol sets')}?`,
+                                            secondaryButton: {
+                                                type: 'secondary',
+                                                children: 'Cancel',
+                                            },
+                                            primaryButton: {
+                                                type: 'primary',
+                                                status: 'danger',
+                                                onClick: () => bulkDeleteSymbolSets(),
+                                                children: 'Delete',
+                                            },
+                                        })
+                                    }
+                                >
+                                    Delete
+                                </LemonButton>
+                                <span className="text-sm font-medium">{selectedSymbolSetIds.length} selected</span>
+                            </>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="mb-0">Status:</span>
+                        <LemonSegmentedButton
+                            size="xsmall"
+                            value={symbolSetStatusFilter}
+                            options={SYMBOL_SET_FILTER_OPTIONS}
+                            onChange={setSymbolSetStatusFilter}
+                        />
+                    </div>
                 </div>
                 <SymbolSetTable />
             </div>
@@ -84,13 +118,8 @@ const SymbolSetTable = (): JSX.Element => {
         shiftKeyHeld,
         previouslyCheckedIndex,
     } = useValues(symbolSetLogic)
-    const {
-        deleteSymbolSet,
-        setSymbolSetOrder,
-        setSelectedSymbolSetIds,
-        bulkDeleteSymbolSets,
-        setPreviouslyCheckedIndex,
-    } = useActions(symbolSetLogic)
+    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, setPreviouslyCheckedIndex } =
+        useActions(symbolSetLogic)
 
     const someSelected = selectedSymbolSetIds.length > 0 && selectedSymbolSetIds.length < symbolSets.length
     const allSelected = symbolSets.length > 0 && selectedSymbolSetIds.length === symbolSets.length
@@ -235,46 +264,14 @@ const SymbolSetTable = (): JSX.Element => {
     )
 
     return (
-        <div className="space-y-2">
-            {selectedSymbolSetIds.length > 0 && (
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        size="small"
-                        icon={<IconTrash />}
-                        loading={deleteSymbolSetResponseLoading}
-                        onClick={() =>
-                            LemonDialog.open({
-                                title: 'Delete symbol sets',
-                                description: `Are you sure you want to delete ${pluralize(selectedSymbolSetIds.length, 'symbol set', 'symbol sets')}?`,
-                                secondaryButton: {
-                                    type: 'secondary',
-                                    children: 'Cancel',
-                                },
-                                primaryButton: {
-                                    type: 'primary',
-                                    status: 'danger',
-                                    onClick: () => bulkDeleteSymbolSets(),
-                                    children: 'Delete',
-                                },
-                            })
-                        }
-                    >
-                        Delete
-                    </LemonButton>
-                    <span className="text-sm font-medium">{selectedSymbolSetIds.length} selected</span>
-                </div>
-            )}
-            <LemonTable
-                id="symbol-sets"
-                pagination={pagination}
-                columns={columns}
-                loading={symbolSetResponseLoading || deleteSymbolSetResponseLoading}
-                dataSource={symbolSets}
-                emptyState={!symbolSetResponseLoading && !deleteSymbolSetResponseLoading ? emptyState : undefined}
-            />
-        </div>
+        <LemonTable
+            id="symbol-sets"
+            pagination={pagination}
+            columns={columns}
+            loading={symbolSetResponseLoading || deleteSymbolSetResponseLoading}
+            dataSource={symbolSets}
+            emptyState={!symbolSetResponseLoading && !deleteSymbolSetResponseLoading ? emptyState : undefined}
+        />
     )
 }
 
