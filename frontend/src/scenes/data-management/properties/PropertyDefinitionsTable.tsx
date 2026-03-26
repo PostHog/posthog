@@ -2,7 +2,7 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOptions, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -19,6 +19,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
+
+const verifiedOptions: LemonSelectOptions<string> = [
+    { value: 'all', label: 'All', 'data-attr': 'verified-option-all' },
+    { value: 'verified', label: 'Verified only', 'data-attr': 'verified-option-verified' },
+    { value: 'unverified', label: 'Unverified only', 'data-attr': 'verified-option-unverified' },
+]
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
@@ -94,7 +100,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Query with SQL
                 </Link>
             </LemonBanner>
-            <div className={cn('flex gap-2 flex-wrap')}>
+            <div className={cn('flex gap-2 flex-wrap items-center')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"
@@ -105,6 +111,19 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     options={propertyTypeOptions}
                     value={`${filters.type}::${filters.group_type_index ?? ''}`}
                     onSelect={setPropertyType}
+                />
+                <span>Verified:</span>
+                <LemonSelect
+                    value={filters.verified === undefined ? 'all' : filters.verified ? 'verified' : 'unverified'}
+                    options={verifiedOptions}
+                    data-attr="property-verified-filter"
+                    dropdownMatchSelectWidth={false}
+                    onChange={(value) => {
+                        setFilters({
+                            verified: value === 'all' ? undefined : value === 'verified' ? true : false,
+                        })
+                    }}
+                    size="small"
                 />
             </div>
             <LemonTable
