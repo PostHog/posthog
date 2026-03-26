@@ -366,7 +366,7 @@ services:
             - 'seaweedfs-data:/data'
 
     duckgres:
-        image: ${DUCKGRES_IMAGE:-ghcr.io/posthog/duckgres:ecc8bc48daf68a17f7cd4d0f7900b919d32b1b91}
+        image: ghcr.io/posthog/duckgres:latest
         restart: on-failure
         profiles: ['duckgres']
         ports:
