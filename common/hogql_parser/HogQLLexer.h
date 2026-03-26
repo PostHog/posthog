@@ -89,7 +89,7 @@ public:
           /* consume to EOL or EOF */
           while (true) {
               ch = _input->LA(i);
-              if (ch == 0 || ch == '\n' || ch == '\r')
+              if (ch <= 0 || ch == '\n' || ch == '\r')
                   break;
               ++i;
           }

@@ -587,8 +587,8 @@ importers:
         specifier: ^0.0.48
         version: 0.0.48(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/hogql-parser':
-        specifier: 1.3.32
-        version: 1.3.32
+        specifier: 1.3.34
+        version: 1.3.34
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -895,6 +895,12 @@ importers:
       d3:
         specifier: ^7.9.0
         version: 7.9.0
+      d3-array:
+        specifier: ^3.2.4
+        version: 3.2.4
+      d3-flame-graph:
+        specifier: ^5.0.0
+        version: 5.0.0
       dayjs:
         specifier: 1.11.11
         version: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
@@ -8106,8 +8112,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/hogql-parser@1.3.32':
-    resolution: {integrity: sha512-vE0ppfD9DkJtIQmfMZM6Rkl2GevQSUBg8X8tsqGOGuYXdMTTY34GFYx0Y6HgNYJcBUGC4DqgxiypChN+osRkjw==}
+  '@posthog/hogql-parser@1.3.34':
+    resolution: {integrity: sha512-1v/ExDG+HrG2940IyPcOQLbwkxQ4EzUO7hueT+m4QoBnIc0PFeUO2g20lLD0/t5qDHQffAZ5QaZkw7/nIDDhCQ==}
 
   '@posthog/icons@0.36.4':
     resolution: {integrity: sha512-xnusbGNz/5vSMUWdEViWuai7D/gxiMZSDDnP6s/acndMqzN+W4asPUgUNnTUps7OyAS1IKaO9zxhdikFrtooJA==}
@@ -13276,8 +13282,8 @@ packages:
     resolution: {integrity: sha512-YGZxdTTL9lmLkCUTpg4j0zQ7IhRB5ZmqNBbGCl3Tg6MP/d5/6sY7L5mmTjzbc6JKgVZYiqTQTNhPFsbXNGlRaA==}
     engines: {node: '>=0.8'}
 
-  d3-array@3.2.2:
-    resolution: {integrity: sha512-yEEyEAbDrF8C6Ob2myOBLjwBLck1Z89jMGFee0oPsn95GqjerpaOA4ch+vc2l0FNFFwMD5N7OCSEN5eAlsUbgQ==}
+  d3-array@3.2.4:
+    resolution: {integrity: sha512-tdQAmyA18i4J7wprpYq8ClcxZy3SC31QMeByyCFyRt7BVHdREQZ5lpzoe5mFEYZUWe+oq8HBvk9JjpibyEV4Jg==}
     engines: {node: '>=12'}
 
   d3-axis@3.0.0:
@@ -13324,6 +13330,9 @@ packages:
   d3-fetch@3.0.1:
     resolution: {integrity: sha512-kpkQIM20n3oLVBKGg6oHrUchHM3xODkTzjMoj7aWQFq5QEM+R6E4WkzT5+tojDY7yjez8KgCBRoj4aEr99Fdqw==}
     engines: {node: '>=12'}
+
+  d3-flame-graph@5.0.0:
+    resolution: {integrity: sha512-ALZQ4at8Dex8HCoj9D5p5TY6gLNEc2vAZAy+NKO/6GLEfhYJmGxYuRClO6RPoplndyOHxQTPipdlGeMggkjtnQ==}
 
   d3-force@3.0.0:
     resolution: {integrity: sha512-zxV/SsA+U4yte8051P4ECydjD/S+qeYtnaIyAs9tgHCqfguma/aAQDjo85A9Z6EKhBirHRJHXIgJUlffT4wdLg==}
@@ -29436,7 +29445,7 @@ snapshots:
     transitivePeerDependencies:
       - prop-types
 
-  '@posthog/hogql-parser@1.3.32': {}
+  '@posthog/hogql-parser@1.3.34': {}
 
   '@posthog/icons@0.36.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
@@ -35919,7 +35928,7 @@ snapshots:
       find-pkg: 0.1.2
       fs-exists-sync: 0.1.0
 
-  d3-array@3.2.2:
+  d3-array@3.2.4:
     dependencies:
       internmap: 1.0.1
 
@@ -35941,7 +35950,7 @@ snapshots:
 
   d3-contour@4.0.2:
     dependencies:
-      d3-array: 3.2.2
+      d3-array: 3.2.4
 
   d3-delaunay@6.0.2:
     dependencies:
@@ -35966,6 +35975,17 @@ snapshots:
     dependencies:
       d3-dsv: 3.0.1
 
+  d3-flame-graph@5.0.0:
+    dependencies:
+      d3-array: 3.2.4
+      d3-dispatch: 3.0.1
+      d3-ease: 3.0.1
+      d3-format: 3.1.0
+      d3-hierarchy: 3.1.2
+      d3-scale: 4.0.2
+      d3-selection: 3.0.0
+      d3-transition: 3.0.1(d3-selection@3.0.0)
+
   d3-force@3.0.0:
     dependencies:
       d3-dispatch: 3.0.1
@@ -35976,7 +35996,7 @@ snapshots:
 
   d3-geo@3.1.0:
     dependencies:
-      d3-array: 3.2.2
+      d3-array: 3.2.4
 
   d3-hierarchy@3.1.2: {}
 
@@ -35999,7 +36019,7 @@ snapshots:
 
   d3-scale@4.0.2:
     dependencies:
-      d3-array: 3.2.2
+      d3-array: 3.2.4
       d3-format: 3.1.0
       d3-interpolate: 3.0.1
       d3-time: 3.1.0
@@ -36017,7 +36037,7 @@ snapshots:
 
   d3-time@3.1.0:
     dependencies:
-      d3-array: 3.2.2
+      d3-array: 3.2.4
 
   d3-timer@3.0.1: {}
 
@@ -36040,7 +36060,7 @@ snapshots:
 
   d3@7.9.0:
     dependencies:
-      d3-array: 3.2.2
+      d3-array: 3.2.4
       d3-axis: 3.0.0
       d3-brush: 3.0.0
       d3-chord: 3.0.1

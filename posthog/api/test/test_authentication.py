@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -1907,6 +1908,25 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
+
+    @parameterized.expand(
+        [
+            ("public_token", "phc_test_public_token"),
+            ("non_prefixed_token", "some_random_token_without_prefix"),
+            ("empty_string", ""),
+            ("integer_value", 12345),
+        ]
+    )
+    def test_authenticate_with_invalid_token_in_body_rejected(self, _name, token_value):
+        data = json.dumps({"secret_api_key": token_value})
+        wsgi_request = self.factory.post("/", data=data, content_type="application/json")
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
 
 
 @override_settings(

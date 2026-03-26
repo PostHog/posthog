@@ -1,1 +1,1 @@
-1067_migrate_dashboards_models
+1069_migrate_dashboards_models

@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1066_alter_insight_saved"),
+        ("posthog", "1068_remove_deprecated_evaluation_tag_models"),
     ]
 
     operations = [
@@ -353,6 +353,13 @@ class Migration(migrations.Migration):
                                 blank=True,
                                 null=True,
                                 size=None,
+                            ),
+                        ),
+                        (
+                            "is_featured",
+                            models.BooleanField(
+                                default=False,
+                                help_text="Manually curated; used to highlight templates in the UI.",
                             ),
                         ),
                         (

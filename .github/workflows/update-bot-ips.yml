@@ -43,28 +43,51 @@ jobs:
                     git diff --stat nodejs/assets/bot-ips.txt
                   fi
 
-            - name: Create Pull Request
+            - name: Clean up stale branch
+              if: steps.check-changes.outputs.changes == 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-bot-ips" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    gh pr close "$existing_pr" --delete-branch || true
+                    echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Commit via GitHub API (signed)
               if: steps.check-changes.outputs.changes == 'true'
-              uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v8.0.0
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  token: ${{ steps.app-token.outputs.token }}
-                  commit-message: 'Update bot IPs from GoodBots repository'
-                  title: 'chore(ci): Update bot IPs from GoodBots repository'
-                  body: |
-                      This PR updates the bot IPs list from the [GoodBots repository](https://github.com/AnTheMaker/GoodBots).
+                  commit_message: 'Update bot IPs from GoodBots repository'
+                  repo: ${{ github.repository }}
+                  branch: chore/update-bot-ips
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
-                      **Changes:**
-                      - Updated `nodejs/assets/bot-ips.txt` with latest bot IPs
+            - name: Create pull request
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-bot-ips" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    echo "PR #$existing_pr already exists — updated by commit"
+                  else
+                    gh pr create \
+                      --title "chore(ci): Update bot IPs from GoodBots repository" \
+                      --body "$(cat <<'BODY'
+                  This PR updates the bot IPs list from the [GoodBots repository](https://github.com/AnTheMaker/GoodBots).
 
-                      **Source:** https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips
+                  **Changes:**
+                  - Updated `nodejs/assets/bot-ips.txt` with latest bot IPs
 
-                      This is an automated update that runs daily.
-                  base: master
-                  delete-branch: true
-                  labels: |
-                      automated
-                      bot-ips
-                      dependencies
-                  reviewers: |
-                      PostHog/team-workflows
-                      PostHog/team-ingestion
+                  **Source:** https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips
+
+                  This is an automated update that runs daily.
+                  BODY
+                  )" \
+                      --base master \
+                      --head chore/update-bot-ips \
+                      --label "automated" --label "bot-ips" --label "dependencies" \
+                      --reviewer "PostHog/team-workflows" --reviewer "PostHog/team-ingestion"
+                  fi

@@ -361,6 +361,28 @@ class EnterpriseExperimentsViewSet(
         resumed_experiment = service.resume_experiment(experiment, request=request)
         return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def reset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reset an experiment back to draft state.
+
+        Clears start/end dates, conclusion, and archived flag. The feature
+        flag is left unchanged — users continue to see their assigned variants.
+
+        Previously collected events still exist but won't be included in
+        results unless the start date is manually adjusted after re-launch.
+
+        Returns 400 if the experiment is already in draft state.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        reset_experiment = service.reset_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(reset_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
@@ -422,7 +444,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
-        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
+        - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -447,7 +469,7 @@ class EnterpriseExperimentsViewSet(
             created_by_id=request.query_params.get("created_by_id"),
             order=request.query_params.get("order"),
             evaluation_runtime=request.query_params.get("evaluation_runtime"),
-            has_evaluation_tags=request.query_params.get("has_evaluation_tags"),
+            has_evaluation_contexts=request.query_params.get("has_evaluation_contexts"),
         )
 
         # Serialize using the standard FeatureFlagSerializer

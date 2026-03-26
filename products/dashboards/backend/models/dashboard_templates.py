@@ -39,6 +39,10 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     github_url = models.CharField(max_length=8201, null=True, blank=True)
     # where this template is available, e.g. "general" and/or "onboarding"
     availability_contexts = ArrayField(models.CharField(max_length=255), blank=True, null=True)
+    is_featured = models.BooleanField(
+        default=False,
+        help_text="Manually curated; used to highlight templates in the UI.",
+    )
 
     class Meta:
         constraints = [

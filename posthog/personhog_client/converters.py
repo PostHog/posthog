@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid as uuid_mod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -63,7 +64,7 @@ def proto_person_to_model(
 
     obj = PersonModel(
         id=person.id,
-        uuid=person.uuid,
+        uuid=uuid_mod.UUID(person.uuid) if person.uuid else None,
         team_id=person.team_id,
         properties=json.loads(person.properties) if person.properties else {},
         is_identified=person.is_identified,
