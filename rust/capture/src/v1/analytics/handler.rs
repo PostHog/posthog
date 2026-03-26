@@ -6,7 +6,7 @@ use axum_client_ip::InsecureClientIp;
 use super::header::*;
 use super::query::Query;
 use super::response::Response;
-use super::types::CaptureV1Batch;
+use super::types::Batch;
 use crate::global_rate_limiter::GlobalRateLimitKey;
 use crate::v1::context::Context;
 use crate::{log_stat_error, router, v1};
@@ -51,7 +51,7 @@ pub async fn handle_request(
         err
     })?;
 
-    let batch: CaptureV1Batch = serde_json::from_slice(&payload).map_err(|e| {
+    let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
         let err = v1::Error::RequestParsingError(e.to_string());
         log_stat_error!(err, ctx = &context);
         err
