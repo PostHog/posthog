@@ -252,6 +252,196 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
 
+class TestResourceAccessControlsSecurityValidation(BaseAccessControlTest):
+    """
+    Regression tests for privilege escalation via resource_access_controls endpoint.
+
+    The resource_access_controls endpoint (is_resource_level=True) must only be available
+    on the project viewset. If exposed on other viewsets (notebooks, dashboards, etc.),
+    an attacker could use an object they own to bypass authorization checks and write
+    arbitrary access controls for any resource, including the project itself.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="0", title="attacker notebook"
+        )
+
+    def test_resource_access_controls_rejected_on_notebook_viewset(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {"resource": "project", "access_level": "admin"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_resource_access_controls_get_rejected_on_notebook_viewset(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_resource_access_controls_rejected_on_dashboard_viewset(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="attacker dashboard")
+        res = self.client.put(
+            f"/api/projects/@current/dashboards/{dashboard.id}/resource_access_controls",
+            {"resource": "project", "access_level": "admin"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_cannot_escalate_to_project_admin_via_own_notebook(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {
+                "resource": "project",
+                "resource_id": str(self.team.id),
+                "organization_member": str(self.organization_membership.id),
+                "access_level": "admin",
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_cannot_write_arbitrary_resource_controls_via_own_notebook(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_resource_access_controls_allowed_on_project_viewset(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "dashboard", "access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_resource_access_controls_with_spoofed_resource_id_rejected(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="target dashboard")
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {
+                "resource": "dashboard",
+                "resource_id": str(dashboard.id),
+                "access_level": "none",
+            },
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Cannot modify access controls for a resource different from the URL target" in res.json()["detail"]
+
+
+class TestResourceAccessControlsViaProjectId(BaseAccessControlTest):
+    """
+    Tests that the resource_access_controls endpoint works correctly when
+    addressed via an explicit project ID (e.g. PUT /api/projects/<id>/resource_access_controls)
+    rather than the @current alias.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="0", title="attacker notebook"
+        )
+
+    def _project_url(self, suffix: str) -> str:
+        return f"/api/projects/{self.project.id}/{suffix}"
+
+    def test_put_resource_access_controls_via_project_id_succeeds_for_admin(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["resource"] == "dashboard"
+        assert res.json()["access_level"] == "editor"
+
+    def test_get_resource_access_controls_via_project_id_succeeds_for_admin(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get(self._project_url("resource_access_controls"))
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert "access_controls" in res.json()
+
+    def test_put_resource_access_controls_via_project_id_rejected_for_member(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_put_resource_access_controls_via_project_id_creates_correct_access_control(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "notebook", "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        ac = AccessControl.objects.get(team=self.team, resource="notebook", resource_id=None)
+        assert ac.access_level == "viewer"
+        assert ac.organization_member is None
+        assert ac.role is None
+
+    def test_put_resource_access_controls_via_project_id_with_spoofed_resource_id_rejected(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="target")
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {
+                "resource": "dashboard",
+                "resource_id": str(dashboard.id),
+                "access_level": "none",
+            },
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Cannot modify access controls for a resource different from the URL target" in res.json()["detail"]
+
+    def test_member_cannot_escalate_via_notebook_to_project_resource_access_controls(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/{self.project.id}/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {
+                "resource": "project",
+                "resource_id": str(self.team.id),
+                "organization_member": str(self.organization_membership.id),
+                "access_level": "admin",
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_delete_resource_access_control_via_project_id(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert AccessControl.objects.filter(team=self.team, resource="dashboard", resource_id=None).exists()
+
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": None},
+        )
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        assert not AccessControl.objects.filter(team=self.team, resource="dashboard", resource_id=None).exists()
+
+
 class TestUsersWithAccessAPI(BaseAccessControlTest):
     """Test the new users_with_access endpoint"""
 

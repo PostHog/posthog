@@ -76,6 +76,7 @@
         "fsevents": "^2.3.3"
     },
     "lint-staged": {
+        ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
         "products/**/manifest.tsx": [
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"

@@ -32662,6 +32662,22 @@
             "required": ["source_product"],
             "type": "object"
         },
+        "SignalSourceProduct": {
+            "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
+            "type": "string"
+        },
+        "SignalSourceType": {
+            "enum": [
+                "session_analysis_cluster",
+                "evaluation",
+                "issue",
+                "ticket",
+                "issue_created",
+                "issue_reopened",
+                "issue_spiking"
+            ],
+            "type": "string"
+        },
         "SimilarIssue": {
             "additionalProperties": false,
             "properties": {
