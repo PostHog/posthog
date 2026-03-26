@@ -40,7 +40,7 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
-        "generate:personhog-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.yaml --path personhog/service --path personhog/types --path personhog/leader .",
+        "generate:personhog-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.yaml --path personhog/service --path personhog/types .",
         "update-ai-costs": "ts-node src/ingestion/ai/costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
         "start:recording-rasterizer": "node dist/session-replay/recording-rasterizer/index.js"

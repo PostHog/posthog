@@ -13,7 +13,7 @@ import { file_personhog_types_v1_common } from './common_pb'
 export const file_personhog_types_v1_person: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvcGVyc29uLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEingIKBlBlcnNvbhIKCgJpZBgBIAEoAxIMCgR1dWlkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEgoKcHJvcGVydGllcxgEIAEoDBIiChpwcm9wZXJ0aWVzX2xhc3RfdXBkYXRlZF9hdBgFIAEoDBIhChlwcm9wZXJ0aWVzX2xhc3Rfb3BlcmF0aW9uGAYgASgMEhIKCmNyZWF0ZWRfYXQYByABKAMSDwoHdmVyc2lvbhgIIAEoAxIVCg1pc19pZGVudGlmaWVkGAkgASgIEhcKCmlzX3VzZXJfaWQYCiABKAhIAIgBARIZCgxsYXN0X3NlZW5fYXQYCyABKANIAYgBAUINCgtfaXNfdXNlcl9pZEIPCg1fbGFzdF9zZWVuX2F0Ik4KFURpc3RpbmN0SWRXaXRoVmVyc2lvbhITCgtkaXN0aW5jdF9pZBgBIAEoCRIUCgd2ZXJzaW9uGAIgASgDSACIAQFCCgoIX3ZlcnNpb24iaAoVUGVyc29uV2l0aERpc3RpbmN0SWRzEhMKC2Rpc3RpbmN0X2lkGAEgASgJEi8KBnBlcnNvbhgCIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25IAIgBAUIJCgdfcGVyc29uImcKEVBlcnNvbkRpc3RpbmN0SWRzEhEKCXBlcnNvbl9pZBgBIAEoAxI/CgxkaXN0aW5jdF9pZHMYAiADKAsyKS5wZXJzb25ob2cudHlwZXMudjEuRGlzdGluY3RJZFdpdGhWZXJzaW9uIocBChhQZXJzb25XaXRoVGVhbURpc3RpbmN0SWQSLwoDa2V5GAEgASgLMiIucGVyc29uaG9nLnR5cGVzLnYxLlRlYW1EaXN0aW5jdElkEi8KBnBlcnNvbhgCIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25IAIgBAUIJCgdfcGVyc29uIm0KEEdldFBlcnNvblJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIRCglwZXJzb25faWQYAiABKAMSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIk8KEUdldFBlcnNvblJlc3BvbnNlEi8KBnBlcnNvbhgBIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25IAIgBAUIJCgdfcGVyc29uIm8KEUdldFBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEgoKcGVyc29uX2lkcxgCIAMoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiUwoPUGVyc29uc1Jlc3BvbnNlEisKB3BlcnNvbnMYASADKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uEhMKC21pc3NpbmdfaWRzGAIgAygDIm4KFkdldFBlcnNvbkJ5VXVpZFJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIMCgR1dWlkGAIgASgJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJxChhHZXRQZXJzb25zQnlVdWlkc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxINCgV1dWlkcxgCIAMoCRI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiewocR2V0UGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyKEAQokR2V0UGVyc29uc0J5RGlzdGluY3RJZHNJblRlYW1SZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMZGlzdGluY3RfaWRzGAIgAygJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJgCiJQZXJzb25zQnlEaXN0aW5jdElkc0luVGVhbVJlc3BvbnNlEjoKB3Jlc3VsdHMYASADKAsyKS5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uV2l0aERpc3RpbmN0SWRzIpYBCh5HZXRQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QSPQoRdGVhbV9kaXN0aW5jdF9pZHMYASADKAsyIi5wZXJzb25ob2cudHlwZXMudjEuVGVhbURpc3RpbmN0SWQSNQoMcmVhZF9vcHRpb25zGAIgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIl0KHFBlcnNvbnNCeURpc3RpbmN0SWRzUmVzcG9uc2USPQoHcmVzdWx0cxgBIAMoCzIsLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25XaXRoVGVhbURpc3RpbmN0SWQimQEKHkdldERpc3RpbmN0SWRzRm9yUGVyc29uUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMSEgoFbGltaXQYBCABKANIAIgBAUIICgZfbGltaXQiYgofR2V0RGlzdGluY3RJZHNGb3JQZXJzb25SZXNwb25zZRI/CgxkaXN0aW5jdF9pZHMYASADKAsyKS5wZXJzb25ob2cudHlwZXMudjEuRGlzdGluY3RJZFdpdGhWZXJzaW9uIrEBCh9HZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEgoKcGVyc29uX2lkcxgCIAMoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMSHQoQbGltaXRfcGVyX3BlcnNvbhgEIAEoA0gAiAEBQhMKEV9saW1pdF9wZXJfcGVyc29uImYKIEdldERpc3RpbmN0SWRzRm9yUGVyc29uc1Jlc3BvbnNlEkIKE3BlcnNvbl9kaXN0aW5jdF9pZHMYASADKAsyJS5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uRGlzdGluY3RJZHNiBnByb3RvMw',
+        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvcGVyc29uLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEingIKBlBlcnNvbhIKCgJpZBgBIAEoAxIMCgR1dWlkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEgoKcHJvcGVydGllcxgEIAEoDBIiChpwcm9wZXJ0aWVzX2xhc3RfdXBkYXRlZF9hdBgFIAEoDBIhChlwcm9wZXJ0aWVzX2xhc3Rfb3BlcmF0aW9uGAYgASgMEhIKCmNyZWF0ZWRfYXQYByABKAMSDwoHdmVyc2lvbhgIIAEoAxIVCg1pc19pZGVudGlmaWVkGAkgASgIEhcKCmlzX3VzZXJfaWQYCiABKAhIAIgBARIZCgxsYXN0X3NlZW5fYXQYCyABKANIAYgBAUINCgtfaXNfdXNlcl9pZEIPCg1fbGFzdF9zZWVuX2F0Ik4KFURpc3RpbmN0SWRXaXRoVmVyc2lvbhITCgtkaXN0aW5jdF9pZBgBIAEoCRIUCgd2ZXJzaW9uGAIgASgDSACIAQFCCgoIX3ZlcnNpb24iaAoVUGVyc29uV2l0aERpc3RpbmN0SWRzEhMKC2Rpc3RpbmN0X2lkGAEgASgJEi8KBnBlcnNvbhgCIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25IAIgBAUIJCgdfcGVyc29uImcKEVBlcnNvbkRpc3RpbmN0SWRzEhEKCXBlcnNvbl9pZBgBIAEoAxI/CgxkaXN0aW5jdF9pZHMYAiADKAsyKS5wZXJzb25ob2cudHlwZXMudjEuRGlzdGluY3RJZFdpdGhWZXJzaW9uIocBChhQZXJzb25XaXRoVGVhbURpc3RpbmN0SWQSLwoDa2V5GAEgASgLMiIucGVyc29uaG9nLnR5cGVzLnYxLlRlYW1EaXN0aW5jdElkEi8KBnBlcnNvbhgCIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25IAIgBAUIJCgdfcGVyc29uIm0KEEdldFBlcnNvblJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIRCglwZXJzb25faWQYAiABKAMSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIk8KEUdldFBlcnNvblJlc3BvbnNlEi8KBnBlcnNvbhgBIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25IAIgBAUIJCgdfcGVyc29uIm8KEUdldFBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEgoKcGVyc29uX2lkcxgCIAMoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiUwoPUGVyc29uc1Jlc3BvbnNlEisKB3BlcnNvbnMYASADKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uEhMKC21pc3NpbmdfaWRzGAIgAygDIm4KFkdldFBlcnNvbkJ5VXVpZFJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIMCgR1dWlkGAIgASgJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJxChhHZXRQZXJzb25zQnlVdWlkc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxINCgV1dWlkcxgCIAMoCRI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiewocR2V0UGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyKEAQokR2V0UGVyc29uc0J5RGlzdGluY3RJZHNJblRlYW1SZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMZGlzdGluY3RfaWRzGAIgAygJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJgCiJQZXJzb25zQnlEaXN0aW5jdElkc0luVGVhbVJlc3BvbnNlEjoKB3Jlc3VsdHMYASADKAsyKS5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uV2l0aERpc3RpbmN0SWRzIpYBCh5HZXRQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QSPQoRdGVhbV9kaXN0aW5jdF9pZHMYASADKAsyIi5wZXJzb25ob2cudHlwZXMudjEuVGVhbURpc3RpbmN0SWQSNQoMcmVhZF9vcHRpb25zGAIgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIl0KHFBlcnNvbnNCeURpc3RpbmN0SWRzUmVzcG9uc2USPQoHcmVzdWx0cxgBIAMoCzIsLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25XaXRoVGVhbURpc3RpbmN0SWQimQEKHkdldERpc3RpbmN0SWRzRm9yUGVyc29uUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMSEgoFbGltaXQYBCABKANIAIgBAUIICgZfbGltaXQiYgofR2V0RGlzdGluY3RJZHNGb3JQZXJzb25SZXNwb25zZRI/CgxkaXN0aW5jdF9pZHMYASADKAsyKS5wZXJzb25ob2cudHlwZXMudjEuRGlzdGluY3RJZFdpdGhWZXJzaW9uIrEBCh9HZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEgoKcGVyc29uX2lkcxgCIAMoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMSHQoQbGltaXRfcGVyX3BlcnNvbhgEIAEoA0gAiAEBQhMKEV9saW1pdF9wZXJfcGVyc29uImYKIEdldERpc3RpbmN0SWRzRm9yUGVyc29uc1Jlc3BvbnNlEkIKE3BlcnNvbl9kaXN0aW5jdF9pZHMYASADKAsyJS5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uRGlzdGluY3RJZHMiuQEKHVVwZGF0ZVBlcnNvblByb3BlcnRpZXNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEhIKCmV2ZW50X25hbWUYAyABKAkSFgoOc2V0X3Byb3BlcnRpZXMYBCABKAwSGwoTc2V0X29uY2VfcHJvcGVydGllcxgFIAEoDBIYChB1bnNldF9wcm9wZXJ0aWVzGAYgAygJEhEKCXBhcnRpdGlvbhgHIAEoDSJtCh5VcGRhdGVQZXJzb25Qcm9wZXJ0aWVzUmVzcG9uc2USLwoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBEg8KB3VwZGF0ZWQYAiABKAhCCQoHX3BlcnNvbmIGcHJvdG8z',
         [file_personhog_types_v1_common]
     )
 
@@ -559,3 +559,96 @@ export type GetDistinctIdsForPersonsResponse = Message<'personhog.types.v1.GetDi
 export const GetDistinctIdsForPersonsResponseSchema: GenMessage<GetDistinctIdsForPersonsResponse> =
     /*@__PURE__*/
     messageDesc(file_personhog_types_v1_person, 19)
+
+/**
+ * UpdatePersonPropertiesRequest describes a property update for a person
+ * identified by team_id + person_id. The caller resolves distinct_id → person_id
+ * before sending. The leader merges property diffs ($set, $set_once, $unset)
+ * into the cached state.
+ *
+ * @generated from message personhog.types.v1.UpdatePersonPropertiesRequest
+ */
+export type UpdatePersonPropertiesRequest = Message<'personhog.types.v1.UpdatePersonPropertiesRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: int64 person_id = 2;
+     */
+    personId: bigint
+
+    /**
+     * The event name that triggered this update (e.g. "$set", "$identify", "$pageview").
+     * Used to determine filtering behavior (person events bypass property filtering).
+     *
+     * @generated from field: string event_name = 3;
+     */
+    eventName: string
+
+    /**
+     * JSON-encoded map of properties to set (overwrites existing values).
+     *
+     * @generated from field: bytes set_properties = 4;
+     */
+    setProperties: Uint8Array
+
+    /**
+     * JSON-encoded map of properties to set only if not already present.
+     *
+     * @generated from field: bytes set_once_properties = 5;
+     */
+    setOnceProperties: Uint8Array
+
+    /**
+     * Property keys to remove from the person.
+     *
+     * @generated from field: repeated string unset_properties = 6;
+     */
+    unsetProperties: string[]
+
+    /**
+     * The partition this person belongs to, computed by the router via
+     * murmur2(team_id:person_id) % num_partitions. The leader uses this
+     * to look up the correct per-partition cache.
+     *
+     * @generated from field: uint32 partition = 7;
+     */
+    partition: number
+}
+
+/**
+ * Describes the message personhog.types.v1.UpdatePersonPropertiesRequest.
+ * Use `create(UpdatePersonPropertiesRequestSchema)` to create a new message.
+ */
+export const UpdatePersonPropertiesRequestSchema: GenMessage<UpdatePersonPropertiesRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 20)
+
+/**
+ * @generated from message personhog.types.v1.UpdatePersonPropertiesResponse
+ */
+export type UpdatePersonPropertiesResponse = Message<'personhog.types.v1.UpdatePersonPropertiesResponse'> & {
+    /**
+     * The person after applying the update (if the person was found).
+     *
+     * @generated from field: optional personhog.types.v1.Person person = 1;
+     */
+    person?: Person
+
+    /**
+     * Whether any properties were actually changed.
+     *
+     * @generated from field: bool updated = 2;
+     */
+    updated: boolean
+}
+
+/**
+ * Describes the message personhog.types.v1.UpdatePersonPropertiesResponse.
+ * Use `create(UpdatePersonPropertiesResponseSchema)` to create a new message.
+ */
+export const UpdatePersonPropertiesResponseSchema: GenMessage<UpdatePersonPropertiesResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 21)
