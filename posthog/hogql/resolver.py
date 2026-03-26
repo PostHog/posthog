@@ -48,7 +48,9 @@ USE_GLOBAL_JOINS = False
 
 EMPTY_SCOPE = ast.SelectQueryType()
 
-POSTGRES_KEYWORD_TYPES: dict[str, type[ast.ConstantType]] = {
+type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
+
+POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "current_date": ast.DateType,
     "current_time": ast.DateTimeType,
     "current_timestamp": ast.DateTimeType,
