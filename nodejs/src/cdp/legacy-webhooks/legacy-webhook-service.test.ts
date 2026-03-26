@@ -3,6 +3,8 @@ import { mockFetch } from '../../../tests/helpers/mocks/request.mock'
 import { Message } from 'node-rdkafka'
 
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { PersonHogClient } from '../../personhog/client'
+import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
 import { Action, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -377,6 +379,72 @@ describe('LegacyWebhookService', () => {
             mockFetch.mockRejectedValue(new Error('Network error'))
 
             await expect(service['postWebhook'](event, team, hook)).rejects.toThrow('Network error')
+        })
+    })
+
+    describe('DualReadGroupRepository compatibility', () => {
+        it('should enrich events with group properties when groupRepository is wrapped with DualReadGroupRepository', async () => {
+            // Wrap the real postgres groupRepository with DualReadGroupRepository at 100% gRPC rollout
+            // with a mock gRPC client that returns the same data as the existing mock
+            const mockGrpcClient = {
+                fetchGroup: jest.fn().mockResolvedValue({
+                    group_properties: { name: 'Test Project' },
+                }),
+                fetchGroupsByKeys: jest.fn(),
+                fetchGroupTypesByTeamIds: jest.fn(),
+                fetchGroupTypesByProjectIds: jest.fn(),
+            }
+
+            const dualReadRepo = new DualReadGroupRepository(
+                hub.groupRepository,
+                mockGrpcClient as unknown as PersonHogClient,
+                100,
+                'test'
+            )
+
+            const dualReadService = new LegacyWebhookService(
+                hub.postgres,
+                hub.teamManager,
+                hub.groupTypeManager,
+                dualReadRepo,
+                hub.pubSub
+            )
+            await dualReadService.start()
+
+            dualReadService['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+            hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
+                project: 0,
+            })
+
+            const processEventSpy = jest.spyOn(dualReadService, 'processEvent')
+
+            const messages: Message[] = [
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$pageview',
+                        properties: JSON.stringify({ $groups: { project: 'test-project-id' } }),
+                    })
+                ),
+            ]
+
+            const result = await dualReadService.processBatch(messages)
+            await result.backgroundTask
+
+            expect(processEventSpy).toHaveBeenCalledTimes(1)
+            const processedEvent = processEventSpy.mock.calls[0][0]
+            expect(processedEvent.groups).toBeDefined()
+            expect(processedEvent.groups?.project).toEqual({
+                index: 0,
+                key: 'test-project-id',
+                type: 'project',
+                properties: { name: 'Test Project' },
+            })
+
+            // fetchGroup with useReadReplica: true should route to gRPC at 100%
+            expect(mockGrpcClient.fetchGroup).toHaveBeenCalled()
+
+            await dualReadService.stop()
         })
     })
 })
