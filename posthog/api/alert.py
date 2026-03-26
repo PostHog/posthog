@@ -324,6 +324,10 @@ class AlertSerializer(serializers.ModelSerializer):
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
 
+        # Ignore null calculation_interval — treat as "don't change"
+        if validated_data.get("calculation_interval") is None:
+            validated_data.pop("calculation_interval", None)
+
         calculation_interval_changed = (
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval

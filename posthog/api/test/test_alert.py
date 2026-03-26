@@ -474,6 +474,27 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
 
+    def test_patch_null_calculation_interval_preserves_existing(self):
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+            "calculation_interval": "weekly",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        assert alert["calculation_interval"] == "weekly"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"calculation_interval": None},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["calculation_interval"] == "weekly"
+
 
 class TestAlertSimulate(APIBaseTest):
     def setUp(self):
