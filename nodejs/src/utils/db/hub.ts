@@ -14,12 +14,10 @@ import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PersonHogClient } from '../../personhog/client'
 import { DualReadGroupRepository } from '../../personhog/dual-read-group-repository'
-import { DualReadPersonRepository } from '../../personhog/dual-read-person-repository'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
-import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
@@ -95,9 +93,8 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const personRepositoryOptions = {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
     }
-    const postgresPersonRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
+    const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
 
-    let personRepository: PersonRepository = postgresPersonRepository
     let groupRepository: GroupRepository = postgresGroupRepository
 
     if (
@@ -109,11 +106,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
             addr: serverConfig.PERSONHOG_ADDR,
             useTls: serverConfig.PERSONHOG_TLS,
         })
-        personRepository = new DualReadPersonRepository(
-            postgresPersonRepository,
-            grpcClient,
-            serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE
-        )
         groupRepository = new DualReadGroupRepository(
             postgresGroupRepository,
             grpcClient,
