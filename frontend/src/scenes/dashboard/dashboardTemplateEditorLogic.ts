@@ -14,7 +14,7 @@ import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditor
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
     connect(() => ({
-        logic: [dashboardTemplatesLogic({ scope: 'default' })],
+        actions: [dashboardTemplatesLogic({ scope: 'default' }), ['getAllTemplates']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -125,14 +125,14 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
-            dashboardTemplatesLogic({ scope: 'default' }).actions.getAllTemplates()
+            actions.getAllTemplates()
         },
         updateDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
-            dashboardTemplatesLogic({ scope: 'default' }).actions.getAllTemplates()
+            actions.getAllTemplates()
         },
         deleteDashboardTemplateSuccess: async () => {
-            dashboardTemplatesLogic({ scope: 'default' }).actions.getAllTemplates()
+            actions.getAllTemplates()
         },
         closeDashboardTemplateEditor: () => {
             actions.clear()
