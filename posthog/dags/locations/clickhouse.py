@@ -6,6 +6,7 @@ from posthog.dags import (
     backups,
     ch_examples,
     create_materialized_column,
+    data_deletion_requests,
     deletes,
     export_query_logs_to_s3,
     fix_missing_person_overrides,
@@ -41,6 +42,7 @@ defs = dagster.Definitions(
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
+        data_deletion_requests.data_deletion_request_event_removal,
     ],
     schedules=[
         export_query_logs_to_s3.query_logs_export_schedule,
