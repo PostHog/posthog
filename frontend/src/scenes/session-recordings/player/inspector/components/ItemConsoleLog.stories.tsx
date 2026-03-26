@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
@@ -12,7 +12,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof ItemConsoleLog>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof ItemConsoleLog> = {
     title: 'Components/PlayerInspector/ItemConsole',
     component: ItemConsoleLog,
@@ -21,26 +21,24 @@ const meta: Meta<typeof ItemConsoleLog> = {
             get: {},
         }),
     ],
+    render: (props: Partial<ItemConsoleLogProps>) => {
+        const propsToUse = props as ItemConsoleLogProps
+
+        return (
+            <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
+                <div className="flex flex-col gap-2 min-w-96">
+                    <h3>Collapsed</h3>
+                    <ItemConsoleLog {...propsToUse} />
+                    <LemonDivider />
+                    <h3>Expanded</h3>
+                    <ItemConsoleLogDetail {...propsToUse} />
+                </div>
+            </BindLogic>
+        )
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof ItemConsoleLog> = (props: Partial<ItemConsoleLogProps>) => {
-    const propsToUse = props as ItemConsoleLogProps
-
-    return (
-        <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
-            <div className="flex flex-col gap-2 min-w-96">
-                <h3>Collapsed</h3>
-                <ItemConsoleLog {...propsToUse} />
-                <LemonDivider />
-                <h3>Expanded</h3>
-                <ItemConsoleLogDetail {...propsToUse} />
-            </div>
-        </BindLogic>
-    )
-}
-
-export const ConsoleLogItem: Story = BasicTemplate.bind({})
 const baseData = {
     timestamp: dayjs('2019-01-30').valueOf(),
     windowId: 1,
@@ -59,12 +57,14 @@ const baseItem = {
     key: 'some-key',
 }
 
-ConsoleLogItem.args = {
-    item: baseItem,
-    groupCount: 12,
-    groupedItems: Array.from({ length: 12 }, (_, i) => ({
-        ...baseItem,
-        key: `console-${i}`,
-        timeInRecording: 123 + i * 500,
-    })),
+export const ConsoleLogItem: Story = {
+    args: {
+        item: baseItem,
+        groupCount: 12,
+        groupedItems: Array.from({ length: 12 }, (_, i) => ({
+            ...baseItem,
+            key: `console-${i}`,
+            timeInRecording: 123 + i * 500,
+        })),
+    },
 }

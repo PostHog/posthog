@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
@@ -6,7 +6,7 @@ import { Query } from '~/queries/Query/Query'
 
 import webVitalsPathBreakdown from './__mocks__/WebVitalsPathBreakdown.json'
 
-type Story = StoryObj<typeof Query>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof Query> = {
     title: 'Queries/WebVitalsPathBreakdown',
     component: Query,
@@ -28,7 +28,6 @@ const meta: Meta<typeof Query> = {
 }
 export default meta
 
-const QueryTemplate: StoryFn<typeof Query> = (args) => <Query {...args} />
-
-export const WebVitalsPathBreakdown: Story = QueryTemplate.bind({})
-WebVitalsPathBreakdown.args = { query: examples['WebVitalsPathBreakdown'] }
+export const WebVitalsPathBreakdown: Story = {
+    args: { query: examples['WebVitalsPathBreakdown'] },
+}

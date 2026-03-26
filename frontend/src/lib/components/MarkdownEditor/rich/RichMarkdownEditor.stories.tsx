@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { useState } from 'react'
 
@@ -25,24 +25,23 @@ const storyDefaults = {
     dataAttr: 'story-rich-markdown-editor',
 }
 
-type Story = StoryObj<typeof RichMarkdownEditor>
+type Story = StoryObj<typeof meta>
 
 const meta: Meta<typeof RichMarkdownEditor> = {
     title: 'Components/Markdown editor/Rich',
     component: RichMarkdownEditor,
     tags: ['autodocs'],
+    render: (props) => {
+        const [value, setValue] = useState(props.value ?? '')
+        return <RichMarkdownEditor {...storyDefaults} {...props} value={value} onChange={setValue} />
+    },
 }
 
 export default meta
 
-const Template: StoryFn<typeof RichMarkdownEditor> = (props) => {
-    const [value, setValue] = useState(props.value ?? '')
-    return <RichMarkdownEditor {...storyDefaults} {...props} value={value} onChange={setValue} />
-}
-
-export const WithMarkdown: Story = Template.bind({})
-WithMarkdown.args = {
-    value: `## Week notes
+export const WithMarkdown: Story = {
+    args: {
+        value: `## Week notes
 
 **Bold** and *italic* and ~~strikethrough~~ and a [link](https://posthog.com).
 
@@ -50,4 +49,5 @@ WithMarkdown.args = {
 - Bullet two
 
 > A blockquote worth keeping.`,
+    },
 }

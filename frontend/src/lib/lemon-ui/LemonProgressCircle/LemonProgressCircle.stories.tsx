@@ -1,13 +1,13 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useEffect, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 
 import { LemonButton } from '../LemonButton'
 import { LemonCheckbox } from '../LemonCheckbox'
-import { LemonProgressCircle, LemonProgressCircleProps } from './LemonProgressCircle'
+import { LemonProgressCircle } from './LemonProgressCircle'
 
-type Story = StoryObj<typeof LemonProgressCircle>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof LemonProgressCircle> = {
     title: 'Lemon UI/Lemon Progress Circle',
     component: LemonProgressCircle,
@@ -31,13 +31,10 @@ Lemon Labels provide common styling and options for labeling form elements. They
 }
 export default meta
 
-export const Template: StoryFn<typeof LemonProgressCircle> = (props: LemonProgressCircleProps) => {
-    return <LemonProgressCircle {...props} />
-}
-
-export const Basic: Story = Template.bind({})
-Basic.args = {
-    progress: 0.3,
+export const Basic: Story = {
+    args: {
+        progress: 0.3,
+    },
 }
 
 export const Overview = (): JSX.Element => {

@@ -1,8 +1,8 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { FunnelTooltip, FunnelTooltipProps } from './FunnelTooltip'
+import { FunnelTooltip } from './FunnelTooltip'
 
 const step: FunnelStepWithConversionMetrics = {
     action_id: '$pageview',
@@ -25,7 +25,7 @@ const step: FunnelStepWithConversionMetrics = {
     dropped_people_url: '',
 }
 
-type Story = StoryObj<typeof FunnelTooltip>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof FunnelTooltip> = {
     title: 'Components/FunnelTooltip',
     component: FunnelTooltip,
@@ -39,17 +39,15 @@ const meta: Meta<typeof FunnelTooltip> = {
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof FunnelTooltip> = (props: FunnelTooltipProps) => {
-    return <FunnelTooltip {...props} />
+export const Default: Story = {
+    args: {},
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
-
-export const WithLongName: Story = BasicTemplate.bind({})
-WithLongName.args = {
-    series: {
-        ...step,
-        custom_name: 'with a very very very very very very very very very very very very long custom name',
+export const WithLongName: Story = {
+    args: {
+        series: {
+            ...step,
+            custom_name: 'with a very very very very very very very very very very very very long custom name',
+        },
     },
 }

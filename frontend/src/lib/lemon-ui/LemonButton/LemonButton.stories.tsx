@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
 
 import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
@@ -31,14 +31,12 @@ const meta: Meta<typeof LemonButton> = {
     },
 }
 export default meta
-const BasicTemplate: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => {
-    return <LemonButton {...props} />
-}
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {
-    icon: <IconCalculate />,
-    children: 'Click me',
+export const Default: Story = {
+    args: {
+        icon: <IconCalculate />,
+        children: 'Click me',
+    },
 }
 
 const StatusesTemplate = ({
@@ -57,7 +55,7 @@ const StatusesTemplate = ({
     )
 }
 
-const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
+const TypesAndStatusesTemplate = (props: LemonButtonProps): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {types.map((type) => (
@@ -86,9 +84,6 @@ export const TypesAndStatuses: Story = () => {
 TypesAndStatuses.args = { ...Default.args }
 
 type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
-const PopoverTemplate: StoryFn<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
-    return <LemonButtonWithDropdown {...props} />
-}
 
 export const NoPadding = (): JSX.Element => {
     return <StatusesTemplate noText noPadding />
@@ -317,77 +312,85 @@ export const AsLinks = (): JSX.Element => {
     )
 }
 
-export const WithDropdownToTheRight: PopoverStory = PopoverTemplate.bind({})
-WithDropdownToTheRight.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                <LemonButton fullWidth>Kakapo</LemonButton>
-                <LemonButton fullWidth>Kangaroo</LemonButton>
-                <LemonButton fullWidth>Kingfisher</LemonButton>
-                <LemonButton fullWidth>Koala</LemonButton>
-            </>
-        ),
-        placement: 'right-start',
+export const WithDropdownToTheRight: PopoverStory = {
+    render: (props: LemonButtonWithDropdownProps) => <LemonButtonWithDropdown {...props} />,
+    args: {
+        ...Default.args,
+        dropdown: {
+            overlay: (
+                <>
+                    <LemonButton fullWidth>Kakapo</LemonButton>
+                    <LemonButton fullWidth>Kangaroo</LemonButton>
+                    <LemonButton fullWidth>Kingfisher</LemonButton>
+                    <LemonButton fullWidth>Koala</LemonButton>
+                </>
+            ),
+            placement: 'right-start',
+        },
     },
 }
 
-export const WithDropdownToTheBottom: PopoverStory = PopoverTemplate.bind({})
-WithDropdownToTheBottom.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                <LemonButton fullWidth>Kakapo</LemonButton>
-                <LemonButton fullWidth>Kangaroo</LemonButton>
-                <LemonButton fullWidth>Kingfisher</LemonButton>
-                <LemonButton fullWidth>Koala</LemonButton>
-            </>
-        ),
-        placement: 'bottom',
-        matchWidth: true,
+export const WithDropdownToTheBottom: PopoverStory = {
+    render: (props: LemonButtonWithDropdownProps) => <LemonButtonWithDropdown {...props} />,
+    args: {
+        ...Default.args,
+        dropdown: {
+            overlay: (
+                <>
+                    <LemonButton fullWidth>Kakapo</LemonButton>
+                    <LemonButton fullWidth>Kangaroo</LemonButton>
+                    <LemonButton fullWidth>Kingfisher</LemonButton>
+                    <LemonButton fullWidth>Koala</LemonButton>
+                </>
+            ),
+            placement: 'bottom',
+            matchWidth: true,
+        },
     },
 }
 
-export const WithVeryLongPopoverToTheBottom: PopoverStory = PopoverTemplate.bind({})
-WithVeryLongPopoverToTheBottom.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                {range(200).map((n) => (
-                    <LemonButton key={n} fullWidth>
-                        {n.toString()}
-                    </LemonButton>
-                ))}
-            </>
-        ),
-        placement: 'bottom',
-        matchWidth: true,
+export const WithVeryLongPopoverToTheBottom: PopoverStory = {
+    render: (props: LemonButtonWithDropdownProps) => <LemonButtonWithDropdown {...props} />,
+    args: {
+        ...Default.args,
+        dropdown: {
+            overlay: (
+                <>
+                    {range(200).map((n) => (
+                        <LemonButton key={n} fullWidth>
+                            {n.toString()}
+                        </LemonButton>
+                    ))}
+                </>
+            ),
+            placement: 'bottom',
+            matchWidth: true,
+        },
     },
 }
 
-export const WithTooltip: Story = BasicTemplate.bind({})
-WithTooltip.args = {
-    ...Default.args,
-    tooltip: (
-        <>
-            This is example with a link: <Link to="https://posthog.com">Go home</Link>
-        </>
-    ),
+export const WithTooltip: Story = {
+    args: {
+        ...Default.args,
+        tooltip: (
+            <>
+                This is example with a link: <Link to="https://posthog.com">Go home</Link>
+            </>
+        ),
+    },
 }
 
-export const WithTooltipPlacementAndArrowOffset: Story = BasicTemplate.bind({})
-WithTooltipPlacementAndArrowOffset.args = {
-    ...Default.args,
-    tooltip: (
-        <>
-            This is example with a link: <Link to="https://posthog.com">Go home</Link>
-        </>
-    ),
-    tooltipPlacement: 'top-start',
-    tooltipArrowOffset: 30,
+export const WithTooltipPlacementAndArrowOffset: Story = {
+    args: {
+        ...Default.args,
+        tooltip: (
+            <>
+                This is example with a link: <Link to="https://posthog.com">Go home</Link>
+            </>
+        ),
+        tooltipPlacement: 'top-start',
+        tooltipArrowOffset: 30,
+    },
 }
 
 export const More_ = (): JSX.Element => {

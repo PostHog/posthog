@@ -1,11 +1,11 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { PlayerShareRecording } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlayerShareLogicProps } from 'scenes/session-recordings/player/share/playerShareLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof PlayerShareRecording>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof PlayerShareRecording> = {
     title: 'Replay/Sharing',
     component: PlayerShareRecording,
@@ -23,29 +23,30 @@ const meta: Meta<typeof PlayerShareRecording> = {
             },
         }),
     ],
+    render: (props: PlayerShareLogicProps) => {
+        return (
+            <div>
+                <div className="border p-4">
+                    <PlayerShareRecording {...props} />
+                </div>
+            </div>
+        )
+    },
 }
 export default meta
 
-export const Template: StoryFn<typeof PlayerShareRecording> = (props: PlayerShareLogicProps) => {
-    return (
-        <div>
-            <div className="border p-4">
-                <PlayerShareRecording {...props} />
-            </div>
-        </div>
-    )
+export const PrivateLink: Story = {
+    args: {
+        seconds: 720,
+        id: '1',
+        shareType: 'private',
+    },
 }
 
-export const PrivateLink: Story = Template.bind({})
-PrivateLink.args = {
-    seconds: 720,
-    id: '1',
-    shareType: 'private',
-}
-
-export const PublicLink: Story = Template.bind({})
-PublicLink.args = {
-    seconds: 325,
-    id: '1',
-    shareType: 'public',
+export const PublicLink: Story = {
+    args: {
+        seconds: 325,
+        id: '1',
+        shareType: 'public',
+    },
 }

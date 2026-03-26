@@ -1,8 +1,8 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { CopyToClipboardInline } from './CopyToClipboard'
 
-type Story = StoryObj<typeof CopyToClipboardInline>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof CopyToClipboardInline> = {
     title: 'Lemon UI/Copy To Clipboard Inline',
     component: CopyToClipboardInline,
@@ -47,43 +47,46 @@ const meta: Meta<typeof CopyToClipboardInline> = {
             options: ['small', 'xsmall'],
         },
     },
+    render: (props) => {
+        return (
+            <div className="w-[400px]">
+                <CopyToClipboardInline {...props} />
+            </div>
+        )
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof CopyToClipboardInline> = (props) => {
-    return (
-        <div className="w-[400px]">
-            <CopyToClipboardInline {...props} />
-        </div>
-    )
+export const Default: Story = {
+    args: {
+        children: 'Click anywhere to copy this text',
+    },
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {
-    children: 'Click anywhere to copy this text',
+export const WithDescription: Story = {
+    args: {
+        children: 'API key: sk-1234567890abcdef',
+        description: 'API key',
+    },
 }
 
-export const WithDescription: Story = BasicTemplate.bind({})
-WithDescription.args = {
-    children: 'API key: sk-1234567890abcdef',
-    description: 'API key',
+export const Selectable: Story = {
+    args: {
+        children: 'This text is selectable - click the copy icon to copy',
+        selectable: true,
+        description: 'Selectable text',
+    },
 }
 
-export const Selectable: Story = BasicTemplate.bind({})
-Selectable.args = {
-    children: 'This text is selectable - click the copy icon to copy',
-    selectable: true,
-    description: 'Selectable text',
+export const ExplicitValue: Story = {
+    args: {
+        children: 'Display text (click to copy different value)',
+        explicitValue: 'This is the actual value that gets copied',
+        description: 'Hidden value',
+    },
 }
 
-export const ExplicitValue: Story = BasicTemplate.bind({})
-ExplicitValue.args = {
-    children: 'Display text (click to copy different value)',
-    explicitValue: 'This is the actual value that gets copied',
-    description: 'Hidden value',
-}
-
-export const IconPositions: StoryFn<typeof CopyToClipboardInline> = () => {
+export const IconPositions = (): JSX.Element => {
     return (
         <div className="space-y-4">
             <div>
@@ -98,7 +101,7 @@ export const IconPositions: StoryFn<typeof CopyToClipboardInline> = () => {
     )
 }
 
-export const IconSizes: StoryFn<typeof CopyToClipboardInline> = () => {
+export const IconSizes = (): JSX.Element => {
     return (
         <div className="space-y-4">
             <div>
@@ -113,8 +116,9 @@ export const IconSizes: StoryFn<typeof CopyToClipboardInline> = () => {
     )
 }
 
-export const IconOnly: Story = BasicTemplate.bind({})
-IconOnly.args = {
-    explicitValue: 'This value gets copied when clicking the icon',
-    description: 'Hidden text',
+export const IconOnly: Story = {
+    args: {
+        explicitValue: 'This value gets copied when clicking the icon',
+        description: 'Hidden text',
+    },
 }

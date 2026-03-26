@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -16,7 +16,7 @@ import retentionMock from './__mocks__/Retention.json'
 import worldMapMock from './__mocks__/WorldMap.json'
 import { webAnalyticsDataTableQueryContext } from './WebAnalyticsTile'
 
-type Story = StoryObj<typeof Query>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof Query> = {
     title: 'Web Analytics/Tiles',
     component: Query,
@@ -47,27 +47,31 @@ const meta: Meta<typeof Query> = {
             },
         }),
     ],
+    render: (args) => {
+        const { setTablesOrderBy } = useActions(webAnalyticsLogic)
+        useDelayedOnMountEffect(() => setTablesOrderBy('Views' as WebAnalyticsOrderByFields, 'DESC'))
+
+        return <Query {...args} context={{ ...webAnalyticsDataTableQueryContext }} readOnly />
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof Query> = (args) => {
-    const { setTablesOrderBy } = useActions(webAnalyticsLogic)
-    useDelayedOnMountEffect(() => setTablesOrderBy('Views' as WebAnalyticsOrderByFields, 'DESC'))
-
-    return <Query {...args} context={{ ...webAnalyticsDataTableQueryContext }} readOnly />
+export const WorldMap: Story = {
+    args: { query: examples['WebAnalyticsWorldMap'] },
 }
 
-export const WorldMap: Story = Template.bind({})
-WorldMap.args = { query: examples['WebAnalyticsWorldMap'] }
+export const ReferrerDomain: Story = {
+    args: { query: examples['WebAnalyticsReferrerDomain'] },
+}
 
-export const ReferrerDomain: Story = Template.bind({})
-ReferrerDomain.args = { query: examples['WebAnalyticsReferrerDomain'] }
+export const Path: Story = {
+    args: { query: examples['WebAnalyticsPath'] },
+}
 
-export const Path: Story = Template.bind({})
-Path.args = { query: examples['WebAnalyticsPath'] }
+export const Retention: Story = {
+    args: { query: examples['WebAnalyticsRetention'] },
+}
 
-export const Retention: Story = Template.bind({})
-Retention.args = { query: examples['WebAnalyticsRetention'] }
-
-export const Browser: Story = Template.bind({})
-Browser.args = { query: examples['WebAnalyticsBrowser'] }
+export const Browser: Story = {
+    args: { query: examples['WebAnalyticsBrowser'] },
+}

@@ -1,9 +1,9 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonSnack, LemonSnackProps } from './LemonSnack'
 
-type Story = StoryObj<typeof LemonSnack>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof LemonSnack> = {
     title: 'Lemon UI/Lemon Snack',
     component: LemonSnack,
@@ -14,13 +14,13 @@ const meta: Meta<typeof LemonSnack> = {
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof LemonSnack> = (props: LemonSnackProps) => {
-    return <LemonSnack {...props} />
-}
-
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {
-    onClose: null as any,
+export const Default: Story = {
+    render: (props: LemonSnackProps) => {
+        return <LemonSnack {...props} />
+    },
+    args: {
+        onClose: null as any,
+    },
 }
 
 export const Pill = (): JSX.Element => {
@@ -40,17 +40,21 @@ export const Pill = (): JSX.Element => {
     )
 }
 
-export const ComplexContent: Story = BasicTemplate.bind({})
-ComplexContent.args = {
-    children: (
-        <span className="flex gap-2 items-center">
-            <ProfilePicture name="ben" size="sm" />
-            <span>
-                Look at me I'm <b>bold!</b>
+export const ComplexContent: Story = {
+    render: (props: LemonSnackProps) => {
+        return <LemonSnack {...props} />
+    },
+    args: {
+        children: (
+            <span className="flex gap-2 items-center">
+                <ProfilePicture name="ben" size="sm" />
+                <span>
+                    Look at me I'm <b>bold!</b>
+                </span>
             </span>
-        </span>
-    ),
-    onClose: () => alert('Close clicked!'),
+        ),
+        onClose: () => alert('Close clicked!'),
+    },
 }
 
 export const OverflowOptions = (): JSX.Element => {

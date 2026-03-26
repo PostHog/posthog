@@ -1,11 +1,11 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { LemonLabel, LemonLabelProps } from './LemonLabel'
+import { LemonLabel } from './LemonLabel'
 
-type Story = StoryObj<typeof LemonLabel>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof LemonLabel> = {
     title: 'Lemon UI/Lemon Label',
     component: LemonLabel,
@@ -26,15 +26,12 @@ Lemon Labels provide common styling and options for labeling form elements. They
 }
 export default meta
 
-const Template: StoryFn<typeof LemonLabel> = (props: LemonLabelProps) => {
-    return <LemonLabel {...props} />
-}
-
-export const Basic: Story = Template.bind({})
-Basic.args = {
-    info: 'This field is optional',
-    showOptional: true,
-    children: 'Label',
+export const Basic: Story = {
+    args: {
+        info: 'This field is optional',
+        showOptional: true,
+        children: 'Label',
+    },
 }
 
 function ExplanationModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {

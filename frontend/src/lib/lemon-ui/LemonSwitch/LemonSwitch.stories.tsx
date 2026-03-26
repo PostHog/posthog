@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -20,15 +20,15 @@ const meta: Meta<typeof LemonSwitch> = {
         label: 'Switch this!',
     },
     tags: ['autodocs'],
+    render: (props: LemonSwitchProps) => {
+        return <LemonSwitch {...props} />
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof RawLemonSwitch> = (props: LemonSwitchProps) => {
-    return <LemonSwitch {...props} />
+export const Basic: Story = {
+    args: {},
 }
-
-export const Basic: Story = Template.bind({})
-Basic.args = {}
 
 export const Overview = (): JSX.Element => {
     return (
@@ -61,14 +61,17 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const Standalone: Story = Template.bind({})
-Standalone.args = { label: undefined }
+export const Standalone: Story = {
+    args: { label: undefined },
+}
 
-export const Bordered: Story = Template.bind({})
-Bordered.args = { bordered: true }
+export const Bordered: Story = {
+    args: { bordered: true },
+}
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = { disabled: true }
+export const Disabled: Story = {
+    args: { disabled: true },
+}
 
 const SwitchCell = (props: Partial<LemonSwitchProps>): JSX.Element => {
     return (

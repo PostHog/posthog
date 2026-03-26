@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
@@ -7,7 +7,7 @@ import { Query } from '~/queries/Query/Query'
 import webVitals from './__mocks__/WebVitals.json'
 import webVitalsTrends from './__mocks__/WebVitalsTrends.json'
 
-type Story = StoryObj<typeof Query>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof Query> = {
     title: 'Queries/WebVitals',
     component: Query,
@@ -32,19 +32,19 @@ const meta: Meta<typeof Query> = {
             },
         }),
     ],
+    // NOTE: See InsightCard.scss to see why we need this wrapper
+    render: (args) => {
+        return (
+            <div className="WebAnalyticsDashboard">
+                <div className="InsightVizDisplay">
+                    <Query {...args} />
+                </div>
+            </div>
+        )
+    },
 }
 export default meta
 
-// NOTE: See InsightCard.scss to see why we need this wrapper
-const QueryTemplate: StoryFn<typeof Query> = (args) => {
-    return (
-        <div className="WebAnalyticsDashboard">
-            <div className="InsightVizDisplay">
-                <Query {...args} />
-            </div>
-        </div>
-    )
+export const WebVitals: Story = {
+    args: { query: examples['WebVitals'] },
 }
-
-export const WebVitals: Story = QueryTemplate.bind({})
-WebVitals.args = { query: examples['WebVitals'] }

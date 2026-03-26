@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -7,7 +7,7 @@ import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_i
 
 import { Schemas } from './Schemas'
 
-type Story = StoryObj<typeof Schemas>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof Schemas> = {
     title: 'Scenes-App/Data Warehouse/Settings/Schemas',
     component: Schemas,
@@ -22,20 +22,21 @@ const meta: Meta<typeof Schemas> = {
             snapshotBrowsers: ['chromium'],
         },
     },
+    render: (props) => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/:id': () => {
+                    return [200, externalDataSourceResponseMock]
+                },
+            },
+        })
+
+        return <Schemas {...props} />
+    },
 }
 
 export default meta
 
-const Template: StoryFn<typeof Schemas> = (props) => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/external_data_sources/:id': () => {
-                return [200, externalDataSourceResponseMock]
-            },
-        },
-    })
-
-    return <Schemas {...props} />
+export const Default: Story = {
+    args: {},
 }
-
-export const Default: Story = Template.bind({})

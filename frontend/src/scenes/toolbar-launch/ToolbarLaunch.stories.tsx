@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -12,6 +12,7 @@ import { TeamPublicType } from '~/types'
 
 import { ToolbarLaunch } from './ToolbarLaunch'
 
+type Story = StoryObj<typeof meta>
 const meta: Meta = {
     title: 'Scenes-Other/ToolbarLaunch',
     parameters: {
@@ -39,16 +40,17 @@ const meta: Meta = {
             },
         }),
     ],
+    render: () => {
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
+
+        return <ToolbarLaunch />
+    },
 }
 export default meta
 
-const Template: StoryFn = () => {
-    useOnMountEffect(() => router.actions.push(urls.dashboards()))
-
-    return <ToolbarLaunch />
+export const Default: Story = {
+    args: {},
 }
-
-export const Default = Template.bind({})
 
 export const NoUrlsTemplate: StoryFn = () => {
     const { currentTeam } = useValues(teamLogic)
@@ -59,7 +61,9 @@ export const NoUrlsTemplate: StoryFn = () => {
         loadCurrentTeamSuccess(team as TeamPublicType)
     })
 
-    return <Template />
+    useOnMountEffect(() => router.actions.push(urls.dashboards()))
+
+    return <ToolbarLaunch />
 }
 
 export const NoSuggestionsTemplate: StoryFn = () => {
@@ -67,7 +71,9 @@ export const NoSuggestionsTemplate: StoryFn = () => {
         post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
     })
 
-    return <Template />
+    useOnMountEffect(() => router.actions.push(urls.dashboards()))
+
+    return <ToolbarLaunch />
 }
 
 export const EmptyStateTemplate: StoryFn = () => {
@@ -83,5 +89,7 @@ export const EmptyStateTemplate: StoryFn = () => {
         post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
     })
 
-    return <Template />
+    useOnMountEffect(() => router.actions.push(urls.dashboards()))
+
+    return <ToolbarLaunch />
 }

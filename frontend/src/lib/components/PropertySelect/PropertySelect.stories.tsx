@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -6,7 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PropertySelect, PropertySelectProps } from './PropertySelect'
 
-type Story = StoryObj<typeof PropertySelect>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof PropertySelect> = {
     title: 'Filters/Property Select',
     component: PropertySelect,
@@ -29,46 +29,47 @@ const meta: Meta<typeof PropertySelect> = {
             },
         }),
     ],
+    render: (props: Partial<PropertySelectProps>) => {
+        const [selectedProperties, setSelectProperties] = useState<string[]>([
+            '$initial_geoip_postal_code',
+            '$initial_geoip_latitude',
+            '$initial_geoip_longitude',
+            '$geoip_latitude',
+            '$geoip_longitude',
+            '$geoip_postal_code',
+            '$geoip_continent_code',
+            '$geoip_continent_name',
+            '$initial_geoip_continent_code',
+            '$initial_geoip_continent_name',
+            '$geoip_time_zone',
+            '$geoip_country_code',
+            '$geoip_subdivision_1_code',
+            '$initial_geoip_subdivision_1_code',
+            '$geoip_subdivision_2_code',
+            '$initial_geoip_subdivision_2_code',
+            '$geoip_subdivision_name',
+            '$initial_geoip_subdivision_name',
+        ])
+
+        return (
+            <PropertySelect
+                selectedProperties={selectedProperties}
+                onChange={setSelectProperties}
+                taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
+                addText="Add"
+                {...props}
+            />
+        )
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof PropertySelect> = (props: Partial<PropertySelectProps>) => {
-    const [selectedProperties, setSelectProperties] = useState<string[]>([
-        '$initial_geoip_postal_code',
-        '$initial_geoip_latitude',
-        '$initial_geoip_longitude',
-        '$geoip_latitude',
-        '$geoip_longitude',
-        '$geoip_postal_code',
-        '$geoip_continent_code',
-        '$geoip_continent_name',
-        '$initial_geoip_continent_code',
-        '$initial_geoip_continent_name',
-        '$geoip_time_zone',
-        '$geoip_country_code',
-        '$geoip_subdivision_1_code',
-        '$initial_geoip_subdivision_1_code',
-        '$geoip_subdivision_2_code',
-        '$initial_geoip_subdivision_2_code',
-        '$geoip_subdivision_name',
-        '$initial_geoip_subdivision_name',
-    ])
-
-    return (
-        <PropertySelect
-            selectedProperties={selectedProperties}
-            onChange={setSelectProperties}
-            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
-            addText="Add"
-            {...props}
-        />
-    )
+export const Default: Story = {
+    args: {},
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
-
-export const Sortable: Story = Template.bind({})
-Sortable.args = {
-    sortable: true,
+export const Sortable: Story = {
+    args: {
+        sortable: true,
+    },
 }

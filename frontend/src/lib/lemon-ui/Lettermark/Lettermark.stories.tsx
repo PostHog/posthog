@@ -1,8 +1,8 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { range } from 'lib/utils'
 
-import { Lettermark, LettermarkColor, LettermarkProps, NUM_LETTERMARK_STYLES } from './Lettermark'
+import { Lettermark, LettermarkColor, NUM_LETTERMARK_STYLES } from './Lettermark'
 
 type Story = StoryObj<typeof Lettermark>
 const meta: Meta<typeof Lettermark> = {
@@ -23,12 +23,9 @@ const meta: Meta<typeof Lettermark> = {
 }
 export default meta
 
-const Template: StoryFn<typeof Lettermark> = (props: LettermarkProps) => {
-    return <Lettermark {...props} />
+export const Base: Story = {
+    args: { name: 'Athena' },
 }
-
-export const Base: Story = Template.bind({})
-Base.args = { name: 'Athena' }
 
 export const Overview = (): JSX.Element => {
     return (
@@ -55,20 +52,26 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const String: Story = Template.bind({})
-String.args = { name: 'Athena' }
+export const String: Story = {
+    args: { name: 'Athena' },
+}
 
-export const Number: Story = Template.bind({})
-Number.args = { name: 42 }
+export const Number: Story = {
+    args: { name: 42 },
+}
 
-export const Unknown: Story = Template.bind({})
-Unknown.args = { name: null }
+export const Unknown: Story = {
+    args: { name: null },
+}
 
-export const Gray: Story = Template.bind({})
-Gray.args = { name: 5, color: LettermarkColor.Gray }
+export const Gray: Story = {
+    args: { name: 5, color: LettermarkColor.Gray },
+}
 
-export const ExtraSmall: Story = Template.bind({})
-ExtraSmall.args = { name: 'Xtra', size: 'xsmall' }
+export const ExtraSmall: Story = {
+    args: { name: 'Xtra', size: 'xsmall' },
+}
 
-export const ExtraLarge: Story = Template.bind({})
-ExtraLarge.args = { name: 'Xtra', size: 'xlarge' }
+export const ExtraLarge: Story = {
+    args: { name: 'Xtra', size: 'xlarge' },
+}

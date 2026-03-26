@@ -1,8 +1,8 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
-import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
+import { LemonCheckbox } from './LemonCheckbox'
 
-type Story = StoryObj<typeof LemonCheckbox>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof LemonCheckbox> = {
     title: 'Lemon UI/Lemon Checkbox',
     component: LemonCheckbox,
@@ -10,13 +10,10 @@ const meta: Meta<typeof LemonCheckbox> = {
 }
 export default meta
 
-const Template: StoryFn<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {
-    return <LemonCheckbox {...props} />
-}
-
-export const Basic: Story = Template.bind({})
-Basic.args = {
-    label: 'Check this out',
+export const Basic: Story = {
+    args: {
+        label: 'Check this out',
+    },
 }
 
 export const Overview = (): JSX.Element => {
@@ -40,23 +37,27 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = {
-    label: "You can't check this out",
-    disabled: true,
+export const Disabled: Story = {
+    args: {
+        label: "You can't check this out",
+        disabled: true,
+    },
 }
 
-export const DisabledWithReason: Story = Template.bind({})
-DisabledWithReason.args = {
-    label: "You can't check this out",
-    disabledReason: 'This is not the way to Amarillo',
+export const DisabledWithReason: Story = {
+    args: {
+        label: "You can't check this out",
+        disabledReason: 'This is not the way to Amarillo',
+    },
 }
 
-export const NoLabel: Story = Template.bind({})
-NoLabel.args = {}
+export const NoLabel: Story = {
+    args: {},
+}
 
-export const Bordered: Story = Template.bind({})
-Bordered.args = {
-    label: 'A border makes for good visual separation if there is other content neighboring a checkbox. Probably not used as part of a form.',
-    bordered: true,
+export const Bordered: Story = {
+    args: {
+        label: 'A border makes for good visual separation if there is other content neighboring a checkbox. Probably not used as part of a form.',
+        bordered: true,
+    },
 }

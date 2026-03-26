@@ -1,10 +1,10 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
-type Story = StoryObj<typeof LemonCalendarSelectInput>
+type Story = StoryObj<typeof meta>
 const meta: Meta<typeof LemonCalendarSelectInput> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select Input',
     component: LemonCalendarSelectInput,
@@ -12,30 +12,32 @@ const meta: Meta<typeof LemonCalendarSelectInput> = {
         mockDate: '2023-01-26 16:30:00',
     },
     tags: ['autodocs'],
+    render: (props: LemonCalendarSelectInputProps) => {
+        const [value, setValue] = useState<dayjs.Dayjs | null>(dayjs())
+
+        return (
+            <div className="w-64">
+                <LemonCalendarSelectInput
+                    {...props}
+                    value={value}
+                    onChange={(value) => {
+                        setValue(value)
+                    }}
+                />
+            </div>
+        )
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof LemonCalendarSelectInput> = (props: LemonCalendarSelectInputProps) => {
-    const [value, setValue] = useState<dayjs.Dayjs | null>(dayjs())
-
-    return (
-        <div className="w-64">
-            <LemonCalendarSelectInput
-                {...props}
-                value={value}
-                onChange={(value) => {
-                    setValue(value)
-                }}
-            />
-        </div>
-    )
+export const Default: Story = {
+    args: {},
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+export const WithTime: Story = {
+    args: { granularity: 'minute' },
+}
 
-export const WithTime: Story = BasicTemplate.bind({})
-WithTime.args = { granularity: 'minute' }
-
-export const WithTime24Hour: Story = BasicTemplate.bind({})
-WithTime24Hour.args = { granularity: 'minute', use24HourFormat: true }
+export const WithTime24Hour: Story = {
+    args: { granularity: 'minute', use24HourFormat: true },
+}
