@@ -105,6 +105,7 @@ export const SyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
+    Webhook: 'webhook',
 } as const
 
 /**
@@ -115,6 +116,8 @@ export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | nul
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
+    /** @nullable */
+    readonly label: string | null
     /** @nullable */
     readonly table: ExternalDataSchemaApiTable
     should_sync?: boolean

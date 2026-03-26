@@ -82,15 +82,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
-        query = self.to_query()
-        paginator = None
-        if isinstance(query, ast.SelectQuery) and not query.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
-        func = cast(
-            Callable[..., HogQLQueryResponse],
-            execute_hogql_query if paginator is None else paginator.execute_hogql_query,
-        )
-
         if (
             self.is_query_service
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST
@@ -108,6 +99,32 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             )
             if source is None:
                 raise ExposedHogQLError("Invalid connectionId for this team")
+
+        if self.query.sendRawQuery and self.query.connectionId:
+            return execute_hogql_query(
+                query_type="HogQLQuery",
+                query=self.query.query,
+                filters=self.query.filters,
+                modifiers=self.query.modifiers or self.modifiers,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                variables=self.query.variables,
+                connection_id=self.query.connectionId,
+                limit_context=self.limit_context,
+                workload=self.workload,
+                settings=self.settings,
+                send_raw_query=True,
+            )
+
+        query = self.to_query()
+        paginator = None
+        if isinstance(query, ast.SelectQuery) and not query.limit:
+            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+        func = cast(
+            Callable[..., HogQLQueryResponse],
+            execute_hogql_query if paginator is None else paginator.execute_hogql_query,
+        )
 
         response = func(
             query_type="HogQLQuery",
