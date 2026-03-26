@@ -661,7 +661,7 @@ describe('sqlEditorLogic', () => {
                 query: 'SELECT 1',
                 sendRawQuery: undefined,
             })
-            expect(performQuerySpy.mock.calls[0][0].connectionId).toBeUndefined()
+            expect(performQuerySpy.mock.calls[0][0]).not.toHaveProperty('connectionId')
             expect(logic.values.sendRawQueryEnabled).toEqual(false)
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
 
