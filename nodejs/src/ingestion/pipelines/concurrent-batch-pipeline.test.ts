@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-pipeline'
 import { createContext, createNewBatchPipeline, createNewPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'
-import { createMockPipeline } from './testing-helpers'
 
 describe('ConcurrentBatchProcessingPipeline', () => {
     let message1: Message

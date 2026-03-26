@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '../../worker/ingestion/event-pipeline/metrics'
@@ -14,7 +15,6 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { createContext } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
 import { dlq, drop, ok, redirect } from './results'
-import { createMockPipeline } from './testing-helpers'
 
 // Mock the pipeline helpers
 jest.mock('../../worker/ingestion/pipeline-helpers', () => ({

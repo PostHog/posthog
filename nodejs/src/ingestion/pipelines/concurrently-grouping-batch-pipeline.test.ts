@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { ConcurrentlyGroupingBatchPipeline } from './concurrently-grouping-batch-pipeline'
 import { createContext, createNewBatchPipeline, createNewPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { dlq, drop, ok } from './results'
-import { createMockPipeline } from './testing-helpers'
 
 // xoshiro128** PRNG (Vigna & Blackman, 2018) - fast 128-bit state generator
 function xoshiro128ss(a: number, b: number, c: number, d: number): () => number {
