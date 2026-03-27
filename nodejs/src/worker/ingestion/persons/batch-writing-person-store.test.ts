@@ -550,7 +550,13 @@ describe('BatchWritingPersonStore', () => {
         })
 
         try {
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_value: 'new_value' },
+                [],
+                {},
+                'test'
+            )
 
             await expect(personStore.flush()).rejects.toThrow('Database connection failed')
         } finally {
