@@ -15,10 +15,7 @@ from django.utils import timezone
 
 from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import (
-    WELL_KNOWN_EVENT_PROPERTY_NAMES,
-    EventTaxonomyQueryRunner,
-)
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.models import Action, PropertyDefinition
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -71,7 +68,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        # CH results come first
+        self.assertEqual(len(response.results), 2)
         self.assertEqual(response.results[0].property, "$browser")
         self.assertEqual(
             response.results[0].sample_values,
@@ -87,12 +84,6 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results[1].property, "$country")
         self.assertEqual(response.results[1].sample_values, ["UK", "US"])
         self.assertEqual(response.results[1].sample_count, 2)
-
-        # Well-known properties are appended with sample_count=0 on last page
-        well_known_in_results = [r for r in response.results if r.sample_count == 0]
-        ch_results = [r for r in response.results if r.sample_count > 0]
-        self.assertEqual(len(ch_results), 2)
-        self.assertGreater(len(well_known_in_results), 0)
 
     def test_event_taxonomy_query_filters_by_event(self):
         _create_person(
@@ -120,14 +111,13 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        ch_results = [r for r in response.results if r.sample_count > 0]
-        self.assertEqual(len(ch_results), 2)
-        self.assertEqual(ch_results[0].property, "$country")
-        self.assertEqual(ch_results[0].sample_values, ["UK", "US"])
-        self.assertEqual(ch_results[0].sample_count, 2)
-        self.assertEqual(ch_results[1].property, "$browser")
-        self.assertEqual(ch_results[1].sample_values, ["Chrome"])
-        self.assertEqual(ch_results[1].sample_count, 1)
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].property, "$country")
+        self.assertEqual(response.results[0].sample_values, ["UK", "US"])
+        self.assertEqual(response.results[0].sample_count, 2)
+        self.assertEqual(response.results[1].property, "$browser")
+        self.assertEqual(response.results[1].sample_values, ["Chrome"])
+        self.assertEqual(response.results[1].sample_count, 1)
 
     def test_event_taxonomy_query_excludes_properties(self):
         _create_person(
@@ -149,11 +139,10 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        ch_results = [r for r in response.results if r.sample_count > 0]
-        self.assertEqual(len(ch_results), 1)
-        self.assertEqual(ch_results[0].property, "$country")
-        self.assertEqual(ch_results[0].sample_values, ["US"])
-        self.assertEqual(ch_results[0].sample_count, 1)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "$country")
+        self.assertEqual(response.results[0].sample_values, ["US"])
+        self.assertEqual(response.results[0].sample_count, 1)
 
     def test_event_taxonomy_includes_properties_from_multiple_persons(self):
         _create_person(
@@ -180,17 +169,17 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        ch_results = sorted([r for r in response.results if r.sample_count > 0], key=lambda x: x.property)
-        self.assertEqual(len(ch_results), 3)
-        self.assertEqual(ch_results[0].property, "$browser")
-        self.assertEqual(ch_results[0].sample_values, ["Chrome"])
-        self.assertEqual(ch_results[0].sample_count, 1)
-        self.assertEqual(ch_results[1].property, "$country")
-        self.assertEqual(ch_results[1].sample_values, ["US"])
-        self.assertEqual(ch_results[1].sample_count, 1)
-        self.assertEqual(ch_results[2].property, "$screen")
-        self.assertEqual(ch_results[2].sample_values, ["1024x768"])
-        self.assertEqual(ch_results[2].sample_count, 1)
+        results = sorted(response.results, key=lambda x: x.property)
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0].property, "$browser")
+        self.assertEqual(results[0].sample_values, ["Chrome"])
+        self.assertEqual(results[0].sample_count, 1)
+        self.assertEqual(results[1].property, "$country")
+        self.assertEqual(results[1].sample_values, ["US"])
+        self.assertEqual(results[1].sample_count, 1)
+        self.assertEqual(results[2].property, "$screen")
+        self.assertEqual(results[2].sample_values, ["1024x768"])
+        self.assertEqual(results[2].sample_count, 1)
 
     def test_caching(self):
         now = timezone.now()
@@ -211,10 +200,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
             assert isinstance(response, CachedEventTaxonomyQueryResponse)
-            # 0 CH results + well-known properties
-            ch_results = [r for r in response.results if r.sample_count > 0]
-            self.assertEqual(len(ch_results), 0)
-            self.assertEqual(len(response.results), len(WELL_KNOWN_EVENT_PROPERTY_NAMES))
+            self.assertEqual(len(response.results), 0)
 
             key = response.cache_key
             _create_event(
@@ -230,25 +216,21 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert isinstance(response, CachedEventTaxonomyQueryResponse)
             self.assertEqual(response.cache_key, key)
-            # Cached: still 0 CH results + well-known
-            ch_results = [r for r in response.results if r.sample_count > 0]
-            self.assertEqual(len(ch_results), 0)
+            self.assertEqual(len(response.results), 0)
 
         with freeze_time(now + timedelta(minutes=59)):
             runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
             response = runner.run()
 
             assert isinstance(response, CachedEventTaxonomyQueryResponse)
-            ch_results = [r for r in response.results if r.sample_count > 0]
-            self.assertEqual(len(ch_results), 0)
+            self.assertEqual(len(response.results), 0)
 
         with freeze_time(now + timedelta(minutes=61)):
             runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
             response = runner.run()
 
             assert isinstance(response, CachedEventTaxonomyQueryResponse)
-            ch_results = [r for r in response.results if r.sample_count > 0]
-            self.assertEqual(len(ch_results), 1)
+            self.assertEqual(len(response.results), 1)
 
     def test_limit(self):
         _create_person(
@@ -273,7 +255,6 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        # hasMore=True, so no well-known properties appended
         self.assertEqual(len(response.results), 500)
         self.assertTrue(response.hasMore)
 
@@ -496,10 +477,9 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        ch_results = [r for r in response.results if r.sample_count > 0]
-        self.assertEqual(len(ch_results), 1)
-        self.assertEqual(ch_results[0].property, "prop")
-        self.assertEqual(ch_results[0].sample_count, 2)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "prop")
+        self.assertEqual(response.results[0].sample_count, 2)
 
     def test_dynamic_property_patterns_are_omitted(self):
         _create_person(
@@ -559,9 +539,8 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(actionId=action.id)).calculate()
-        ch_results = [r for r in response.results if r.sample_count > 0]
-        self.assertEqual(len(ch_results), 2)
-        self.assertListEqual([item.property for item in ch_results], ["ai", "dashboard"])
+        self.assertEqual(len(response.results), 2)
+        self.assertListEqual([item.property for item in response.results], ["ai", "dashboard"])
 
     @snapshot_clickhouse_queries
     def test_property_taxonomy_handles_numeric_property_values(self):
@@ -653,72 +632,6 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response.results), 0)
 
-    def test_well_known_properties_appended_in_discovery_mode(self):
-        _create_person(
-            distinct_ids=["person1"],
-            properties={"email": "person1@example.com"},
-            team=self.team,
-        )
-        _create_event(
-            event="event1",
-            distinct_id="person1",
-            properties={"$browser": "Chrome"},
-            team=self.team,
-        )
-
-        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-
-        # $browser is from CH, well-known properties with sample_count=0 are appended
-        ch_results = [r for r in response.results if r.sample_count > 0]
-        well_known_results = [r for r in response.results if r.sample_count == 0]
-        self.assertEqual(len(ch_results), 1)
-        self.assertEqual(ch_results[0].property, "$browser")
-        self.assertGreater(len(well_known_results), 0)
-        for item in well_known_results:
-            self.assertEqual(item.sample_values, [])
-            self.assertEqual(item.sample_count, 0)
-
-    def test_well_known_properties_not_appended_with_specific_properties(self):
-        _create_person(
-            distinct_ids=["person1"],
-            properties={"email": "person1@example.com"},
-            team=self.team,
-        )
-        _create_event(
-            event="event1",
-            distinct_id="person1",
-            properties={"$host": "posthog.com"},
-            team=self.team,
-        )
-
-        response = EventTaxonomyQueryRunner(
-            team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host"])
-        ).calculate()
-
-        # Only the requested property is returned, no well-known properties appended
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].property, "$host")
-
-    def test_well_known_properties_not_duplicated(self):
-        _create_person(
-            distinct_ids=["person1"],
-            properties={"email": "person1@example.com"},
-            team=self.team,
-        )
-        # $browser is a well-known property that also appears in CH
-        _create_event(
-            event="event1",
-            distinct_id="person1",
-            properties={"$browser": "Chrome"},
-            team=self.team,
-        )
-
-        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-
-        browser_results = [r for r in response.results if r.property == "$browser"]
-        self.assertEqual(len(browser_results), 1)
-        self.assertEqual(browser_results[0].sample_count, 1)
-
     def test_pagination_with_limit_and_offset(self):
         _create_person(
             distinct_ids=["person1"],
@@ -753,34 +666,3 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(response.hasMore)
         self.assertEqual(response.limit, 2)
         self.assertEqual(response.offset, 2)
-
-    def test_well_known_properties_only_on_last_page(self):
-        _create_person(
-            distinct_ids=["person1"],
-            properties={"email": "person1@example.com"},
-            team=self.team,
-        )
-
-        for i in range(100):
-            _create_event(
-                event="event1",
-                distinct_id="person1",
-                properties={
-                    f"prop_{i + 10}": "value",
-                    f"prop_{i + 100}": "value",
-                    f"prop_{i + 1000}": "value",
-                    f"prop_{i + 10000}": "value",
-                    f"prop_{i + 100000}": "value",
-                    f"prop_{i + 1000000}": "value",
-                },
-                team=self.team,
-            )
-
-        # First page with small limit - hasMore=True, no well-known properties
-        response = EventTaxonomyQueryRunner(
-            team=self.team, query=EventTaxonomyQuery(event="event1", limit=5)
-        ).calculate()
-
-        self.assertTrue(response.hasMore)
-        zero_count = [r for r in response.results if r.sample_count == 0]
-        self.assertEqual(len(zero_count), 0)

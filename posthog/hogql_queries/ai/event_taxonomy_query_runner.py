@@ -19,11 +19,6 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action
 
-try:
-    from posthog.taxonomy.taxonomy import WELL_KNOWN_EVENT_PROPERTY_NAMES
-except ImportError:
-    WELL_KNOWN_EVENT_PROPERTY_NAMES: list[str] = []
-
 DEFAULT_LIMIT = 500
 
 
@@ -67,14 +62,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     sample_values=sample_values,
                     sample_count=sample_count,
                 )
-            )
-
-        if not self.query.properties and not self.paginator.has_more():
-            found_properties = {item.property for item in results}
-            results.extend(
-                EventTaxonomyItem(property=name, sample_values=[], sample_count=0)
-                for name in WELL_KNOWN_EVENT_PROPERTY_NAMES
-                if name not in found_properties
             )
 
         return EventTaxonomyQueryResponse(

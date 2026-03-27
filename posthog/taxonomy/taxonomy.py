@@ -2655,9 +2655,3 @@ WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if name not in IGNORED_EVENT_NAMES and name != "All events"
 )
-
-WELL_KNOWN_EVENT_PROPERTY_NAMES: list[str] = sorted(
-    name
-    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("event_properties", {}).items()
-    if not defn.get("system") and not defn.get("ignored_in_assistant") and not defn.get("used_for_debug")
-)
