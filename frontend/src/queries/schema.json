@@ -2270,6 +2270,10 @@
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
+                "math_hogql": {
+                    "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`",
+                    "type": "string"
+                },
                 "math_multiplier": {
                     "type": "number"
                 },
@@ -2320,6 +2324,10 @@
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
+                "math_hogql": {
+                    "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`",
+                    "type": "string"
+                },
                 "math_multiplier": {
                     "type": "number"
                 },
@@ -2345,6 +2353,11 @@
         "AssistantStickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "computedAs": {
+                    "$ref": "#/definitions/StickinessComputationMode",
+                    "default": "non_cumulative",
+                    "description": "Computation mode. `non_cumulative` (default) shows users active on exactly N intervals. `cumulative` shows users active on N or more intervals."
+                },
                 "display": {
                     "$ref": "#/definitions/AssistantStickinessDisplayType",
                     "default": "ActionsLineGraph",
@@ -2359,6 +2372,10 @@
                     "default": false,
                     "description": "Whether to show a value on each data point.",
                     "type": "boolean"
+                },
+                "stickinessCriteria": {
+                    "$ref": "#/definitions/StickinessCriteria",
+                    "description": "Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times."
                 }
             },
             "type": "object"
@@ -2404,6 +2421,10 @@
                     "$ref": "#/definitions/IntervalType",
                     "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days."
+                },
+                "intervalCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods."
                 },
                 "kind": {
                     "const": "StickinessQuery",
@@ -33282,6 +33303,19 @@
             "enum": ["non_cumulative", "cumulative"],
             "type": "string"
         },
+        "StickinessCriteria": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/StickinessOperator"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
@@ -33332,17 +33366,7 @@
                     "type": "boolean"
                 },
                 "stickinessCriteria": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "operator": {
-                            "$ref": "#/definitions/StickinessOperator"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/integer"
-                        }
-                    },
-                    "required": ["operator", "value"],
-                    "type": "object"
+                    "$ref": "#/definitions/StickinessCriteria"
                 }
             },
             "type": "object"

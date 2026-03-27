@@ -456,22 +456,6 @@ class AssistantStickinessDisplayType(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
 
 
-class AssistantStickinessFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    display: AssistantStickinessDisplayType | None = Field(
-        default=AssistantStickinessDisplayType.ACTIONS_LINE_GRAPH,
-        description=(
-            "Visualization type for the stickiness chart. `ActionsLineGraph` - line"
-            " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
-            " chart."
-        ),
-    )
-    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
-    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
-
-
 class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -8416,6 +8400,19 @@ class AssistantStickinessActionsNode(BaseModel):
         | None
     ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
     math_multiplier: float | None = None
     math_property: str | None = None
     math_property_type: str | None = None
@@ -8464,6 +8461,19 @@ class AssistantStickinessEventsNode(BaseModel):
         | None
     ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
     math_multiplier: float | None = None
     math_property: str | None = None
     math_property_type: str | None = None
@@ -8493,6 +8503,37 @@ class AssistantStickinessEventsNode(BaseModel):
     ) = None
 
 
+class AssistantStickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computedAs: StickinessComputationMode | None = Field(
+        default=StickinessComputationMode.NON_CUMULATIVE,
+        description=(
+            "Computation mode. `non_cumulative` (default) shows users active on exactly"
+            " N intervals. `cumulative` shows users active on N or more intervals."
+        ),
+    )
+    display: AssistantStickinessDisplayType | None = Field(
+        default=AssistantStickinessDisplayType.ACTIONS_LINE_GRAPH,
+        description=(
+            "Visualization type for the stickiness chart. `ActionsLineGraph` - line"
+            " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
+            " chart."
+        ),
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stickinessCriteria: StickinessCriteria | None = Field(
+        default=None,
+        description=(
+            "Filter which intervals count based on event frequency within each"
+            " interval. For example, only count intervals where the user performed the"
+            " event >= 3 times."
+        ),
+    )
+
+
 class AssistantStickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8517,6 +8558,14 @@ class AssistantStickinessQuery(BaseModel):
             " measurement. For example, with `day` interval over a 30-day range, the"
             " X-axis shows 1 through 30 days, and each bar/point shows how many users"
             " performed the event on exactly that many days."
+        ),
+    )
+    intervalCount: int | None = Field(
+        default=None,
+        description=(
+            "How many base intervals comprise one stickiness period. Defaults to 1. For"
+            ' example, `interval: "day"` with `intervalCount: 7` groups by 7-day'
+            " periods."
         ),
     )
     kind: Literal["StickinessQuery"] = "StickinessQuery"

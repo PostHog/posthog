@@ -17,7 +17,9 @@ import {
     Node,
     NodeKind,
     RetentionFilterLegacy,
+    StickinessComputationMode,
     StickinessFilterLegacy,
+    StickinessCriteria,
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
@@ -799,6 +801,19 @@ export interface AssistantStickinessEventsNode extends Pick<
     | 'math_group_type_index'
 > {
     properties?: AssistantPropertyFilter[]
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
 }
 
 /**
@@ -821,6 +836,19 @@ export interface AssistantStickinessActionsNode extends Pick<
      * Action name from the plan.
      */
     name: string
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
 }
 
 export type AssistantStickinessNode = AssistantStickinessEventsNode | AssistantStickinessActionsNode
@@ -846,6 +874,19 @@ export interface AssistantStickinessFilter {
      * @default false
      */
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+
+    /**
+     * Filter which intervals count based on event frequency within each interval.
+     * For example, only count intervals where the user performed the event >= 3 times.
+     */
+    stickinessCriteria?: StickinessCriteria
+
+    /**
+     * Computation mode. `non_cumulative` (default) shows users active on exactly N intervals.
+     * `cumulative` shows users active on N or more intervals.
+     * @default non_cumulative
+     */
+    computedAs?: StickinessComputationMode
 }
 
 export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
@@ -860,6 +901,12 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
      * @default day
      */
     interval?: IntervalType
+
+    /**
+     * How many base intervals comprise one stickiness period. Defaults to 1.
+     * For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.
+     */
+    intervalCount?: integer
 
     /**
      * Events or actions to include. Each series measures how many intervals (e.g. days) within
