@@ -79,7 +79,7 @@ You should not filter events by time using property filters. Instead, use the `d
 
 Paths analyze sequences of events. Specify which event types to include using `includeEventTypes`. If omitted, all events are included without type filtering.
 
-- `$pageview` - web page views. Path values are page URLs (from `$current_url`, trailing slashes stripped). Best for analyzing website navigation flows. This is the most common choice.
+- `$pageview` - web page views. Path values come from `$current_url`, with trailing slashes stripped, so they must match your stored URL format. This is often a path like `/login`, but may also be a full URL like `https://example.com/login`. Best for analyzing website navigation flows. This is the most common choice.
 - `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). Use for mobile app navigation analysis.
 - `custom_event` - custom events (any event whose name does not start with `$`). Path values are event names. Use for analyzing flows of custom-tracked events like button clicks, form submissions, or feature usage.
 - `hogql` - custom HogQL expression. Use with `pathsHogQLExpression` for advanced path definitions.
@@ -90,7 +90,7 @@ You can combine multiple types. For example, include both `$pageview` and `custo
 
 Use `startPoint` to filter paths that begin at a specific step, or `endPoint` to filter paths that end at a specific step. The value format depends on the event type:
 
-- For `$pageview`: use page URL paths like `/login`, `/dashboard`, `/settings`
+- For `$pageview`: use the same URL format as your `$current_url` values, often paths like `/login`, `/dashboard`, `/settings`, but sometimes full URLs
 - For `$screen`: use screen names
 - For `custom_event`: use event names like `user signed up`, `purchase completed`
 
@@ -102,7 +102,7 @@ Use `pathGroupings` for simpler glob-like grouping of paths into single nodes. U
 
 ## Exclusions
 
-Use `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these are URLs (e.g., `/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.
+Use `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these must match your stored `$current_url` format (e.g., `/health-check` or `https://example.com/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.
 
 # Examples
 
