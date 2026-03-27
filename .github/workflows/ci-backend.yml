@@ -807,7 +807,7 @@ jobs:
                   set -o pipefail
                   # Dump schema + django_migrations data so Django knows which migrations are applied
                   # Run pg_dump inside container to ensure version match (host has pg_dump 16, container has 15)
-                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean -U posthog posthog && \
+                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean --if-exists -U posthog posthog && \
                    docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
