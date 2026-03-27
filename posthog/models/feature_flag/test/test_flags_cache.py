@@ -641,6 +641,8 @@ def _extract_schema(obj: Any) -> Any:
     if isinstance(obj, list):
         if not obj:
             return ["empty_list"]
+        # Assumes homogeneous lists (all elements same type), which holds for
+        # the hypercache JSON schema. Only the first element is inspected.
         return [_extract_schema(obj[0])]
     if isinstance(obj, dict):
         if not obj:
@@ -692,7 +694,7 @@ def _compare_schemas(fixture_schema: Any, result_schema: Any, path: str = "") ->
                 diffs.append(f"Key `{child_path}` in serializer output but not in fixture")
             else:
                 diffs.extend(_compare_schemas(fixture_schema[key], result_schema[key], child_path))
-    elif isinstance(fixture_schema, list) and fixture_schema and result_schema:
+    elif isinstance(fixture_schema, list) and fixture_schema:
         # empty_list is compatible with any element type
         if fixture_schema[0] == "empty_list" or result_schema[0] == "empty_list":
             return diffs
@@ -700,6 +702,48 @@ def _compare_schemas(fixture_schema: Any, result_schema: Any, path: str = "") ->
     elif fixture_schema != result_schema:
         diffs.append(f"Type mismatch at `{path}`: fixture={fixture_schema}, serializer={result_schema}")
     return diffs
+
+
+class TestExtractSchema:
+    @parameterized.expand(
+        [
+            ("none", None, "null"),
+            ("bool_true", True, "bool"),
+            ("bool_false", False, "bool"),
+            ("int", 42, "int"),
+            ("float", 3.14, "float"),
+            ("str", "hi", "str"),
+            ("empty_list", [], ["empty_list"]),
+            ("list_of_int", [1, 2], ["int"]),
+            ("empty_dict", {}, {}),
+            ("simple_dict", {"a": 1}, {"a": "int"}),
+            ("map_skips_empty", {"1": [], "2": [3]}, {"<map>": ["int"]}),
+            ("map_all_empty", {"1": [], "2": []}, {"<map>": ["empty_list"]}),
+        ]
+    )
+    def test_extract_schema(self, _name: str, obj: Any, expected: Any):
+        assert _extract_schema(obj) == expected
+
+    @parameterized.expand(
+        [
+            ("null_match", "null", "null", []),
+            ("null_vs_str", "null", "str", ["Fixture expects null at `root` but serializer returned str"]),
+            ("str_vs_null", "str", "null", ["Fixture expects non-null at `root` (str) but serializer returned null"]),
+            ("int_vs_float", "int", "float", ["Type mismatch at `root`: fixture=int, serializer=float"]),
+            ("empty_list_compat_rhs", ["int"], ["empty_list"], []),
+            ("empty_list_compat_lhs", ["empty_list"], ["str"], []),
+            (
+                "extra_key",
+                {"a": "int"},
+                {"a": "int", "b": "str"},
+                ["Key `root.b` in serializer output but not in fixture"],
+            ),
+            ("matching_dict", {"a": "int"}, {"a": "int"}, []),
+        ]
+    )
+    def test_compare_schemas(self, _name: str, fixture_schema: Any, result_schema: Any, expected_diffs: list[str]):
+        diffs = _compare_schemas(fixture_schema, result_schema, "root")
+        assert diffs == expected_diffs
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -744,7 +788,9 @@ class TestServiceFlagsDataFormat(BaseTest):
             last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
-        # 1) full-flag: exercises all optional nested structures
+        # 1) full-flag: exercises all optional nested structures.
+        # Every nullable field that has a typed schema should be non-null here
+        # so _compare_schemas can verify its type.
         full_flag = FeatureFlag.objects.create(
             team=self.team,
             key="full-flag",
@@ -915,6 +961,9 @@ class TestServiceFlagsDataFormat(BaseTest):
         # cohorts
         assert result.get("cohorts"), "Expected cohorts in serializer output (flags reference a cohort)"
         if "cohorts" in fixture and "cohorts" in result:
+            assert len(result["cohorts"]) == len(fixture["cohorts"]), (
+                f"Cohort count mismatch: fixture has {len(fixture['cohorts'])}, serializer has {len(result['cohorts'])}"
+            )
             all_diffs.extend(
                 _compare_schemas(
                     _extract_schema(fixture["cohorts"][0]),
