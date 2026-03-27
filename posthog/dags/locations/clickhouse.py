@@ -43,6 +43,8 @@ defs = dagster.Definitions(
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
+        data_deletion_requests.data_deletion_request_event_removal,
+        part_breaker.break_oversized_parts,
     ],
     schedules=[
         export_query_logs_to_s3.query_logs_export_schedule,
@@ -53,6 +55,7 @@ defs = dagster.Definitions(
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
+        part_breaker.break_oversized_parts_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,
