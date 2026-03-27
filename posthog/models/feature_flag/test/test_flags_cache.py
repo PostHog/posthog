@@ -632,8 +632,10 @@ def _extract_schema(obj: Any) -> Any:
         return "null"
     if isinstance(obj, bool):
         return "bool"
-    if isinstance(obj, (int, float)):
-        return "number"
+    if isinstance(obj, int):
+        return "int"
+    if isinstance(obj, float):
+        return "float"
     if isinstance(obj, str):
         return "str"
     if isinstance(obj, list):
