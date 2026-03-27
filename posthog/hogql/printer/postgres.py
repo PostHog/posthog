@@ -47,6 +47,8 @@ class PostgresPrinter(HogQLPrinter):
         return self.visit(node.type)
 
     def visit_keyword(self, node: ast.Keyword):
+        if not node.name.isidentifier():
+            raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name.upper()
 
     def visit_call(self, node: ast.Call):

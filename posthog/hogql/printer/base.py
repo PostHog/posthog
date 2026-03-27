@@ -706,6 +706,8 @@ class HogQLPrinter(Visitor[str]):
         return self._print_escaped_string(node.value)
 
     def visit_keyword(self, node: ast.Keyword):
+        if not node.name.isidentifier():
+            raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name
 
     def visit_field(self, node: ast.Field):
