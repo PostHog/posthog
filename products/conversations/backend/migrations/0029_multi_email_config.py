@@ -7,7 +7,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     """Create new TeamConversationsEmailConfig with UUID PK and many-per-team support.
 
-    Old table was renamed in 0029. This creates the new table with:
+    Old table was dropped in 0028. This creates the new table with:
     - UUID PK instead of team as PK
     - team as ForeignKey instead of OneToOneField
     - unique(from_email) instead of unique(domain)
@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("conversations", "0029_rename_old_email_config_table"),
+        ("conversations", "0028_remove_old_email_config"),
     ]
 
     operations = [
