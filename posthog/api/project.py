@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
+import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
@@ -24,6 +25,7 @@ from posthog.api.team import (
 )
 from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -66,6 +68,8 @@ from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for
 from products.signals.backend.models import SignalSourceConfig
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+logger = structlog.get_logger(__name__)
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 
@@ -668,11 +672,34 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return project.teams.get(id=project.id)
 
     def perform_destroy(self, project: Project):
+        from ee.billing.billing_manager import BillingManager
+
         # Check if bulk deletion operations are disabled via environment variable
         # Projects contain teams, so we need to block project deletion too
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
+            )
+
+        # Block deletion of the last project in an org with an active subscription (cloud only).
+        # Fail open if the billing service is unreachable — a 500 here would create a worse stuck state.
+        is_last_project = project.organization.projects.count() == 1
+        license = get_cached_instance_license()
+        try:
+            has_active_subscription = (
+                settings.EE_AVAILABLE
+                and is_cloud()
+                and license
+                and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
+            )
+        except Exception:
+            logger.exception("Failed to check billing status before project deletion; allowing deletion to proceed")
+            has_active_subscription = False
+
+        if is_last_project and has_active_subscription:
+            raise exceptions.ValidationError(
+                "Cannot delete the last project in an organization with an active subscription. "
+                "Please cancel your subscription first in the billing page."
             )
 
         project_id = project.pk

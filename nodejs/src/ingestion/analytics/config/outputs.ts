@@ -5,9 +5,10 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+    KAFKA_GROUPS,
     KAFKA_INGESTION_WARNINGS,
 } from '../../../config/kafka-topics'
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
+import { DLQ_OUTPUT, GROUPS_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
 import { IngestionOutputDefinition } from '../../outputs/resolver'
 import { AI_EVENTS_OUTPUT, ASYNC_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from '../outputs'
 import { DEFAULT_PRODUCER, ProducerName } from './producers'
@@ -55,5 +56,11 @@ export const INGESTION_OUTPUT_DEFINITIONS: Record<string, IngestionOutputDefinit
         defaultProducerName: DEFAULT_PRODUCER,
         producerOverrideEnvVar: 'INGESTION_OUTPUT_ASYNC_PRODUCER',
         topicOverrideEnvVar: 'INGESTION_OUTPUT_ASYNC_TOPIC',
+    },
+    [GROUPS_OUTPUT]: {
+        defaultTopic: KAFKA_GROUPS,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'INGESTION_OUTPUT_GROUPS_PRODUCER',
+        topicOverrideEnvVar: 'INGESTION_OUTPUT_GROUPS_TOPIC',
     },
 }

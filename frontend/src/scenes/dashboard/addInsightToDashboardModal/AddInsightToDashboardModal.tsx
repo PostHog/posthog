@@ -89,16 +89,22 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                         <div className="p-2 space-y-1 min-w-48">
                                             {additionalTypes.map(([type, metadata]) => {
                                                 const Icon = metadata.icon
+                                                const typeUrl =
+                                                    type === InsightType.SQL
+                                                        ? urls.sqlEditor({
+                                                              dashboard: dashboard?.id,
+                                                          })
+                                                        : urls.insightNew({
+                                                              type: type as InsightType,
+                                                              dashboardId: dashboard?.id,
+                                                          })
                                                 return (
                                                     <LemonButton
                                                         key={type}
                                                         type="tertiary"
                                                         fullWidth
                                                         icon={Icon ? <Icon /> : undefined}
-                                                        to={urls.insightNew({
-                                                            type: type as InsightType,
-                                                            dashboardId: dashboard?.id,
-                                                        })}
+                                                        to={typeUrl}
                                                         data-attr={`create-${type.toLowerCase()}`}
                                                         onClick={() => handleNewInsightClicked(type)}
                                                     >
