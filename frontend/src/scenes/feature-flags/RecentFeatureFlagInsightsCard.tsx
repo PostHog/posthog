@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-
+import { CompactList } from 'lib/components/CompactList/CompactList'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -27,44 +26,26 @@ export function RecentFeatureFlagInsights(): JSX.Element {
             },
         },
     }
-
-    if (relatedInsightsLoading) {
-        return (
-            <div className="flex flex-col gap-2 py-2">
-                {Array.from({ length: 3 }, (_, i) => (
-                    <LemonSkeleton key={i} className="h-4" />
-                ))}
-            </div>
-        )
-    }
-
-    if (relatedInsights.length === 0) {
-        return (
-            <div className="flex flex-col items-center gap-2 py-3 text-center">
-                <span className="text-xs text-muted">No insights use this flag yet</span>
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    to={urls.insightNew({ query })}
-                    onClick={() => {
-                        addProductIntentForCrossSell({
-                            from: ProductKey.FEATURE_FLAGS,
-                            to: ProductKey.PRODUCT_ANALYTICS,
-                            intent_context: ProductIntentContext.FEATURE_FLAG_CREATE_INSIGHT,
-                        })
-                    }}
-                >
-                    Create insight
-                </LemonButton>
-            </div>
-        )
-    }
-
     return (
-        <div className="flex flex-col">
-            {relatedInsights.slice(0, 5).map((insight: QueryBasedInsightModel, index) => (
+        <CompactList
+            loading={relatedInsightsLoading}
+            emptyMessage={{
+                title: 'No insights use this flag yet',
+                buttonText: 'Create insight',
+                buttonTo: urls.insightNew({ query }),
+                buttonOnClick: () => {
+                    addProductIntentForCrossSell({
+                        from: ProductKey.FEATURE_FLAGS,
+                        to: ProductKey.PRODUCT_ANALYTICS,
+                        intent_context: ProductIntentContext.FEATURE_FLAG_CREATE_INSIGHT,
+                    })
+                },
+            }}
+            items={relatedInsights.slice(0, 5)}
+            renderRow={(insight: QueryBasedInsightModel, index) => (
                 <InsightRow key={index} insight={insight} dataAttr="recent-feature-flag-insight-item" allowWrap />
-            ))}
-        </div>
+            )}
+            contentHeightBehavior="shrink"
+        />
     )
 }
