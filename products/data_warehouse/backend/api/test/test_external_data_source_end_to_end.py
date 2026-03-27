@@ -49,7 +49,7 @@ def api_client(user):
         ) as mock_sync_workflow,
         mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
     ):
-        client.captured_sync_workflow = mock_sync_workflow
+        client.captured_sync_workflow = mock_sync_workflow  # type: ignore[attr-defined]
         yield client
 
 
@@ -132,15 +132,16 @@ def run_data_import_workflow(mock_stripe_client):
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-        run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+        run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
         assert run is not None
         assert run.status == ExternalDataJob.Status.COMPLETED, f"Workflow failed: {run.latest_error}"
 
     return async_to_sync(_run)
 
 
-def _is_empty_query(query: DataWarehouseSavedQuery):
-    return "where false" in query.query.get("query").lower()
+def _is_empty_query(query: DataWarehouseSavedQuery) -> bool:
+    assert query.query is not None
+    return "where false" in query.query.get("query", "").lower()
 
 
 @pytest.mark.django_db(transaction=True)

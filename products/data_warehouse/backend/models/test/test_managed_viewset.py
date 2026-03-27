@@ -259,10 +259,12 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         )
 
     def assertQueryIsEmpty(self, saved_query: DataWarehouseSavedQuery, msg: str | None = None) -> None:
+        assert saved_query.query is not None
         query_str = saved_query.query.get("query", "")
         self.assertTrue("where false" in query_str.lower(), msg=msg)
 
     def assertQueryIsNotEmpty(self, saved_query: DataWarehouseSavedQuery, msg: str | None = None) -> None:
+        assert saved_query.query is not None
         query_str = saved_query.query.get("query", "")
         self.assertFalse("where false" in query_str.lower(), msg=msg)
 
