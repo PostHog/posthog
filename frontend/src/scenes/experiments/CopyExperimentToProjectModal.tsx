@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
@@ -27,11 +27,19 @@ export function CopyExperimentToProjectModal({
     const { currentTeam } = useValues(teamLogic)
 
     const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+    const submittedRef = useRef(false)
+
+    useEffect(() => {
+        if (submittedRef.current && !copyExperimentToProjectLoading) {
+            submittedRef.current = false
+            handleClose()
+        }
+    }, [copyExperimentToProjectLoading])
 
     const handleCopy = (): void => {
         if (selectedProjectId) {
+            submittedRef.current = true
             copyExperimentToProject({ id: experiment.id as number, targetProjectId: selectedProjectId })
-            handleClose()
         }
     }
 
