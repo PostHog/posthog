@@ -12,7 +12,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
-import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -389,6 +389,19 @@ export interface NotificationSettings {
     materialized_view_sync_failed?: boolean
 }
 
+export interface InAppNotification {
+    id: string
+    notification_type: string
+    priority: string
+    title: string
+    body: string
+    read: boolean
+    read_at: string | null
+    resource_type: string | null
+    source_url: string
+    created_at: string
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean
@@ -667,6 +680,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_url_blocklist_config?: UrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
+    session_recording_trigger_groups?: SessionRecordingTriggerGroupsConfig | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     conversations_enabled?: boolean
@@ -835,7 +849,11 @@ export interface ToolbarProps extends ToolbarParams {
     disableExternalStyles?: boolean
 }
 
-export type PathCleaningFilter = { alias?: string; regex?: string; order?: number }
+export type PathCleaningFilter = {
+    alias?: string
+    regex?: string
+    order?: number
+}
 
 export type PropertyFilterBaseValue = string | number | bigint | boolean
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
@@ -1423,7 +1441,11 @@ export type SearchableEntity =
     | 'property_definition'
     | 'survey'
 
-export type SearchListParams = { q: string; entities?: SearchableEntity[]; include_counts?: boolean }
+export type SearchListParams = {
+    q: string
+    entities?: SearchableEntity[]
+    include_counts?: boolean
+}
 
 export type SearchResultType = {
     result_id: string
@@ -1437,7 +1459,11 @@ export type SearchResponse = {
     counts?: Record<SearchableEntity, number | null>
 }
 
-export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
+export type GroupListParams = {
+    group_type_index: GroupTypeIndex
+    search: string
+    limit?: number
+}
 
 export type CreateGroupParams = {
     group_type_index: GroupTypeIndex
@@ -2201,28 +2227,34 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     transparent_background?: boolean | null
 }
 
+export type DashboardWidgetType = 'insight' | 'text' | 'button_tile'
+
 export interface DashboardTileBasicType {
     id: number
     dashboard_id: number
     deleted?: boolean
 }
 
-export interface TextModel {
-    body: string
+/** Shared fields for simple dashboard content models (text card, button tile, etc.). */
+export interface DashboardWidgetInterface {
+    id?: number
+    /** Placements on dashboards (same shape as insight `dashboard_tiles`; preferred over legacy `dashboards` on insights where applicable). */
+    dashboard_tiles?: DashboardTileBasicType[] | null
     created_by?: UserBasicType
     last_modified_by?: UserBasicType
+    last_modified_at?: string
+}
+
+export interface TextModel extends DashboardWidgetInterface {
+    body: string
     last_modified_at: string
 }
 
-export interface ButtonTileModel {
-    id?: number
+export interface ButtonTileModel extends DashboardWidgetInterface {
     url: string
     text: string
     placement: 'left' | 'right'
     style: 'primary' | 'secondary'
-    created_by?: UserBasicType
-    last_modified_by?: UserBasicType
-    last_modified_at?: string
     team?: number
 }
 
@@ -2371,6 +2403,8 @@ export interface DashboardTemplateType<T = InsightModel> {
     image_url?: string
     scope?: DashboardTemplateScope
     availability_contexts?: TemplateAvailabilityContext[]
+    /** Manually curated highlight flag. */
+    is_featured?: boolean
 }
 
 export interface MonacoMarker {
@@ -2408,7 +2442,10 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
-    private_project_access?: Array<{ id: number; level: AccessControlLevel.Member | AccessControlLevel.Admin }>
+    private_project_access?: Array<{
+        id: number
+        level: AccessControlLevel.Member | AccessControlLevel.Admin
+    }>
 }
 
 export enum PluginInstallationType {
@@ -3895,11 +3932,11 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
+    experiment_set_metadata: { id: number; name: string }[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
     tags: string[]
-    evaluation_tags: string[]
     evaluation_contexts: string[]
     usage_dashboard?: number
     has_enriched_analytics?: boolean
@@ -4016,10 +4053,16 @@ export enum RecurrenceInterval {
 
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
-    | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+    | {
+          operation: ScheduledChangeOperationType.AddReleaseCondition
+          value: FeatureFlagFilters
+      }
     | {
           operation: ScheduledChangeOperationType.UpdateVariants
-          value: { variants: MultivariateFlagVariant[]; payloads?: Record<string, any> }
+          value: {
+              variants: MultivariateFlagVariant[]
+              payloads?: Record<string, any>
+          }
       }
 
 export interface ScheduledChangeType {
@@ -4145,6 +4188,7 @@ export type HotKey =
     | 'd'
     | 'e'
     | 'f'
+    | 'g'
     | 'h'
     | 'i'
     | 'j'
@@ -4355,7 +4399,10 @@ export interface Experiment {
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     primary_metrics_ordered_uuids: string[] | null
     secondary_metrics_ordered_uuids: string[] | null
-    saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
+    saved_metrics_ids: {
+        id: number
+        metadata: { type: 'primary' | 'secondary' }
+    }[]
     saved_metrics: any[]
     parameters: {
         exposure_estimate_config?: {
@@ -5120,6 +5167,7 @@ export type APIScopeObject =
     | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
+    | 'tracing'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5134,7 +5182,12 @@ export type APIScope = {
     warnings?: Partial<Record<APIScopeAction, string | JSX.Element>>
 }
 
-export type APIScopePreset = { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }
+export type APIScopePreset = {
+    value: string
+    label: string
+    scopes: string[]
+    isCloudOnly?: boolean
+}
 
 export enum AccessControlLevel {
     None = 'none',
@@ -5490,6 +5543,32 @@ export interface ExternalDataSource {
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
+    supports_webhooks?: boolean
+}
+
+export interface WebhookExternalStatus {
+    exists: boolean
+    url?: string
+    enabled_events?: string[]
+    status?: string
+    description?: string
+    created_at?: string
+    error?: string
+}
+
+export interface WebhookInfo {
+    supports_webhooks: boolean
+    exists: boolean
+    hog_function?: {
+        id: string
+        name: string
+        enabled: boolean
+        created_at: string
+        status: { state: number; tokens: number }
+    }
+    webhook_url?: string
+    schema_mapping?: Record<string, string>
+    external_status?: WebhookExternalStatus | null
 }
 
 export interface DataModelingJob {
@@ -5508,6 +5587,7 @@ export interface DataModelingJob {
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
+    label: string | null
     should_sync: boolean
     last_synced_at?: Dayjs
 }
@@ -5538,7 +5618,7 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
-    sync_type: 'full_refresh' | 'incremental' | 'append' | null
+    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
@@ -5550,7 +5630,7 @@ export interface ExternalDataSourceSyncSchema {
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
-    sync_type: 'incremental' | 'full_refresh' | 'append' | null
+    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | null
     sync_time_of_day: string | null
     status?: ExternalDataSchemaStatus
     latest_error: string | null
@@ -5911,6 +5991,7 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: SDKTag[]
+    searchTerms?: string[]
     image:
         | string
         | JSX.Element
@@ -5982,6 +6063,7 @@ export enum SDKKey {
     PYTHON = 'python',
     REACT = 'react',
     REACT_NATIVE = 'react_native',
+    REACT_ROUTER = 'react_router',
     REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
@@ -6116,6 +6198,10 @@ export type OnboardingProduct = {
     socialProof?: string
     userCentricDescription?: string
     capabilities?: string[]
+    /** Title + problem pairs shown in the post-onboarding modal. Falls back to capabilities if absent. */
+    valueProps?: { title: string; problem: string }[]
+    /** Hedgehog illustration for the post-onboarding modal. Falls back to SupermanHog if absent. */
+    hedgehog?: React.ComponentType<{ className?: string }>
 }
 
 export type CyclotronJobInputSchemaType = {
@@ -6258,6 +6344,7 @@ export type HogFunctionConfigurationContextId =
     | 'discussion-mention'
     | 'insight-alerts'
     | 'experiment-alerts'
+    | 'logs-alerting'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6269,6 +6356,7 @@ export type HogFunctionSubTemplateIdType =
     | 'discussion-mention'
     | 'insight-alert-firing'
     | 'experiment-significant'
+    | 'logs-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

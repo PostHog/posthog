@@ -53,11 +53,11 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('JSON-encoded list of feature flag keys to exclude from the results.'),
-    has_evaluation_tags: zod
+    has_evaluation_contexts: zod
         .enum(['false', 'true'])
         .optional()
         .describe(
-            "Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags."
+            "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -351,15 +351,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
-    evaluation_tags: zod
+    evaluation_contexts: zod
         .array(zod.string())
         .optional()
-        .describe('Evaluation context tags. Must be a subset of `tags`.'),
+        .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
 })
 
 /**
@@ -662,15 +668,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
-    evaluation_tags: zod
+    evaluation_contexts: zod
         .array(zod.string())
         .optional()
-        .describe('Evaluation context tags. Must be a subset of `tags`.'),
+        .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
 })
 
 /**

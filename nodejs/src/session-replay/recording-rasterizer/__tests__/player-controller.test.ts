@@ -4,6 +4,13 @@ import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/
 import { PlayerController } from '../capture/player'
 import { RasterizationError } from '../errors'
 
+const flushPromises = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+const mockInternalFetch = jest.fn()
+jest.mock('../../../utils/request', () => ({
+    internalFetch: (...args: any[]) => mockInternalFetch(...args),
+}))
+
 jest.mock('../logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
@@ -49,13 +56,18 @@ function mockPage() {
     }
 }
 
+const testCfg = {
+    siteUrl: 'http://localhost:8000',
+    recordingApiBaseUrl: 'http://localhost:6738',
+    recordingApiSecret: 'secret',
+}
+
 function basePlayerConfig(overrides: Partial<PlayerConfig> = {}): PlayerConfig {
     return {
-        recordingApiBaseUrl: 'http://localhost:6738',
-        recordingApiSecret: 'secret',
         teamId: 1,
         sessionId: 'test-session',
         playbackSpeed: 4,
+        blockCount: 0,
         skipInactivity: true,
         mouseTail: true,
         viewportEvents: [],
@@ -66,9 +78,9 @@ function basePlayerConfig(overrides: Partial<PlayerConfig> = {}): PlayerConfig {
 describe('PlayerController', () => {
     it('load() sets up exposeFunction, evaluateOnNewDocument, request interception, and navigates', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
 
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        await controller.load(basePlayerConfig(), [])
 
         expect(page.exposeFunction).toHaveBeenCalledWith(PLAYER_EMIT_FN, expect.any(Function))
         expect(page.evaluateOnNewDocument).toHaveBeenCalledWith(
@@ -85,9 +97,9 @@ describe('PlayerController', () => {
 
     it('load() intercepts player URL and passes through other requests', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
+        const controller = new PlayerController(page as any, '<html>player</html>', testCfg)
 
-        await controller.load('<html>player</html>', 'http://localhost:8000', basePlayerConfig())
+        await controller.load(basePlayerConfig(), [])
 
         const handlers = page._getRequestHandlers()
         expect(handlers).toHaveLength(1)
@@ -105,9 +117,10 @@ describe('PlayerController', () => {
         })
 
         const otherRequest = {
-            url: () => 'http://localhost:6738/api/recording/blocks',
+            url: () => 'https://cdn.example.com/font.woff2',
             respond: jest.fn(),
             continue: jest.fn().mockResolvedValue(undefined),
+            headers: jest.fn().mockReturnValue({}),
         }
         handlers[0](otherRequest)
         expect(otherRequest.continue).toHaveBeenCalled()
@@ -116,8 +129,8 @@ describe('PlayerController', () => {
 
     it('waitForStart() resolves when player sends started message', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
 
@@ -130,8 +143,8 @@ describe('PlayerController', () => {
     it('waitForStart() resets timeout on loading_progress messages', async () => {
         jest.useFakeTimers()
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 1000)
 
@@ -152,8 +165,8 @@ describe('PlayerController', () => {
     it('waitForStart() rejects on timeout when no progress', async () => {
         jest.useFakeTimers()
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig({ sessionId: 'sess-abc' }), 1000)
 
@@ -166,8 +179,8 @@ describe('PlayerController', () => {
 
     it('waitForStart() rejects when player sends error message', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
 
@@ -184,8 +197,8 @@ describe('PlayerController', () => {
 
     it('isEnded() returns true after ended message', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         expect(controller.isEnded()).toBe(false)
         page._emit({ type: 'ended' })
@@ -194,8 +207,8 @@ describe('PlayerController', () => {
 
     it('getError() returns stored error from message received outside active promise', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         expect(controller.getError()).toBeNull()
 
@@ -216,8 +229,8 @@ describe('PlayerController', () => {
 
     it('getInactivityPeriods() returns periods from player', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         expect(controller.getInactivityPeriods()).toEqual([])
 
@@ -232,11 +245,121 @@ describe('PlayerController', () => {
 
     it('startPlayback() dispatches the start event', async () => {
         const page = mockPage()
-        const controller = new PlayerController(page as any)
-        await controller.load('<html></html>', 'http://localhost:8000', basePlayerConfig())
+        const controller = new PlayerController(page as any, '<html></html>', testCfg)
+        await controller.load(basePlayerConfig(), [])
 
         await controller.startPlayback()
 
         expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function), PLAYER_START_EVENT)
+    })
+
+    describe('handleBlockRequest (via request interception)', () => {
+        const blocks = [
+            { key: 'recordings/block-0', start_byte: 0, end_byte: 1000 },
+            { key: 'recordings/block-1', start_byte: 100, end_byte: 2000 },
+        ]
+
+        function mockBlockRequest(path: string) {
+            return {
+                url: () => `http://localhost:8000${path}`,
+                respond: jest.fn().mockResolvedValue(undefined),
+                continue: jest.fn(),
+            }
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            mockInternalFetch.mockReset()
+        })
+
+        it('proxies valid block index to recording-api with auth header', async () => {
+            mockInternalFetch.mockResolvedValue({
+                status: 200,
+                headers: { 'content-type': 'application/jsonl' },
+                text: jest.fn().mockResolvedValue('{"data":"test"}'),
+            })
+
+            const page = mockPage()
+            const config = basePlayerConfig({ blockCount: 2 })
+            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            await controller.load(config, blocks)
+
+            const handlers = page._getRequestHandlers()
+            const blockRequest = mockBlockRequest('/__blocks/0')
+            handlers[0](blockRequest)
+            await flushPromises()
+
+            expect(mockInternalFetch).toHaveBeenCalledWith(
+                expect.stringContaining('/api/projects/1/recordings/test-session/block?'),
+                { headers: { 'X-Internal-Api-Secret': 'secret' } }
+            )
+            const fetchUrl = mockInternalFetch.mock.calls[0][0] as string
+            expect(fetchUrl).toContain('key=recordings%2Fblock-0')
+            expect(fetchUrl).toContain('start_byte=0')
+            expect(fetchUrl).toContain('end_byte=1000')
+            expect(fetchUrl).toContain('decompress=true')
+            expect(blockRequest.respond).toHaveBeenCalledWith(
+                expect.objectContaining({ status: 200, contentType: 'application/jsonl' })
+            )
+        })
+
+        it('returns 404 for out-of-range index', async () => {
+            const page = mockPage()
+            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
+
+            const handlers = page._getRequestHandlers()
+            const blockRequest = mockBlockRequest('/__blocks/5')
+            handlers[0](blockRequest)
+            await flushPromises()
+
+            expect(blockRequest.respond).toHaveBeenCalledWith({ status: 404, body: 'block not found' })
+        })
+
+        it('returns 404 for NaN index', async () => {
+            const page = mockPage()
+            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
+
+            const handlers = page._getRequestHandlers()
+            const blockRequest = mockBlockRequest('/__blocks/abc')
+            handlers[0](blockRequest)
+            await flushPromises()
+
+            expect(blockRequest.respond).toHaveBeenCalledWith({ status: 404, body: 'block not found' })
+        })
+
+        it('forwards upstream non-ok status', async () => {
+            mockInternalFetch.mockResolvedValue({
+                status: 500,
+                text: jest.fn().mockResolvedValue('internal error'),
+            })
+
+            const page = mockPage()
+            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
+
+            const handlers = page._getRequestHandlers()
+            const blockRequest = mockBlockRequest('/__blocks/0')
+            handlers[0](blockRequest)
+            await flushPromises()
+
+            expect(blockRequest.respond).toHaveBeenCalledWith({ status: 500, body: 'internal error' })
+        })
+
+        it('returns 502 when upstream fetch throws', async () => {
+            mockInternalFetch.mockRejectedValue(new Error('network timeout'))
+
+            const page = mockPage()
+            const controller = new PlayerController(page as any, '<html></html>', testCfg)
+            await controller.load(basePlayerConfig({ blockCount: 2 }), blocks)
+
+            const handlers = page._getRequestHandlers()
+            const blockRequest = mockBlockRequest('/__blocks/0')
+            handlers[0](blockRequest)
+            await flushPromises()
+
+            expect(blockRequest.respond).toHaveBeenCalledWith({ status: 502, body: 'block proxy error' })
+        })
     })
 })

@@ -68,5 +68,5 @@ WORKDIR /workspace
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
 COPY pyproject.toml uv.lock ./
-RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/bin/uv \
+RUN --mount=from=ghcr.io/astral-sh/uv:0.10.12,source=/uv,target=/bin/uv \
     uv sync

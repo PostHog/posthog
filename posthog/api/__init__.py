@@ -4,7 +4,6 @@ from rest_framework_extensions.routers import NestedRegistryItem
 from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
-from posthog.api.onboarding import OnboardingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
@@ -25,6 +24,7 @@ import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
@@ -155,7 +155,6 @@ from . import (
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
-from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
@@ -686,7 +685,7 @@ router.register(r"instance_status", instance_status.InstanceStatusViewSet, "inst
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
-router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
@@ -1174,13 +1173,6 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
-    ["team_id"],
-)
-
-environments_router.register(
-    r"onboarding",
-    OnboardingViewSet,
-    "environment_onboarding",
     ["team_id"],
 )
 

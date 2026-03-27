@@ -1204,6 +1204,30 @@ class TestResolver(BaseTest):
         assert isinstance(selected.type, ast.CallType)
         assert selected.type.return_type == ast.DateTimeType(nullable=False)
 
+    def test_assume_not_null_with_unknown_arg_type(self):
+        # When the inner function has no signatures (returns UnknownType), assumeNotNull should still force nullable=False
+        node = self._select("SELECT assumeNotNull(base64Encode(unhex('DEADBEEF')))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is False
+
+    @parameterized.expand(
+        [
+            ("toNullable('hello')", ""),
+            ("toNullable(event)", "FROM events"),
+            ("nullIf(event, '')", "FROM events"),
+        ],
+    )
+    def test_nullable_functions_force_nullable_true(self, expr, from_clause):
+        node = self._select(f"SELECT {expr} {from_clause}".strip())
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
     def test_interval_type_arithmetic(self):
         operators = ["+", "-"]
         granularites = ["Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year"]
@@ -1728,4 +1752,21 @@ class TestResolver(BaseTest):
         # Providing wrong number of alias columns for a subquery should error
         with self.assertRaises(QueryError):
             expr = self._select("SELECT * FROM (SELECT 1, 'a') AS v(id, name, extra)")
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            (
+                "select_alias_shadows_properties",
+                "SELECT argMin(properties, timestamp) as properties FROM events WHERE properties.foo = 'bar'",
+            ),
+            (
+                "select_alias_shadows_deeper_chain",
+                "SELECT argMin(properties, timestamp) as properties FROM events WHERE properties.a.b = 1",
+            ),
+        ]
+    )
+    def test_alias_shadowing_table_field_property_access(self, _name, query):
+        expr = self._select(query)
+        with self.assertRaisesRegex(QueryError, "Cannot access property.*renaming the alias"):
             resolve_types(expr, self.context, dialect="clickhouse")

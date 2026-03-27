@@ -45,7 +45,7 @@ export class VisualReviewClient {
             'Content-Type': 'application/json',
         }
         if (config.token) {
-            this.headers['Authorization'] = `Bearer ${config.token}`
+            this.headers['Authorization'] = `Bearer ${config.token.trim()}`
         } else if (config.sessionCookie) {
             this.headers['Cookie'] = config.sessionCookie
         }

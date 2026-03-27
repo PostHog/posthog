@@ -1171,6 +1171,30 @@ class GoogleAdsIntegration:
         return all_accounts
 
 
+def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
+    """Check if the service account is only in one organization.
+
+    This is used as a security measure to block multiple organizations from
+    impersonating the same service account.
+
+    In the future we may lift this restriction, but initially we want to make sure about
+    service account ownership with this check. This complements other runtime checks in
+    batch exports; see `verify_impersonated_service_account_ownership` in
+    `bigquery_batch_export.py`.
+    """
+    same_service_account_integrations = (
+        Integration.objects.select_related("team__organization")
+        .filter(kind="google-cloud-service-account", config__service_account_email=service_account_email)
+        # If private key is present, then we are not impersonating
+        .exclude(sensitive_config__has_key="private_key")
+    )
+    for integration in same_service_account_integrations:
+        if str(integration.team.organization.id) != organization_id:
+            return False
+
+    return True
+
+
 class GoogleCloudServiceAccountIntegration:
     integration: Integration
 
@@ -1189,12 +1213,8 @@ class GoogleCloudServiceAccountIntegration:
         token_uri: str | None = None,
         created_by: User | None = None,
     ) -> Integration:
-        # Do not allow the same project_id in multiple organizations
-        same_service_account_integrations = Integration.objects.select_related("team__organization").filter(
-            kind="google-cloud-service-account", config__service_account_email=service_account_email
-        )
-        for integration in same_service_account_integrations:
-            if str(integration.team.organization.id) != str(organization_id):
+        if private_key is None:
+            if not is_unique_service_account_by_organization_id(service_account_email, organization_id):
                 raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
 
         sensitive_config = {}
@@ -1291,9 +1311,11 @@ class GoogleCloudIntegration:
                 "config": {
                     "expires_in": credentials.expiry.timestamp() - int(time.time()),
                     "refreshed_at": int(time.time()),
+                },
+                "sensitive_config": {
+                    "key_info": key_info,
                     "access_token": credentials.token,
                 },
-                "sensitive_config": key_info,
                 "created_by": created_by,
             },
         )
@@ -1326,9 +1348,8 @@ class GoogleCloudIntegration:
         else:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
-        credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=[scope]
-        )
+        key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
             credentials.refresh(GoogleRequest())
@@ -1338,12 +1359,27 @@ class GoogleCloudIntegration:
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
-            "access_token": credentials.token,
         }
+        # Migrate pre-migration integrations where sensitive_config contains the
+        # keyfile directly (not nested under "key_info"). Without this, setting
+        # access_token pollutes the keyfile dict and breaks subsequent refreshes.
+        if "key_info" not in self.integration.sensitive_config:
+            self.integration.sensitive_config = {
+                "key_info": self.integration.sensitive_config,
+                "access_token": credentials.token,
+            }
+        else:
+            self.integration.sensitive_config["access_token"] = credentials.token
         self.integration.save()
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+    def get_access_token(self) -> str:
+        if self.access_token_expired():
+            self.refresh_access_token()
+        # Fall back to config for pre-migration integrations
+        return self.integration.sensitive_config.get("access_token") or self.integration.config.get("access_token", "")
 
 
 class FirebaseIntegration:

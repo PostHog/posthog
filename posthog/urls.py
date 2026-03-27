@@ -48,6 +48,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
+from products.signals.backend import views as signals_views
 from products.slack_app.backend.api import (
     posthog_code_event_handler,
     posthog_code_interactivity_handler,
@@ -246,6 +247,10 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/signals/emit",
+        csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

@@ -1,1 +1,1 @@
-0221_error_tracking_events_test_table
+0223_logs_distributed_tables

@@ -1379,6 +1379,7 @@ export namespace Schemas {
     }
 
     export interface ActivityLogEntry {
+      readonly id: string;
       /** @nullable */
       readonly user: ActivityLogEntryUser;
       readonly activity: string;
@@ -1830,6 +1831,7 @@ export namespace Schemas {
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
       RevenueAnalytics: 'revenue_analytics',
     } as const;
 
@@ -4141,6 +4143,11 @@ export namespace Schemas {
       name?: string | null;
       query: string;
       response?: HogQLQueryResponse | null;
+      /**
+       * Run the selected connection query directly without translating it through HogQL first
+       * @nullable
+       */
+      sendRawQuery?: boolean | null;
       tags?: QueryLogTags | null;
       /**
        * Constant values that can be referenced with the {placeholder} syntax in the query
@@ -4198,7 +4205,6 @@ export namespace Schemas {
     * `plan` - plan
     * `execution` - execution
     * `survey` - survey
-    * `onboarding` - onboarding
     * `research` - research
     * `flags` - flags
     * `llm_analytics` - llm_analytics
@@ -4215,7 +4221,6 @@ export namespace Schemas {
       Plan: 'plan',
       Execution: 'execution',
       Survey: 'survey',
-      Onboarding: 'onboarding',
       Research: 'research',
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
@@ -6996,24 +7001,6 @@ export namespace Schemas {
       value: string;
     }
 
-    /**
-     * * `won` - Won
-    * `lost` - Lost
-    * `inconclusive` - Inconclusive
-    * `stopped_early` - Stopped Early
-    * `invalid` - Invalid
-     */
-    export type ConclusionEnum = typeof ConclusionEnum[keyof typeof ConclusionEnum];
-
-
-    export const ConclusionEnum = {
-      Won: 'won',
-      Lost: 'lost',
-      Inconclusive: 'inconclusive',
-      StoppedEarly: 'stopped_early',
-      Invalid: 'invalid',
-    } as const;
-
     export interface ConditionalFormattingRule {
       bytecode: unknown[];
       color: string;
@@ -7314,6 +7301,13 @@ export namespace Schemas {
       Number1: 1,
       Number2: 2,
     } as const;
+
+    export interface CopyDashboardTileRequest {
+      /** Dashboard id the tile currently belongs to. */
+      fromDashboardId: number;
+      /** Dashboard tile id to copy. */
+      tileId: number;
+    }
 
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
@@ -7887,6 +7881,8 @@ export namespace Schemas {
       scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       availability_contexts?: string[] | null;
+      /** Manually curated; used to highlight templates in the UI. */
+      is_featured?: boolean;
     }
 
     export interface DashboardTileBasic {
@@ -12258,7 +12254,6 @@ export namespace Schemas {
     * `distinct_id` - User ID (default)
     * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
-      readonly evaluation_tags: readonly string[];
       readonly evaluation_contexts: readonly string[];
     }
 
@@ -12389,6 +12384,40 @@ export namespace Schemas {
       text?: string;
       html?: string;
       design?: unknown;
+    }
+
+    /**
+     * * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid
+     */
+    export type EndExperimentConclusionEnum = typeof EndExperimentConclusionEnum[keyof typeof EndExperimentConclusionEnum];
+
+
+    export const EndExperimentConclusionEnum = {
+      Won: 'won',
+      Lost: 'lost',
+      Inconclusive: 'inconclusive',
+      StoppedEarly: 'stopped_early',
+      Invalid: 'invalid',
+    } as const;
+
+    export interface EndExperiment {
+      /** The conclusion of the experiment.
+
+    * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid */
+      conclusion?: EndExperimentConclusionEnum | NullEnum | null;
+      /**
+       * Optional comment about the experiment conclusion.
+       * @nullable
+       */
+      conclusion_comment?: string | null;
     }
 
     export interface EndpointLastExecutionTimesRequest {
@@ -13441,6 +13470,24 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `won` - Won
+    * `lost` - Lost
+    * `inconclusive` - Inconclusive
+    * `stopped_early` - Stopped Early
+    * `invalid` - Invalid
+     */
+    export type ExperimentConclusionEnum = typeof ExperimentConclusionEnum[keyof typeof ExperimentConclusionEnum];
+
+
+    export const ExperimentConclusionEnum = {
+      Won: 'won',
+      Lost: 'lost',
+      Inconclusive: 'inconclusive',
+      StoppedEarly: 'stopped_early',
+      Invalid: 'invalid',
+    } as const;
+
+    /**
      * * `draft` - Draft
     * `running` - Running
     * `stopped` - Stopped
@@ -13496,7 +13543,7 @@ export namespace Schemas {
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
       _create_in_folder?: string;
-      conclusion?: ConclusionEnum | BlankEnum | NullEnum | null;
+      conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown | null;
@@ -14203,11 +14250,14 @@ export namespace Schemas {
       FullRefresh: 'full_refresh',
       Incremental: 'incremental',
       Append: 'append',
+      Webhook: 'webhook',
     } as const;
 
     export interface ExternalDataSchema {
       readonly id: string;
       readonly name: string;
+      /** @nullable */
+      readonly label: string | null;
       /** @nullable */
       readonly table: ExternalDataSchemaTable;
       should_sync?: boolean;
@@ -14393,11 +14443,12 @@ export namespace Schemas {
     * `Postmark` - Postmark
     * `Granola` - Granola
     * `BuildBetter` - BuildBetter
+    * `Convex` - Convex
      */
-    export type SourceTypeE09Enum = typeof SourceTypeE09Enum[keyof typeof SourceTypeE09Enum];
+    export type SourceType432Enum = typeof SourceType432Enum[keyof typeof SourceType432Enum];
 
 
-    export const SourceTypeE09Enum = {
+    export const SourceType432Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -14538,6 +14589,7 @@ export namespace Schemas {
       Postmark: 'Postmark',
       Granola: 'Granola',
       BuildBetter: 'BuildBetter',
+      Convex: 'Convex',
     } as const;
 
     /**
@@ -14551,7 +14603,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -14579,6 +14631,7 @@ export namespace Schemas {
        * @nullable
        */
       readonly user_access_level: string | null;
+      readonly supports_webhooks: boolean;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -14603,6 +14656,8 @@ export namespace Schemas {
     } as const;
 
     export type FeatureFlagFilters = {[key: string]: unknown};
+
+    export type FeatureFlagExperimentSetMetadataItem = {[key: string]: unknown};
 
     export type FeatureFlagSurveys = {[key: string]: unknown};
 
@@ -14649,6 +14704,7 @@ export namespace Schemas {
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       readonly experiment_set: readonly number[];
+      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown | null;
@@ -14656,7 +14712,7 @@ export namespace Schemas {
       performed_rollback?: boolean | null;
       readonly can_edit: boolean;
       tags?: unknown[];
-      evaluation_tags?: unknown[];
+      evaluation_contexts?: unknown[];
       readonly usage_dashboard: number;
       analytics_dashboards?: number[];
       /** @nullable */
@@ -15099,6 +15155,11 @@ export namespace Schemas {
       payloads?: FeatureFlagFiltersSchemaPayloads;
       /** Additional super condition groups used by experiments. */
       super_groups?: FeatureFlagFiltersSchemaSuperGroupsItem[];
+      /**
+       * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+       * @nullable
+       */
+      feature_enrollment?: boolean | null;
     }
 
     export interface FeatureFlagCreateRequestSchema {
@@ -15112,8 +15173,8 @@ export namespace Schemas {
       active?: boolean;
       /** Organizational tags for this feature flag. */
       tags?: string[];
-      /** Evaluation context tags. Must be a subset of `tags`. */
-      evaluation_tags?: string[];
+      /** Evaluation contexts that control where this flag evaluates at runtime. */
+      evaluation_contexts?: string[];
     }
 
     export interface FeatureFlagStatusResponse {
@@ -19932,6 +19993,7 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
+    * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -19942,6 +20004,7 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
@@ -19949,6 +20012,9 @@ export namespace Schemas {
     * `evaluation` - Evaluation
     * `issue` - Issue
     * `ticket` - Ticket
+    * `issue_created` - Issue created
+    * `issue_reopened` - Issue reopened
+    * `issue_spiking` - Issue spiking
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -19958,6 +20024,9 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Issue: 'issue',
       Ticket: 'ticket',
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
     } as const;
 
     export interface SignalSourceConfig {
@@ -20373,7 +20442,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeE09Enum;
+      readonly source_type: SourceType432Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -21585,6 +21654,8 @@ export namespace Schemas {
       scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       availability_contexts?: string[] | null;
+      /** Manually curated; used to highlight templates in the UI. */
+      is_featured?: boolean;
     }
 
     export interface PatchedDataColorTheme {
@@ -22140,7 +22211,7 @@ export namespace Schemas {
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
       _create_in_folder?: string;
-      conclusion?: ConclusionEnum | BlankEnum | NullEnum | null;
+      conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown | null;
@@ -22202,6 +22273,8 @@ export namespace Schemas {
       readonly id?: string;
       readonly name?: string;
       /** @nullable */
+      readonly label?: string | null;
+      /** @nullable */
       readonly table?: PatchedExternalDataSchemaTable;
       should_sync?: boolean;
       /** @nullable */
@@ -22240,7 +22313,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeE09Enum;
+      readonly source_type?: SourceType432Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -22268,6 +22341,7 @@ export namespace Schemas {
        * @nullable
        */
       readonly user_access_level?: string | null;
+      readonly supports_webhooks?: boolean;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -22281,8 +22355,8 @@ export namespace Schemas {
       active?: boolean;
       /** Organizational tags for this feature flag. */
       tags?: string[];
-      /** Evaluation context tags. Must be a subset of `tags`. */
-      evaluation_tags?: string[];
+      /** Evaluation contexts that control where this flag evaluates at runtime. */
+      evaluation_contexts?: string[];
     }
 
     export interface PatchedFileSystem {
@@ -28819,6 +28893,7 @@ export namespace Schemas {
     * `reference` - reference
     * `output` - output
     * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot
      */
     export type TaskRunArtifactUploadTypeEnum = typeof TaskRunArtifactUploadTypeEnum[keyof typeof TaskRunArtifactUploadTypeEnum];
 
@@ -28829,6 +28904,7 @@ export namespace Schemas {
       Reference: 'reference',
       Output: 'output',
       Artifact: 'artifact',
+      TreeSnapshot: 'tree_snapshot',
     } as const;
 
     export interface TaskRunArtifactUpload {
@@ -28843,7 +28919,8 @@ export namespace Schemas {
     * `context` - context
     * `reference` - reference
     * `output` - output
-    * `artifact` - artifact */
+    * `artifact` - artifact
+    * `tree_snapshot` - tree_snapshot */
       type: TaskRunArtifactUploadTypeEnum;
       /** Raw file contents (UTF-8 string or base64 data) */
       content: string;
@@ -29436,6 +29513,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsCopyTileCreateParams = {
+    format?: EnvironmentsDashboardsCopyTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsCopyTileCreateFormat = typeof EnvironmentsDashboardsCopyTileCreateFormat[keyof typeof EnvironmentsDashboardsCopyTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsCopyTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -31999,6 +32088,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat;
+    };
+
+    export type DashboardsCopyTileCreateFormat = typeof DashboardsCopyTileCreateFormat[keyof typeof DashboardsCopyTileCreateFormat];
+
+
+    export const DashboardsCopyTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -32404,9 +32505,9 @@ export namespace Schemas {
      */
     excluded_properties?: string;
     /**
-     * Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
+     * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
-    has_evaluation_tags?: FeatureFlagsListHasEvaluationTags;
+    has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts;
     /**
      * Number of results to return per page.
      */
@@ -32444,10 +32545,10 @@ export namespace Schemas {
       Server: 'server',
     } as const;
 
-    export type FeatureFlagsListHasEvaluationTags = typeof FeatureFlagsListHasEvaluationTags[keyof typeof FeatureFlagsListHasEvaluationTags];
+    export type FeatureFlagsListHasEvaluationContexts = typeof FeatureFlagsListHasEvaluationContexts[keyof typeof FeatureFlagsListHasEvaluationContexts];
 
 
-    export const FeatureFlagsListHasEvaluationTags = {
+    export const FeatureFlagsListHasEvaluationContexts = {
       False: 'false',
       True: 'true',
     } as const;

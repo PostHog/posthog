@@ -7,7 +7,9 @@ from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, SharePassword, SharingConfiguration
+from posthog.models import SharePassword, SharingConfiguration
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class TestSharePasswordAPI(APIBaseTest):

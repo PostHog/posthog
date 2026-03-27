@@ -105,6 +105,7 @@ export const SyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
+    Webhook: 'webhook',
 } as const
 
 /**
@@ -115,6 +116,8 @@ export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | nul
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
+    /** @nullable */
+    readonly label: string | null
     /** @nullable */
     readonly table: ExternalDataSchemaApiTable
     should_sync?: boolean
@@ -291,10 +294,11 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Postmark` - Postmark
  * `Granola` - Granola
  * `BuildBetter` - BuildBetter
+ * `Convex` - Convex
  */
-export type SourceTypeE09EnumApi = (typeof SourceTypeE09EnumApi)[keyof typeof SourceTypeE09EnumApi]
+export type SourceType432EnumApi = (typeof SourceType432EnumApi)[keyof typeof SourceType432EnumApi]
 
-export const SourceTypeE09EnumApi = {
+export const SourceType432EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -435,6 +439,7 @@ export const SourceTypeE09EnumApi = {
     Postmark: 'Postmark',
     Granola: 'Granola',
     BuildBetter: 'BuildBetter',
+    Convex: 'Convex',
 } as const
 
 /**
@@ -481,7 +486,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeE09EnumApi
+    readonly source_type: SourceType432EnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -509,6 +514,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    readonly supports_webhooks: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -533,7 +539,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeE09EnumApi
+    readonly source_type?: SourceType432EnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -561,6 +567,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    readonly supports_webhooks?: boolean
 }
 
 export interface ExternalDataSourceConnectionOptionApi {
@@ -944,7 +951,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeE09EnumApi
+    readonly source_type: SourceType432EnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }
