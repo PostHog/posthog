@@ -13,7 +13,7 @@ import {
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { buildGroupRepository } from '../../ingestion/personhog'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { buildGroupRepository } from '../../personhog'
+import { buildGroupRepository, buildPersonRepository } from '../../personhog'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -92,7 +92,12 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const personRepositoryOptions = {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
     }
-    const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
+    const postgresPersonRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
+    const personRepository = buildPersonRepository(
+        serverConfig,
+        postgresPersonRepository,
+        serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+    )
 
     const groupRepository = buildGroupRepository(
         serverConfig,

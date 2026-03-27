@@ -25,7 +25,7 @@ import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-sche
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
-import { buildGroupRepository } from './personhog'
+import { buildGroupRepository, buildPersonRepository } from './personhog'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -343,9 +343,14 @@ export class PluginServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres!, {
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
+        const personRepository = buildPersonRepository(
+            this.config,
+            postgresPersonRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
         const groupRepository = buildGroupRepository(
             this.config,

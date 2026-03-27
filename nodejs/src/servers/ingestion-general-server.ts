@@ -30,7 +30,7 @@ import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { buildGroupRepository } from '../personhog'
+import { buildGroupRepository, buildPersonRepository } from '../personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -164,9 +164,14 @@ export class IngestionGeneralServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres, {
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
+        const personRepository = buildPersonRepository(
+            this.config,
+            postgresPersonRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
 
         const groupRepository = buildGroupRepository(
