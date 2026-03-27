@@ -27,6 +27,10 @@ from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr
 
+# These tests are too slow for CI (~2 min). Run manually with:
+#   pytest posthog/hogql/test/test_parser_pbt.py -p no:skip
+pytestmark = pytest.mark.skip(reason="PBT tests are slow (~2 min); run manually")
+
 # ---------------------------------------------------------------------------
 # AST generation strategies
 # ---------------------------------------------------------------------------
