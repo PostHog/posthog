@@ -51,7 +51,7 @@ class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
             result = await self.next.execute_workflow(input)
             outcome = slo.outcome if slo.outcome is not None else SloOutcome.SUCCESS
             return result
-        except Exception:
+        except BaseException:
             outcome = slo.outcome if slo.outcome is not None else SloOutcome.FAILURE
             raise
         finally:
