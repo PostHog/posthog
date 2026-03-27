@@ -1,6 +1,7 @@
 from typing import Any
 
 import numpy as np
+from scipy.special import erf
 
 from posthog.schema import DetectorType
 
@@ -9,16 +10,17 @@ from posthog.tasks.alerts.detectors.registry import register_detector
 
 
 def _iqr_distance_to_probability(distance: float, window_distances: np.ndarray) -> float:
-    """Normalize an IQR fence distance to a [0, 1] anomaly probability using linear scaling.
+    """Normalize an IQR fence distance to a [0, 1] anomaly probability.
 
-    Uses the same linear normalization as pyod's default predict_proba so that
-    probability scores are comparable across all detector types.
+    Uses pyod's 'unify' approach: standardize the distance against the
+    distribution of distances observed in the training window, then apply erf.
     """
-    min_d = float(window_distances.min())
-    max_d = float(window_distances.max())
-    if max_d == min_d:
-        return 1.0 if distance > max_d else 0.0
-    return float(np.clip((distance - min_d) / (max_d - min_d), 0.0, 1.0))
+    mean_d = float(window_distances.mean())
+    std_d = float(window_distances.std())
+    if std_d == 0:
+        return 1.0 if distance > mean_d else 0.0
+    standardized = (distance - mean_d) / std_d
+    return float(np.clip(erf(standardized / np.sqrt(2)), 0.0, 1.0))
 
 
 @register_detector(DetectorType.IQR)
@@ -30,9 +32,8 @@ class IQRDetector(BaseDetector):
     - Values below Q1 - multiplier*IQR are anomalies
     - Values above Q3 + multiplier*IQR are anomalies
 
-    Scores are normalized to [0, 1] probabilities using linear scaling
-    against the training window's distances (same approach as pyod's
-    default predict_proba).
+    Scores are normalized to [0, 1] probabilities using pyod's 'unify'
+    approach (standardize against training window distances, then erf).
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)

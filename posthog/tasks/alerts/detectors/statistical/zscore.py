@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.special import erf
 
 from posthog.schema import DetectorType
 
@@ -7,18 +8,20 @@ from posthog.tasks.alerts.detectors.registry import register_detector
 
 
 def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
-    """Normalize a z-score to a [0, 1] anomaly probability using linear scaling.
+    """Normalize a z-score to a [0, 1] anomaly probability.
 
-    Uses the same linear normalization as pyod's default predict_proba so that
-    probability scores are comparable across all detector types. The score
-    represents how extreme this z-score is relative to the z-scores observed
-    in the training window.
+    Uses pyod's 'unify' approach: standardize the raw z-score against the
+    distribution of z-scores observed in the training window, then apply erf.
+    This asks "how unusual is this z-score compared to what we normally see?"
+    rather than mapping the raw z-score directly (which produces a fixed ~5%
+    false-positive rate regardless of data stability).
     """
-    min_z = float(window_zscores.min())
-    max_z = float(window_zscores.max())
-    if max_z == min_z:
-        return 1.0 if z_score > max_z else 0.0
-    return float(np.clip((z_score - min_z) / (max_z - min_z), 0.0, 1.0))
+    mean_z = float(window_zscores.mean())
+    std_z = float(window_zscores.std())
+    if std_z == 0:
+        return 1.0 if z_score > mean_z else 0.0
+    standardized = (z_score - mean_z) / std_z
+    return float(np.clip(erf(standardized / np.sqrt(2)), 0.0, 1.0))
 
 
 @register_detector(DetectorType.ZSCORE)
@@ -29,9 +32,8 @@ class ZScoreDetector(BaseDetector):
     Detects anomalies by calculating how many standard deviations
     a value is from the rolling mean.
 
-    Scores are normalized to [0, 1] probabilities using linear scaling
-    against the training window's z-scores (same approach as pyod's
-    default predict_proba).
+    Scores are normalized to [0, 1] probabilities using pyod's 'unify'
+    approach (standardize against training window z-scores, then erf).
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
