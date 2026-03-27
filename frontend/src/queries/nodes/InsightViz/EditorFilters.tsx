@@ -1,13 +1,9 @@
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
-import { CSSTransition } from 'react-transition-group'
+import { useValues } from 'kea'
 
-import { IconInfo, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
@@ -26,41 +22,18 @@ import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/Samplin
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { compareInsightTopLevelSections } from 'scenes/insights/utils'
-import MaxTool from 'scenes/max/MaxTool'
-import { castAssistantQuery } from 'scenes/max/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from '~/queries/schema/schema-assistant-queries'
-import {
-    DataVisualizationNode,
-    InsightQueryNode,
-    InsightVizNode,
-    NodeKind,
-    QuerySchema,
-    WebOverviewQuery,
-    WebStatsTableQuery,
-} from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode, isWebAnalyticsInsightQuery } from '~/queries/utils'
-import {
-    AvailableFeature,
-    ChartDisplayType,
-    EditorFilterProps,
-    InsightEditorFilter,
-    InsightEditorFilterGroup,
-    PathType,
-} from '~/types'
+import { InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
+import { isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { AvailableFeature, ChartDisplayType, EditorFilterProps, InsightEditorFilterGroup, PathType } from '~/types'
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
+import { EditorFiltersShell } from './EditorFiltersShell'
+import { filterFalsy } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
@@ -88,22 +61,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         display,
         pathsFilter,
         querySource,
-        shouldShowSessionAnalysisWarning,
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
 
-    const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
-    const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
-    const { setQuery } = useActions(insightVizDataLogic(insightProps))
-
-    const maxSuggestionActionsBanner = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (previousQuery && maxSuggestionActionsBanner.current) {
-            maxSuggestionActionsBanner.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-    }, [previousQuery])
 
     if (!querySource) {
         return null
@@ -119,9 +80,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             />
         )
     }
-
-    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
-    const maxToolActive = !embedded
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -417,138 +375,23 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             : null,
     ].filter((group): group is InsightEditorFilterGroup => group !== null)
 
-    const filterGroupsGroups = [
-        { title: 'left', editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0) },
-        {
-            title: 'right',
-            editorFilterGroups: rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
-        },
-    ]
-
-    const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
+    const leftEditorFilterGroupsFiltered = leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0)
+    const rightEditorFilterGroupsFiltered = rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0)
 
     return (
-        <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-            <div className="EditorFiltersWrapper">
-                {shouldShowSessionAnalysisWarning ? (
-                    <LemonBanner type="info" className="mb-4">
-                        When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.{' '}
-                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
-                    </LemonBanner>
-                ) : null}
-
-                <div>
-                    <MaxTool
-                        identifier="create_insight"
-                        context={{
-                            current_query: querySource,
-                        }}
-                        contextDescription={{
-                            text: 'Current query',
-                            icon: <QueryTypeIcon />,
-                        }}
-                        callback={(
-                            toolOutput:
-                                | AssistantTrendsQuery
-                                | AssistantFunnelsQuery
-                                | AssistantRetentionQuery
-                                | AssistantHogQLQuery
-                        ) => {
-                            const source = castAssistantQuery(toolOutput)
-                            if (!source) {
-                                return
-                            }
-
-                            let node: QuerySchema
-                            if (isHogQLQuery(source)) {
-                                node = {
-                                    kind: NodeKind.DataVisualizationNode,
-                                    source,
-                                } satisfies DataVisualizationNode
-                            } else if (isInsightQueryNode(source)) {
-                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                            } else {
-                                node = source
-                            }
-
-                            handleInsightSuggested(node)
-                            setQuery(node)
-                        }}
-                        initialMaxPrompt="Show me users who "
-                        className="EditorFiltersWrapper__max-tool"
-                        active={maxToolActive}
-                    >
-                        <div
-                            className={clsx('@container/editor flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                                'p-4 rounded border': !embedded,
-                            })}
-                        >
-                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
-                                    {editorFilterGroups.map((editorFilterGroup) => (
-                                        <EditorFilterGroup
-                                            key={editorFilterGroup.title}
-                                            editorFilterGroup={editorFilterGroup}
-                                            insightProps={insightProps}
-                                            query={query}
-                                        />
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    </MaxTool>
-
-                    {previousQuery && (
-                        <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
-                            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
-                                <div className="text-sm text-muted flex items-center gap-2 no-wrap">
-                                    <span className="size-2 bg-accent-active rounded-full" />
-                                    {(() => {
-                                        const changedLabels = compareInsightTopLevelSections(
-                                            previousQuery,
-                                            suggestedQuery
-                                        )
-                                        const diffString = `🔍 ${pluralize(
-                                            changedLabels.length,
-                                            'section'
-                                        )} changed: \n${changedLabels.join('\n')}`
-
-                                        return (
-                                            <div className="flex items-center gap-1">
-                                                <span>{pluralize(changedLabels.length, 'change')}</span>
-                                                {diffString && (
-                                                    <Tooltip
-                                                        title={<div className="whitespace-pre-line">{diffString}</div>}
-                                                    >
-                                                        <IconInfo className="text-sm text-muted cursor-help" />
-                                                    </Tooltip>
-                                                )}
-                                            </div>
-                                        )
-                                    })()}
-                                </div>
-
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        onRejectSuggestedInsight()
-                                    }}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                    icon={<IconX />}
-                                >
-                                    Reject changes
-                                </LemonButton>
-                            </div>
-                        </div>
-                    )}
+        <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
+            {[leftEditorFilterGroupsFiltered, rightEditorFilterGroupsFiltered].map((editorFilterGroups, i) => (
+                <div key={i} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
+                    {editorFilterGroups.map((editorFilterGroup) => (
+                        <EditorFilterGroup
+                            key={editorFilterGroup.title}
+                            editorFilterGroup={editorFilterGroup}
+                            insightProps={insightProps}
+                            query={query}
+                        />
+                    ))}
                 </div>
-            </div>
-        </CSSTransition>
+            ))}
+        </EditorFiltersShell>
     )
-}
-
-function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
-    return a.filter((e): e is InsightEditorFilter => !!e)
 }

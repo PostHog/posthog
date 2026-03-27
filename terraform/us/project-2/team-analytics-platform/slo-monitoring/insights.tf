@@ -5,6 +5,11 @@ locals {
   # events with matching properties.operation value (see posthog/slo/types.py).
   # ===========================================================================
   slo_operations = {
+    export = {
+      name    = "Exports"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     subscription_delivery = {
       name    = "Subscription deliveries"
       slo     = 99.95 # error budget = 0.05%
@@ -13,7 +18,7 @@ locals {
     alert_check = {
       name    = "Alert checks"
       slo     = 99.95 # error budget = 0.05%
-      regions = ["US", "EU"]
+      regions = ["US"] # EU not captured yet: ph_scoped_capture hardcodes US client
     }
   }
 
@@ -24,10 +29,11 @@ locals {
     for op_key, op in local.slo_operations : {
       for region in op.regions :
       "${op_key}_${lower(region)}" => {
-        name      = op.name
-        slo       = op.slo
-        operation = op_key
-        region    = region
+        name         = op.name
+        slo          = op.slo
+        operation    = op_key
+        region       = region
+        region_count = length(op.regions)
       }
     }
   ]...)
@@ -161,7 +167,7 @@ locals {
 resource "posthog_insight" "slo_burn_rate" {
   for_each = local.slo_operation_regions
 
-  name        = "SLO: Burn Rates - ${each.value.name} (${each.value.slo}%) — ${each.value.region}"
+  name        = "SLO: Burn Rates - ${each.value.name} (${each.value.slo}%)${each.value.region_count > 1 ? " — ${each.value.region}" : ""}"
   description = "[Investigate failures with AI](/ai?ask=Investigate+${each.value.operation}+failures+in+${each.value.region}+region.+Check+slo_operation_started+events+without+matching+slo_operation_completed+success+outcomes+in+the+last+24h)"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
@@ -208,7 +214,7 @@ resource "posthog_insight" "slo_burn_rate" {
 resource "posthog_insight" "slo_duration" {
   for_each = local.slo_operation_regions
 
-  name        = "SLO: Duration - ${each.value.name} — ${each.value.region}"
+  name        = "SLO: Duration - ${each.value.name}${each.value.region_count > 1 ? " — ${each.value.region}" : ""}"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -330,6 +336,7 @@ resource "posthog_insight" "slo_success_rate" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "slo_volume" {
   name        = "SLO: 28d Volume by Operation"
+  description = "* = all regions, but events are only emitted from the US project (ph_scoped_capture hardcodes the US client)"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -337,7 +344,11 @@ resource "posthog_insight" "slo_volume" {
       query = <<-SQL
         SELECT
             properties.operation AS operation,
-            properties.region AS region,
+            if(
+                count(properties.region) OVER (PARTITION BY properties.operation) = 1,
+                'all*',
+                properties.region
+            ) AS region,
             countIf(event = 'slo_operation_started') AS started,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
@@ -352,7 +363,7 @@ resource "posthog_insight" "slo_volume" {
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND timestamp >= now() - INTERVAL 28 DAY
-        GROUP BY operation, region
+        GROUP BY operation, properties.region
         ORDER BY operation, region
       SQL
     }

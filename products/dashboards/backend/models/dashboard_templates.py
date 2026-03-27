@@ -21,7 +21,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         GLOBAL = "global", "Global"
         FEATURE_FLAG = "feature_flag", "Feature Flag"
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True)
     template_name = models.CharField(max_length=400, null=True, blank=True)
     dashboard_description = models.CharField(max_length=400, null=True, blank=True)
     dashboard_filters = models.JSONField(null=True, blank=True)
@@ -29,7 +29,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     variables = models.JSONField(null=True, blank=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(blank=True, null=True)
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope.choices, null=True, blank=True)
@@ -55,6 +55,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                 name="unique_template_name_per_team",
             ),
         ]
+        db_table = "posthog_dashboardtemplate"
 
     def __str__(self):
         return self.template_name

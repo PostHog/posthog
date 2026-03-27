@@ -13,7 +13,10 @@ import type {
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowsListParams,
+    HogFlowsSchedulesCreateParams,
+    HogFlowsSchedulesListParams,
     PaginatedHogFlowMinimalListApi,
+    PaginatedHogFlowScheduleListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
     PatchedHogFlowTemplateApi,
@@ -351,6 +354,104 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<void>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsSchedulesListUrl = (projectId: string, id: string, params?: HogFlowsSchedulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/schedules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/schedules/`
+}
+
+export const hogFlowsSchedulesList = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsSchedulesListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowScheduleListApi> => {
+    return apiMutator<PaginatedHogFlowScheduleListApi>(getHogFlowsSchedulesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSchedulesCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsSchedulesCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/schedules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/schedules/`
+}
+
+export const hogFlowsSchedulesCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    params?: HogFlowsSchedulesCreateParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowScheduleListApi> => {
+    return apiMutator<PaginatedHogFlowScheduleListApi>(getHogFlowsSchedulesCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsSchedulesPartialUpdateUrl = (projectId: string, id: string, scheduleId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
+}
+
+export const hogFlowsSchedulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    scheduleId: string,
+    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsSchedulesPartialUpdateUrl(projectId, id, scheduleId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowApi),
+    })
+}
+
+export const getHogFlowsSchedulesDestroyUrl = (projectId: string, id: string, scheduleId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
+}
+
+export const hogFlowsSchedulesDestroy = async (
+    projectId: string,
+    id: string,
+    scheduleId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getHogFlowsSchedulesDestroyUrl(projectId, id, scheduleId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

@@ -27,6 +27,7 @@ var (
 	colorRed      = sharedpalette.ColorRed
 	colorWhite    = sharedpalette.ColorWhite
 	colorBlack    = sharedpalette.ColorBlack
+	colorMidGrey  = sharedpalette.ColorMidGrey
 )
 
 // Outer width of the process list column (including border)
@@ -75,7 +76,7 @@ var (
 
 	borderFocusedStyle = borderStyle.
 				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(lipgloss.Color("#555860"))
+				BorderForeground(colorMidGrey)
 
 	// Sidebar
 	procInactiveStyle = lipgloss.NewStyle().
