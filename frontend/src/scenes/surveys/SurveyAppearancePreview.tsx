@@ -21,9 +21,9 @@ const DEFAULT_POSITION_STYLES: React.CSSProperties = {
     top: 'unset',
     bottom: 'unset',
     transform: 'unset',
-    width: '100%',
-    maxWidth: 'min(var(--ph-survey-max-width), 100%)',
-    minWidth: '0',
+    width: 'var(--ph-survey-max-width)',
+    maxWidth: '100%',
+    minWidth: 'min(300px, 100%)',
     boxSizing: 'border-box',
 }
 

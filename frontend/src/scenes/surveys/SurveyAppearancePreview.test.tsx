@@ -59,18 +59,17 @@ describe('SurveyAppearancePreview', () => {
             expect.objectContaining({
                 parentElement: previewRoot,
                 positionStyles: expect.objectContaining({
-                    width: '100%',
-                    maxWidth: 'min(var(--ph-survey-max-width), 100%)',
-                    minWidth: '0',
+                    width: 'var(--ph-survey-max-width)',
+                    maxWidth: '100%',
+                    minWidth: 'min(300px, 100%)',
                     boxSizing: 'border-box',
                 }),
             })
         )
 
         const renderedPreview = previewRoot.firstChild as HTMLDivElement
-        expect(renderedPreview.style.width).toBe('100%')
-        expect(renderedPreview.style.maxWidth).toBe('min(var(--ph-survey-max-width), 100%)')
-        expect(renderedPreview.style.minWidth).toBe('0')
+        expect(renderedPreview.style.maxWidth).toBe('100%')
+        expect(renderedPreview.style.minWidth).toBe('min(300px, 100%)')
         expect(renderedPreview.style.boxSizing).toBe('border-box')
     })
 
