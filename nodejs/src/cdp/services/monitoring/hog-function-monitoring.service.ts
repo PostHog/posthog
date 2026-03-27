@@ -123,7 +123,7 @@ export class HogFunctionMonitoringService {
                       this.warehouseKafkaProducer!.produce({
                           topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
                           key: Buffer.from(`${payload.team_id}:${payload.schema_id}`),
-                          value: Buffer.from(JSON.stringify(payload.payload)),
+                          value: Buffer.from(JSON.stringify(payload)),
                       }).catch((error) => {
                           logger.error('Error producing warehouse webhook payload', { error })
                           captureException(error)

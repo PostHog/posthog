@@ -18432,6 +18432,10 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
+                "sendRawQuery": {
+                    "description": "Run the selected connection query directly without translating it through HogQL first",
+                    "type": "boolean"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },

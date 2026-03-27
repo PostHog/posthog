@@ -8,7 +8,7 @@ from posthog.models import Action, Dashboard, Insight, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 
 from products.surveys.backend.models import Survey
@@ -618,6 +618,103 @@ class TestResourceTransferSearch(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestResourceTransferTenantIsolation(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dest_project = Project.objects.create(
+            id=Team.objects.increment_id_sequence(), organization=self.organization
+        )
+        self.dest_team = Team.objects.create(
+            id=self.dest_project.id, project=self.dest_project, organization=self.organization
+        )
+        # Foreign org + team the attacker should never reach
+        self.foreign_org = Organization.objects.create(name="Foreign Org")
+        self.foreign_project = Project.objects.create(
+            id=Team.objects.increment_id_sequence(), organization=self.foreign_org
+        )
+        self.foreign_team = Team.objects.create(
+            id=self.foreign_project.id, project=self.foreign_project, organization=self.foreign_org
+        )
+
+    def _preview_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/resource_transfers/preview/"
+
+    def _transfer_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/resource_transfers/transfer/"
+
+    def test_preview_rejects_insight_referencing_foreign_org_action(self) -> None:
+        foreign_action = Action.objects.create(team=self.foreign_team, name="Secret action")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Malicious insight",
+            filters={"actions": [{"id": foreign_action.pk}]},
+        )
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Foreign action name must NOT leak in the response
+        assert "Secret action" not in str(response.json())
+
+    def test_preview_rejects_insight_referencing_foreign_org_cohort(self) -> None:
+        foreign_cohort = Cohort.objects.create(team=self.foreign_team, name="Secret cohort")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Malicious insight",
+            filters={"properties": [{"type": "cohort", "value": foreign_cohort.pk}]},
+        )
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Secret cohort" not in str(response.json())
+
+    def test_transfer_substitution_error_does_not_leak_team_id(self) -> None:
+        foreign_insight = Insight.objects.create(team=self.foreign_team, name="Secret insight")
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": "Insight",
+                        "source_resource_id": str(insight.pk),
+                        "destination_resource_kind": "Insight",
+                        "destination_resource_id": str(foreign_insight.pk),
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body_text = str(response.json())
+        assert str(self.foreign_team.pk) not in body_text
 
 
 class TestResourceTransferProjectAccessControl(APIBaseTest):
