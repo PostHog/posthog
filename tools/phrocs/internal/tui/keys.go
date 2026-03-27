@@ -224,16 +224,16 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	if procHasPrompt && !isControlKey {
 		var input []byte
 
-		switch {
-		case msg.Code == tea.KeyEnter:
+		switch msg.Code {
+		case tea.KeyEnter:
 			input = []byte(m.inputBuffer + "\r")
 			m.inputBuffer = ""
-		case msg.Code == tea.KeyBackspace:
+		case tea.KeyBackspace:
 			if len(m.inputBuffer) > 0 {
 				runes := []rune(m.inputBuffer)
 				m.inputBuffer = string(runes[:len(runes)-1])
 			}
-		case msg.Code == tea.KeySpace:
+		case tea.KeySpace:
 			m.inputBuffer += " "
 		default:
 			s := msg.String()
