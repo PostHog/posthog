@@ -24,6 +24,7 @@ import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
@@ -136,6 +137,7 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
+    project_secret_api_key,
     proxy_record,
     query,
     quick_filters,
@@ -154,7 +156,6 @@ from . import (
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
-from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
@@ -1067,6 +1068,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+register_grandfathered_environment_nested_viewset(
+    r"project_secret_api_keys",
+    project_secret_api_key.ProjectSecretAPIKeyViewSet,
+    "environment_project_secret_api_keys",
+    ["team_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]

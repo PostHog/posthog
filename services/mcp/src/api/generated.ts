@@ -1379,6 +1379,7 @@ export namespace Schemas {
     }
 
     export interface ActivityLogEntry {
+      readonly id: string;
       /** @nullable */
       readonly user: ActivityLogEntryUser;
       readonly activity: string;
@@ -4142,6 +4143,11 @@ export namespace Schemas {
       name?: string | null;
       query: string;
       response?: HogQLQueryResponse | null;
+      /**
+       * Run the selected connection query directly without translating it through HogQL first
+       * @nullable
+       */
+      sendRawQuery?: boolean | null;
       tags?: QueryLogTags | null;
       /**
        * Constant values that can be referenced with the {placeholder} syntax in the query
@@ -6996,16 +7002,16 @@ export namespace Schemas {
     }
 
     /**
-     * * `won` - Won
-    * `lost` - Lost
-    * `inconclusive` - Inconclusive
-    * `stopped_early` - Stopped Early
-    * `invalid` - Invalid
+     * * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid
      */
-    export type ConclusionEnum = typeof ConclusionEnum[keyof typeof ConclusionEnum];
+    export type ConclusionF33Enum = typeof ConclusionF33Enum[keyof typeof ConclusionF33Enum];
 
 
-    export const ConclusionEnum = {
+    export const ConclusionF33Enum = {
       Won: 'won',
       Lost: 'lost',
       Inconclusive: 'inconclusive',
@@ -11354,6 +11360,8 @@ export namespace Schemas {
       conditionalFormatting?: ConditionalFormattingRule[] | null;
       /** @nullable */
       pinnedColumns?: string[] | null;
+      /** @nullable */
+      transpose?: boolean | null;
     }
 
     export interface DataVisualizationNode {
@@ -12396,6 +12404,22 @@ export namespace Schemas {
       text?: string;
       html?: string;
       design?: unknown;
+    }
+
+    export interface EndExperiment {
+      /** The conclusion of the experiment.
+
+    * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid */
+      conclusion?: ConclusionF33Enum | NullEnum | null;
+      /**
+       * Optional comment about the experiment conclusion.
+       * @nullable
+       */
+      conclusion_comment?: string | null;
     }
 
     export interface EndpointLastExecutionTimesRequest {
@@ -13448,6 +13472,24 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `won` - Won
+    * `lost` - Lost
+    * `inconclusive` - Inconclusive
+    * `stopped_early` - Stopped Early
+    * `invalid` - Invalid
+     */
+    export type ExperimentConclusionEnum = typeof ExperimentConclusionEnum[keyof typeof ExperimentConclusionEnum];
+
+
+    export const ExperimentConclusionEnum = {
+      Won: 'won',
+      Lost: 'lost',
+      Inconclusive: 'inconclusive',
+      StoppedEarly: 'stopped_early',
+      Invalid: 'invalid',
+    } as const;
+
+    /**
      * * `draft` - Draft
     * `running` - Running
     * `stopped` - Stopped
@@ -13503,7 +13545,7 @@ export namespace Schemas {
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
       _create_in_folder?: string;
-      conclusion?: ConclusionEnum | BlankEnum | NullEnum | null;
+      conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown | null;
@@ -14210,11 +14252,14 @@ export namespace Schemas {
       FullRefresh: 'full_refresh',
       Incremental: 'incremental',
       Append: 'append',
+      Webhook: 'webhook',
     } as const;
 
     export interface ExternalDataSchema {
       readonly id: string;
       readonly name: string;
+      /** @nullable */
+      readonly label: string | null;
       /** @nullable */
       readonly table: ExternalDataSchemaTable;
       should_sync?: boolean;
@@ -15561,6 +15606,34 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown | null;
       readonly billable_action_types: unknown | null;
+    }
+
+    /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `completed` - Completed
+     */
+    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
+
+
+    export const HogFlowScheduleStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Completed: 'completed',
+    } as const;
+
+    export interface HogFlowSchedule {
+      readonly id: string;
+      rrule: string;
+      starts_at: string;
+      /** @maxLength 64 */
+      timezone?: string;
+      variables?: unknown;
+      readonly status: HogFlowScheduleStatusEnum;
+      /** @nullable */
+      readonly next_run_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     /**
@@ -19115,6 +19188,15 @@ export namespace Schemas {
       results: HogFlowMinimal[];
     }
 
+    export interface PaginatedHogFlowScheduleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowSchedule[];
+    }
+
     export interface PaginatedHogFlowTemplateList {
       count: number;
       /** @nullable */
@@ -19515,6 +19597,32 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ProjectBackwardCompatBasic[];
+    }
+
+    export interface ProjectSecretAPIKey {
+      readonly id: string;
+      /** @maxLength 40 */
+      label: string;
+      readonly value: string;
+      /** @nullable */
+      readonly mask_value: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly last_used_at: string | null;
+      /** @nullable */
+      readonly last_rolled_at: string | null;
+      scopes: string[];
+    }
+
+    export interface PaginatedProjectSecretAPIKeyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ProjectSecretAPIKey[];
     }
 
     export interface QueryTabState {
@@ -22168,7 +22276,7 @@ export namespace Schemas {
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
       _create_in_folder?: string;
-      conclusion?: ConclusionEnum | BlankEnum | NullEnum | null;
+      conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown | null;
@@ -22229,6 +22337,8 @@ export namespace Schemas {
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
+      /** @nullable */
+      readonly label?: string | null;
       /** @nullable */
       readonly table?: PatchedExternalDataSchemaTable;
       should_sync?: boolean;
@@ -23361,6 +23471,23 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    export interface PatchedProjectSecretAPIKey {
+      readonly id?: string;
+      /** @maxLength 40 */
+      label?: string;
+      readonly value?: string;
+      /** @nullable */
+      readonly mask_value?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly last_used_at?: string | null;
+      /** @nullable */
+      readonly last_rolled_at?: string | null;
+      scopes?: string[];
     }
 
     export interface PatchedQueryTabState {
@@ -28325,6 +28452,24 @@ export namespace Schemas {
       readonly share_passwords: readonly SharePassword[];
     }
 
+    export interface ShipVariant {
+      /** The conclusion of the experiment.
+
+    * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid */
+      conclusion?: ConclusionF33Enum | NullEnum | null;
+      /**
+       * Optional comment about the experiment conclusion.
+       * @nullable
+       */
+      conclusion_comment?: string | null;
+      /** The key of the variant to ship to 100% of users. */
+      variant_key: string;
+    }
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -29901,6 +30046,36 @@ export namespace Schemas {
     updated_at?: string;
     };
 
+    export type EnvironmentsHogFlowsSchedulesListParams = {
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    updated_at?: string;
+    };
+
+    export type EnvironmentsHogFlowsSchedulesCreateParams = {
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    updated_at?: string;
+    };
+
     export type EnvironmentsHogFunctionsListParams = {
     created_at?: string;
     created_by?: number;
@@ -30578,6 +30753,17 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsPluginConfigsLogsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsProjectSecretApiKeysListParams = {
     /**
      * Number of results to return per page.
      */
@@ -31619,6 +31805,7 @@ export namespace Schemas {
     * `TaggedItem` - TaggedItem
     * `Subscription` - Subscription
     * `PersonalAPIKey` - PersonalAPIKey
+    * `ProjectSecretAPIKey` - ProjectSecretAPIKey
     * `User` - User
     * `Action` - Action
     * `AlertConfiguration` - AlertConfiguration
@@ -31691,6 +31878,7 @@ export namespace Schemas {
       TaggedItem: 'TaggedItem',
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
+      ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -31749,6 +31937,7 @@ export namespace Schemas {
     * `TaggedItem` - TaggedItem
     * `Subscription` - Subscription
     * `PersonalAPIKey` - PersonalAPIKey
+    * `ProjectSecretAPIKey` - ProjectSecretAPIKey
     * `User` - User
     * `Action` - Action
     * `AlertConfiguration` - AlertConfiguration
@@ -31809,6 +31998,7 @@ export namespace Schemas {
       TaggedItem: 'TaggedItem',
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
+      ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -32742,6 +32932,36 @@ export namespace Schemas {
     updated_at?: string;
     };
 
+    export type HogFlowsSchedulesListParams = {
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    updated_at?: string;
+    };
+
+    export type HogFlowsSchedulesCreateParams = {
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    updated_at?: string;
+    };
+
     export type HogFunctionTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -33588,6 +33808,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ProjectSecretApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type PropertyDefinitionsListParams = {

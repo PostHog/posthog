@@ -20,7 +20,6 @@ import {
     ExperimentMetricMathType,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
-    FeatureFlagFilters,
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
@@ -39,7 +38,6 @@ import {
     isLegacyExperiment,
     isLegacyExperimentQuery,
     percentageDistribution,
-    transformFiltersForWinningVariant,
 } from './utils'
 
 describe('utils', () => {
@@ -104,136 +102,6 @@ describe('utils', () => {
         ])('returns $expected for variants with percentages $variants', ({ variants, expected }) => {
             expect(isEvenlyDistributed(variants)).toBe(expected)
         })
-    })
-
-    it('transforms filters for a winning variant', async () => {
-        let currentFilters: FeatureFlagFilters = {
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                },
-            ],
-            payloads: {},
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        rollout_percentage: 50,
-                    },
-                    {
-                        key: 'test',
-                        rollout_percentage: 50,
-                    },
-                ],
-            },
-            aggregation_group_type_index: null,
-        }
-        let expectedFilters: FeatureFlagFilters = {
-            aggregation_group_type_index: null,
-            payloads: {},
-            multivariate: {
-                variants: [
-                    { key: 'control', rollout_percentage: 0 },
-                    { key: 'test', rollout_percentage: 100 },
-                ],
-            },
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    description: 'Added automatically when the experiment was ended to keep only one variant.',
-                },
-                { properties: [], rollout_percentage: 100 },
-            ],
-        }
-
-        let newFilters = transformFiltersForWinningVariant(currentFilters, 'test')
-        expect(newFilters).toEqual(expectedFilters)
-
-        currentFilters = {
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                },
-            ],
-            payloads: {
-                test_1: "{key: 'test_1'}",
-                test_2: "{key: 'test_2'}",
-                test_3: "{key: 'test_3'}",
-                control: "{key: 'control'}",
-            },
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        name: 'This is control',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_1',
-                        name: 'This is test_1',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_2',
-                        name: 'This is test_2',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_3',
-                        name: 'This is test_3',
-                        rollout_percentage: 25,
-                    },
-                ],
-            },
-            aggregation_group_type_index: 1,
-        }
-        expectedFilters = {
-            aggregation_group_type_index: 1,
-            payloads: {
-                test_1: "{key: 'test_1'}",
-                test_2: "{key: 'test_2'}",
-                test_3: "{key: 'test_3'}",
-                control: "{key: 'control'}",
-            },
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        name: 'This is control',
-                        rollout_percentage: 100,
-                    },
-                    {
-                        key: 'test_1',
-                        name: 'This is test_1',
-                        rollout_percentage: 0,
-                    },
-                    {
-                        key: 'test_2',
-                        name: 'This is test_2',
-                        rollout_percentage: 0,
-                    },
-                    {
-                        key: 'test_3',
-                        name: 'This is test_3',
-                        rollout_percentage: 0,
-                    },
-                ],
-            },
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    description: 'Added automatically when the experiment was ended to keep only one variant.',
-                },
-                { properties: [], rollout_percentage: 100 },
-            ],
-        }
-
-        newFilters = transformFiltersForWinningVariant(currentFilters, 'control')
-        expect(newFilters).toEqual(expectedFilters)
     })
 })
 

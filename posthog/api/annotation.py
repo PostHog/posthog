@@ -14,9 +14,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Annotation, Dashboard, Insight
+from posthog.models import Annotation, Insight
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 @dataclasses.dataclass(frozen=True)

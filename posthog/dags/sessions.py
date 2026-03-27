@@ -17,6 +17,8 @@ from dagster import (
     define_asset_job,
 )
 
+from posthog.schema import ProductKey
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
@@ -26,7 +28,7 @@ from posthog.clickhouse.client.connection import (
     get_kwargs_for_client,
 )
 from posthog.clickhouse.cluster import get_cluster
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
@@ -321,7 +323,7 @@ def _do_backfill(
             shard_index = shard_num - 1  # Convert 1-indexed to 0-indexed
             context.log.info(f"Starting backfill on shard {shard_num} (shard_index={shard_index})")
 
-            with tags_context(kind="dagster", dagster=tags):
+            with tags_context(kind="dagster", dagster=tags, product=ProductKey.WEB_ANALYTICS, feature=Feature.BACKFILL):
                 for chunk_i in range(team_id_chunks):
                     # Check for too many unmerged parts before processing each chunk
                     wait_for_parts_to_merge(context, config, sync_client=client)
@@ -500,7 +502,7 @@ def _do_experimental_backfill(
 
     with get_http_client(**kwargs, **config.client_overrides) as client:
         tags = dagster_tags(context)
-        with tags_context(kind="dagster", dagster=tags):
+        with tags_context(kind="dagster", dagster=tags, product=ProductKey.WEB_ANALYTICS, feature=Feature.BACKFILL):
             for chunk_i in range(num_chunks):
                 wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
 

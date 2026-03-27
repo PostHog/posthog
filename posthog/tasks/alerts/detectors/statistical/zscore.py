@@ -126,4 +126,5 @@ class ZScoreDetector(BaseDetector):
             "type": DetectorType.ZSCORE.value,
             "threshold": cls.DEFAULT_THRESHOLD,
             "window": 30,
+            "preprocessing": {"diffs_n": 1},
         }

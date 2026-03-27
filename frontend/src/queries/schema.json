@@ -18432,6 +18432,10 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
+                "sendRawQuery": {
+                    "description": "Run the selected connection query directly without translating it through HogQL first",
+                    "type": "boolean"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -32965,6 +32969,9 @@
                 "required": {
                     "type": "boolean"
                 },
+                "requiredScopes": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "oauth",
                     "type": "string"
@@ -33849,6 +33856,9 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "transpose": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
