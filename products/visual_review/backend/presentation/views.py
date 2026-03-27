@@ -127,14 +127,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve"]
-    scope_object_read_actions = ["list", "retrieve", "counts"]
-
-    def dangerously_get_required_scopes(self, request, view):
-        # snapshots: GET = read, POST = write
-        if view.action == "snapshots":
-            return ["visual_review:write"] if request.method == "POST" else ["visual_review:read"]
-        return None  # fall through to default behavior
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
 
     @extend_schema(
         parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
@@ -174,14 +168,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)
 
-    @extend_schema(methods=["GET"], responses={200: SnapshotSerializer(many=True)})
-    @extend_schema(methods=["POST"], request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
-    @action(detail=True, methods=["get", "post"])
+    @extend_schema(responses={200: SnapshotSerializer(many=True)})
+    @action(detail=True, methods=["get"])
     def snapshots(self, request: Request, pk: str, **kwargs) -> Response:
-        """GET: list snapshots. POST: add a batch of snapshots (shard-based flow)."""
-        if request.method == "POST":
-            return self._add_snapshots(request, pk)
-
+        """Get all snapshots for a run with diff results."""
         try:
             snapshots = api.get_run_snapshots(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
@@ -192,8 +182,11 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
 
+    @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
+    @action(detail=True, methods=["post"], url_path="add-snapshots")
     @validated_request(AddSnapshotsInputSerializer)
-    def _add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str) -> Response:
+    def add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str, **kwargs) -> Response:
+        """Add a batch of snapshots to a pending run (shard-based flow)."""
         try:
             result = api.add_snapshots(
                 input=request.validated_data,
