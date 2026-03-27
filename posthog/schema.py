@@ -2149,6 +2149,8 @@ class HeatmapSettings(BaseModel):
     gradient: list[HeatmapGradientStop] | None = None
     gradientPreset: str | None = None
     gradientScaleMode: GradientScaleMode | None = None
+    nullLabel: str | None = None
+    nullValue: str | None = None
     valueColumn: str | None = None
     xAxisColumn: str | None = None
     xAxisLabel: str | None = None
