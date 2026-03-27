@@ -840,9 +840,13 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
     }
 
-    // Trends
-    // We do not support filtering test account for DWH nodes, disable it if there are any
-    if (isTrendsQuery(currentState) && maybeChangedSeries?.some(isAnyDataWarehouseNode)) {
+    // We do not support filtering test accounts for DWH nodes, disable it if there are any
+    if (
+        isTrendsQuery(currentState) &&
+        currentState.filterTestAccounts &&
+        maybeChangedSeries?.some(isAnyDataWarehouseNode)
+    ) {
+        lemonToast.info('Filter test accounts is not supported for Data Warehouse series and has been disabled.')
         ;(mergedUpdate as TrendsQuery).filterTestAccounts = undefined
     }
 
