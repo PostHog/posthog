@@ -1479,9 +1479,9 @@ snapshots:
     layout-project-notice--internet-connection-issue--light:
         hash: v1.k794b7964.26bdfc231e725e604333fc48dd01012f1a6a667c38312bde234779be3a3337a1.8BRXF6QYWO33VFq6JVgdZi-rfRdFtaGC1zwdUMJfX3w
     layout-project-notice--invite-teammates--dark:
-        hash: v1.k794b7964.10d4a825de7e1d8d2f2b3be84712621c3c3e68815e76f9376729ab2b9c654b0f.jshdrYUvYa25I5NrCZnHSmX_vRJpP7YVerHNNac8oew
+        hash: v1.k794b7964.88687f33fcf8e1cdb0326e9404a3df927f98853da2dfc1c3eb0d3b43e8f73567.z9y24ziwYxAss_pz8J4Pq7-CIzsd5GuV-iaw77OSSb0
     layout-project-notice--invite-teammates--light:
-        hash: v1.k794b7964.e18373e5db2e913231b58ea1511390746ec6bb94f99acbd7e1e256227f8ee494.60wDFpBaE9yEkZhD-q22wEfJMdqnUlaFn5UOzJfqmXA
+        hash: v1.k794b7964.409ab8e15c4af51ad5b660aef11754e6ca9988e448bb0b5767ac12ba79ad3813.prHJd6Qk0rK567qQpjIntc51vHU_jAqHRAiX2zKARR4
     layout-project-notice--missing-reverse-proxy--dark:
         hash: v1.k794b7964.db0bd45a6001ae837b1157ebea60bfcbff4ef8015a81f2a0e47d186bf927883d.SWOYCoRniFDRg4AdkERt3SbcyhyH4AeUAQbBiHaXKho
     layout-project-notice--missing-reverse-proxy--light:
@@ -1787,13 +1787,13 @@ snapshots:
     lemon-ui-lemon-banner--ai--light:
         hash: v1.k794b7964.c221ea36d3162c944118332fd398db51cd7665e49fe0754c3a031ed7de3f134f.HE2FD71DPMVoLQGT_1sRu1K8vN2TtjRO2fQb4grOEYU
     lemon-ui-lemon-banner--closable--dark:
-        hash: v1.k794b7964.94351ea1a8c0bbe1c3c578d1d17e3265eedc3345f3cd20581491fbe3fb2e4dc4.QiNrkO8hweCSvHgiN75-PzWi78B3cIb6kBF1q6LCnpA
+        hash: v1.k794b7964.a553e831ac999e836e89a0a14a123bc35bd3bbb5b165874d07def222a42f3ab0.MTkn-jeZy2BPi5u62UqMw3OBAtH6FwvuDh6FM_O8A2Q
     lemon-ui-lemon-banner--closable--light:
-        hash: v1.k794b7964.a370a850d8a1496641165c3861a6894f8dd260c3982d128c82f5c42b91340272.Zn7F5OCrIi-prBpkvvDwV6wMIm5xyek7sHwBSN1B178
+        hash: v1.k794b7964.1e2f64d566f2c84b251f8609d417c30e7c782462707e600a7151f79acf20eb65.H4E7sqdjVkBsB23J3BSh2Ftecl2sC11FabCOKQIqooY
     lemon-ui-lemon-banner--dismissable--dark:
-        hash: v1.k794b7964.764115c0b44281b4d769858e95ee7271a4fed417b058df97b2c062387b93bb94.AuZgmC1yBQcykmjnzLnE6_CmvBscH1kRG1jagJ3reQU
+        hash: v1.k794b7964.cec7b7fec1f198fc9de434261512f58404c41f46916a278df993c6ef64f6c8ad.IWIZtkjIA5LTzCN9R_o1wllMJY98-tPM5Z02v2WJ6bw
     lemon-ui-lemon-banner--dismissable--light:
-        hash: v1.k794b7964.3062c0c2ecb43a7e895dd00627dbf0a793ec96ca0da8e9e4903c7df766a09c4d.GqM6akMmjhw4iT6YGaZinxpwZFGpTIRSiHevV1irVzY
+        hash: v1.k794b7964.af4295e20d66e836f886cb55cc942127c4dd5f249f39dadc39d91230070e9b28.GAx9azY5gBVdcVlEdEDUxjySn58-779TglP93rzAd7c
     lemon-ui-lemon-banner--error--dark:
         hash: v1.k794b7964.6db549e77addad2132ad02be628e044f6158f5ece7231e45c4d39a33f8bba189.ooPZQa4vOvKKz7D-vQpFVy9GmJG9ga-k5F7BaQXK16g
     lemon-ui-lemon-banner--error--light:
@@ -1807,9 +1807,9 @@ snapshots:
     lemon-ui-lemon-banner--narrow--light:
         hash: v1.k794b7964.fe937c385deabb4eafb41ec4612ed8b903e533b36619e8c6feb4426438bd45a7.-BHcqc-3_a1cSN2QGJQ5usgycZgM0JV5OX6VXgpI87g
     lemon-ui-lemon-banner--narrow-with-buttons--dark:
-        hash: v1.k794b7964.e1bbc9e3f2c5e96a897b2ec8e45d7a5a44b6ba58b0a3136ecc113e136107e440.kCvZnHjCCZpzuVEKZB3C3M0YqYBuOX6n6ONa_oNIJbM
+        hash: v1.k794b7964.ef1481ef399f7910e47112f8b1e5544b280d047a2ee36899017e3adb85f8754b.vv5GV-_Zwk6UYMr0RhtNs5k8Kkv0_lysM3ZxmJeMsNY
     lemon-ui-lemon-banner--narrow-with-buttons--light:
-        hash: v1.k794b7964.cd8af761c13c5d4088c91b3b60fa00b3801d9f12766672f42fefb47d5a02a7fb.UbwZRwAg7q3Oa0jxxkpV7f1EV7DrVSnvndLovz6jKqU
+        hash: v1.k794b7964.ea03e14b97b9a737cc3db42f9fb42e201c421f81c13c8659b40160384032d8f9.ThMeV9mF8UAK0-_cSVrGtt8Llhw5oXwJQ0hafYmi2RY
     lemon-ui-lemon-banner--success--dark:
         hash: v1.k794b7964.8bd968bb15f7a9f4f8b7b50c2370972eb6c97b4f8a317b70550f639f14d71965.JeGNn5Y1YUfRbjkybAO2mL_Y9XTUdxOGABzxxy3hSOY
     lemon-ui-lemon-banner--success--light:
