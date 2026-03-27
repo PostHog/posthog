@@ -201,7 +201,7 @@ const ExperimentsTable = ({
         useValues(experimentsLogic)
     const { loadExperiments, archiveExperiment, setExperimentsFilters } = useActions(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
 
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1

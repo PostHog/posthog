@@ -317,7 +317,7 @@ export function PageHeaderCustom(): JSX.Element {
     const [copyToProjectModalOpen, setCopyToProjectModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { currentOrganization } = useValues(organizationLogic)
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const { newTab } = useActions(sceneLogic)
     const { trigger, HogfettiComponent } = useHogfetti()
 
