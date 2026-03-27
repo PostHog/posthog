@@ -144,7 +144,9 @@ def cli(ctx: click.Context) -> None:
     # Fire early so long-running commands (e.g. hogli start) are always counted
     # even if the process is killed without a clean exit.
     if ctx.invoked_subcommand and ctx.invoked_subcommand != "telemetry:off":
-        telemetry.track("command_started", {"command": ctx.invoked_subcommand, **_env_properties()})
+        telemetry.track(
+            "command_started", {"command": ctx.invoked_subcommand, **_env_properties(ctx.invoked_subcommand)}
+        )
 
 
 @cli.command(name="quickstart", help="Show getting started with PostHog development")
@@ -308,10 +310,21 @@ except ImportError:
     pass  # No developer commands yet
 
 
-def _env_properties() -> dict[str, Any]:
+def _infer_process_manager(command: str | None) -> str | None:
+    """Infer the active process manager for telemetry."""
+    pm = os.environ.get("HOGLI_PROCESS_MANAGER")
+    if pm:
+        return os.path.basename(pm)
+
+    if command == "start":
+        return "mprocs" if "--mprocs" in sys.argv[2:] else "phrocs"
+
+    return None
+
+
+def _env_properties(command: str | None = None) -> dict[str, Any]:
     """Static environment properties shared across telemetry events."""
     ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
-    pm = os.environ.get("HOGLI_PROCESS_MANAGER")
     return {
         "terminal_width": shutil.get_terminal_size().columns,
         "os": platform.system(),
@@ -321,7 +334,7 @@ def _env_properties() -> dict[str, Any]:
         "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
         "in_flox": os.environ.get("FLOX_ENV") is not None,
         "is_worktree": (REPO_ROOT / ".git").is_file(),
-        "process_manager": os.path.basename(pm) if pm else None,
+        "process_manager": _infer_process_manager(command),
     }
 
 
@@ -340,7 +353,7 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
             "duration_s": round(duration_s, 3),
             "exit_code": exit_code,
             "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
-            **_env_properties(),
+            **_env_properties(command),
         }
         # Merge devenv-specific properties (set by dev:generate)
         devenv = ctx.meta.get("hogli.devenv")
