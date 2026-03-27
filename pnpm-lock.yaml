@@ -565,6 +565,9 @@ importers:
       '@lottiefiles/react-lottie-player':
         specifier: ^3.4.7
         version: 3.4.7(react@18.3.1)
+      '@marsidev/react-turnstile':
+        specifier: ^1.4.2
+        version: 1.4.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@medv/finder':
         specifier: ^4.0.2
         version: 4.0.2
@@ -6470,6 +6473,12 @@ packages:
   '@maplibre/maplibre-gl-style-spec@19.3.3':
     resolution: {integrity: sha512-cOZZOVhDSulgK0meTsTkmNXb1ahVvmTmWmfx9gRBwc6hq98wS9JP35ESIoNq3xqEan+UN+gn8187Z6E4NKhLsw==}
     hasBin: true
+
+  '@marsidev/react-turnstile@1.4.2':
+    resolution: {integrity: sha512-xs1qOuyeMOz6t9BXXCXWiukC0/0+48vR08B7uwNdG05wCMnbcNgxiFmdFKDOFbM76qFYFRYlGeRfhfq1U/iZmA==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
 
   '@maxmind/geoip2-node@3.5.0':
     resolution: {integrity: sha512-WG2TNxMwDWDOrljLwyZf5bwiEYubaHuICvQRlgz74lE9OZA/z4o+ZT6OisjDBAZh/yRJVNK6mfHqmP5lLlAwsA==}
@@ -21437,8 +21446,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.393.0:
-    resolution: {integrity: sha512-308ulSy+ywhJYLSviUWBxgGNymQWvtWkZEehnxDxzf04tMoN2SzeXgqXjl1FyO7TkdOVy4L1V5JG+L8FCjyg9w==}
+  unlayer-types@1.394.0:
+    resolution: {integrity: sha512-0y7+/QQ8MxCjPcpWK3rz7pQXsNGQAUGI6JlBKHQBneqOAWeCVET6Ohd5KVgD95Rm8v6ZLRn5TJvjdsRwIWHHUg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -27405,6 +27414,11 @@ snapshots:
       minimist: 1.2.8
       rw: 1.3.3
       sort-object: 3.0.3
+
+  '@marsidev/react-turnstile@1.4.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   '@maxmind/geoip2-node@3.5.0':
     dependencies:
@@ -44079,7 +44093,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.393.0
+      unlayer-types: 1.394.0
 
   react-error-overlay@6.0.9: {}
 
@@ -46450,7 +46464,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.393.0: {}
+  unlayer-types@1.394.0: {}
 
   unpipe@1.0.0: {}
 

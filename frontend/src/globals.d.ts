@@ -26,20 +26,5 @@ declare global {
         // These are used to track global errors across the app.
         // Can be used to determine whether we should show warnings in different places in the app.
         POSTHOG_GLOBAL_ERRORS?: Record<string, boolean>
-
-        turnstile?: {
-            render: (
-                container: string | HTMLElement,
-                options: {
-                    sitekey: string
-                    callback: (token: string) => void
-                    'error-callback'?: (error: unknown) => void
-                    'expired-callback'?: () => void
-                    theme?: 'light' | 'dark' | 'auto'
-                }
-            ) => string
-            reset: (widgetId: string) => void
-            remove: (widgetId: string) => void
-        }
     }
 }
