@@ -973,10 +973,33 @@ class TestServiceFlagsDataFormat(BaseTest):
             )
 
         assert not all_diffs, (
-            f"Fixture schema mismatch ({len(all_diffs)} differences):\n"
-            + "\n".join(f"  - {d}" for d in all_diffs)
-            + "\n\nUpdate the golden fixture at rust/feature-flags/tests/fixtures/hypercache_contract.json"
-            + "\nand verify Rust tests pass: cargo test -p feature-flags test_hypercache_contract"
+            "\n"
+            + "=" * 78
+            + "\n"
+            + " WARNING: HYPERCACHE BOUNDARY CONTRACT VIOLATION\n"
+            + "=" * 78
+            + "\n\n"
+            + f"  {len(all_diffs)} schema difference(s) between the Python serializer and\n"
+            + "  the golden fixture used by the Rust feature-flags service:\n\n"
+            + "\n".join(f"    - {d}" for d in all_diffs)
+            + "\n\n"
+            + "-" * 78
+            + "\n"
+            + "  DO NOT just update the fixture to make this test green.\n"
+            + "  The Rust service deserializes this data — a schema change can\n"
+            + "  break flag evaluation in production.\n\n"
+            + "  Before proceeding, consider:\n"
+            + "    1. Is the change backwards-compatible? (adding a new nullable\n"
+            + "       field is usually safe; renaming/removing a field is not)\n"
+            + "    2. Do you need a phased rollout? (deploy Rust changes first\n"
+            + "       so the new schema is understood before Python writes it)\n"
+            + "    3. Will the cache need re-warming? (old cached payloads will\n"
+            + "       still have the previous shape until they expire or are\n"
+            + "       invalidated)\n\n"
+            + "  Once you have a plan:\n"
+            + "    - Update the fixture: rust/feature-flags/tests/fixtures/hypercache_contract.json\n"
+            + "    - Verify Rust tests: cargo test -p feature-flags test_hypercache_contract\n"
+            + "=" * 78
         )
 
     def test_flag_data_serializes_to_json(self):

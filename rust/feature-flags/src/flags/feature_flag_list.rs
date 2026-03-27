@@ -1172,13 +1172,26 @@ mod tests {
 
         let result = FeatureFlagList::parse_hypercache_value(data, 99);
         let (flags, metadata, cohorts) = result.expect(
-            "HYPERCACHE CONTRACT VIOLATION: Rust failed to deserialize the golden fixture.\n\n\
-             This means a schema change has broken the cache format that Python writes \
-             and Rust reads. Schema changes must follow the expand-and-contract pattern:\n\
-             1. Add #[serde(default)] or #[serde(alias = ...)] in Rust, deploy\n\
-             2. Change Python serializer, deploy, run warm_flags_cache\n\
-             3. Remove compatibility shim in follow-up PR\n\n\
-             See: rust/feature-flags/tests/fixtures/hypercache_contract.json",
+            "\n\
+             ==============================================================================\n\
+             WARNING: HYPERCACHE BOUNDARY CONTRACT VIOLATION\n\
+             ==============================================================================\n\n\
+             Rust failed to deserialize the golden fixture. This means a schema change\n\
+             has broken the cache format that Python writes and Rust reads.\n\n\
+             DO NOT just update the fixture or tweak the struct to make this test green.\n\
+             The Python serializer is already writing this shape to production caches.\n\n\
+             Before proceeding, consider:\n\
+             \x20 1. Is the change backwards-compatible? (adding a new Optional/default\n\
+             \x20    field is usually safe; renaming/removing a field is not)\n\
+             \x20 2. Do you need a phased rollout? Schema changes must follow\n\
+             \x20    expand-and-contract:\n\
+             \x20    a. Add #[serde(default)] or #[serde(alias = ...)] in Rust, deploy\n\
+             \x20    b. Change Python serializer, deploy, run warm_flags_cache\n\
+             \x20    c. Remove compatibility shim in follow-up PR\n\
+             \x20 3. Will the cache need re-warming? Old cached payloads will still\n\
+             \x20    have the previous shape until they expire or are invalidated.\n\n\
+             See: rust/feature-flags/tests/fixtures/hypercache_contract.json\n\
+             ==============================================================================",
         );
 
         // Verify flags parsed correctly
