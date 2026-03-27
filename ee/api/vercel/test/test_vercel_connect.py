@@ -244,7 +244,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_successful_link_creates_integration_and_resource(self, mock_client_class, mock_vercel_integration):
         mock_client = MagicMock()
@@ -321,7 +321,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_replay_returns_400(self, mock_client_class, _mock_vercel_integration):
         mock_client = MagicMock()
@@ -377,7 +377,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert "already has a Vercel integration" in response.json()["detail"]
         assert OrganizationIntegration.objects.filter(integration_id="icfg_existing").exists()
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
     def test_stale_integration_deleted_and_new_one_created(
@@ -430,11 +430,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_invalid_team_id_returns_400(self, mock_client_class, _mock_vercel_integration):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+    def test_invalid_team_id_returns_400(self):
         session_token = _seed_session()
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
@@ -456,11 +452,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         ).exists()
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_duplicate_team_integration_returns_400(self, mock_client_class, _mock_vercel_integration):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+    def test_duplicate_team_integration_returns_400(self):
         Integration.objects.create(
             team=self.team,
             kind=Integration.IntegrationKind.VERCEL,
@@ -483,25 +475,25 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has a Vercel integration" in response.json()["detail"]
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    @patch("ee.api.vercel.vercel_connect.Integration.objects.create", side_effect=Exception("db error"))
-    def test_rollback_on_integration_create_failure(
-        self, _mock_create, mock_client_class, _mock_vercel_integration
-    ):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+    def test_rollback_on_integration_create_failure(self):
         session_token = _seed_session()
+        original_create = Integration.objects.create
 
-        response = self.client.post(
-            self.url,
-            {
-                "session": session_token,
-                "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
-            },
-            content_type="application/json",
-        )
+        def failing_create(**kwargs):
+            if kwargs.get("kind") == Integration.IntegrationKind.VERCEL:
+                raise Exception("db error")
+            return original_create(**kwargs)
+
+        with patch.object(Integration.objects, "create", side_effect=failing_create):
+            response = self.client.post(
+                self.url,
+                {
+                    "session": session_token,
+                    "organization_id": str(self.organization.id),
+                    "team_id": self.team.pk,
+                },
+                content_type="application/json",
+            )
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not OrganizationIntegration.objects.filter(
@@ -520,7 +512,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         super().setUp()
         self.callback_url = "/connect/vercel/callback"
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_end_to_end_callback_to_complete(self, mock_client_class, _mock_vercel_integration):
         mock_client = MagicMock()
@@ -552,7 +544,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         assert complete_response.status_code == status.HTTP_201_CREATED
         assert complete_response.json()["status"] == "linked"
 
-    @patch("ee.api.vercel.vercel_connect.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_token_survives_session_flush(self, mock_client_class, _mock_vercel_integration):
         mock_client = MagicMock()
@@ -682,8 +674,8 @@ class TestSafeVercelSyncSelfHealing(VercelConnectTestBase):
 
 
 class TestBackfillVercelConnectableResources(VercelConnectTestBase):
-    @patch("ee.api.vercel.tasks.VercelIntegration")
-    @patch("ee.api.vercel.tasks.VercelAPIClient")
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.client.VercelAPIClient")
     def test_backfill_creates_missing_resources(self, mock_client_class, mock_vercel_integration):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
@@ -713,8 +705,8 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
         )
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_called_once_with(self.team)
 
-    @patch("ee.api.vercel.tasks.VercelIntegration")
-    @patch("ee.api.vercel.tasks.VercelAPIClient")
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.client.VercelAPIClient")
     def test_backfill_skips_teams_with_existing_resources(self, mock_client_class, mock_vercel_integration):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
