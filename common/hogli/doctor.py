@@ -995,10 +995,10 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
 
     if managed and not include_all:
         # Summarize managed groups
-        managers: dict[str, list[DevProcess]] = {}
+        managed_groups: dict[str, list[DevProcess]] = {}
         for p in managed:
-            managers.setdefault(p.manager, []).append(p)
-        parts = [f"{len(procs)} under {mgr}" for mgr, procs in managers.items()]
+            managed_groups.setdefault(p.manager, []).append(p)
+        parts = [f"{len(procs)} under {mgr}" for mgr, procs in managed_groups.items()]
         click.echo(f"   ({', '.join(parts)} — use --all to include)\n")
 
     total_rss = sum(p.memory_rss_kb for p in targets)
