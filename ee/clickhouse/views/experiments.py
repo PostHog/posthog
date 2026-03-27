@@ -492,17 +492,21 @@ class EnterpriseExperimentsViewSet(
         reset_experiment = service.reset_experiment(experiment, request=request)
         return Response(ExperimentSerializer(reset_experiment, context=self.get_serializer_context()).data)
 
+    @staticmethod
+    def _has_legacy_metrics(experiment: Experiment) -> bool:
+        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
+        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
+        has_legacy_saved = experiment.experimenttosavedmetric_set.filter(
+            saved_metric__query__kind__in=legacy_kinds
+        ).exists()
+        return has_legacy_inline or has_legacy_saved
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
-        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
-        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
-        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
-        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
-            saved_metric__query__kind__in=legacy_kinds
-        ).exists()
-        if has_legacy_inline or has_legacy_saved:
+        if self._has_legacy_metrics(source_experiment):
             return Response(
                 {"detail": "Duplication is not supported for experiments using legacy metrics."},
                 status=400,
@@ -527,13 +531,7 @@ class EnterpriseExperimentsViewSet(
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
-        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
-        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
-        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
-        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
-            saved_metric__query__kind__in=legacy_kinds
-        ).exists()
-        if has_legacy_inline or has_legacy_saved:
+        if self._has_legacy_metrics(source_experiment):
             return Response(
                 {"detail": "Copying is not supported for experiments using legacy metrics."},
                 status=400,
