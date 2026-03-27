@@ -44,6 +44,7 @@ export interface ErrorTrackingConsumerOptions {
     outputTopic: string
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
+    cymbalMaxBodyBytes: number
     lane: IngestionLane
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
@@ -121,6 +122,7 @@ export class ErrorTrackingConsumer {
         this.cymbalClient = new CymbalClient({
             baseUrl: config.cymbalBaseUrl,
             timeoutMs: config.cymbalTimeoutMs,
+            maxBodyBytes: config.cymbalMaxBodyBytes,
         })
 
         this.promiseScheduler = new PromiseScheduler()
