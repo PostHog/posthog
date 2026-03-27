@@ -1035,6 +1035,20 @@ export const SETTINGS_MAP: SettingSection[] = [
         hideFromNavigation: true,
         settings: [
             {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description:
+                    'Filter autocaptured exceptions by type or message to skip capturing certain exceptions in the web SDK.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
+            },
+            {
+                id: 'error-tracking-spike-detection',
+                title: 'Spike detection',
+                component: <SpikeDetectionSettings />,
+                flag: 'ERROR_TRACKING_SPIKE_ALERTING',
+            },
+            {
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',

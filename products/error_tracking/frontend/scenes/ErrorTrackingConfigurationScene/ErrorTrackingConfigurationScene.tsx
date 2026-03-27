@@ -14,9 +14,10 @@ import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
 
 export type ConfigurationSceneTabType =
+    | 'error-tracking-suppression-rules'
+    | 'error-tracking-spike-detection'
     | 'error-tracking-auto-assignment'
     | 'error-tracking-custom-grouping'
-    | 'error-tracking-suppression-rules'
     | 'error-tracking-alerting'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-releases'
@@ -34,7 +35,7 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
                 sectionId: 'environment-error-tracking-configuration',
-                settingId: initialTab || 'error-tracking-auto-assignment',
+                settingId: initialTab || 'error-tracking-suppression-rules',
             }),
             ['selectSetting'],
         ],

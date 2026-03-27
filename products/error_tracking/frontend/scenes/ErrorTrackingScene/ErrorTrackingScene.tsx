@@ -96,7 +96,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 <Settings
                     logicKey={ERROR_TRACKING_LOGIC_KEY}
                     sectionId="environment-error-tracking-configuration"
-                    settingId="error-tracking-auto-assignment"
+                    settingId="error-tracking-suppression-rules"
                     handleLocally
                 />
             ),
