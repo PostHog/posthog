@@ -657,6 +657,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
+                    "label": schema.label,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
                     "status": schema.status,
@@ -826,6 +827,127 @@ class TestExternalDataSource(APIBaseTest):
             ).count(),
             1,
         )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="restored_table",
+                supports_incremental=False,
+                supports_append=False,
+            ),
+        ]
+        source = self._create_external_data_source()
+        # Simulate the realistic soft-delete path: the schema was syncing,
+        # then got removed from the source which sets should_sync=False before
+        # soft-deleting (see sync_old_schemas_with_new_schemas).
+        deleted_schema = ExternalDataSchema.objects.create(
+            name="restored_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            should_sync=False,
+            deleted=True,
+            sync_type_config={"legacy_key": "keep"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["added"], 1)
+        self.assertEqual(response.json()["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="restored_table", deleted=False
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table").count(),
+            1,
+        )
+
+        restored_schema = ExternalDataSchema.objects.get(pk=deleted_schema.pk)
+        self.assertFalse(restored_schema.deleted)
+        # Restored schemas come back disabled — the user must opt in again
+        self.assertFalse(restored_schema.should_sync)
+        self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_updates_labels_on_existing_schemas(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c123", label="general", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="c123", team_id=self.team.pk, source_id=source.pk, should_sync=False
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        schema.refresh_from_db()
+        self.assertEqual(schema.label, "general")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_updates_changed_label(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c123", label="renamed-channel", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="c123", label="general", team_id=self.team.pk, source_id=source.pk, should_sync=False
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        schema.refresh_from_db()
+        self.assertEqual(schema.label, "renamed-channel")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_sets_label_on_new_schema(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c456", label="random", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="c456")
+        self.assertEqual(schema.label, "random")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_sets_label_on_restored_deleted_schema(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c789", label="announcements", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        deleted_schema = ExternalDataSchema.objects.create(
+            name="c789", team_id=self.team.pk, source_id=source.pk, should_sync=False, deleted=True
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        deleted_schema.refresh_from_db()
+        self.assertFalse(deleted_schema.deleted)
+        self.assertEqual(deleted_schema.label, "announcements")
 
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
         source = self._create_external_data_source()
@@ -3875,3 +3997,247 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["exists"] is True
         assert data["external_status"] is None
+
+
+class TestDeleteWebhook(APIBaseTest):
+    def _create_stripe_source(self, job_inputs=None) -> ExternalDataSource:
+        if job_inputs is None:
+            job_inputs = {"stripe_secret_key": "sk_test_123"}
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs=job_inputs,
+        )
+
+    def _create_hog_function(self, source: ExternalDataSource, enabled: bool = True):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Stripe warehouse source webhook",
+            type="warehouse_source_webhook",
+            hog="// test",
+            enabled=enabled,
+            inputs_schema=[
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "secret": False},
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "required": True, "secret": False},
+            ],
+            inputs={
+                "source_id": {"value": str(source.pk)},
+                "schema_mapping": {"value": {"customer": "schema-id-1"}},
+            },
+        )
+
+    def _create_incremental_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="incremental",
+            should_sync=True,
+        )
+
+    def _create_full_refresh_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="full_refresh",
+            should_sync=True,
+        )
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    def test_delete_webhook_success(self, mock_delete_webhook, _mock_flag):
+        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
+
+        source = self._create_stripe_source()
+        self._create_full_refresh_schema(source, "Customers")
+        hog_function = self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is True
+        assert data["error"] is None
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_blocked_by_incremental_schemas(self, _mock_flag):
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, "Customers")
+        self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "incremental sync" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook, _mock_flag):
+        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        mock_delete_webhook.return_value = WebhookDeletionResult(success=False, error="Permission denied")
+
+        source = self._create_stripe_source()
+        self._create_full_refresh_schema(source, "Customers")
+        hog_function = self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is False
+        assert data["error"] == "Permission denied"
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_no_hog_function(self, _mock_flag):
+        source = self._create_stripe_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is False
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_non_webhook_source(self, _mock_flag):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={"host": "localhost"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not support webhooks" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_no_job_inputs_still_cleans_up_hog_function(self, _mock_flag):
+        source = self._create_stripe_source(job_inputs={})
+        hog_function = self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is False
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+
+
+class TestDestroySourceCleansUpWebhook(APIBaseTest):
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook, _mock_flag):
+        from posthog.models.hog_functions.hog_function import HogFunction
+        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Stripe warehouse source webhook",
+            type="warehouse_source_webhook",
+            hog="// test",
+            enabled=True,
+            inputs_schema=[
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "secret": False},
+            ],
+            inputs={"source_id": {"value": str(source.pk)}},
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+        mock_delete_webhook.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
+        side_effect=Exception("Stripe API error"),
+    )
+    def test_destroy_source_continues_if_webhook_cleanup_fails(
+        self, _mock_delete_webhook, mock_capture_exception, _mock_flag
+    ):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        HogFunction.objects.create(
+            team=self.team,
+            name="Stripe warehouse source webhook",
+            type="warehouse_source_webhook",
+            hog="// test",
+            enabled=True,
+            inputs_schema=[
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "secret": False},
+            ],
+            inputs={"source_id": {"value": str(source.pk)}},
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+        assert mock_capture_exception.called

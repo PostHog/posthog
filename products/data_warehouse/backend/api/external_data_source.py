@@ -62,6 +62,7 @@ from products.data_warehouse.backend.direct_postgres import (
 )
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
+    delete_webhook_and_hog_function,
     get_or_create_webhook_hog_function,
     get_webhook_url,
 )
@@ -684,6 +685,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         schema_names = [schema.name for schema in source_schemas]
+        schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
         if not payload_schemas or not isinstance(payload_schemas, list):
@@ -756,6 +758,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     else {"schema_metadata": schema_metadata}
                 ),
                 description=source_schema.description if source_schema else None,
+                label=schema_label_by_name.get(schema_name),
             )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -820,6 +823,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     schema.table.soft_delete()
                 schema.soft_delete()
             instance.soft_delete()
+
+        # Best-effort webhook cleanup — soft-deletes are already committed
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+        if isinstance(source, WebhookSource) and instance.job_inputs:
+            try:
+                config = source.parse_config(instance.job_inputs)
+                delete_webhook_and_hog_function(
+                    team=self.team,
+                    source=source,
+                    config=config,
+                    source_id=str(instance.pk),
+                )
+            except Exception as e:
+                capture_exception(e)
 
         # Best-effort external cleanup — soft-deletes are already committed
         latest_running_job = (
@@ -912,7 +930,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if instance.is_direct_postgres
                 else instance.connection_metadata
             )
-            schema_names = [s.name for s in schemas]
+            schema_names = {s.name: s.label for s in schemas}
             logger.info(
                 "refresh_schemas fetched from source",
                 source_id=str(instance.id),
@@ -1327,6 +1345,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 team=self.team,
                 type="warehouse_source_webhook",
                 inputs__source_id__value=str(instance.pk),
+                deleted=False,
             )
         except HogFunction.DoesNotExist:
             return Response(
@@ -1342,6 +1361,83 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
+
+    @action(methods=["POST"], detail=True)
+    def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+
+        if not isinstance(source, WebhookSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This source type does not support webhooks"},
+            )
+
+        # Check that no schemas are using incremental sync — deleting the webhook
+        # would break their sync pipeline.
+        incremental_schemas = ExternalDataSchema.objects.filter(
+            source=instance,
+            team_id=self.team_id,
+            sync_type="incremental",
+            should_sync=True,
+        ).exclude(deleted=True)
+
+        if incremental_schemas.exists():
+            schema_names = list(incremental_schemas.values_list("name", flat=True))
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Cannot delete webhook while tables are using incremental sync: {', '.join(schema_names)}. Switch them to full refresh or disable syncing first.",
+                },
+            )
+
+        if not instance.job_inputs:
+            # No config means we can't call the external API, but we can still
+            # clean up the HogFunction.
+            try:
+                hog_function = HogFunction.objects.get(
+                    team=self.team,
+                    type="warehouse_source_webhook",
+                    inputs__source_id__value=str(instance.pk),
+                    deleted=False,
+                )
+                hog_function.deleted = True
+                hog_function.enabled = False
+                hog_function.save(update_fields=["deleted", "enabled"])
+            except HogFunction.DoesNotExist:
+                pass
+
+            return Response(
+                status=status.HTTP_200_OK,
+                data={"success": True, "external_deleted": False},
+            )
+
+        try:
+            config = source.parse_config(instance.job_inputs)
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Failed to parse source configuration"},
+            )
+
+        result = delete_webhook_and_hog_function(
+            team=self.team,
+            source=source,
+            config=config,
+            source_id=str(instance.pk),
+        )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "success": result.success,
+                "external_deleted": result.external_deleted,
+                "error": result.error,
+            },
+        )
 
 
 @dataclasses.dataclass(frozen=True)

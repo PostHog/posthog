@@ -9,7 +9,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+from rest_framework.test import APIRequestFactory
 
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
@@ -26,6 +28,11 @@ from products.experiments.backend.models.experiment import (
 class TestExperimentService(APIBaseTest):
     def _service(self) -> ExperimentService:
         return ExperimentService(team=self.team, user=self.user)
+
+    def _make_request(self):
+        request = APIRequestFactory().post("/fake")
+        request.user = self.user
+        return request
 
     def _create_flag(
         self,
@@ -1379,6 +1386,142 @@ class TestExperimentService(APIBaseTest):
         assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
+    # End
+    # ------------------------------------------------------------------
+
+    def test_end_experiment_success(self):
+        experiment = self._create_running_experiment(name="End Test", feature_flag_key="end-flag")
+
+        assert experiment.is_running
+        assert experiment.end_date is None
+
+        ended = self._service().end_experiment(experiment)
+
+        ended.refresh_from_db()
+        assert ended.is_stopped
+        assert ended.end_date is not None
+
+    @parameterized.expand(
+        [
+            ("active_flag", True),
+            ("paused_flag", False),
+        ]
+    )
+    def test_end_experiment_leaves_feature_flag_unchanged(self, _name: str, flag_active: bool):
+        experiment = self._create_running_experiment(name=f"End Flag {_name}", feature_flag_key=f"end-flag-{_name}")
+        if not flag_active:
+            self._service().pause_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is flag_active
+
+        ended = self._service().end_experiment(experiment)
+
+        ended.feature_flag.refresh_from_db()
+        assert ended.feature_flag.active is flag_active
+        assert ended.feature_flag.filters == experiment.feature_flag.filters
+
+    def test_end_experiment_with_conclusion(self):
+        experiment = self._create_running_experiment(name="End Conclusion", feature_flag_key="end-conclusion-flag")
+
+        ended = self._service().end_experiment(
+            experiment,
+            conclusion="won",
+            conclusion_comment="Test variant clearly won",
+        )
+
+        ended.refresh_from_db()
+        assert ended.is_stopped
+        assert ended.conclusion == "won"
+        assert ended.conclusion_comment == "Test variant clearly won"
+
+    def test_end_experiment_draft_raises(self):
+        experiment = self._create_launchable_experiment(name="End Draft", feature_flag_key="end-draft-flag")
+
+        assert experiment.is_draft
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().end_experiment(experiment)
+
+        assert "not been launched" in str(ctx.exception)
+
+    def test_end_experiment_already_ended_raises(self):
+        experiment = self._create_ended_experiment(name="End Already", feature_flag_key="end-already-flag")
+
+        assert experiment.is_stopped
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().end_experiment(experiment)
+
+        assert "already ended" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_reports_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Analytics", feature_flag_key="end-analytics-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        assert mock_report_user_action.call_count == 2
+        event_names = [call.args[1] for call in mock_report_user_action.call_args_list]
+        assert "experiment completed" in event_names
+        assert "experiment stopped" in event_names
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_includes_duration(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Duration", feature_flag_key="end-duration-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert "duration" in metadata
+        assert isinstance(metadata["duration"], int)
+        assert metadata["duration"] >= 0
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_includes_significant_when_results_exist(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End Significant", feature_flag_key="end-significant-flag")
+        assert experiment.metrics is not None
+        metric_uuid = experiment.metrics[0]["uuid"]
+
+        assert experiment.start_date is not None
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid=metric_uuid,
+            query_from=experiment.start_date,
+            query_to=timezone.now(),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"significant": True, "variants": []},
+            completed_at=timezone.now(),
+        )
+
+        mock_request = MagicMock()
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert metadata["significant"] is True
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_omits_significant_when_no_results(self, mock_report_user_action):
+        experiment = self._create_running_experiment(name="End No Results", feature_flag_key="end-no-results-flag")
+        mock_request = MagicMock()
+
+        self._service().end_experiment(experiment, request=mock_request)
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert "significant" not in metadata
+
+    # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------
 
@@ -1527,6 +1670,244 @@ class TestExperimentService(APIBaseTest):
 
         mock_report_user_action.assert_called_once()
         assert mock_report_user_action.call_args.args[1] == "experiment reset"
+
+    # ------------------------------------------------------------------
+    # Ship variant
+    # ------------------------------------------------------------------
+
+    def test_ship_variant_running_experiment(self):
+        experiment = self._create_running_experiment(name="Ship Running", feature_flag_key="ship-running-flag")
+
+        assert experiment.is_running
+        original_groups = experiment.feature_flag.filters.get("groups", [])
+
+        shipped = self._service().ship_variant(
+            experiment, variant_key="test", conclusion="won", request=self._make_request()
+        )
+
+        shipped.refresh_from_db()
+        shipped.feature_flag.refresh_from_db()
+
+        # Verify experiment is stopped with conclusion
+        assert shipped.is_stopped
+        assert shipped.end_date is not None
+        assert shipped.conclusion == "won"
+
+        # Verify flag filter transformation
+        variants = shipped.feature_flag.filters["multivariate"]["variants"]
+        assert any(v["key"] == "test" and v["rollout_percentage"] == 100 for v in variants)
+        assert any(v["key"] == "control" and v["rollout_percentage"] == 0 for v in variants)
+
+        # Verify catch-all group prepended and original groups preserved
+        groups = shipped.feature_flag.filters["groups"]
+        assert groups[0]["properties"] == []
+        assert groups[0]["rollout_percentage"] == 100
+        assert "Added automatically" in groups[0].get("description", "")
+        assert groups[1:] == original_groups
+
+    def test_ship_variant_already_stopped_experiment(self):
+        experiment = self._create_ended_experiment(name="Ship Stopped", feature_flag_key="ship-stopped-flag")
+
+        assert experiment.is_stopped
+        original_end_date = experiment.end_date
+
+        shipped = self._service().ship_variant(
+            experiment,
+            variant_key="test",
+            conclusion="won",
+            conclusion_comment="Shipping after end",
+            request=self._make_request(),
+        )
+
+        shipped.refresh_from_db()
+        shipped.feature_flag.refresh_from_db()
+
+        # Experiment stays stopped, end_date unchanged
+        assert shipped.is_stopped
+        assert shipped.end_date == original_end_date
+        assert shipped.conclusion == "won"
+        assert shipped.conclusion_comment == "Shipping after end"
+
+        # Flag is still rewritten
+        variants = shipped.feature_flag.filters["multivariate"]["variants"]
+        assert any(v["key"] == "test" and v["rollout_percentage"] == 100 for v in variants)
+
+    def test_ship_variant_preserves_existing_conclusion_when_not_provided(self):
+        experiment = self._create_ended_experiment(
+            name="Ship No Conclusion", feature_flag_key="ship-no-conclusion-flag"
+        )
+        # Set an existing conclusion on the stopped experiment
+        experiment.conclusion = "won"
+        experiment.conclusion_comment = "Test variant is the clear winner"
+        experiment.save()
+
+        shipped = self._service().ship_variant(
+            experiment,
+            variant_key="test",
+            # Deliberately not providing conclusion or conclusion_comment
+            request=self._make_request(),
+        )
+
+        shipped.refresh_from_db()
+        assert shipped.conclusion == "won"
+        assert shipped.conclusion_comment == "Test variant is the clear winner"
+
+    def test_ship_variant_preserves_payloads_and_aggregation(self):
+        experiment = self._create_running_experiment(name="Ship Payloads", feature_flag_key="ship-payloads-flag")
+        # Update the flag via the serializer to match real API behavior.
+        # aggregation_group_type_index must be set on each group explicitly —
+        # the serializer validator only distributes the top-level value to
+        # groups that don't already have the key, and these groups already
+        # have it set to None from the initial creation.
+        flag = experiment.feature_flag
+        updated_filters = {
+            **flag.filters,
+            "payloads": {"test": '{"color": "blue"}'},
+            "aggregation_group_type_index": 1,
+            "groups": [{**g, "aggregation_group_type_index": 1} for g in flag.filters.get("groups", [])],
+        }
+        flag_serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": updated_filters},
+            partial=True,
+            context={
+                "request": self._make_request(),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        flag_serializer.is_valid(raise_exception=True)
+        flag_serializer.save()
+        flag.refresh_from_db()
+
+        shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+
+        shipped.feature_flag.refresh_from_db()
+        assert shipped.feature_flag.filters["payloads"] == {"test": '{"color": "blue"}'}
+        assert shipped.feature_flag.filters["aggregation_group_type_index"] == 1
+
+    def test_ship_variant_draft_raises(self):
+        experiment = self._create_launchable_experiment(name="Ship Draft", feature_flag_key="ship-draft-flag")
+
+        assert experiment.is_draft
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+
+        assert "not been launched" in str(ctx.exception)
+
+    def test_ship_variant_invalid_variant_key_raises(self):
+        experiment = self._create_running_experiment(
+            name="Ship Invalid Variant", feature_flag_key="ship-invalid-variant-flag"
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().ship_variant(experiment, variant_key="nonexistent", request=self._make_request())
+
+        assert "not found" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_ship_variant_running_reports_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="Ship Analytics Running", feature_flag_key="ship-analytics-running-flag"
+        )
+
+        self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+
+        event_names = [call.args[1] for call in mock_report_user_action.call_args_list]
+        # Should report variant shipped + end events (completed + stopped)
+        assert "experiment variant shipped" in event_names
+        assert "experiment completed" in event_names
+        assert "experiment stopped" in event_names
+
+        # Verify variant_key in shipped event metadata
+        shipped_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
+        )
+        assert shipped_call.args[2]["variant_key"] == "test"
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_ship_variant_stopped_reports_only_shipped_event(self, mock_report_user_action):
+        experiment = self._create_ended_experiment(
+            name="Ship Analytics Stopped", feature_flag_key="ship-analytics-stopped-flag"
+        )
+
+        self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+
+        event_names = [call.args[1] for call in mock_report_user_action.call_args_list]
+        # Should only report variant shipped, NOT end events (already ended)
+        assert "experiment variant shipped" in event_names
+        assert "experiment completed" not in event_names
+        assert "experiment stopped" not in event_names
+
+    # ------------------------------------------------------------------
+    # Transform filters for winning variant
+    # ------------------------------------------------------------------
+
+    def test_transform_filters_for_winning_variant(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                ]
+            },
+            "aggregation_group_type_index": None,
+        }
+
+        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
+
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
+        ]
+        assert result["groups"][0] == {
+            "properties": [],
+            "rollout_percentage": 100,
+            "description": "Added automatically when the experiment was ended to keep only one variant.",
+        }
+        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
+        assert result["payloads"] == {}
+        assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_multiple_variants_with_payloads(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {
+                "test_1": "{key: 'test_1'}",
+                "test_2": "{key: 'test_2'}",
+                "test_3": "{key: 'test_3'}",
+                "control": "{key: 'control'}",
+            },
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "This is control", "rollout_percentage": 25},
+                    {"key": "test_1", "name": "This is test_1", "rollout_percentage": 25},
+                    {"key": "test_2", "name": "This is test_2", "rollout_percentage": 25},
+                    {"key": "test_3", "name": "This is test_3", "rollout_percentage": 25},
+                ]
+            },
+            "aggregation_group_type_index": 1,
+        }
+
+        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "control")
+
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "name": "This is control", "rollout_percentage": 100},
+            {"key": "test_1", "name": "This is test_1", "rollout_percentage": 0},
+            {"key": "test_2", "name": "This is test_2", "rollout_percentage": 0},
+            {"key": "test_3", "name": "This is test_3", "rollout_percentage": 0},
+        ]
+        assert result["groups"][0] == {
+            "properties": [],
+            "rollout_percentage": 100,
+            "description": "Added automatically when the experiment was ended to keep only one variant.",
+        }
+        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
+        assert result["payloads"] == current_filters["payloads"]
+        assert result["aggregation_group_type_index"] == 1
 
     # ------------------------------------------------------------------
     # Exposure cohort
@@ -1751,7 +2132,7 @@ class TestExperimentService(APIBaseTest):
         assert result["count"] == 2
         assert [flag.key for flag in result["results"]] == ["search-beta"]
 
-    def test_get_eligible_feature_flags_filters_by_evaluation_tags(self) -> None:
+    def test_get_eligible_feature_flags_filters_by_evaluation_contexts(self) -> None:
         flag_with_tags = self._create_flag(key="flag-with-tags")
         self._create_flag(key="flag-without-tags")
         evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
@@ -1759,8 +2140,8 @@ class TestExperimentService(APIBaseTest):
 
         service = self._service()
 
-        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_tags="true", order="key")
-        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_tags="false", order="key")
+        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_contexts="true", order="key")
+        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_contexts="false", order="key")
 
         assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
         assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]

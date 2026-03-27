@@ -168,6 +168,49 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         saved_query.refresh_from_db()
         self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=1))
 
+    @parameterized.expand(
+        [
+            ("5min", DataWarehouseSyncInterval.FIELD_5MIN),
+            ("15min", DataWarehouseSyncInterval.FIELD_15MIN),
+        ]
+    )
+    def test_sync_frequency_below_30min_rejected_on_create(self, _name, sync_frequency):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {
+                "name": f"test_freq_{_name}",
+                "query": self.sample_hogql_query,
+                "sync_frequency": sync_frequency,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("at least 30 minutes", str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("5min", DataWarehouseSyncInterval.FIELD_5MIN),
+            ("15min", DataWarehouseSyncInterval.FIELD_15MIN),
+        ]
+    )
+    def test_sync_frequency_below_30min_rejected_on_update(self, _name, sync_frequency):
+        endpoint = create_endpoint_with_version(
+            name=f"test_freq_update_{_name}",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": sync_frequency,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("at least 30 minutes", str(response.json()))
+
     def test_disable_materialization_removes_saved_query(self):
         """Test that disabling materialization removes the SavedQuery."""
         # Create and materialize an endpoint

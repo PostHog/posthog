@@ -17,8 +17,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.utils import hash_key_value
 from posthog.settings.utils import get_list
 from posthog.utils import patchable
 

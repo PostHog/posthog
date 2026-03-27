@@ -22,7 +22,7 @@ tools:
         title: Get all surveys in the project with optional filtering.
         description: |
             Get all surveys in the project with optional filtering. Can filter by search term or use pagination.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/survey-list.html
     survey-get:
         operation: surveys_retrieve
@@ -38,7 +38,7 @@ tools:
         description: >
             Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling
             details.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/survey.html
     survey-create:
         operation: surveys_create

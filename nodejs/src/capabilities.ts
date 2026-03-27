@@ -70,11 +70,6 @@ export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
     evaluationScheduler: true,
 }
 
-/** Ingestion Only - basic event ingestion without CDP processing */
-export const CAPABILITIES_INGESTION_ONLY: PluginServerCapabilities = {
-    ingestionV2Combined: true,
-}
-
 // =============================================================================
 // Helper to merge capability groups
 // =============================================================================
@@ -95,7 +90,6 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     session_replay: CAPABILITIES_SESSION_REPLAY,
     recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
-    error_tracking: CAPABILITIES_ERROR_TRACKING,
     traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
@@ -133,13 +127,11 @@ export function getPluginServerCapabilities(
                     })
                 }
 
-                // Always include ingestion - it's required for all local dev scenarios
-                return mergeCapabilities(CAPABILITIES_INGESTION_ONLY, ...capabilities)
+                return mergeCapabilities(...capabilities)
             }
 
-            // Default local dev: run everything for full functionality
+            // Default local dev: run everything except ingestion (ingestion runs in a separate process)
             return mergeCapabilities(
-                CAPABILITIES_INGESTION_ONLY,
                 CAPABILITIES_CDP_WORKFLOWS,
                 CAPABILITIES_REALTIME_COHORTS,
                 CAPABILITIES_SESSION_REPLAY,
@@ -151,19 +143,11 @@ export function getPluginServerCapabilities(
             )
 
         case PluginServerMode.local_cdp:
-            // Local CDP development: CDP + workflows + realtime cohorts
-            return mergeCapabilities(
-                { ingestionV2: true }, // Use ingestionV2 instead of Combined
-                CAPABILITIES_CDP_WORKFLOWS,
-                CAPABILITIES_REALTIME_COHORTS,
-                { ingestionV2Combined: false } // Override to use ingestionV2
-            )
+            // Local CDP development: CDP + workflows + realtime cohorts (ingestion runs separately)
+            return mergeCapabilities(CAPABILITIES_CDP_WORKFLOWS, CAPABILITIES_REALTIME_COHORTS)
 
         // Production modes - granular control for dedicated pods
-        case PluginServerMode.ingestion_v2:
-            return {
-                ingestionV2: true,
-            }
+        // NOTE: ingestion_v2 and ingestion_v2_testing are handled by IngestionGeneralServer (see index.ts)
         case PluginServerMode.recordings_blob_ingestion_v2:
             return {
                 sessionRecordingBlobIngestionV2: true,
@@ -243,9 +227,12 @@ export function getPluginServerCapabilities(
             return {
                 recordingApi: true,
             }
+
+        case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_testing:
-            return {
-                ingestionV2Testing: true,
-            }
+        case PluginServerMode.ingestion_v2_combined:
+            // These modes are handled by IngestionGeneralServer (see index.ts) and should
+            // never reach this function
+            throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
     }
 }
