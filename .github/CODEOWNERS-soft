@@ -180,6 +180,11 @@ posthog/temporal/data_modeling/** @PostHog/team-data-modeling
 # and also hard owned by the @PostHog/hogql on `CODEOWNERS` file
 posthog/hogql/\*\* @PostHog/team-data-tools
 
+# Logs/Metrics/Tracing - owned by @PostHog/logs
+products/logs/** @PostHog/logs
+products/tracing/** @PostHog/logs
+products/metrics/** @PostHog/logs
+
 # Error Tracking - owned by @PostHog/team-error-tracking
 products/error_tracking/backend/** @PostHog/team-error-tracking
 products/error_tracking/frontend/** @PostHog/team-error-tracking

@@ -907,10 +907,16 @@ jobs:
                   # Verify branch hasn't advanced since CI started
                   CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
                   if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
-                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
-                      echo "The new commit will trigger its own workflow run."
+                      echo "::error::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — cannot auto-commit OpenAPI types."
+                      echo ""
+                      echo "OpenAPI types are out of date and could not be auto-committed because the branch"
+                      echo "was updated while this workflow was running. Please run locally and push:"
+                      echo ""
+                      echo "  hogli build:openapi"
+                      echo ""
+                      echo "Then commit the updated generated files."
                       echo "needs-commit=false" >> $GITHUB_OUTPUT
-                      exit 0
+                      exit 1
                   fi
 
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
@@ -925,7 +931,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/ products/*/frontend/generated/ products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/ services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/'
+                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 

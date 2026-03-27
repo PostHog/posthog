@@ -31,10 +31,12 @@ class Product(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
+    PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
+    SIGNALS = "signals"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -43,15 +45,18 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
-    QUERY = "query"
+    DIGEST = "digest"
+    QUERY = "query"  # user-facing queries only
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     SCHEMA_INTROSPECTION = "schema_introspection"
     USAGE_REPORT = "usage_report"
@@ -347,6 +352,8 @@ _SOURCE_SKIP_PREFIXES: tuple[str, ...] = (
     os.path.join(_PROJECT_ROOT, "posthog", "clickhouse", "client") + os.sep,
     _THIS_FILE,
     os.path.join(_PROJECT_ROOT, "posthog", "hogql", "query.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql_queries", "insights", "paginators.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "queries", "insight.py"),
     os.path.join(_PROJECT_ROOT, "posthog", "utils.py"),
 )
 

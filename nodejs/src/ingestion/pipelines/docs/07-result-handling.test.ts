@@ -10,7 +10,7 @@
  *
  * - **DLQ**: Send to dead-letter topic with error details
  * - **DROP**: Log and discard (no Kafka message)
- * - **REDIRECT**: Send to an alternate topic
+ * - **REDIRECT**: Send to a named output (e.g. overflow)
  *
  * ## Accessing handleResults()
  *
@@ -32,8 +32,7 @@
  * ## Configuration
  *
  * `handleResults()` requires a `PipelineConfig` with:
- * - `kafkaProducer`: For sending messages to DLQ and redirect topics
- * - `dlqTopic`: The dead-letter topic name
+ * - `outputs`: IngestionOutputs containing DLQ, ingestion warnings, and any redirect outputs
  * - `promiseScheduler`: For scheduling async operations
  *
  * ## Required: handleSideEffects()
@@ -55,11 +54,13 @@ import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
+import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineResult, dlq, drop, isDlqResult, isDropResult, isRedirectResult, ok, redirect } from '../results'
 
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 describe('Result Handling', () => {
     /**
@@ -83,8 +84,11 @@ describe('Result Handling', () => {
         const promiseScheduler = new PromiseScheduler()
 
         const pipelineConfig = {
-            kafkaProducer: mockProducer as any,
-            dlqTopic: 'my-dlq-topic',
+            outputs: new IngestionOutputs({
+                [DLQ_OUTPUT]: { topic: 'my-dlq-topic', producer: mockProducer as any },
+                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockProducer as any },
+                [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockProducer as any },
+            }),
             promiseScheduler: promiseScheduler,
         }
 
@@ -110,7 +114,7 @@ describe('Result Handling', () => {
             .build()
 
         const message = createTestMessage()
-        const batch = [createContext(ok({ data: 'invalid' }), { message })]
+        const batch = [createOkContext({ data: 'invalid' }, { message })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -145,8 +149,11 @@ describe('Result Handling', () => {
         const promiseScheduler = new PromiseScheduler()
 
         const pipelineConfig = {
-            kafkaProducer: mockProducer as any,
-            dlqTopic: 'dlq-topic',
+            outputs: new IngestionOutputs({
+                [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockProducer as any },
+                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockProducer as any },
+                [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockProducer as any },
+            }),
             promiseScheduler: promiseScheduler,
         }
 
@@ -172,7 +179,7 @@ describe('Result Handling', () => {
             .build()
 
         const message = createTestMessage()
-        const batch = [createContext(ok({ eventType: 'internal-heartbeat' }), { message })]
+        const batch = [createOkContext({ eventType: 'internal-heartbeat' }, { message })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -186,12 +193,12 @@ describe('Result Handling', () => {
     })
 
     /**
-     * REDIRECT results send items to a different topic for alternative
-     * processing. This is useful for routing items based on content
-     * (e.g., high-priority events to a fast-track topic). The original
+     * REDIRECT results send items to a named output for alternative processing.
+     * Each redirect targets a specific output (e.g. overflow, high-priority)
+     * which is resolved to a Kafka topic and producer at runtime. The original
      * message key can optionally be preserved or discarded.
      */
-    it('REDIRECT sends items to specified topic with optional key preservation', async () => {
+    it('REDIRECT sends items to a named output with optional key preservation', async () => {
         const producedMessages: any[] = []
 
         const mockProducer = {
@@ -203,9 +210,16 @@ describe('Result Handling', () => {
 
         const promiseScheduler = new PromiseScheduler()
 
+        const HIGH_PRIORITY_OUTPUT = 'high_priority' as const
+        const BROADCAST_OUTPUT = 'broadcast' as const
+
         const pipelineConfig = {
-            kafkaProducer: mockProducer as any,
-            dlqTopic: 'dlq-topic',
+            outputs: new IngestionOutputs({
+                [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockProducer as any },
+                [HIGH_PRIORITY_OUTPUT]: { topic: 'high-priority-topic', producer: mockProducer as any },
+                [BROADCAST_OUTPUT]: { topic: 'broadcast-topic', producer: mockProducer as any },
+                [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockProducer as any },
+            }),
             promiseScheduler: promiseScheduler,
         }
 
@@ -213,14 +227,14 @@ describe('Result Handling', () => {
             priority: string
         }
 
-        function createRoutingStep(): BatchProcessingStep<Event, Event> {
+        function createRoutingStep(): BatchProcessingStep<Event, Event, 'high_priority' | 'broadcast'> {
             return function routingStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
                         if (item.priority === 'high') {
-                            return redirect('High priority routing', 'high-priority-topic', true) // preserveKey = true
+                            return redirect('High priority routing', HIGH_PRIORITY_OUTPUT, true) // preserveKey = true
                         } else if (item.priority === 'broadcast') {
-                            return redirect('Broadcast routing', 'broadcast-topic', false) // preserveKey = false
+                            return redirect('Broadcast routing', BROADCAST_OUTPUT, false) // preserveKey = false
                         }
                         return ok(item)
                     })
@@ -239,8 +253,8 @@ describe('Result Handling', () => {
         const message1 = createTestMessage({ key: originalKey })
         const message2 = createTestMessage({ key: Buffer.from('another-key') })
         const batch = [
-            createContext(ok({ priority: 'high' }), { message: message1 }),
-            createContext(ok({ priority: 'broadcast' }), { message: message2 }),
+            createOkContext({ priority: 'high' }, { message: message1 }),
+            createOkContext({ priority: 'broadcast' }, { message: message2 }),
         ]
         pipeline.feed(batch)
 

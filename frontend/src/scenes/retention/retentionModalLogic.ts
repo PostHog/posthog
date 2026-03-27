@@ -149,7 +149,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 if (
                     isInsightActorsQuery(actorsQuery.source) &&
                     isRetentionQuery(actorsQuery.source.source) &&
-                    actorsQuery.source.source.aggregation_group_type_index !== undefined
+                    actorsQuery.source.source.aggregation_group_type_index != null
                 ) {
                     query.showPropertyFilter = false
                 }

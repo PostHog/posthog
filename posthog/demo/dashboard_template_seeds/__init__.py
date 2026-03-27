@@ -25,7 +25,7 @@ def load_dashboard_template_seeds() -> list[dict[str, Any]]:
 
 def seed_dev_dashboard_templates() -> list[str]:
     """Insert global dashboard templates if missing. Returns names of templates created."""
-    from posthog.models.dashboard_templates import DashboardTemplate
+    from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
     created: list[str] = []
     for payload in load_dashboard_template_seeds():
