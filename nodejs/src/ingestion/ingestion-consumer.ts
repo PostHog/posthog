@@ -36,7 +36,7 @@ import {
     createJoinedIngestionPipeline,
 } from './analytics'
 import { AiEventOutput, AsyncOutput, EventOutput, HeatmapsOutput } from './analytics/outputs'
-import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from './common/outputs'
+import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -66,6 +66,7 @@ export interface IngestionConsumerDeps {
         | DlqOutput
         | OverflowOutput
         | AsyncOutput
+        | GroupsOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -181,7 +182,7 @@ export class IngestionConsumer {
         })
 
         this.groupStore = new BatchWritingGroupStore(
-            this.deps.kafkaProducer,
+            this.deps.outputs,
             this.deps.groupRepository,
             this.deps.clickhouseGroupRepository,
             {

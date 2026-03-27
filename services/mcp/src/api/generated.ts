@@ -4197,6 +4197,38 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type AddSnapshotsInputBaselineHashes = {[key: string]: string};
+
+    export type SnapshotManifestItemMetadata = {[key: string]: unknown};
+
+    export interface SnapshotManifestItem {
+      identifier: string;
+      content_hash: string;
+      /** @nullable */
+      width?: number | null;
+      /** @nullable */
+      height?: number | null;
+      metadata?: SnapshotManifestItemMetadata;
+    }
+
+    export interface AddSnapshotsInput {
+      snapshots: SnapshotManifestItem[];
+      baseline_hashes?: AddSnapshotsInputBaselineHashes;
+    }
+
+    export type UploadTargetFields = {[key: string]: string};
+
+    export interface UploadTarget {
+      content_hash: string;
+      url: string;
+      fields: UploadTargetFields;
+    }
+
+    export interface AddSnapshotsResult {
+      added: number;
+      uploads: UploadTarget[];
+    }
+
     /**
      * * `product_analytics` - product_analytics
     * `sql` - sql
@@ -4738,7 +4770,7 @@ export namespace Schemas {
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly */
-      calculation_interval?: CalculationIntervalEnum | NullEnum | null;
+      calculation_interval?: CalculationIntervalEnum;
       /**
        * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
        * @nullable
@@ -4940,7 +4972,8 @@ export namespace Schemas {
     }
 
     export interface ApproveRunRequestInput {
-      snapshots: ApproveSnapshotInput[];
+      snapshots?: ApproveSnapshotInput[];
+      approve_all?: boolean;
       commit_to_github?: boolean;
     }
 
@@ -7001,6 +7034,14 @@ export namespace Schemas {
       value: string;
     }
 
+    export type CompleteRunInputBaselineHashes = {[key: string]: string};
+
+    export interface CompleteRunInput {
+      removed_identifiers?: string[];
+      unchanged_count?: number;
+      baseline_hashes?: CompleteRunInputBaselineHashes;
+    }
+
     /**
      * * `won` - won
     * `lost` - lost
@@ -7559,18 +7600,6 @@ export namespace Schemas {
 
     export type CreateRunInputMetadata = {[key: string]: unknown};
 
-    export type SnapshotManifestItemMetadata = {[key: string]: unknown};
-
-    export interface SnapshotManifestItem {
-      identifier: string;
-      content_hash: string;
-      /** @nullable */
-      width?: number | null;
-      /** @nullable */
-      height?: number | null;
-      metadata?: SnapshotManifestItemMetadata;
-    }
-
     export interface CreateRunInput {
       repo_id: string;
       run_type: string;
@@ -7580,15 +7609,10 @@ export namespace Schemas {
       /** @nullable */
       pr_number?: number | null;
       baseline_hashes?: CreateRunInputBaselineHashes;
+      unchanged_count?: number;
+      removed_identifiers?: string[];
+      purpose?: string;
       metadata?: CreateRunInputMetadata;
-    }
-
-    export type UploadTargetFields = {[key: string]: string};
-
-    export interface UploadTarget {
-      content_hash: string;
-      url: string;
-      fields: UploadTargetFields;
     }
 
     export interface CreateRunResult {
@@ -19599,6 +19623,32 @@ export namespace Schemas {
       results: ProjectBackwardCompatBasic[];
     }
 
+    export interface ProjectSecretAPIKey {
+      readonly id: string;
+      /** @maxLength 40 */
+      label: string;
+      readonly value: string;
+      /** @nullable */
+      readonly mask_value: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly last_used_at: string | null;
+      /** @nullable */
+      readonly last_rolled_at: string | null;
+      scopes: string[];
+    }
+
+    export interface PaginatedProjectSecretAPIKeyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ProjectSecretAPIKey[];
+    }
+
     export interface QueryTabState {
       readonly id: string;
       /** 
@@ -21219,7 +21269,7 @@ export namespace Schemas {
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly */
-      calculation_interval?: CalculationIntervalEnum | NullEnum | null;
+      calculation_interval?: CalculationIntervalEnum;
       /**
        * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
        * @nullable
@@ -23445,6 +23495,23 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    export interface PatchedProjectSecretAPIKey {
+      readonly id?: string;
+      /** @maxLength 40 */
+      label?: string;
+      readonly value?: string;
+      /** @nullable */
+      readonly mask_value?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly last_used_at?: string | null;
+      /** @nullable */
+      readonly last_rolled_at?: string | null;
+      scopes?: string[];
     }
 
     export interface PatchedQueryTabState {
@@ -30720,6 +30787,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsProjectSecretApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     /**
      * Unspecified response body
      */
@@ -31751,6 +31829,7 @@ export namespace Schemas {
     * `TaggedItem` - TaggedItem
     * `Subscription` - Subscription
     * `PersonalAPIKey` - PersonalAPIKey
+    * `ProjectSecretAPIKey` - ProjectSecretAPIKey
     * `User` - User
     * `Action` - Action
     * `AlertConfiguration` - AlertConfiguration
@@ -31823,6 +31902,7 @@ export namespace Schemas {
       TaggedItem: 'TaggedItem',
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
+      ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -31881,6 +31961,7 @@ export namespace Schemas {
     * `TaggedItem` - TaggedItem
     * `Subscription` - Subscription
     * `PersonalAPIKey` - PersonalAPIKey
+    * `ProjectSecretAPIKey` - ProjectSecretAPIKey
     * `User` - User
     * `Action` - Action
     * `AlertConfiguration` - AlertConfiguration
@@ -31941,6 +32022,7 @@ export namespace Schemas {
       TaggedItem: 'TaggedItem',
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
+      ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -33750,6 +33832,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ProjectSecretApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type PropertyDefinitionsListParams = {

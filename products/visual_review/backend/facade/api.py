@@ -163,6 +163,9 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         pr_number=input.pr_number,
         snapshots=snapshots,
         baseline_hashes=input.baseline_hashes,
+        unchanged_count=input.unchanged_count,
+        removed_identifiers=list(input.removed_identifiers),
+        purpose=input.purpose,
         metadata=dict(input.metadata) if input.metadata else {},
     )
 
@@ -176,6 +179,33 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
     ]
 
     return contracts.CreateRunResult(run_id=run.id, uploads=upload_targets)
+
+
+def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int) -> contracts.AddSnapshotsResult:
+    """Add a batch of snapshots to an existing run (shard-based flow)."""
+    snapshots = [
+        {
+            "identifier": s.identifier,
+            "content_hash": s.content_hash,
+            "width": s.width,
+            "height": s.height,
+            "metadata": dict(s.metadata) if s.metadata else {},
+        }
+        for s in input.snapshots
+    ]
+
+    added, uploads = logic.add_snapshots_to_run(
+        run_id=run_id,
+        team_id=team_id,
+        snapshots=snapshots,
+        baseline_hashes=input.baseline_hashes,
+    )
+
+    upload_targets = [
+        contracts.UploadTarget(content_hash=u["content_hash"], url=u["url"], fields=u["fields"]) for u in uploads
+    ]
+
+    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets)
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
@@ -205,13 +235,23 @@ def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.Snaps
     ]
 
 
-def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
+def complete_run(
+    run_id: UUID,
+    team_id: int | None = None,
+    input: contracts.CompleteRunInput | None = None,
+) -> contracts.Run:
     """
     Complete a run: verify uploads, create artifacts, trigger diff processing.
+    Optionally accepts reconciliation data for shard flow.
     """
     if team_id is not None:
         logic.get_run(run_id, team_id=team_id)  # validates ownership
-    run = logic.complete_run(run_id)
+    run = logic.complete_run(
+        run_id,
+        removed_identifiers=list(input.removed_identifiers) if input else None,
+        unchanged_count=input.unchanged_count if input else 0,
+        baseline_hashes=dict(input.baseline_hashes) if input and input.baseline_hashes else None,
+    )
     return _to_run(run)
 
 

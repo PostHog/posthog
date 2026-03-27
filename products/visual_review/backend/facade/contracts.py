@@ -35,6 +35,11 @@ class CreateRunInput:
     snapshots: list[SnapshotManifestItem]
     pr_number: int | None = None
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    # Delta mode: CLI pre-compares hashes and sends only changed/new snapshots.
+    # unchanged_count lets the backend set total without creating rows for unchanged.
+    unchanged_count: int = 0
+    removed_identifiers: list[str] = field(default_factory=list)
+    purpose: str = "review"
     # Run-level metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
 
@@ -59,7 +64,8 @@ class ApproveSnapshotInput:
 class ApproveRunRequestInput:
     """Request body for approving a run. run_id and user_id come from URL and auth."""
 
-    snapshots: list[ApproveSnapshotInput]
+    snapshots: list[ApproveSnapshotInput] = field(default_factory=list)
+    approve_all: bool = False
     commit_to_github: bool = True
 
 
@@ -83,6 +89,31 @@ class UploadTarget:
     content_hash: str
     url: str
     fields: dict[str, str]
+
+
+@dataclass(frozen=True)
+class CompleteRunInput:
+    """Optional body for completing a run. Supports shard flow reconciliation."""
+
+    removed_identifiers: list[str] = field(default_factory=list)
+    unchanged_count: int = 0
+    baseline_hashes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AddSnapshotsInput:
+    """Batch of snapshots to add to an existing run (shard-based flow)."""
+
+    snapshots: list[SnapshotManifestItem]
+    baseline_hashes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AddSnapshotsResult:
+    """Result of adding snapshots to a run."""
+
+    added: int
+    uploads: list[UploadTarget]
 
 
 @dataclass(frozen=True)

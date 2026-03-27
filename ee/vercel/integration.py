@@ -736,6 +736,20 @@ class VercelIntegration:
         )
 
     @staticmethod
+    def bulk_sync_feature_flags_to_vercel(team: Team) -> None:
+        flags = FeatureFlag.objects.filter(team=team, deleted=False)
+        for flag in flags:
+            try:
+                VercelIntegration.sync_feature_flag_to_vercel(flag, created=True)
+            except Exception:
+                logger.exception(
+                    "Failed to bulk sync feature flag to Vercel",
+                    flag_id=flag.pk,
+                    team_id=team.pk,
+                    integration="vercel",
+                )
+
+    @staticmethod
     def _delete_item_from_vercel(team: Team, item_type: VercelItemType, item_id: str) -> None:
         setup_result = VercelIntegration._setup_vercel_client_for_team(team)
         if not setup_result:
@@ -1274,7 +1288,36 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
     exceptions are caught and logged rather than bubbling up to the caller.
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
-        return
+        installation = VercelIntegration._get_installation_for_organization(team.organization)
+        if not installation:
+            return
+        try:
+            resource, created = Integration.objects.get_or_create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                defaults={"config": {"type": "connectable"}},
+            )
+            if created:
+                logger.info(
+                    "Auto-created Vercel resource for connectable installation",
+                    team_id=team.pk,
+                    integration="vercel",
+                )
+                access_token = VercelIntegration._get_access_token(installation)
+                if access_token and installation.integration_id:
+                    client = VercelAPIClient(bearer_token=access_token)
+                    client.import_resource(
+                        integration_config_id=installation.integration_id,
+                        resource_id=str(resource.pk),
+                        product_id="posthog",
+                        name=team.name,
+                        secrets=VercelIntegration._build_secrets(team),
+                    )
+        except Exception as e:
+            logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
+            capture_exception(e)
+            return
 
     try:
         sync_func()
