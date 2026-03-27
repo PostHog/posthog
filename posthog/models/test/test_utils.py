@@ -19,6 +19,7 @@ from posthog.models.utils import (
     generate_random_token_personal,
     generate_random_token_project,
     generate_random_token_secret,
+    int_to_base,
     mask_key_value,
     uuid7,
     validate_rate_limit,
@@ -95,7 +96,11 @@ class TestTokenGeneration:
     @parameterized.expand(
         [
             ("bare_32B", generate_random_token, "", 32),
+            ("project_32B", generate_random_token_project, "phc_", 32),
             ("personal_35B", generate_random_token_personal, "phx_", 35),
+            ("secret_35B", generate_random_token_secret, "phs_", 35),
+            ("oauth_access_32B", lambda: generate_random_oauth_access_token(None), "pha_", 32),
+            ("oauth_refresh_32B", lambda: generate_random_oauth_refresh_token(None), "phr_", 32),
         ]
     )
     def test_exact_length(self, _name, generator, prefix, entropy_bytes):
@@ -107,6 +112,59 @@ class TestTokenGeneration:
             token = generator()
             body = token[len(prefix) :]
             assert min_digits <= len(body) <= max_digits, f"Expected {min_digits}-{max_digits} digits, got {len(body)}"
+
+
+class TestIntToBase:
+    def test_zero_returns_first_char_of_alphabet(self):
+        assert int_to_base(0, 57, alphabet=BASE57) == "2"
+
+    def test_zero_returns_zero_with_default_alphabet(self):
+        assert int_to_base(0, 10) == "0"
+
+    def test_small_values(self):
+        assert int_to_base(1, 57, alphabet=BASE57) == "3"
+        assert int_to_base(56, 57, alphabet=BASE57) == "Z"
+        assert int_to_base(57, 57, alphabet=BASE57) == "32"
+
+    def test_negative_number(self):
+        result = int_to_base(-100, 57, alphabet=BASE57)
+        assert result.startswith("-")
+        assert set(result[1:]) <= set(BASE57)
+
+    def test_negative_zero(self):
+        assert int_to_base(-0, 57, alphabet=BASE57) == "2"
+
+    def test_large_number(self):
+        result = int_to_base(2**256, 57, alphabet=BASE57)
+        assert set(result) <= set(BASE57)
+        assert len(result) > 0
+
+    def test_default_alphabet_base10(self):
+        assert int_to_base(42, 10) == "42"
+        assert int_to_base(255, 16) == "ff"
+
+    def test_default_alphabet_base62(self):
+        assert int_to_base(61, 62) == "Z"
+
+    def test_alphabet_length_mismatch_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="Alphabet length"):
+            int_to_base(42, 10, alphabet=BASE57)
+
+    def test_base_above_62_without_alphabet_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="Cannot convert integer to base above 62"):
+            int_to_base(42, 63)
+
+    def test_custom_alphabet_respected(self):
+        alpha = "ab"
+        assert int_to_base(0, 2, alphabet=alpha) == "a"
+        assert int_to_base(1, 2, alphabet=alpha) == "b"
+        assert int_to_base(2, 2, alphabet=alpha) == "ba"
+        assert int_to_base(3, 2, alphabet=alpha) == "bb"
+        assert int_to_base(4, 2, alphabet=alpha) == "baa"
 
 
 def test_convert_funnel_query():
