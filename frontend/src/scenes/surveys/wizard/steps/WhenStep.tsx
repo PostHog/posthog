@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
@@ -9,27 +8,20 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { AddEventButton } from 'scenes/surveys/AddEventButton'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import {
-    AnyPropertyFilter,
-    PropertyType,
-    SurveyAppearance,
-    SurveyDisplayConditions,
-    SurveyEventsWithProperties,
-} from '~/types'
+import { AnyPropertyFilter, SurveyAppearance, SurveyDisplayConditions, SurveyEventsWithProperties } from '~/types'
 
 import {
     SUPPORTED_OPERATORS,
     convertArrayToPropertyFilters,
     convertPropertyFiltersToArray,
     getEventPropertyFilterCount,
+    useExcludedObjectProperties,
 } from '../../SurveyEventTrigger'
 import { surveyLogic } from '../../surveyLogic'
 
 export function WhenStep(): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     const conditions: Partial<SurveyDisplayConditions> = survey.conditions || {}
     const appearance: Partial<SurveyAppearance> = survey.appearance || {}
@@ -38,16 +30,7 @@ export function WhenStep(): JSX.Element {
     const triggerMode = conditions.events !== null && conditions.events !== undefined ? 'event' : 'pageview'
     const repeatedActivation = conditions.events?.repeatedActivation ?? false
     const delaySeconds = appearance.surveyPopupDelaySeconds ?? 0
-
-    const excludedObjectProperties = useMemo(() => {
-        const eventProperties = propertyDefinitionsByType('event')
-        const objectProperties = eventProperties.filter((prop) => {
-            return !prop.property_type || prop.property_type === PropertyType.StringArray
-        })
-        return {
-            [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
-        }
-    }, [propertyDefinitionsByType])
+    const excludedObjectProperties = useExcludedObjectProperties()
 
     const setTriggerMode = (mode: 'pageview' | 'event'): void => {
         if (mode === 'pageview') {

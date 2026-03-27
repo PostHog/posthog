@@ -75,6 +75,22 @@ export function getEventPropertyFilterCount(propertyFilters?: SurveyEventsWithPr
     return propertyFilters ? Object.keys(propertyFilters).length : 0
 }
 
+export function useExcludedObjectProperties(): Record<TaxonomicFilterGroupType.EventProperties, string[]> {
+    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
+
+    return useMemo(() => {
+        const eventProperties = propertyDefinitionsByType('event')
+        const objectProperties = eventProperties.filter((prop) => {
+            // Exclude StringArray (arrays/objects) and undefined property types. Only primitive types are supported for
+            // comparison purposes in the JS SDK.
+            return !prop.property_type || prop.property_type === PropertyType.StringArray
+        })
+        return {
+            [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
+        }
+    }, [propertyDefinitionsByType])
+}
+
 interface SurveyEventSelectorProps {
     conditionField: 'events' | 'cancelEvents'
     label: string
@@ -96,19 +112,7 @@ function SurveyEventSelector({
 }: SurveyEventSelectorProps): JSX.Element {
     const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
-
-    const excludedObjectProperties = useMemo(() => {
-        const eventProperties = propertyDefinitionsByType('event')
-        const objectProperties = eventProperties.filter((prop) => {
-            // Exclude StringArray (arrays/objects) and undefined property types. Only primitive types are supported for
-            // comparison purposes in the JS SDK.
-            return !prop.property_type || prop.property_type === PropertyType.StringArray
-        })
-        return {
-            [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
-        }
-    }, [propertyDefinitionsByType])
+    const excludedObjectProperties = useExcludedObjectProperties()
 
     const events: SurveyEventsWithProperties[] = survey.conditions?.[conditionField]?.values || []
 
