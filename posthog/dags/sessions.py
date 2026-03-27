@@ -6,8 +6,8 @@ from typing import Any, Optional
 
 from django.conf import settings
 
-from clickhouse_connect.driver.exceptions import DatabaseError as ClickHouseDatabaseError
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ErrorCodes
 from dagster import (
     AssetExecutionContext,
     BackfillPolicy,
@@ -469,7 +469,8 @@ def _get_experimental_chunking(config: ExperimentalSessionsBackfillConfig) -> tu
 
 def _is_oom_error(exc: Exception) -> bool:
     """Check if an exception is a ClickHouse MEMORY_LIMIT_EXCEEDED error."""
-    return isinstance(exc, ClickHouseDatabaseError) and "MEMORY_LIMIT_EXCEEDED" in str(exc)
+    error_str = str(exc)
+    return f"error code {ErrorCodes.MEMORY_LIMIT_EXCEEDED}" in error_str or "MEMORY_LIMIT_EXCEEDED" in error_str
 
 
 def _sub_chunk_where(base_where: str, sub_chunk_i: int, total_sub_chunks: int) -> str:
