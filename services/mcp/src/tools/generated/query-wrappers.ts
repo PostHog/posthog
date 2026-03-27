@@ -826,11 +826,16 @@ const AssistantStickinessActionsNode = z.object({
 
 const AssistantStickinessNode = z.union([AssistantStickinessEventsNode, AssistantStickinessActionsNode])
 
+const StickinessComputationMode = z.enum(['non_cumulative', 'cumulative'])
+
 const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar', 'ActionsAreaGraph'])
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
-const StickinessComputationMode = z.enum(['non_cumulative', 'cumulative'])
+const StickinessCriteria = z.object({
+    operator: StickinessOperator,
+    value: integer,
+})
 
 const AssistantStickinessFilter = z.object({
     computedAs: StickinessComputationMode.describe(
@@ -849,15 +854,9 @@ const AssistantStickinessFilter = z.object({
         .describe('Whether to show a value on each data point.')
         .default(false)
         .optional(),
-    stickinessCriteria: z
-        .object({
-            operator: StickinessOperator,
-            value: integer,
-        })
-        .describe(
-            'Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times.'
-        )
-        .optional(),
+    stickinessCriteria: StickinessCriteria.describe(
+        'Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times.'
+    ).optional(),
 })
 
 const AssistantStickinessQuery = z.object({
