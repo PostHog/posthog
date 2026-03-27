@@ -137,7 +137,7 @@ async def test_interceptor_emits_slo_events(
     assert started_props["operation"] == "export"
     assert started_props["resource_id"] == "42"
     assert started_props["workflow_run_id"] is not None
-    assert started_props["workflow_type"] == workflow_cls.__temporal_workflow_definition.name  # type: ignore[attr-defined]
+    assert started_props["workflow_type"] == workflow_cls.__temporal_workflow_definition.name
 
     completed_calls = _get_slo_calls(mock_analytics, "slo_operation_completed")
     assert len(completed_calls) == 1
