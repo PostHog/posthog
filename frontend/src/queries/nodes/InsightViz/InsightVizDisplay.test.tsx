@@ -2,68 +2,76 @@ import { InsightType } from '~/types'
 
 import { shouldShowDashboardInsightRefreshHint } from './InsightVizDisplay'
 
+const ALL_INSIGHT_TYPES = Object.values(InsightType) as InsightType[]
+/** Insight types that use the dashboard refresh hint (excludes web analytics — separate UX). */
+const DASHBOARD_HINT_INSIGHT_TYPES = ALL_INSIGHT_TYPES.filter((t) => t !== InsightType.WEB_ANALYTICS)
+
 describe('InsightVizDisplay', () => {
     it.each([
-        {
-            name: 'dashboard tile never got numbers back (e.g. cache miss) → suggest refresh',
-            params: {
-                isInDashboardContext: true,
-                doNotLoad: false,
-                activeView: InsightType.TRENDS,
-                insightData: { result: null },
+        ...DASHBOARD_HINT_INSIGHT_TYPES.flatMap((activeView) => [
+            {
+                name: `dashboard tile never got numbers back (e.g. cache miss) [${activeView}]`,
+                params: {
+                    isInDashboardContext: true,
+                    doNotLoad: false,
+                    activeView,
+                    insightData: { result: null },
+                },
+                expected: true,
             },
-            expected: true,
-        },
-        {
-            name: 'dashboard tile has no insight payload yet → suggest refresh',
-            params: {
-                isInDashboardContext: true,
-                doNotLoad: false,
-                activeView: InsightType.TRENDS,
-                insightData: {},
+            {
+                name: `dashboard tile has no insight payload yet [${activeView}]`,
+                params: {
+                    isInDashboardContext: true,
+                    doNotLoad: false,
+                    activeView,
+                    insightData: {},
+                },
+                expected: true,
             },
-            expected: true,
-        },
-        {
-            name: 'dashboard tile payload present but result still empty → suggest refresh',
-            params: {
-                isInDashboardContext: true,
-                doNotLoad: false,
-                activeView: InsightType.TRENDS,
-                insightData: { result: undefined },
+            {
+                name: `dashboard tile payload present but result still empty [${activeView}]`,
+                params: {
+                    isInDashboardContext: true,
+                    doNotLoad: false,
+                    activeView,
+                    insightData: { result: undefined },
+                },
+                expected: true,
             },
-            expected: true,
-        },
-        {
-            name: 'date range genuinely has no events (empty series) → do not hijack with refresh hint',
-            params: {
-                isInDashboardContext: true,
-                doNotLoad: false,
-                activeView: InsightType.TRENDS,
-                insightData: { result: [] },
+            {
+                name: `date range genuinely has no events (empty series) — do not hijack [${activeView}]`,
+                params: {
+                    isInDashboardContext: true,
+                    doNotLoad: false,
+                    activeView,
+                    insightData: { result: [] },
+                },
+                expected: false,
             },
-            expected: false,
-        },
-        {
-            name: 'viewing the insight outside a dashboard → no dashboard-only hint',
-            params: {
-                isInDashboardContext: false,
-                doNotLoad: false,
-                activeView: InsightType.TRENDS,
-                insightData: { result: null },
+        ]),
+        ...ALL_INSIGHT_TYPES.flatMap((activeView) => [
+            {
+                name: `viewing the insight outside a dashboard — no dashboard-only hint [${activeView}]`,
+                params: {
+                    isInDashboardContext: false,
+                    doNotLoad: false,
+                    activeView,
+                    insightData: { result: null },
+                },
+                expected: false,
             },
-            expected: false,
-        },
-        {
-            name: 'deferred tile not loading yet → do not prompt refresh',
-            params: {
-                isInDashboardContext: true,
-                doNotLoad: true,
-                activeView: InsightType.TRENDS,
-                insightData: { result: null },
+            {
+                name: `deferred tile not loading yet — do not prompt refresh [${activeView}]`,
+                params: {
+                    isInDashboardContext: true,
+                    doNotLoad: true,
+                    activeView,
+                    insightData: { result: null },
+                },
+                expected: false,
             },
-            expected: false,
-        },
+        ]),
         {
             name: 'web analytics on a dashboard → use its own UX, not this hint',
             params: {

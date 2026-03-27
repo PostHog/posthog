@@ -46,9 +46,6 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
-/** Same merged payload as `insightDataLogic.insightData` (`result` = `results ?? result`). */
-export type InsightDataForRefreshHint = Record<string, any> | null | undefined
-
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
 export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext,
@@ -59,7 +56,7 @@ export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext: boolean
     doNotLoad?: boolean
     activeView: InsightType
-    insightData: InsightDataForRefreshHint
+    insightData: Record<string, any> | null | undefined
 }): boolean {
     if (!isInDashboardContext || doNotLoad || activeView === InsightType.WEB_ANALYTICS) {
         return false
@@ -350,7 +347,7 @@ export function InsightVizDisplay({
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return <InsightLoadingState insightProps={insightProps} />
+        return null
     }
 
     return (
