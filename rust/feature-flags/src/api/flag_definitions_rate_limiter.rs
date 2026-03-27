@@ -2,7 +2,7 @@ use crate::api::{errors::FlagError, rate_parser::parse_rate_string};
 use common_metrics::inc;
 use common_types::TeamId;
 use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::num::NonZeroU32;
@@ -42,11 +42,17 @@ where
     /// Wrapped in RwLock for thread-safe access
     custom_limiters: CustomLimitersMap<K>,
 
+    /// Keys that bypass rate limiting entirely
+    allowlist: HashSet<K>,
+
     /// Prometheus metric name for total requests
     request_counter: &'static str,
 
     /// Prometheus metric name for rate limited requests
     limited_counter: &'static str,
+
+    /// Prometheus metric name for rate limit bypassed requests
+    bypassed_counter: &'static str,
 }
 
 /// Type alias for flag definitions rate limiting (per-team)
@@ -61,16 +67,20 @@ where
     /// # Arguments
     /// * `default_rate_per_minute` - Default rate limit for keys without custom rates (requests per minute)
     /// * `custom_rates` - HashMap of key → rate string (e.g., "1200/minute")
+    /// * `allowlist` - Set of keys that bypass rate limiting entirely
     /// * `request_counter` - Prometheus metric name for total requests
     /// * `limited_counter` - Prometheus metric name for rate limited requests
+    /// * `bypassed_counter` - Prometheus metric name for rate limit bypassed requests
     ///
     /// # Returns
     /// A new limiter instance, or an error if any custom rate string is invalid
     pub fn new(
         default_rate_per_minute: u32,
         custom_rates: HashMap<K, String>,
+        allowlist: HashSet<K>,
         request_counter: &'static str,
         limited_counter: &'static str,
+        bypassed_counter: &'static str,
     ) -> Result<Self, String> {
         // Create default limiter using configured rate
         let default_quota = Quota::per_minute(
@@ -107,11 +117,17 @@ where
 
         let custom_limiters = Arc::new(RwLock::new(custom_limiters_map));
 
+        if !allowlist.is_empty() {
+            info!(count = allowlist.len(), "Configured rate limit allowlist");
+        }
+
         Ok(KeyedRateLimiter {
             default_limiter,
             custom_limiters,
+            allowlist,
             request_counter,
             limited_counter,
+            bypassed_counter,
         })
     }
 
@@ -141,6 +157,18 @@ where
         );
 
         if is_rate_limited {
+            // Allowlisted keys bypass rate limiting when they would be limited.
+            // Matches Django's behavior: the bypassed counter only fires for
+            // requests that exceed the limit but are allowed through.
+            if self.allowlist.contains(&key) {
+                inc(
+                    self.bypassed_counter,
+                    &[("key".to_string(), key.to_string())],
+                    1,
+                );
+                return Ok(());
+            }
+
             // Track rate-limited requests
             inc(
                 self.limited_counter,
@@ -162,6 +190,11 @@ where
     /// Get the number of keys with custom rate limits configured
     pub fn custom_rate_count(&self) -> usize {
         self.custom_limiters.read().unwrap().len()
+    }
+
+    /// Get the number of keys in the rate limit allowlist
+    pub fn allowlist_count(&self) -> usize {
+        self.allowlist.len()
     }
 
     /// Removes stale entries and reclaims memory across all limiters.
@@ -203,20 +236,31 @@ where
 mod tests {
     use super::*;
     use crate::metrics::consts::{
-        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+        FLAG_DEFINITIONS_REQUESTS_COUNTER,
     };
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use tokio::time::{sleep, Duration};
+
+    fn make_limiter(
+        default_rate: u32,
+        custom_rates: HashMap<TeamId, String>,
+        allowlist: HashSet<TeamId>,
+    ) -> FlagDefinitionsRateLimiter {
+        FlagDefinitionsRateLimiter::new(
+            default_rate,
+            custom_rates,
+            allowlist,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+        )
+        .unwrap()
+    }
 
     #[test]
     fn test_new_limiter_with_no_custom_rates() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
         assert_eq!(limiter.custom_rate_count(), 0);
     }
 
@@ -226,13 +270,7 @@ mod tests {
         custom_rates.insert(123, "1200/minute".to_string());
         custom_rates.insert(456, "2400/hour".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
         assert_eq!(limiter.custom_rate_count(), 2);
     }
 
@@ -243,25 +281,13 @@ mod tests {
         custom_rates.insert(456, "1200/minute".to_string());
 
         // Should succeed but only configure the valid rate
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
         assert_eq!(limiter.custom_rate_count(), 1);
     }
 
     #[tokio::test]
     async fn test_default_rate_limit_allows_requests() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
 
         // First request should succeed
         assert!(limiter.check_rate_limit(999).is_ok());
@@ -273,13 +299,7 @@ mod tests {
         // Very low limit for testing: 1 per second
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // First request should succeed
         assert!(limiter.check_rate_limit(123).is_ok());
@@ -293,13 +313,7 @@ mod tests {
         let mut custom_rates = HashMap::new();
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // Team 123 first request succeeds
         assert!(limiter.check_rate_limit(123).is_ok());
@@ -317,13 +331,7 @@ mod tests {
         // 1 per second - should reset after 1 second
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // First request succeeds
         assert!(limiter.check_rate_limit(123).is_ok());
@@ -340,13 +348,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_access() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
         let limiter_clone = limiter.clone();
 
         // Spawn multiple tasks checking rate limits concurrently
@@ -373,13 +375,7 @@ mod tests {
         let mut custom_rates = HashMap::new();
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // Use up the rate limit
         drop(limiter.check_rate_limit(123));
@@ -398,14 +394,44 @@ mod tests {
 
     #[test]
     fn test_len_returns_zero_for_new_limiter() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
-
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
         assert_eq!(limiter.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_allowlisted_team_bypasses_rate_limit() {
+        let mut custom_rates = HashMap::new();
+        custom_rates.insert(123, "1/second".to_string());
+
+        let limiter = make_limiter(600, custom_rates, HashSet::from([123]));
+
+        // Even with 1/second rate, allowlisted team is never rate limited
+        for _ in 0..100 {
+            assert!(limiter.check_rate_limit(123).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_non_allowlisted_team_still_rate_limited() {
+        let mut custom_rates = HashMap::new();
+        custom_rates.insert(456, "1/second".to_string());
+
+        let limiter = make_limiter(600, custom_rates, HashSet::from([123]));
+
+        // Non-allowlisted team 456 is still rate limited
+        assert!(limiter.check_rate_limit(456).is_ok());
+        assert!(limiter.check_rate_limit(456).is_err());
+    }
+
+    #[test]
+    fn test_allowlist_count() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::from([123, 456]));
+        assert_eq!(limiter.allowlist_count(), 2);
+    }
+
+    #[test]
+    fn test_empty_allowlist() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        assert_eq!(limiter.allowlist_count(), 0);
     }
 }
