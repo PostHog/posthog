@@ -1373,14 +1373,18 @@ def _prompt_process_selection(processes: list[DevProcess]) -> list[DevProcess]:
     if response.lower() in ("n", "no", "q", "quit"):
         return []
 
-    # Parse comma-separated numbers
+    # Parse comma-separated numbers, deduplicating
     selected: list[DevProcess] = []
+    seen: set[int] = set()
     for part in response.split(","):
         part = part.strip()
         try:
             idx = int(part)
             if 1 <= idx <= len(processes):
-                selected.append(processes[idx - 1])
+                proc = processes[idx - 1]
+                if proc.pid not in seen:
+                    seen.add(proc.pid)
+                    selected.append(proc)
             else:
                 click.echo(f"   Ignoring out-of-range number: {idx}")
         except ValueError:
