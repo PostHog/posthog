@@ -445,6 +445,9 @@
                     "$ref": "#/definitions/AssistantRetentionQuery"
                 },
                 {
+                    "$ref": "#/definitions/AssistantPathsQuery"
+                },
+                {
                     "$ref": "#/definitions/AssistantHogQLQuery"
                 }
             ],
@@ -2029,6 +2032,136 @@
         "AssistantNumericValuePropertyFilterOperator": {
             "enum": ["exact", "gt", "lt"],
             "type": "string"
+        },
+        "AssistantPathCleaningFilter": {
+            "additionalProperties": false,
+            "description": "Defines a regex-based path cleaning rule to normalize dynamic path components. Path cleaning rules replace matching URL patterns with a readable alias, which helps group similar paths together (e.g., `/user/123/profile` and `/user/456/profile` become `/user/:id/profile`).",
+            "properties": {
+                "alias": {
+                    "description": "A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.",
+                    "type": "string"
+                },
+                "regex": {
+                    "description": "A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.",
+                    "type": "string"
+                }
+            },
+            "required": ["alias", "regex"],
+            "type": "object"
+        },
+        "AssistantPathsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "edgeLimit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 50,
+                    "description": "Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read."
+                },
+                "endPoint": {
+                    "description": "Filter to only show paths that end at this specific step. Same format as `startPoint`.",
+                    "type": "string"
+                },
+                "excludeEvents": {
+                    "default": [],
+                    "description": "Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "includeEventTypes": {
+                    "description": "Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.",
+                    "items": {
+                        "$ref": "#/definitions/PathType"
+                    },
+                    "type": "array"
+                },
+                "localPathCleaningFilters": {
+                    "default": [],
+                    "description": "ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPathCleaningFilter"
+                    },
+                    "type": "array"
+                },
+                "maxEdgeWeight": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys."
+                },
+                "minEdgeWeight": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise."
+                },
+                "pathGroupings": {
+                    "default": [],
+                    "description": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "pathsHogQLExpression": {
+                    "description": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
+                    "type": "string"
+                },
+                "startPoint": {
+                    "description": "Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.",
+                    "type": "string"
+                },
+                "stepLimit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 5,
+                    "description": "Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start."
+                }
+            },
+            "type": "object"
+        },
+        "AssistantPathsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "PathsQuery",
+                    "type": "string"
+                },
+                "pathsFilter": {
+                    "$ref": "#/definitions/AssistantPathsFilter",
+                    "description": "Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points."
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind", "pathsFilter"],
+            "type": "object"
         },
         "AssistantPropertyFilter": {
             "anyOf": [
@@ -18082,6 +18215,12 @@
                     "enum": ["absolute", "relative"],
                     "type": "string"
                 },
+                "nullLabel": {
+                    "type": "string"
+                },
+                "nullValue": {
+                    "type": "string"
+                },
                 "valueColumn": {
                     "type": "string"
                 },
@@ -32969,6 +33108,9 @@
                 "required": {
                     "type": "boolean"
                 },
+                "requiredScopes": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "oauth",
                     "type": "string"
@@ -33853,6 +33995,9 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "transpose": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -35472,6 +35617,9 @@
                             "$ref": "#/definitions/RetentionQuery"
                         },
                         {
+                            "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
@@ -35518,6 +35666,9 @@
                         },
                         {
                             "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"

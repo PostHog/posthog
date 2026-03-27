@@ -104,6 +104,39 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
+    describe('query-paths', () => {
+        it('should execute a basic paths query and return formatted results', async () => {
+            const tool = getToolByName(GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>, 'query-paths')
+            const result = (await tool.handler(context, {
+                pathsFilter: {
+                    includeEventTypes: ['$pageview'],
+                    stepLimit: 5,
+                },
+                dateRange: { date_from: '-7d' },
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+            expect(result._posthogUrl).toMatch(/\/insights\/new\?q=/)
+        })
+
+        it('should execute a paths query with start point', async () => {
+            const tool = getToolByName(GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>, 'query-paths')
+            const result = (await tool.handler(context, {
+                pathsFilter: {
+                    includeEventTypes: ['$pageview'],
+                    startPoint: '/',
+                    stepLimit: 5,
+                },
+                dateRange: { date_from: '-7d' },
+                filterTestAccounts: true,
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+        })
+    })
+
     describe('query-traces-list', () => {
         it('should execute a traces query and return formatted results', async () => {
             const tool = getToolByName(

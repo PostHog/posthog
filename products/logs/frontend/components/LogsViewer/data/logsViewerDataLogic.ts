@@ -507,15 +507,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             if (debounce) {
                 await breakpoint(debounce)
             }
-            // Track query execution (skip initial page load)
-            if (values.hasRunQuery) {
-                posthog.capture('logs query executed', {
-                    has_search_term: !!values.filters.searchTerm,
-                    has_filters: values.filters.filterGroup.values.length > 0,
-                    severity_count: values.filters.severityLevels?.length ?? 0,
-                    service_count: values.filters.serviceNames?.length ?? 0,
-                })
-            }
             actions.clearLogs()
             actions.fetchLogs()
             actions.fetchSparkline()
