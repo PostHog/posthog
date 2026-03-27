@@ -442,6 +442,7 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+            RECORDINGS_ENABLE_API: 'true'
             SESSION_RECORDING_API_REDIS_HOST: redis7
             SESSION_RECORDING_API_REDIS_PORT: 6379
 

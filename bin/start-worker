@@ -22,7 +22,7 @@ if [[ "$PLUGIN_SERVER_IDLE" != "1" && "$PLUGIN_SERVER_IDLE" != "true" ]]; then
   # 3. IngestionRecordingsServer - session recording ingestion + recording API
   ./bin/posthog-node &
   PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node &
-  PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 RECORDINGS_ENABLE_API=true HTTP_SERVER_PORT=6740 ./bin/posthog-node &
 fi
 
 wait

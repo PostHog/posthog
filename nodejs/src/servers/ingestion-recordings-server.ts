@@ -4,8 +4,8 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
 import { RecordingApi } from '../session-replay/recording-api/recording-api'
 import { RecordingApiConfig } from '../session-replay/recording-api/types'
-import { PluginServerService } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
+import { stringToBoolean } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
@@ -21,10 +21,16 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  *
  * This type is the source of truth for which env vars recordings deployments need.
  */
+export type IngestionRecordingsServerOwnConfig = {
+    /** When true, mount the recording API alongside blob ingestion (hobby/local dev) */
+    RECORDINGS_ENABLE_API: boolean
+}
+
 export type IngestionRecordingsServerConfig = BaseServerConfig &
     SessionRecordingIngesterConfig &
     RecordingApiConfig &
     PostgresRouterConfig &
+    IngestionRecordingsServerOwnConfig &
     Pick<
         CommonConfig,
         'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'HEALTHCHECK_MAX_STALE_SECONDS' | 'KAFKA_HEALTHCHECK_SECONDS'
@@ -38,7 +44,11 @@ export class IngestionRecordingsServer implements NodeServer {
     private kafkaProducer?: KafkaProducerWrapper
 
     constructor(config: Partial<IngestionRecordingsServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            RECORDINGS_ENABLE_API: stringToBoolean(process.env.RECORDINGS_ENABLE_API ?? 'false'),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -58,43 +68,37 @@ export class IngestionRecordingsServer implements NodeServer {
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 
-        logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        logger.info('👍', 'Kafka ready')
-
         // 2. Services
-        const serviceLoaders: (() => Promise<PluginServerService>)[] = []
+        const isRecordingApiMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.recording_api
+        const enableApi = isRecordingApiMode || this.config.RECORDINGS_ENABLE_API
 
-        const isRecordingApi = this.config.PLUGIN_SERVER_MODE === PluginServerMode.recording_api
-
-        if (isRecordingApi) {
-            serviceLoaders.push(async () => {
-                const api = new RecordingApi(this.config, this.postgres!)
-                this.lifecycle.expressApp.use('/', api.router())
-                await api.start()
-                return api.service
-            })
-        } else {
-            // recordings-blob-ingestion-v2 or recordings-blob-ingestion-v2-overflow
-            serviceLoaders.push(async () => {
-                const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
-                    this.config.KAFKA_CLIENT_RACK,
-                    'WARPSTREAM_PRODUCER'
-                )
-
-                const ingester = new SessionRecordingIngester(
-                    this.config,
-                    this.postgres!,
-                    this.kafkaProducer!,
-                    kafkaWarpStreamProducer
-                )
-                await ingester.start()
-                return ingester.service
-            })
+        if (enableApi) {
+            const api = new RecordingApi(this.config, this.postgres!)
+            this.lifecycle.expressApp.use('/', api.router())
+            await api.start()
+            this.lifecycle.services.push(api.service)
         }
 
-        const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
-        this.lifecycle.services.push(...readyServices)
+        if (!isRecordingApiMode) {
+            // recordings-blob-ingestion-v2 or recordings-blob-ingestion-v2-overflow
+            logger.info('🤔', 'Connecting to Kafka...')
+            this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+            logger.info('👍', 'Kafka ready')
+
+            const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
+                this.config.KAFKA_CLIENT_RACK,
+                'WARPSTREAM_PRODUCER'
+            )
+
+            const ingester = new SessionRecordingIngester(
+                this.config,
+                this.postgres!,
+                this.kafkaProducer!,
+                kafkaWarpStreamProducer
+            )
+            await ingester.start()
+            this.lifecycle.services.push(ingester.service)
+        }
     }
 
     private getCleanupResources(): CleanupResources {
