@@ -93,7 +93,9 @@ export function HogFunctionMapping({
     parentConfiguration: Pick<HogFunctionConfigurationType, 'inputs_schema' | 'inputs'>
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const { showSource, sampleGlobalsWithInputs, mappingTemplates } = useValues(hogFunctionConfigurationLogic)
+    const matchingTemplate = mappingTemplates.find((t) => t.name === mapping.name)
+    const hideEventFilter = matchingTemplate?.use_all_events_by_default === true
 
     return (
         <>
@@ -110,35 +112,42 @@ export function HogFunctionMapping({
                         This mapping is disabled. It will not trigger the function.
                     </LemonBanner>
                 ) : null}
-                <LemonLabel>Match events and actions</LemonLabel>
-                <ActionFilter
-                    filters={mapping.filters ?? ({} as any)}
-                    setFilters={(f: any) => onChange({ ...mapping, filters: f })}
-                    typeKey={`match-group-${index}`}
-                    mathAvailability={MathAvailability.None}
-                    hideRename
-                    hideDuplicate
-                    showNestedArrow={false}
-                    actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                        ...groupsTaxonomicTypes,
-                    ]}
-                    propertyFiltersPopover
-                    addFilterDefaultOptions={{
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: EntityTypes.EVENTS,
-                    }}
-                    buttonProps={{
-                        type: 'secondary',
-                    }}
-                    buttonCopy="Add event matcher"
-                />
+                {!hideEventFilter && (
+                    <>
+                        <LemonLabel>Match events and actions</LemonLabel>
+                        <ActionFilter
+                            filters={mapping.filters ?? ({} as any)}
+                            setFilters={(f: any) => onChange({ ...mapping, filters: f })}
+                            typeKey={`match-group-${index}`}
+                            mathAvailability={MathAvailability.None}
+                            hideRename
+                            hideDuplicate
+                            showNestedArrow={false}
+                            actionsTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.Events,
+                                TaxonomicFilterGroupType.Actions,
+                            ]}
+                            propertiesTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                TaxonomicFilterGroupType.Elements,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                                ...groupsTaxonomicTypes,
+                            ]}
+                            propertyFiltersPopover
+                            addFilterDefaultOptions={{
+                                id: '$pageview',
+                                name: '$pageview',
+                                type: EntityTypes.EVENTS,
+                            }}
+                            buttonProps={{
+                                type: 'secondary',
+                            }}
+                            buttonCopy="Add event matcher"
+                        />
+                    </>
+                )}
                 <Group name={['mappings', index]}>
                     <CyclotronJobInputs
                         configuration={{

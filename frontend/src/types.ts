@@ -6300,6 +6300,7 @@ export interface HogFunctionMappingType {
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
     name: string
     include_by_default?: boolean
+    use_all_events_by_default?: boolean
 }
 
 export type HogFunctionTypeType =
