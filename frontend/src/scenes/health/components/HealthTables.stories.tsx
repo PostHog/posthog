@@ -1,6 +1,7 @@
 import type { Meta, StoryFn } from '@storybook/react'
 
 import DataModelingDetailContent from '../categoryDetail/categories/DataModelingDetailContent'
+import { SdkOutdatedRenderer } from '../renderers/SdkOutdatedRenderer'
 import type { HealthIssue, HealthIssueSeverity } from '../types'
 import { DataModelingHealthTable } from './DataModelingHealthTable'
 import { IngestionWarningTable } from './IngestionWarningTable'
@@ -186,6 +187,47 @@ const WEB_ANALYTICS_ISSUES: HealthIssue[] = [
     }),
 ]
 
+const SDK_OUTDATED_ISSUE: HealthIssue = createMockIssue('sdk-1', {
+    kind: 'sdk_outdated',
+    severity: 'warning',
+    payload: {
+        sdk_name: 'web',
+        latest_version: '1.142.0',
+        usage: [
+            {
+                lib_version: '1.142.0',
+                count: 84210,
+                max_timestamp: '2025-01-15T09:30:00Z',
+                release_date: '2025-01-10T00:00:00Z',
+                is_latest: true,
+            },
+            {
+                lib_version: '1.138.4',
+                count: 12453,
+                max_timestamp: '2025-01-14T22:15:00Z',
+                release_date: '2024-12-18T00:00:00Z',
+                is_latest: false,
+            },
+            {
+                lib_version: '1.130.0',
+                count: 312,
+                max_timestamp: '2025-01-12T06:00:00Z',
+                release_date: '2024-10-02T00:00:00Z',
+                is_latest: false,
+            },
+        ],
+    },
+})
+
+const SDK_OUTDATED_EMPTY_ISSUE: HealthIssue = createMockIssue('sdk-2', {
+    kind: 'sdk_outdated',
+    severity: 'info',
+    payload: {
+        sdk_name: 'web',
+        latest_version: '1.142.0',
+    },
+})
+
 const noop = (): void => {}
 
 const meta: Meta = {
@@ -230,6 +272,10 @@ export const WebAnalyticsAllChecks: StoryFn = () => (
 export const WebAnalyticsEmpty: StoryFn = () => (
     <WebAnalyticsHealthTable issues={[]} onDismiss={noop} onUndismiss={noop} />
 )
+
+export const SdkOutdatedDefault: StoryFn = () => <SdkOutdatedRenderer issue={SDK_OUTDATED_ISSUE} />
+
+export const SdkOutdatedEmpty: StoryFn = () => <SdkOutdatedRenderer issue={SDK_OUTDATED_EMPTY_ISSUE} />
 
 export const DetailHealthy: StoryFn = () => (
     <DataModelingDetailContent
