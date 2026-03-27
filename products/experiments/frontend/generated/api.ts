@@ -435,6 +435,31 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
+export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/copy_to_project/`
+}
+
+export const experimentsCopyToProjectCreate = async (
+    projectId: string,
+    id: number,
+    experimentApi: NonReadonly<ExperimentApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExperimentsCopyToProjectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentApi),
+    })
+}
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
 export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/create_exposure_cohort_for_experiment/`
 }
