@@ -94,14 +94,13 @@ export class PluginServer implements NodeServer {
         )
         const needsLogs = !!capabilities.logsIngestion
         const needsTraces = !!capabilities.tracesIngestion
-        const needsErrorTracking = !!capabilities.errorTrackingIngestion
 
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
-        // 2. Services shared by CDP and error tracking (geoip, repos, encryption)
+        // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
-        if (needsCdp || needsErrorTracking) {
+        if (needsCdp) {
             cdpServices = await this.createCdpSharedServices()
         }
 

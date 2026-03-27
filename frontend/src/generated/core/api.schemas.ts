@@ -1317,91 +1317,6 @@ export interface PatchedEnterprisePropertyDefinitionApi {
 }
 
 /**
- * * `FeatureFlag` - feature flag
- */
-export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
-
-export const ModelNameEnumApi = {
-    FeatureFlag: 'FeatureFlag',
-} as const
-
-/**
- * * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
- * `yearly` - yearly
- */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
-
-export const RecurrenceIntervalEnumApi = {
-    Daily: 'daily',
-    Weekly: 'weekly',
-    Monthly: 'monthly',
-    Yearly: 'yearly',
-} as const
-
-export interface ScheduledChangeApi {
-    readonly id: number
-    readonly team_id: number
-    /** @maxLength 200 */
-    record_id: string
-    model_name: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly updated_at: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at: string | null
-    /** @nullable */
-    end_date?: string | null
-}
-
-export interface PaginatedScheduledChangeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ScheduledChangeApi[]
-}
-
-export interface PatchedScheduledChangeApi {
-    readonly id?: number
-    readonly team_id?: number
-    /** @maxLength 200 */
-    record_id?: string
-    model_name?: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at?: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly updated_at?: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at?: string | null
-    /** @nullable */
-    end_date?: string | null
-}
-
-/**
  * * `email` - Email
  * `slack` - Slack
  * `webhook` - Webhook
@@ -2112,17 +2027,6 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
-
-export type ScheduledChangesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
 
 export type SubscriptionsListParams = {
     /**

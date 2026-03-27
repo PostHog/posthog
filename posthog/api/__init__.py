@@ -157,7 +157,6 @@ from . import (
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
-from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OAuthApplicationPublicMetadataViewSet, OrganizationOAuthApplicationViewSet
@@ -497,12 +496,6 @@ projects_router.register(
 )
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
-projects_router.register(
-    r"web_analytics",
-    external_web_analytics.ExternalWebAnalyticsViewSet,
-    "project_external_web_analytics",
-    ["project_id"],
-)
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources

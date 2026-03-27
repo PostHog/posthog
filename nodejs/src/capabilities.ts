@@ -71,7 +71,6 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
     realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
     logs: CAPABILITIES_LOGS,
-    error_tracking: CAPABILITIES_ERROR_TRACKING,
     traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }

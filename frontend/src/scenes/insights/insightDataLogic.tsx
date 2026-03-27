@@ -5,6 +5,7 @@ import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -122,8 +123,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
                             kind: NodeKind.InsightVizNode,
                             source: insightQuery,
                         })
+
+                        eventUsageLogic.actions.reportInsightMetadataAiGenerated(insightQuery.kind)
+
                         return { name: response.name, description: response.description }
                     } catch (e) {
+                        eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
                         lemonToast.error('Failed to generate name and description')
                         throw e
                     }

@@ -1384,6 +1384,22 @@ class TestPrinter(BaseTest):
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    @parameterized.expand(
+        [
+            ("sql_injection", "; DROP TABLE events --"),
+            ("union_injection", "current_date UNION SELECT 1"),
+            ("whitespace", "current date"),
+            ("special_chars", "now()"),
+            ("empty_string", ""),
+        ]
+    )
+    def test_keyword_rejects_invalid_names(self, _name: str, keyword_name: str):
+        node = ast.Keyword(name=keyword_name)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        with self.assertRaises(QueryError):
+            print_prepared_ast(node, context=context, dialect="clickhouse", stack=[select_query])
+
     def test_case_when(self):
         self.assertEqual(self._expr("case when 1 then 2 else 3 end"), "if(1, 2, 3)")
 
