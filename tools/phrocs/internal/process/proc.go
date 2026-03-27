@@ -1,7 +1,7 @@
 package process
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -108,9 +108,11 @@ type Process struct {
 	lines         []string
 	cmd           *exec.Cmd
 	ptmx          *os.File // pty master; nil when using pipes
+	stdinPipe     *os.File // write end of stdin pipe; nil when using PTY
 	readyPattern  *regexp.Regexp
 	ready         bool // whether we've seen the ready pattern (or no pattern is set)
 	stopRequested bool // set by Stop() to catch races with in-flight Start()
+	hasPrompt     bool // last output was a partial line (no trailing \n), suggesting a prompt
 
 	startedAt time.Time
 	readyAt   time.Time
@@ -159,6 +161,14 @@ func (p *Process) MemRSSMB() float64 {
 		return 0
 	}
 	return p.metrics.MemRSSMB
+}
+
+// HasPrompt returns true when the last output was a partial line (no trailing \n),
+// indicating the process is likely waiting for input.
+func (p *Process) HasPrompt() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.hasPrompt
 }
 
 // Returns a copy of the output lines
@@ -252,6 +262,10 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.lines = nil
 	p.metrics = nil
 	p.exitCode = nil
+	if p.stdinPipe != nil {
+		_ = p.stdinPipe.Close()
+		p.stdinPipe = nil
+	}
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
 	p.stopRequested = false
@@ -354,19 +368,30 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	// kill the full process tree via Kill(-pid, SIGTERM).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// pty.Start also sets Stdin/Stdout/Stderr to the (now-closed) tty slave.
-	// Reset them so the child gets /dev/null for stdin and our pipe for output.
+	// Reset them so the child uses pipes for I/O.
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 
+	// Create a stdin pipe so interactive processes can receive input via WriteInput
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = stdinR
+
 	pr, pw, err := os.Pipe()
 	if err != nil {
+		_ = stdinR.Close()
+		_ = stdinW.Close()
 		return err
 	}
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
 	if err := cmd.Start(); err != nil {
+		_ = stdinR.Close()
+		_ = stdinW.Close()
 		_ = pr.Close()
 		_ = pw.Close()
 		p.mu.Lock()
@@ -376,12 +401,18 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 		return err
 	}
 
+	// Child has inherited the read end; close it in the parent
+	_ = stdinR.Close()
+
 	p.mu.Lock()
 	p.cmd = cmd
+	p.stdinPipe = stdinW
 
 	// Stop() was called while cmd.Start was in progress — kill immediately
 	if p.stopRequested {
 		p.killProcessGroup()
+		_ = stdinW.Close()
+		p.stdinPipe = nil
 		p.status = StatusStopped
 		p.mu.Unlock()
 		_ = pr.Close()
@@ -442,50 +473,83 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	return nil
 }
 
-// Reads lines from the process output, buffering them internally and sending
-// batched OutputMsg notifications to the TUI. Lines are flushed every
-// ~flushInterval so burst output is coalesced into a single UI update,
-// preventing backpressure on the PTY that would throttle the child process.
+// Reads output from the process, buffering it internally and sending batched
+// OutputMsg notifications to the TUI. Complete lines (terminated by \n) are
+// buffered immediately; partial lines (e.g. interactive prompts that don't end
+// with \n) are flushed after a short timeout so they appear without delay.
 func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
-	// Scanner goroutine reads lines as fast as possible into a buffered
-	// channel, decoupling I/O from the (potentially slower) TUI send path.
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
-
-	lineCh := make(chan string, 4096)
+	chunkCh := make(chan []byte, 64)
 	go func() {
-		for scanner.Scan() {
-			lineCh <- scanner.Text()
-		}
-		close(lineCh)
-	}()
-
-	for {
-		// Block until at least one line arrives
-		line, ok := <-lineCh
-		if !ok {
-			return
-		}
-		p.bufferLine(line, send)
-
-		// Drain any additional lines that arrive within the flush interval
-		deadline := time.After(flushInterval)
-	drain:
+		buf := make([]byte, 256*1024)
 		for {
-			select {
-			case line, ok := <-lineCh:
-				if !ok {
-					// EOF — send final notification and return
-					send(OutputMsg{Name: p.Name})
-					return
-				}
-				p.bufferLine(line, send)
-			case <-deadline:
-				break drain
+			n, err := r.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				chunkCh <- data
+			}
+			if err != nil {
+				close(chunkCh)
+				return
 			}
 		}
+	}()
 
-		send(OutputMsg{Name: p.Name})
+	var partial []byte
+	partialTimer := time.NewTimer(0)
+	if !partialTimer.Stop() {
+		<-partialTimer.C
+	}
+
+	for {
+		select {
+		case data, ok := <-chunkCh:
+			if !ok {
+				if len(partial) > 0 {
+					p.bufferLine(string(partial), send)
+				}
+				send(OutputMsg{Name: p.Name})
+				return
+			}
+
+			data = append(partial, data...)
+			partial = nil
+
+			for {
+				idx := bytes.IndexByte(data, '\n')
+				if idx == -1 {
+					break
+				}
+				p.bufferLine(string(data[:idx]), send)
+				data = data[idx+1:]
+			}
+
+			p.mu.Lock()
+			p.hasPrompt = len(data) > 0
+			p.mu.Unlock()
+
+			if len(data) > 0 {
+				partial = data
+				// Flush the partial line after a short timeout so interactive
+				// prompts (which don't end with \n) appear promptly.
+				if !partialTimer.Stop() {
+					select {
+					case <-partialTimer.C:
+					default:
+					}
+				}
+				partialTimer.Reset(50 * time.Millisecond)
+			}
+
+			send(OutputMsg{Name: p.Name})
+
+		case <-partialTimer.C:
+			if len(partial) > 0 {
+				p.bufferLine(string(partial), send)
+				partial = nil
+				send(OutputMsg{Name: p.Name})
+			}
+		}
 	}
 }
 
@@ -653,6 +717,10 @@ func (p *Process) Stop() {
 		_ = p.ptmx.Close()
 		p.ptmx = nil
 	}
+	if p.stdinPipe != nil {
+		_ = p.stdinPipe.Close()
+		p.stdinPipe = nil
+	}
 	p.status = StatusStopped
 }
 
@@ -671,6 +739,27 @@ func (p *Process) PID() int {
 		return p.cmd.Process.Pid
 	}
 	return 0
+}
+
+// WriteInput sends raw bytes to the process's stdin (PTY master or stdin pipe).
+// Returns an error if neither is available.
+func (p *Process) WriteInput(data []byte) error {
+	p.mu.Lock()
+	ptmx := p.ptmx
+	stdinPipe := p.stdinPipe
+	p.mu.Unlock()
+	if ptmx != nil {
+		_, err := ptmx.Write(data)
+		return err
+	}
+	if stdinPipe != nil {
+		// No terminal line discipline in pipe mode: translate \r to \n
+		// so programs that read lines (e.g. Python's input()) see a proper newline.
+		translated := bytes.ReplaceAll(data, []byte("\r"), []byte("\n"))
+		_, err := stdinPipe.Write(translated)
+		return err
+	}
+	return fmt.Errorf("process %s has no PTY or stdin pipe", p.Name)
 }
 
 // Updates the pty window size to keep output correctly reflowed

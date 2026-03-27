@@ -207,7 +207,74 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
+// PrevProc   key.Binding
+// 	NextProc   key.Binding
+// 	ScrollUp   key.Binding
+// 	ScrollDown key.Binding
+// 	GotoTop    key.Binding
+// 	GotoBottom key.Binding
+// 	NextPane   key.Binding
+// 	PrevPane   key.Binding
+// 	Restart    key.Binding
+// 	Stop       key.Binding
+// 	CopyMode   key.Binding
+// 	Search     key.Binding
+// 	SearchNext key.Binding
+// 	SearchPrev key.Binding
+// 	Quit       key.Binding
+// 	Help       key.Binding
+// 	Backspace  key.Binding
+// 	Hedgehog   key.Binding
+// 	Info       key.Binding
+// 	Sort       key.Binding
+// 	LazyDocker key.Binding
+// 	ProcViewer key.Binding
+
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
+	p := m.activeProc()
+	procHasPrompt := p != nil && m.focusedPane == focusOutput && p.HasPrompt()
+	// Control keys are excluded so navigation still works.
+	isControlKey := key.Matches(msg, m.keys.NextProc) ||
+		key.Matches(msg, m.keys.PrevProc) ||
+		key.Matches(msg, m.keys.NextPane) ||
+		key.Matches(msg, m.keys.PrevPane) ||
+		key.Matches(msg, m.keys.GotoTop) ||
+		key.Matches(msg, m.keys.GotoBottom) ||
+		key.Matches(msg, m.keys.ScrollDown) ||
+		key.Matches(msg, m.keys.ScrollUp)
+
+	if procHasPrompt && !isControlKey {
+		var input []byte
+
+		switch {
+		case msg.Code == tea.KeyEnter:
+			input = []byte(m.inputBuffer + "\r")
+			m.inputBuffer = ""
+		case msg.Code == tea.KeyBackspace:
+			if len(m.inputBuffer) > 0 {
+				runes := []rune(m.inputBuffer)
+				m.inputBuffer = string(runes[:len(runes)-1])
+			}
+		case msg.Code == tea.KeySpace:
+			m.inputBuffer += " "
+		default:
+			s := msg.String()
+			if runes := []rune(s); len(runes) == 1 && runes[0] >= 32 {
+				m.inputBuffer += s
+			}
+		}
+
+		if len(input) > 0 {
+			if err := p.WriteInput(input); err != nil {
+				m.dbg("pty write error: %v", err)
+			} else {
+				m.dbg("pty send: %q", input)
+			}
+			return m, tea.Batch(cmds...)
+		}
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		m.mgr.StopAll()

@@ -82,6 +82,9 @@ type Model struct {
 	containerLogStream *docker.ContainerLogStream
 	composeArgs        docker.ComposeArgs
 
+	// Buffered text for PTY input when the output pane is focused
+	inputBuffer string
+
 	// Info mode: replaces the output viewport with process stats
 	infoMode bool
 
@@ -404,6 +407,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 
 	m.copyMode = false
 	m.searchMode = false
+	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 
 	// Resize viewport to account for container sidebar appearing/disappearing
