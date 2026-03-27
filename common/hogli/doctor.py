@@ -1240,12 +1240,15 @@ def _has_known_executable(args: str) -> bool:
 def _get_process_cwd(pid: int) -> str | None:
     """Get the working directory of a process via lsof."""
 
-    result = subprocess.run(
-        ["lsof", "-p", str(pid), "-d", "cwd", "-Fn"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["lsof", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode != 0:
         return None
 
