@@ -142,7 +142,10 @@ class TelemetryClient:
         if not config.get("first_run_notice_shown"):
             return
 
-        props: dict[str, Any] = {"$process_person_profile": False}
+        props: dict[str, Any] = {
+            "$process_person_profile": False,
+            "$groups": {"project": "hogli"},
+        }
         if properties:
             props.update(properties)
 
