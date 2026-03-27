@@ -225,7 +225,7 @@ const ACCESS_CONTROL_DASHBOARD_ID = 9999
 const accessControlDashboard = {
     ...dashboard,
     id: ACCESS_CONTROL_DASHBOARD_ID,
-    storyName: 'Access Control Demo Dashboard',
+    name: 'Access Control Demo Dashboard',
     description: 'Dashboard demonstrating different insight access levels',
     user_access_level: 'editor', // User has edit access to the dashboard
     tiles: [
@@ -319,7 +319,7 @@ export const AccessControlDashboard: Story = {
 const viewOnlyDashboard = {
     ...accessControlDashboard,
     id: ACCESS_CONTROL_DASHBOARD_ID + 1,
-    storyName: 'View Only Dashboard',
+    name: 'View Only Dashboard',
     description: 'Dashboard where user has view access only',
     user_access_level: 'viewer', // User can only view the dashboard
 }

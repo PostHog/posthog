@@ -75,6 +75,12 @@ const meta: Meta<InsightCardProps> = {
         },
         tile: defaultTile,
     },
+    args: {
+        insight: {
+            name: '',
+            description: '',
+        } as unknown as QueryBasedInsightModel,
+    },
 }
 export default meta
 type Story = StoryObj<InsightCardProps>

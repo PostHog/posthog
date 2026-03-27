@@ -26,7 +26,7 @@ type Story = StoryObj<{}>
 
 const activePopover: SurveyData = {
     id: 'survey-1',
-    storyName: 'NPS survey Q4',
+    name: 'NPS survey Q4',
     description: 'Quarterly NPS measurement for all active users.',
     type: 'popover',
     status: 'active',
@@ -49,7 +49,7 @@ const activePopover: SurveyData = {
 
 const draftMultiQuestion: SurveyData = {
     id: 'survey-2',
-    storyName: 'Feature satisfaction',
+    name: 'Feature satisfaction',
     type: 'api',
     status: 'draft',
     created_at: '2025-12-01T09:00:00Z',
@@ -76,7 +76,7 @@ const draftMultiQuestion: SurveyData = {
 
 const completedSurvey: SurveyData = {
     id: 'survey-3',
-    storyName: 'Beta feedback form',
+    name: 'Beta feedback form',
     type: 'widget',
     status: 'completed',
     start_date: '2025-08-01T00:00:00Z',

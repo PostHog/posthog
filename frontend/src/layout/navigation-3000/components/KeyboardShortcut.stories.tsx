@@ -13,7 +13,13 @@ const meta: Meta<KeyboardShortcutProps> = {
 type Story = StoryObj<KeyboardShortcutProps>
 export default meta
 
-export const Default: Story = {}
+export const Default: Story = {
+    args: {
+        command: true,
+        shift: true,
+        k: true,
+    },
+}
 
 export const WithinTooltip: Story = {
     render: () => {

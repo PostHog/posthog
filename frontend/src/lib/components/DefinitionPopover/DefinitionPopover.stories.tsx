@@ -38,7 +38,7 @@ const mockEventImages = [
 
 const mockEventDefinition: EventDefinition = {
     id: 'event-uuid-123',
-    storyName: '$pageview',
+    name: '$pageview',
     description: 'Triggered when a user views a page',
     tags: ['core', 'web'],
     verified: true,
@@ -52,7 +52,7 @@ const mockEventDefinition: EventDefinition = {
 
 const mockPropertyDefinition: PropertyDefinition = {
     id: 'prop-uuid-456',
-    storyName: '$current_url',
+    name: '$current_url',
     description: 'The current URL of the page',
     tags: ['web'],
     is_numerical: false,
@@ -64,7 +64,7 @@ const mockPropertyDefinition: PropertyDefinition = {
 
 const mockActionDefinition: ActionType = {
     id: 1,
-    storyName: 'User signed up',
+    name: 'User signed up',
     description: 'Tracks when a user completes the signup process',
     tags: ['conversion', 'critical'],
     post_to_slack: false,

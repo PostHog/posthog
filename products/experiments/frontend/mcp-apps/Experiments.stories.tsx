@@ -26,7 +26,7 @@ type Story = StoryObj<{}>
 
 const runningExperiment: ExperimentData = {
     id: 1,
-    storyName: 'Onboarding flow v2',
+    name: 'Onboarding flow v2',
     type: 'product',
     description: 'Test whether a simplified onboarding increases activation rates.',
     feature_flag_key: 'onboarding-v2-experiment',
@@ -44,7 +44,7 @@ const runningExperiment: ExperimentData = {
 
 const completedExperiment: ExperimentData = {
     id: 2,
-    storyName: 'Pricing page CTA',
+    name: 'Pricing page CTA',
     type: 'web',
     description: 'Which CTA copy drives more upgrades?',
     feature_flag_key: 'pricing-cta-test',
@@ -65,7 +65,7 @@ const completedExperiment: ExperimentData = {
 
 const draftExperiment: ExperimentData = {
     id: 3,
-    storyName: 'Dark mode default',
+    name: 'Dark mode default',
     description: 'Should new users default to dark mode?',
     feature_flag_key: 'dark-mode-default',
     created_at: '2025-12-01T09:00:00Z',

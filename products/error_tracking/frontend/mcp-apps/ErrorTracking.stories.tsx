@@ -28,7 +28,7 @@ type Story = StoryObj<{}>
 
 const activeIssue: ErrorIssueData = {
     id: 'issue-1',
-    storyName: 'TypeError: Cannot read properties of undefined (reading "map")',
+    name: 'TypeError: Cannot read properties of undefined (reading "map")',
     description: 'Occurs in DashboardGrid.tsx when dashboard items are null.',
     status: 'active',
     first_seen: '2025-12-10T08:30:00Z',
@@ -37,7 +37,7 @@ const activeIssue: ErrorIssueData = {
 
 const resolvedIssue: ErrorIssueData = {
     id: 'issue-2',
-    storyName: 'RangeError: Maximum call stack size exceeded',
+    name: 'RangeError: Maximum call stack size exceeded',
     description: 'Infinite recursion in recursive property filter rendering.',
     status: 'resolved',
     first_seen: '2025-11-15T14:00:00Z',
@@ -45,7 +45,7 @@ const resolvedIssue: ErrorIssueData = {
 
 const issueWithLinks: ErrorIssueData = {
     id: 'issue-3',
-    storyName: 'NetworkError: Failed to fetch /api/projects/1/insights',
+    name: 'NetworkError: Failed to fetch /api/projects/1/insights',
     status: 'pending_release',
     first_seen: '2025-12-18T09:00:00Z',
     external_issues: [
@@ -62,7 +62,7 @@ const issueWithLinks: ErrorIssueData = {
 
 const suppressedIssue: ErrorIssueData = {
     id: 'issue-4',
-    storyName: 'Warning: Each child in a list should have a unique "key" prop',
+    name: 'Warning: Each child in a list should have a unique "key" prop',
     status: 'suppressed',
     first_seen: '2025-10-01T12:00:00Z',
 }

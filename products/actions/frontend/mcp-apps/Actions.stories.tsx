@@ -19,7 +19,7 @@ type Story = StoryObj<{}>
 
 const urlMatchingAction: ActionData = {
     id: 1,
-    storyName: 'Visited pricing page',
+    name: 'Visited pricing page',
     description: 'Triggers when a user visits any pricing-related page.',
     tags: ['marketing', 'funnel'],
     created_at: '2025-10-15T09:00:00Z',
@@ -36,7 +36,7 @@ const urlMatchingAction: ActionData = {
 
 const multiStepAction: ActionData = {
     id: 2,
-    storyName: 'Signed up via CTA',
+    name: 'Signed up via CTA',
     description: 'User clicked a signup CTA button and completed the form.',
     tags: ['growth'],
     pinned_at: '2025-12-01T00:00:00Z',
@@ -58,7 +58,7 @@ const multiStepAction: ActionData = {
 
 const simpleAction: ActionData = {
     id: 3,
-    storyName: 'Dashboard viewed',
+    name: 'Dashboard viewed',
     created_at: '2025-11-01T09:00:00Z',
     steps: [{ event: 'dashboard_viewed' }],
 }

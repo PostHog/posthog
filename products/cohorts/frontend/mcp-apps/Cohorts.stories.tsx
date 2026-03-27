@@ -19,7 +19,7 @@ type Story = StoryObj<{}>
 
 const dynamicCohort: CohortData = {
     id: 1,
-    storyName: 'Power users',
+    name: 'Power users',
     description: 'Users who performed 10+ events in the last 30 days.',
     is_static: false,
     is_calculating: false,
@@ -31,7 +31,7 @@ const dynamicCohort: CohortData = {
 
 const staticCohort: CohortData = {
     id: 2,
-    storyName: 'Beta testers batch 3',
+    name: 'Beta testers batch 3',
     description: 'Manually uploaded list of beta program participants.',
     is_static: true,
     is_calculating: false,
@@ -43,7 +43,7 @@ const staticCohort: CohortData = {
 
 const calculatingCohort: CohortData = {
     id: 3,
-    storyName: 'Churned users',
+    name: 'Churned users',
     description: 'Users who have not logged in for 60+ days.',
     is_static: false,
     is_calculating: true,
