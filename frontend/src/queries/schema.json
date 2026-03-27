@@ -18082,6 +18082,12 @@
                     "enum": ["absolute", "relative"],
                     "type": "string"
                 },
+                "nullLabel": {
+                    "type": "string"
+                },
+                "nullValue": {
+                    "type": "string"
+                },
                 "valueColumn": {
                     "type": "string"
                 },
