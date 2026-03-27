@@ -21,12 +21,23 @@ from .config import SandboxEvalConfig
 from .runner import SandboxedEvalRunner
 
 
+def _worker_label(worker_id: str) -> str:
+    """Derive a unique label from the pytest-xdist worker id.
+
+    ``worker_id`` is ``"gw0"``, ``"gw1"``, … under xdist, or ``"master"``
+    when running without it.  Each label maps to its own isolated
+    org/team/user so parallel workers never collide.
+    """
+    return f"sandboxed-{worker_id}"
+
+
 @pytest.fixture(scope="session", autouse=True)
 def demo_org_team_user(
     set_up_evals,  # noqa: F811
     django_db_blocker,
+    worker_id,
 ) -> Generator[tuple[Organization, Team, User], None, None]:
-    yield create_isolated_demo_data(django_db_blocker, label="sandboxed")
+    yield create_isolated_demo_data(django_db_blocker, label=_worker_label(worker_id))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -36,14 +47,18 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
 
 @pytest.fixture(scope="session")
 def sandbox_eval_config(demo_org_team_user, django_db_blocker) -> SandboxEvalConfig:
-    """Build sandbox config with env vars pointing to the local PostHog instance."""
+    """Build sandbox config with env vars pointing to the local PostHog instance.
+
+    Each xdist worker gets its own API key scoped to its own isolated team,
+    so parallel eval runs never see each other's data or mutations.
+    """
     _org, team, user = demo_org_team_user
 
     with django_db_blocker.unblock():
         api_key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=user,
-            label="eval-sandbox",
+            label=f"eval-sandbox-{team.pk}",
             secure_value=hash_key_value(api_key_value),
             scopes=["project:read"],
             scoped_teams=[team.id],
