@@ -177,6 +177,15 @@ tools:
     dashboards-create-unlisted-dashboard-create:
         operation: dashboards_create_unlisted_dashboard_create
         enabled: false
+    dashboard-templates-list:
+        operation: dashboard_templates_list
+        enabled: false
+    dashboard-templates-create:
+        operation: dashboard_templates_create
+        enabled: false
+    dashboard-templates-json-schema-retrieve:
+        operation: dashboard_templates_json_schema_retrieve
+        enabled: false
     dashboards-copy-tile-create:
         operation: dashboards_copy_tile_create
         enabled: false

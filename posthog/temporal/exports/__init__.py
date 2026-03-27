@@ -1,17 +1,31 @@
-from posthog.temporal.exports.activities import emit_delivery_outcome, emit_delivery_started, export_asset_activity
+from posthog.temporal.exports.activities import (
+    emit_delivery_outcome,
+    emit_delivery_started,
+    emit_export_outcome,
+    export_asset_activity,
+)
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
-from posthog.temporal.exports.types import EmitDeliveryOutcomeInput, ExportAssetActivityInputs, ExportAssetResult
+from posthog.temporal.exports.types import (
+    EmitDeliveryOutcomeInput,
+    EmitExportOutcomeInput,
+    ExportAssetActivityInputs,
+    ExportAssetResult,
+)
+from posthog.temporal.exports.workflows import ExportAssetWorkflow
 
 __all__ = [
     "emit_delivery_outcome",
     "emit_delivery_started",
+    "emit_export_outcome",
     "export_asset_activity",
+    "ExportAssetWorkflow",
     "EXPORT_RETRY_POLICY",
     "EmitDeliveryOutcomeInput",
+    "EmitExportOutcomeInput",
     "ExportAssetActivityInputs",
     "ExportAssetResult",
 ]
 
-WORKFLOWS: list = []
+WORKFLOWS = [ExportAssetWorkflow]
 
-ACTIVITIES = [export_asset_activity, emit_delivery_started, emit_delivery_outcome]
+ACTIVITIES = [export_asset_activity, emit_delivery_started, emit_delivery_outcome, emit_export_outcome]

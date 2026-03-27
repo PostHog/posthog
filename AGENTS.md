@@ -95,6 +95,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Comments: explain _why_, not _what_ — if the reason isn't important, skip the comment
 - Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
+- Python: do not create empty `__init__.py` files
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
@@ -102,6 +103,14 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
 
-## Skills
+## Agent automation
 
-Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.
+Prefer these approaches in order:
+
+1. **AGENTS.md / CLAUDE.md instructions** — try this first
+2. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
+3. **lint-staged / husky** — file-level validation at commit time
+4. **CI checks** — PR-level enforcement
+5. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement
+
+Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.

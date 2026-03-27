@@ -5,7 +5,6 @@ import "personhog/types/v1/person.proto";
 import "personhog/types/v1/group.proto";
 import "personhog/types/v1/cohort.proto";
 import "personhog/types/v1/feature_flag.proto";
-import "personhog/leader/v1/leader.proto";
 
 // PersonHogService is the public API exposed by the router.
 // Clients call this service; the router handles backend selection and routing.
@@ -45,5 +44,5 @@ service PersonHogService {
   rpc GetGroupTypeMappingsByProjectIds(personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
 
   // Person property updates (routed to leader)
-  rpc UpdatePersonProperties(personhog.leader.v1.UpdatePersonPropertiesRequest) returns (personhog.leader.v1.UpdatePersonPropertiesResponse);
+  rpc UpdatePersonProperties(personhog.types.v1.UpdatePersonPropertiesRequest) returns (personhog.types.v1.UpdatePersonPropertiesResponse);
 }

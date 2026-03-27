@@ -105,6 +105,7 @@ export const SyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
+    Webhook: 'webhook',
 } as const
 
 /**
