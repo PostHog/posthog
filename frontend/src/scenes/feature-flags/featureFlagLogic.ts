@@ -1522,7 +1522,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             try {
                 const baseDate = values.scheduleDateMarker?.toDate() ?? new Date()
-                const interval = CronExpressionParser.parseExpression(cronExpression, {
+                const interval = CronExpressionParser.parse(cronExpression, {
                     currentDate: baseDate,
                 })
                 const nextDate = interval.next().toDate()
