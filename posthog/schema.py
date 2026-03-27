@@ -4045,6 +4045,7 @@ class SourceFieldOauthConfig(BaseModel):
     label: str
     name: str
     required: bool
+    requiredScopes: str | None = None
     type: Literal["oauth"] = "oauth"
 
 
@@ -7395,6 +7396,7 @@ class TableSettings(BaseModel):
     columns: list[ChartAxis] | None = None
     conditionalFormatting: list[ConditionalFormattingRule] | None = None
     pinnedColumns: list[str] | None = None
+    transpose: bool | None = None
 
 
 class TaskExecutionItem(BaseModel):
