@@ -70,7 +70,7 @@ function makeFunnelsQuery(): FunnelsQuery {
 }
 
 function makePathsQuery(): PathsQuery {
-    return { kind: NodeKind.PathsQuery }
+    return { kind: NodeKind.PathsQuery, pathsFilter: {} }
 }
 
 function setupAndRender(
