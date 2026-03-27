@@ -3,6 +3,7 @@ import { Suspense, lazy } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -13,6 +14,7 @@ import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
+import { TrendsLineChartD3 } from './viz/TrendsLineChartD3'
 
 // Lazy-loaded viz types that are rarely used on dashboards
 const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
@@ -31,6 +33,7 @@ interface Props {
 }
 
 export function TrendInsight({ view, context, embedded, inSharedMode, editMode }: Props): JSX.Element {
+    const hogChartsEnabled = useFeatureFlag('HOG_CHARTS')
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
 
@@ -40,6 +43,22 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
+        if (
+            hogChartsEnabled &&
+            (!display ||
+                display === ChartDisplayType.ActionsLineGraph ||
+                display === ChartDisplayType.ActionsLineGraphCumulative ||
+                display === ChartDisplayType.ActionsAreaGraph)
+        ) {
+            return (
+                <TrendsLineChartD3
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded && !inSharedMode}
+                    inSharedMode={inSharedMode}
+                />
+            )
+        }
         if (
             !display ||
             display === ChartDisplayType.ActionsLineGraph ||
