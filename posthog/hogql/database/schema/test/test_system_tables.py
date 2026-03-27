@@ -13,7 +13,6 @@ from posthog.models import (
     Action,
     Annotation,
     Cohort,
-    Dashboard,
     ExportedAsset,
     FeatureFlag,
     Group,
@@ -30,6 +29,7 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob

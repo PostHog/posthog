@@ -1,0 +1,47 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block after_field_sets %}
+    {{ block.super }}
+
+    {% if original.events %}
+    <fieldset>
+        <h2>Events list</h2>
+        <ul style="margin: 8px 0 8px 20px;">
+            {% for event in original.events %}
+                <li><code>{{ event }}</code></li>
+            {% endfor %}
+        </ul>
+    </fieldset>
+    {% endif %}
+
+    {% if original.properties %}
+    <fieldset>
+        <h2>Properties list</h2>
+        <ul style="margin: 8px 0 8px 20px;">
+            {% for prop in original.properties %}
+                <li><code>{{ prop }}</code></li>
+            {% endfor %}
+        </ul>
+    </fieldset>
+    {% endif %}
+
+    {% if is_draft %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #417690; display: flex; align-items: center; gap: 10px;">
+        <div class="info">This request is a <strong>draft</strong>. When ready, submit it for review.</div>
+        <a class="button" style="padding: 10px 15px;" href="{{ submit_url }}">
+            Review &amp; Submit
+        </a>
+    </div>
+    {% endif %}
+
+    {% if can_revert_to_draft %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f0ad4e; display: flex; align-items: center; gap: 10px;">
+        <div class="info">This request is <strong>{{ original.get_status_display|lower }}</strong>. Moving it back to draft will clear the approval.</div>
+        <form method="post" action="{{ revert_to_draft_url }}" style="margin: 0;">
+            {% csrf_token %}
+            <input type="submit" value="Move to draft" class="button" style="padding: 10px 15px;" />
+        </form>
+    </div>
+    {% endif %}
+{% endblock %}

@@ -19,6 +19,7 @@ import { createHogTransformerService } from '../cdp/hog-transformations/hog-tran
 import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
@@ -175,11 +176,13 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
+            const outputs = createTestIngestionOutputs(hub.kafkaProducer)
             const ingester = new IngestionConsumer(hub, {
                 ...hub,
                 kafkaMetricsProducer: hub.kafkaProducer,
                 hogTransformer: createHogTransformerService(hub, hub),
-                outputs: createTestIngestionOutputs(hub.kafkaProducer),
+                outputs,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
             })
             ingester['kafkaConsumer'] = {
                 connect: jest.fn(),

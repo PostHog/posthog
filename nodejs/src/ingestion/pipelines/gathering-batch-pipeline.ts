@@ -1,16 +1,16 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 
-export class GatheringBatchPipeline<TInput, TOutput, CInput, COutput = CInput>
-    implements BatchPipeline<TInput, TOutput, CInput, COutput>
+export class GatheringBatchPipeline<TInput, TOutput, CInput, COutput = CInput, R extends string = never>
+    implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
 {
-    constructor(private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
+    constructor(private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
+    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.subPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
-        const allResults: BatchPipelineResultWithContext<TOutput, COutput> = []
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+        const allResults: BatchPipelineResultWithContext<TOutput, COutput, R> = []
 
         let result = await this.subPipeline.next()
         while (result !== null) {

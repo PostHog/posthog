@@ -3,6 +3,7 @@ import { ComponentType } from 'react'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { GenericIssueRenderer } from './renderers/GenericIssueRenderer'
+import { SdkOutdatedRenderer } from './renderers/SdkOutdatedRenderer'
 import type { HealthIssue } from './types'
 
 const IngestionWarningRenderer = ({ issue }: { issue: HealthIssue }): JSX.Element => {
@@ -60,6 +61,7 @@ const PipelineFailureRenderer = ({ issue }: { issue: HealthIssue }): JSX.Element
 }
 
 const HEALTH_ISSUE_RENDERERS: Record<string, ComponentType<{ issue: HealthIssue }>> = {
+    sdk_outdated: SdkOutdatedRenderer,
     ingestion_warning: IngestionWarningRenderer,
     external_data_failure: PipelineFailureRenderer,
     materialized_view_failure: PipelineFailureRenderer,

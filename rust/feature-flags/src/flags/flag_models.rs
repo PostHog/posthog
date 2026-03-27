@@ -50,6 +50,20 @@ where
     ser_map.end()
 }
 
+/// Deserializes a field into `Option<Option<T>>` to distinguish "absent" from "null":
+/// - Field absent → `None` (outer)
+/// - Field present, value `null` → `Some(None)`
+/// - Field present, value `v` → `Some(Some(v))`
+fn deserialize_double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    // When serde calls this, the field was present in JSON. Absent fields
+    // never reach the deserializer — #[serde(default)] yields None instead.
+    Ok(Some(Option::deserialize(deserializer)?))
+}
+
 /// Pre-computed dependency metadata, built by Django at cache-write time.
 /// Shipped as a top-level field alongside the flags array in the hypercache.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
@@ -66,12 +80,28 @@ pub struct EvaluationMetadata {
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
 }
 
-/// Wrapper struct for deserializing hypercache format: {"flags": [...], "cohorts": [...]}
+impl EvaluationMetadata {
+    /// Builds metadata that places all flags in a single evaluation stage
+    /// with no dependency ordering. Used by the PG fallback path.
+    pub fn single_stage(flags: &[FeatureFlag]) -> Self {
+        Self {
+            dependency_stages: vec![flags.iter().map(|f| f.id).collect()],
+            transitive_deps: flags.iter().map(|f| (f.id, HashSet::new())).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+/// Wrapper struct for deserializing hypercache format:
+/// `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]}`
+///
+/// `evaluation_metadata` is always present in cache entries (written by Django).
+/// The PG fallback path constructs this struct with `EvaluationMetadata::single_stage()`,
+/// which places all flags in one evaluation stage with empty transitive deps.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
-    #[serde(default)]
-    pub evaluation_metadata: Option<EvaluationMetadata>,
+    pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps).
     /// Precomputed by Django at cache-write time so the Rust service can skip
     /// the separate CohortCacheManager PG query.
@@ -97,11 +127,12 @@ pub struct FlagPropertyGroup {
     pub rollout_percentage: Option<f64>,
     #[serde(default)]
     pub variant: Option<String>,
-    /// Per-condition-set aggregation group type index. When present, this condition
-    /// set uses the specified group type for hashing and property evaluation. When
-    /// absent/null, the condition set uses person-level aggregation (distinct_id).
-    #[serde(default)]
-    pub aggregation_group_type_index: Option<i32>,
+    /// Per-condition-set aggregation group type index. The outer Option distinguishes
+    /// "field absent" (legacy flags, should fall back to flag-level) from "field
+    /// present but null" (explicit person aggregation). When the inner Option holds
+    /// a value, the condition uses that group type for hashing and property evaluation.
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub aggregation_group_type_index: Option<Option<i32>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -238,10 +269,8 @@ pub struct FeatureFlagList {
     #[serde(skip)]
     pub filtered_out_flag_ids: HashSet<i32>,
     /// Pre-computed dependency metadata from Django's hypercache.
-    /// Present when the cache was written by new Django code; absent for PG fallback
-    /// or old cache entries.
     #[serde(skip)]
-    pub evaluation_metadata: Option<EvaluationMetadata>,
+    pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps),
     /// precomputed by Django at cache-write time.
     /// When present, the matcher uses these instead of querying CohortCacheManager.

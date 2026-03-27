@@ -18,8 +18,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
@@ -43,6 +41,9 @@ from posthog.temporal.subscriptions.workflows import (
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 

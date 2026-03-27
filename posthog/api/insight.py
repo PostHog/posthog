@@ -71,7 +71,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import Cohort, DashboardTile, Filter, Insight, User
+from posthog.models import Cohort, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -82,7 +82,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import AlertConfiguration
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.insight_variable import InsightVariable
@@ -110,6 +109,9 @@ from posthog.utils import (
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from common.hogvm.python.utils import HogVMException
 
