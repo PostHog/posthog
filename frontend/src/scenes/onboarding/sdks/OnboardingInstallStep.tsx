@@ -128,6 +128,8 @@ const WIZARD_FLASH_STYLE: React.CSSProperties = {
     pointerEvents: 'none',
 }
 
+const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
+
 function WizardCommandBlock(): JSX.Element {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
     const [copyKey, setCopyKey] = useState(0)
@@ -153,45 +155,75 @@ function WizardCommandBlock(): JSX.Element {
                     0%, 50% { opacity: 1; }
                     100% { opacity: 0; }
                 }
+                @keyframes wizard-copy-bounce {
+                    0% { transform: scale(1); }
+                    15% { transform: scale(0.96); }
+                    40% { transform: scale(1.03); }
+                    70% { transform: scale(0.99); }
+                    100% { transform: scale(1); }
+                }
+                @keyframes wizard-hog-cast {
+                    0% { transform: rotate(0deg); }
+                    20% { transform: rotate(-8deg); }
+                    50% { transform: rotate(5deg); }
+                    80% { transform: rotate(-2deg); }
+                    100% { transform: rotate(0deg); }
+                }
             `}</style>
 
-            <button
-                onClick={handleCopy}
-                className="group inline-flex items-center gap-2 bg-bg-light border border-border font-mono text-sm px-4 py-3 rounded-lg cursor-pointer hover:border-primary transition-colors w-fit"
-            >
-                <IconTerminal className="size-4 text-muted" />
-                <span className="relative">
-                    <code style={WIZARD_GRADIENT_STYLE} className="!bg-transparent !p-0 !border-0 select-all">
-                        {wizardCommand}
-                    </code>
-                    {copyKey > 0 && (
-                        <code
-                            key={copyKey}
-                            style={WIZARD_FLASH_STYLE}
-                            className="!bg-transparent !p-0 !border-0"
-                            aria-hidden="true"
-                        >
-                            {wizardCommand}
-                        </code>
-                    )}
-                </span>
-                <IconCopy className="size-4 text-muted group-hover:text-primary" />
-            </button>
-
-            <p className="text-xs text-muted mb-0">
-                Auto-detects your framework, installs the SDK, and sets up event capture.
-            </p>
-
-            <div className="flex flex-wrap gap-1.5">
-                <span className="text-xs text-muted">Supports:</span>
-                {WIZARD_FRAMEWORKS.map((fw) => (
-                    <span
-                        key={fw}
-                        className="text-xs text-muted bg-bg-light border border-border rounded px-1.5 py-0.5"
+            <div className="flex gap-6">
+                <img
+                    key={`hog-${copyKey}`}
+                    src={WIZARD_HOG_URL}
+                    alt="PostHog wizard hedgehog"
+                    className="w-28 h-28 hidden sm:block shrink-0 self-center"
+                    style={copyKey > 0 ? { animation: 'wizard-hog-cast 500ms ease-out' } : undefined}
+                />
+                <div className="flex-1 flex flex-col gap-3">
+                    <button
+                        onClick={handleCopy}
+                        key={`btn-${copyKey}`}
+                        className="group inline-flex items-center gap-2 bg-bg-light border border-border font-mono text-sm px-4 py-3 rounded-lg cursor-pointer hover:border-primary transition-colors w-fit"
+                        style={copyKey > 0 ? { animation: 'wizard-copy-bounce 400ms ease-out' } : undefined}
                     >
-                        {fw}
-                    </span>
-                ))}
+                        <IconTerminal className="size-4 text-muted" />
+                        <span className="relative">
+                            <code
+                                style={WIZARD_GRADIENT_STYLE}
+                                className="!bg-transparent !p-0 !border-0 select-all"
+                            >
+                                {wizardCommand}
+                            </code>
+                            {copyKey > 0 && (
+                                <code
+                                    key={copyKey}
+                                    style={WIZARD_FLASH_STYLE}
+                                    className="!bg-transparent !p-0 !border-0"
+                                    aria-hidden="true"
+                                >
+                                    {wizardCommand}
+                                </code>
+                            )}
+                        </span>
+                        <IconCopy className="size-4 text-muted group-hover:text-primary" />
+                    </button>
+
+                    <p className="text-xs text-muted mb-0">
+                        Auto-detects your framework, installs the SDK, and sets up event capture.
+                    </p>
+
+                    <div className="flex flex-wrap gap-1.5">
+                        <span className="text-xs text-muted">Supports:</span>
+                        {WIZARD_FRAMEWORKS.map((fw) => (
+                            <span
+                                key={fw}
+                                className="text-xs text-muted bg-bg-light border border-border rounded px-1.5 py-0.5"
+                            >
+                                {fw}
+                            </span>
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
     )
