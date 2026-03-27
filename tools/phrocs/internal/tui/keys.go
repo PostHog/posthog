@@ -207,29 +207,6 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
-// PrevProc   key.Binding
-// 	NextProc   key.Binding
-// 	ScrollUp   key.Binding
-// 	ScrollDown key.Binding
-// 	GotoTop    key.Binding
-// 	GotoBottom key.Binding
-// 	NextPane   key.Binding
-// 	PrevPane   key.Binding
-// 	Restart    key.Binding
-// 	Stop       key.Binding
-// 	CopyMode   key.Binding
-// 	Search     key.Binding
-// 	SearchNext key.Binding
-// 	SearchPrev key.Binding
-// 	Quit       key.Binding
-// 	Help       key.Binding
-// 	Backspace  key.Binding
-// 	Hedgehog   key.Binding
-// 	Info       key.Binding
-// 	Sort       key.Binding
-// 	LazyDocker key.Binding
-// 	ProcViewer key.Binding
-
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
 	p := m.activeProc()
@@ -265,14 +242,12 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			}
 		}
 
-		if len(input) > 0 {
-			if err := p.WriteInput(input); err != nil {
-				m.dbg("pty write error: %v", err)
-			} else {
-				m.dbg("pty send: %q", input)
-			}
-			return m, tea.Batch(cmds...)
+		if err := p.WriteInput(input); err != nil {
+			m.dbg("pty write error: %v", err)
+		} else {
+			m.dbg("pty send: %q", input)
 		}
+		return m, tea.Batch(cmds...)
 	}
 
 	switch {
