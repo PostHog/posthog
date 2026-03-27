@@ -1,5 +1,4 @@
 import re
-import json
 import time
 import uuid
 import hashlib
@@ -184,15 +183,14 @@ class QueryCoalescer:
             value = self._redis.get(self._error_key)
             if value is None:
                 return None
-            raw = value.decode("utf-8") if isinstance(value, bytes) else value
-            return json.loads(raw)
-        except (RedisError, json.JSONDecodeError):
+            return orjson.loads(value)
+        except (RedisError, orjson.JSONDecodeError):
             return None
 
     def store_success_response(self, status_code: int, content: bytes, content_type: str) -> None:
         """Store full HTTP success response for followers to replay."""
         try:
-            payload = json.dumps(
+            payload = orjson.dumps(
                 {
                     "status": status_code,
                     "body": content.decode("utf-8") if isinstance(content, bytes) else content,
@@ -210,18 +208,17 @@ class QueryCoalescer:
             value = self._redis.get(self._done_key)
             if value is None:
                 return None
-            raw = value.decode("utf-8") if isinstance(value, bytes) else value
-            parsed = json.loads(raw)
+            parsed = orjson.loads(value)
             if isinstance(parsed, dict) and "status" in parsed:
                 return parsed
             return None
-        except (RedisError, json.JSONDecodeError):
+        except (RedisError, orjson.JSONDecodeError):
             return None
 
     def store_error_response(self, status_code: int, content: bytes) -> None:
         """Store HTTP error response for followers to replay."""
         try:
-            payload = json.dumps(
+            payload = orjson.dumps(
                 {
                     "status": status_code,
                     "body": content.decode("utf-8") if isinstance(content, bytes) else content,
