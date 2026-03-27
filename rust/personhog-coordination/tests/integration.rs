@@ -71,6 +71,7 @@ strategy_tests! {
     rolling_update,
     coordinator_starts_after_pods,
     debounce_batches_rapid_pod_changes,
+    graceful_drain_transfers_partitions,
 }
 
 async fn single_pod_gets_all_partitions(
@@ -1047,4 +1048,105 @@ async fn debounce_batches_rapid_pod_changes(
     }
 
     cancel.cancel();
+}
+
+/// Verify that a pod going through graceful drain (SIGTERM) hands off its
+/// partitions to surviving pods before exiting.
+///
+/// Flow:
+/// 1. Two pods share partitions.
+/// 2. Pod-0 receives cancel (simulating SIGTERM) → sets status to Draining.
+/// 3. Coordinator sees Draining, creates handoffs to pod-1.
+/// 4. Pod-0 releases partitions after handoff completes.
+/// 5. Pod-1 ends up owning all partitions.
+async fn graceful_drain_transfers_partitions(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
+    let store = test_store(test_name).await;
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let coord_cancel = CancellationToken::new();
+    let _coord = start_coordinator(
+        Arc::clone(&store),
+        Arc::clone(&strategy),
+        coord_cancel.clone(),
+    );
+    let _router = start_router(Arc::clone(&store), "router-0", coord_cancel.clone());
+
+    // Start two pods, each with its own cancel token
+    let pod0_cancel = CancellationToken::new();
+    let pod0 = start_pod(Arc::clone(&store), "writer-0", pod0_cancel.clone());
+    let _pod1 = start_pod(Arc::clone(&store), "writer-1", coord_cancel.clone());
+
+    // Wait for both pods to have partitions assigned
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize
+                && assignments.iter().any(|a| a.owner == "writer-0")
+                && assignments.iter().any(|a| a.owner == "writer-1")
+                && handoffs.is_empty()
+        }
+    })
+    .await;
+
+    // Cancel pod-0 (simulates SIGTERM) — it should drain gracefully
+    pod0_cancel.cancel();
+
+    // Wait for pod-0 to transition away from Ready
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let pods = store.list_pods().await.unwrap_or_default();
+            !pods.iter().any(|p| {
+                p.pod_name == "writer-0"
+                    && p.status == personhog_coordination::types::PodStatus::Ready
+            })
+        }
+    })
+    .await;
+
+    // Wait for all partitions to be owned by pod-1 (handoffs complete)
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize
+                && assignments.iter().all(|a| a.owner == "writer-1")
+                && handoffs.is_empty()
+        }
+    })
+    .await;
+
+    // Verify pod-0 released its partitions (check events)
+    let events = pod0.events.lock().await;
+    let released: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, HandoffEvent::Released(_)))
+        .collect();
+    assert!(
+        !released.is_empty(),
+        "pod-0 should have released partitions during drain"
+    );
+
+    // Verify all partitions belong to pod-1
+    let assignments = store.list_assignments().await.unwrap();
+    assert_eq!(assignments.len(), NUM_PARTITIONS as usize);
+    for a in &assignments {
+        assert_eq!(
+            a.owner, "writer-1",
+            "partition {} should be owned by writer-1",
+            a.partition
+        );
+    }
+
+    coord_cancel.cancel();
 }
