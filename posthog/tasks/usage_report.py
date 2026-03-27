@@ -836,6 +836,7 @@ def get_teams_with_api_queries_metrics(
         GROUP BY team_id
     """
     with tags_context(
+        product=Product.PRODUCT_ANALYTICS,
         feature=Feature.USAGE_REPORT,
         usage_report="get_teams_with_api_queries_metrics",
     ):
