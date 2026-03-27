@@ -70,7 +70,7 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
     we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
     the existing integration to avoid accidental deletion.
     """
-    access_token = integration.config.get("credentials", {}).get("access_token")
+    access_token = integration.sensitive_config.get("credentials", {}).get("access_token")
     if not access_token:
         return False
 
