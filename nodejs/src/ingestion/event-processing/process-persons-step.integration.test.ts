@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { ASYNC_OUTPUT } from '~/ingestion/analytics/outputs'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
@@ -33,7 +34,6 @@ describe('createProcessPersonsStep', () => {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
         PERSON_MERGE_ASYNC_ENABLED: false,
-        PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_SYNC_BATCH_SIZE: 1,
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
@@ -356,7 +356,6 @@ describe('createProcessPersonsStep', () => {
             ...options,
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
             PERSON_MERGE_ASYNC_ENABLED: true,
-            PERSON_MERGE_ASYNC_TOPIC: 'async-merge-topic',
         }
 
         const step = createProcessPersonsStep(asyncOptions, hub.kafkaProducer, personsStore)
@@ -370,7 +369,7 @@ describe('createProcessPersonsStep', () => {
         expect(result.type).toBe(PipelineResultType.REDIRECT)
         if (isRedirectResult(result)) {
             expect(result.reason).toBe('Event redirected to async merge topic')
-            expect(result.topic).toBe('async-merge-topic')
+            expect(result.output).toBe(ASYNC_OUTPUT)
         }
     })
 })

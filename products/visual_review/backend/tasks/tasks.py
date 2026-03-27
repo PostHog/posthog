@@ -123,6 +123,7 @@ def _diff_snapshot(snapshot) -> None:
         content=result.diff_image,
         width=result.width,
         height=result.height,
+        team_id=snapshot.team_id,
     )
 
     logic.update_snapshot_diff(
@@ -130,6 +131,7 @@ def _diff_snapshot(snapshot) -> None:
         diff_artifact=diff_artifact,
         diff_percentage=result.diff_percentage,
         diff_pixel_count=result.diff_pixel_count,
+        team_id=snapshot.team_id,
     )
 
     logger.info(

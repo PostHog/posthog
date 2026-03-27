@@ -53,8 +53,6 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
-    Dashboard,
-    DashboardTile,
     Filter,
     Insight,
     InsightViewed,
@@ -62,13 +60,15 @@ from posthog.models import (
     Person,
     SharingConfiguration,
     Team,
-    Text,
     User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 
 from ee.models.rbac.access_control import AccessControl
 

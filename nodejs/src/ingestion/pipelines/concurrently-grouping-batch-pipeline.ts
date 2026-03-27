@@ -1,4 +1,4 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
@@ -15,29 +15,38 @@ export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
  * - Results are returned unordered between groups - as each group completes processing,
  *   its results are made available
  */
-export class ConcurrentlyGroupingBatchPipeline<TInput, TIntermediate, TOutput, TKey, CInput, COutput = CInput>
-    implements BatchPipeline<TInput, TOutput, CInput, COutput>
+export class ConcurrentlyGroupingBatchPipeline<
+    TInput,
+    TIntermediate,
+    TOutput,
+    TKey,
+    CInput,
+    COutput = CInput,
+    RPrev extends string = never,
+    RStep extends string = never,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     // Queue of items waiting to be processed for each group
-    private groupQueues: Map<TKey, PipelineResultWithContext<TIntermediate, COutput>[]> = new Map()
+    private groupQueues: Map<TKey, PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]> = new Map()
 
     // Promise for the currently processing batch for each group (if any)
-    private activeProcessing: Map<TKey, Promise<PipelineResultWithContext<TOutput, COutput>[]>> = new Map()
+    private activeProcessing: Map<TKey, Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[]>> =
+        new Map()
 
     // Completed result batches ready to be returned
-    private completedResults: PipelineResultWithContext<TOutput, COutput>[][] = []
+    private completedResults: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[][] = []
 
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
-        private processor: Pipeline<TIntermediate, TOutput, COutput>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput>
+        private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
+    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         // Get more elements from the previous pipeline and route them to group queues
         const previousResults = await this.previousPipeline.next()
         if (previousResults !== null) {
@@ -63,12 +72,12 @@ export class ConcurrentlyGroupingBatchPipeline<TInput, TIntermediate, TOutput, T
         return null
     }
 
-    private pullCompletedResults(): BatchPipelineResultWithContext<TOutput, COutput> | null {
+    private pullCompletedResults(): BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null {
         return this.completedResults.shift() ?? null
     }
 
-    private routeToGroups(results: PipelineResultWithContext<TIntermediate, COutput>[]): void {
-        const nonOkResults: PipelineResultWithContext<TOutput, COutput>[] = []
+    private routeToGroups(results: PipelineResultWithContext<TIntermediate, COutput, RPrev>[]): void {
+        const nonOkResults: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[] = []
 
         for (const item of results) {
             if (isOkResult(item.result)) {
@@ -78,9 +87,8 @@ export class ConcurrentlyGroupingBatchPipeline<TInput, TIntermediate, TOutput, T
                     queue = []
                     this.groupQueues.set(key, queue)
                 }
-                queue.push(item)
+                queue.push({ result: item.result, context: item.context })
             } else {
-                // Accumulate non-OK results to return as a batch
                 nonOkResults.push({
                     result: item.result,
                     context: item.context,
@@ -96,7 +104,6 @@ export class ConcurrentlyGroupingBatchPipeline<TInput, TIntermediate, TOutput, T
     private startAvailableProcessing(): void {
         for (const [key, queue] of this.groupQueues) {
             if (queue.length > 0 && !this.activeProcessing.has(key)) {
-                // Delete the key to avoid memory leaks from unbounded keys
                 this.groupQueues.delete(key)
 
                 const processingPromise = this.processGroupSequentially(queue).then((results) => {
@@ -111,13 +118,23 @@ export class ConcurrentlyGroupingBatchPipeline<TInput, TIntermediate, TOutput, T
     }
 
     private async processGroupSequentially(
-        items: PipelineResultWithContext<TIntermediate, COutput>[]
-    ): Promise<PipelineResultWithContext<TOutput, COutput>[]> {
-        const results: PipelineResultWithContext<TOutput, COutput>[] = []
+        items: PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]
+    ): Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[]> {
+        const results: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[] = []
 
         for (const item of items) {
-            const result = await this.processor.process(item)
-            results.push(result)
+            if (isOkResult(item.result)) {
+                const result = await this.processor.process({
+                    result: item.result,
+                    context: item.context,
+                })
+                results.push(result)
+            } else {
+                results.push({
+                    result: item.result,
+                    context: item.context,
+                })
+            }
         }
 
         return results

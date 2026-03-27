@@ -20,12 +20,14 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.utils import get_instance_realm
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.rbac.access_control import AccessControl
 

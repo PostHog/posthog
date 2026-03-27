@@ -3,6 +3,7 @@ from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
 from django.core import signing
+from django.db import transaction
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
@@ -12,8 +13,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
@@ -67,7 +70,7 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
     we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
     the existing integration to avoid accidental deletion.
     """
-    access_token = integration.config.get("credentials", {}).get("access_token")
+    access_token = integration.sensitive_config.get("credentials", {}).get("access_token")
     if not access_token:
         return False
 
@@ -152,6 +155,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
 class VercelConnectLinkSerializer(serializers.Serializer):
     session = serializers.CharField(required=True)
     organization_id = serializers.UUIDField(required=True)
+    team_id = serializers.IntegerField(required=True)
 
 
 class VercelConnectLinkViewSet(viewsets.GenericViewSet):
@@ -168,6 +172,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         user = cast(User, request.user)
         session_key = serializer.validated_data["session"]
         organization_id = serializer.validated_data["organization_id"]
+        team_id = serializer.validated_data["team_id"]
 
         try:
             cached_data = _load_connect_session(session_key)
@@ -212,32 +217,71 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     "Please unlink the existing one first or choose a different organization."
                 )
 
-        OrganizationIntegration.objects.create(
-            organization=organization,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id=installation_id,
-            config={
-                "type": "connectable",
-                "vercel_team_id": cached_data.get("team_id"),
-                "vercel_user_id": cached_data["user_id"],
-                "configuration_id": cached_data.get("configuration_id"),
-                "user_mappings": {
-                    cached_data["user_id"]: user.pk,
+        try:
+            team = Team.objects.get(pk=team_id, organization=organization)
+        except Team.DoesNotExist:
+            raise exceptions.ValidationError("The selected project does not belong to this organization.")
+
+        if Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists():
+            raise exceptions.ValidationError("This project already has a Vercel integration.")
+
+        with transaction.atomic():
+            OrganizationIntegration.objects.create(
+                organization=organization,
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                integration_id=installation_id,
+                config={
+                    "type": "connectable",
+                    "vercel_team_id": cached_data.get("team_id"),
+                    "vercel_user_id": cached_data["user_id"],
+                    "configuration_id": cached_data.get("configuration_id"),
+                    "user_mappings": {
+                        cached_data["user_id"]: user.pk,
+                    },
                 },
-            },
-            sensitive_config={
-                "credentials": {
-                    "access_token": cached_data["access_token"],
-                    "token_type": cached_data["token_type"],
+                sensitive_config={
+                    "credentials": {
+                        "access_token": cached_data["access_token"],
+                        "token_type": cached_data["token_type"],
+                    },
                 },
-            },
-            created_by=user,
+                created_by=user,
+            )
+
+            resource = Integration.objects.create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                config={"type": "connectable"},
+                created_by=user,
+            )
+
+        from ee.vercel.integration import VercelIntegration
+
+        client = VercelAPIClient(bearer_token=cached_data["access_token"])
+        import_result = client.import_resource(
+            integration_config_id=installation_id,
+            resource_id=str(resource.pk),
+            product_id="posthog",
+            name=team.name,
+            secrets=VercelIntegration._build_secrets(team),
         )
+        if not import_result.success:
+            logger.error(
+                "Failed to import resource to Vercel",
+                error=import_result.error,
+                installation_id=installation_id,
+                resource_id=str(resource.pk),
+                integration="vercel",
+            )
+
+        VercelIntegration.bulk_sync_feature_flags_to_vercel(team)
 
         logger.info(
             "Vercel connectable account linked",
             installation_id=installation_id,
             organization_id=str(organization_id),
+            team_id=team_id,
             user_id=user.pk,
             integration="vercel",
         )
@@ -290,12 +334,31 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 integration.delete()
                 orphaned_org_ids.add(org_id)
 
+        teams_by_org: dict = {}
+        for team in Team.objects.filter(organization_id__in=org_ids).order_by("name"):
+            teams_by_org.setdefault(team.organization_id, []).append(team)
+
+        teams_with_vercel = set(
+            Integration.objects.filter(
+                team__organization_id__in=org_ids,
+                kind=Integration.IntegrationKind.VERCEL,
+            ).values_list("team_id", flat=True)
+        )
+
         organizations = [
             {
                 "id": str(m.organization.id),
                 "name": m.organization.name,
                 "already_linked": m.organization_id in vercel_integrations
                 and m.organization_id not in orphaned_org_ids,
+                "teams": [
+                    {
+                        "id": t.pk,
+                        "name": t.name,
+                        "already_linked": t.pk in teams_with_vercel,
+                    }
+                    for t in teams_by_org.get(m.organization_id, [])
+                ],
             }
             for m in memberships
         ]

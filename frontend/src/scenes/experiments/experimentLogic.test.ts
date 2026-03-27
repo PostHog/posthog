@@ -19,7 +19,13 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
         error: jest.fn(),
+        info: jest.fn(),
     },
+}))
+
+const mockShowApprovalRequiredToast = jest.fn()
+jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
+    showApprovalRequiredToast: (...args: any[]) => mockShowApprovalRequiredToast(...args),
 }))
 
 const RUNNING_EXP_ID = 45
@@ -1068,6 +1074,133 @@ describe('experimentLogic', () => {
             }).toFinishAllListeners()
 
             expect(errorMock).toHaveBeenCalledWith('Failed to end experiment')
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('finishExperiment (ship variant)', () => {
+        it('calls ship_variant endpoint and dispatches setExperiment with response', async () => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+                conclusion: 'won',
+                conclusion_comment: 'Test variant won clearly',
+                feature_flag: { id: 1, key: 'flag', active: true, filters: {} },
+            } as Experiment
+            const shippedResponse = {
+                ...runningExperiment,
+                end_date: '2026-03-24T10:00:00Z',
+                status: 'stopped',
+                feature_flag: {
+                    id: 1,
+                    key: 'flag',
+                    active: true,
+                    filters: {
+                        groups: [{ properties: [], rollout_percentage: 100 }],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 0 },
+                                { key: 'test', rollout_percentage: 100 },
+                            ],
+                        },
+                    },
+                },
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(shippedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            // Pre-condition: experiment is running
+            expect(keyed.values.experiment.status).toBe('running')
+
+            await expectLogic(keyed, () => {
+                keyed.actions.finishExperiment({ selectedVariantKey: 'test' })
+            })
+                .toDispatchActions(['finishExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/ship_variant`),
+                {
+                    variant_key: 'test',
+                    conclusion: 'won',
+                    conclusion_comment: 'Test variant won clearly',
+                }
+            )
+
+            // Post-condition: experiment is ended with shipped flag
+            expect(keyed.values.experiment.end_date).toBe('2026-03-24T10:00:00Z')
+            expect(keyed.values.experiment.status).toBe('stopped')
+            expect(keyed.values.experiment.feature_flag?.filters?.multivariate?.variants).toEqual([
+                { key: 'control', rollout_percentage: 0 },
+                { key: 'test', rollout_percentage: 100 },
+            ])
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment has not been launched yet.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment has not been launched yet.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to ship variant')
+            createSpy.mockRestore()
+        })
+
+        it('shows approval toast and suppresses error toast on 409', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                status: 409,
+                data: { change_request_id: 'cr-123' },
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+            mockShowApprovalRequiredToast.mockClear()
+
+            const expWithFlag = {
+                ...experiment,
+                feature_flag: { id: 42, key: 'flag', active: true, filters: {} },
+            } as Experiment
+            logic.actions.setExperiment(expWithFlag)
+
+            await expectLogic(logic, () => {
+                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+            }).toFinishAllListeners()
+
+            // Should show approval required toast with change request ID
+            expect(mockShowApprovalRequiredToast).toHaveBeenCalledWith(
+                'cr-123',
+                'end this experiment and roll out the winning variant'
+            )
+            // Should NOT show the generic error toast
+            expect(errorMock).not.toHaveBeenCalled()
             createSpy.mockRestore()
         })
     })

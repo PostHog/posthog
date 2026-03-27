@@ -2,9 +2,9 @@ import { Meta } from '@storybook/react'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ProductIntroduction } from './ProductIntroduction'
+import { ProductIntroduction, ProductIntroductionProps } from './ProductIntroduction'
 
-const meta: Meta<typeof ProductIntroduction> = {
+const meta: Meta<ProductIntroductionProps> = {
     title: 'Components/Product Empty State',
     component: ProductIntroduction,
 }
