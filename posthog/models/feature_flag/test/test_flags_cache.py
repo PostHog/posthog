@@ -695,8 +695,8 @@ def _compare_schemas(fixture_schema: Any, result_schema: Any, path: str = "") ->
             else:
                 diffs.extend(_compare_schemas(fixture_schema[key], result_schema[key], child_path))
     elif isinstance(fixture_schema, list) and fixture_schema:
-        # empty_list is compatible with any element type
-        if fixture_schema[0] == "empty_list" or result_schema[0] == "empty_list":
+        # If the serializer returned an empty list we can't check element type
+        if result_schema[0] == "empty_list":
             return diffs
         diffs.extend(_compare_schemas(fixture_schema[0], result_schema[0], f"{path}[]"))
     elif fixture_schema != result_schema:
@@ -731,7 +731,7 @@ class TestExtractSchema:
             ("str_vs_null", "str", "null", ["Fixture expects non-null at `root` (str) but serializer returned null"]),
             ("int_vs_float", "int", "float", ["Type mismatch at `root`: fixture=int, serializer=float"]),
             ("empty_list_compat_rhs", ["int"], ["empty_list"], []),
-            ("empty_list_compat_lhs", ["empty_list"], ["str"], []),
+            ("empty_list_compat_lhs", ["empty_list"], ["str"], ["Type mismatch at `root[]`: fixture=empty_list, serializer=str"]),
             (
                 "extra_key",
                 {"a": "int"},
@@ -910,6 +910,37 @@ class TestServiceFlagsDataFormat(BaseTest):
             },
         )
 
+        # 5) missing-dep-flag: depends on a flag that doesn't exist,
+        # exercises flags_with_missing_deps element type (int)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="missing-dep-flag",
+            name="Flag with missing dependency",
+            created_by=self.user,
+            version=1,
+            evaluation_runtime="all",
+            bucketing_identifier=None,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "99999",
+                                "label": "nonexistent-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": True,
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": None,
+                    }
+                ],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
         result = _get_feature_flags_for_service(self.team)
 
         # --- Deep recursive schema comparison ---
@@ -964,13 +995,14 @@ class TestServiceFlagsDataFormat(BaseTest):
             assert len(result["cohorts"]) == len(fixture["cohorts"]), (
                 f"Cohort count mismatch: fixture has {len(fixture['cohorts'])}, serializer has {len(result['cohorts'])}"
             )
-            all_diffs.extend(
-                _compare_schemas(
-                    _extract_schema(fixture["cohorts"][0]),
-                    _extract_schema(result["cohorts"][0]),
-                    "cohorts[0]",
+            for i, (f_cohort, r_cohort) in enumerate(zip(fixture["cohorts"], result["cohorts"])):
+                all_diffs.extend(
+                    _compare_schemas(
+                        _extract_schema(f_cohort),
+                        _extract_schema(r_cohort),
+                        f"cohorts[{i}]",
+                    )
                 )
-            )
 
         assert not all_diffs, (
             "\n"
