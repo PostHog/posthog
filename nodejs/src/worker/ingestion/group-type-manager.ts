@@ -62,11 +62,17 @@ export class GroupTypeManager {
             return groupTypes[groupType]
         }
 
+        const usedIndexes = new Set(Object.values(groupTypes))
+        let nextAvailableIndex = 0
+        while (usedIndexes.has(nextAvailableIndex as GroupTypeIndex)) {
+            nextAvailableIndex++
+        }
+
         const [groupTypeIndex, isInsert] = await this.groupRepository.insertGroupType(
             teamId,
             projectId,
             groupType,
-            Object.keys(groupTypes).length
+            nextAvailableIndex
         )
         if (groupTypeIndex !== null) {
             this.loader.markForRefresh(projectId.toString())
