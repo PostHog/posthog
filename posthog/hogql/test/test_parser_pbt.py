@@ -133,7 +133,7 @@ def _constant_strategy() -> st.SearchStrategy[ast.Constant]:
 
 
 def _field_strategy() -> st.SearchStrategy[ast.Field]:
-    return st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3).map(lambda chain: ast.Field(chain=chain))
+    return st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3).map(lambda chain: ast.Field(chain=list[str | int](chain)))
 
 
 def _make_call(name_nargs: tuple[str, int], args: list[ast.Expr]) -> ast.Call:
@@ -374,7 +374,7 @@ class TestFieldRoundTrip:
 
     @given(chain=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3))
     def test_field_roundtrip(self, chain: list[str]) -> None:
-        _roundtrip_check(ast.Field(chain=chain))
+        _roundtrip_check(ast.Field(chain=list[str | int](chain)))
 
 
 class TestArrayAccessRoundTrip:
