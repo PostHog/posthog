@@ -324,174 +324,188 @@ export const WithMandatorySorting: Story = {
     args: { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true },
 }
 
-export const WithStickyFirstColumn = (): JSX.Element => {
-    useDelayedOnMountEffect(() => {
-        const scrollableInner = document.querySelector(
-            '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
+export const WithStickyFirstColumn: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            const scrollableInner = document.querySelector(
+                '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
+            )
+            if (scrollableInner) {
+                scrollableInner.scrollLeft = 20
+            }
+        })
+
+        return (
+            <LemonTable
+                className="max-w-100"
+                firstColumnSticky
+                columns={WIDE_COLUMNS.slice(0, 5)}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
         )
-        if (scrollableInner) {
-            scrollableInner.scrollLeft = 20
-        }
-    })
-
-    return (
-        <LemonTable
-            className="max-w-100"
-            firstColumnSticky
-            columns={WIDE_COLUMNS.slice(0, 5)}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+    },
 }
 
-export const WithLink = (): JSX.Element => {
-    return (
-        <LemonTable
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                    sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
-                    render: (_, item) => (
-                        <LemonTableLink
-                            title={item.name}
-                            to="/test"
-                            description={`${item.name} is a ${item.occupation.toLowerCase()} who is ${
-                                item.name.length * 12
-                            } years old.`}
-                        />
-                    ),
-                },
-                ...WIDE_COLUMNS.slice(1, 5),
-            ]}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+export const WithLink: Story = {
+    render: () => {
+        return (
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+                        render: (_, item) => (
+                            <LemonTableLink
+                                title={item.name}
+                                to="/test"
+                                description={`${item.name} is a ${item.occupation.toLowerCase()} who is ${
+                                    item.name.length * 12
+                                } years old.`}
+                            />
+                        ),
+                    },
+                    ...WIDE_COLUMNS.slice(1, 5),
+                ]}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
+        )
+    },
 }
 
-export const WithCellActions = (): JSX.Element => {
-    return (
-        <LemonTable
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                    cellActions: (value) => (
-                        <>
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                icon={<IconLink />}
-                                onClick={() => alert(`Viewing profile for ${value}`)}
-                            >
-                                View profile
-                            </LemonButton>
-                            <LemonButton fullWidth size="small" onClick={() => alert(`Copying ${value}`)}>
-                                Copy name
-                            </LemonButton>
-                        </>
-                    ),
-                },
-                {
-                    title: 'Occupation',
-                    dataIndex: 'occupation',
-                    cellActions: (value, record) => (
-                        <>
-                            <LemonButton fullWidth size="small" onClick={() => alert(`Filtering to ${value}`)}>
-                                Filter to {value}
-                            </LemonButton>
-                            <LemonDivider />
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => alert(`Removing ${record.name}`)}
-                            >
-                                Remove person
-                            </LemonButton>
-                        </>
-                    ),
-                },
-                {
-                    title: 'Age',
-                    key: 'age',
-                    render: (_, person) => `${person.name.length * 12} years`,
-                },
-            ]}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+export const WithCellActions: Story = {
+    render: () => {
+        return (
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        cellActions: (value) => (
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconLink />}
+                                    onClick={() => alert(`Viewing profile for ${value}`)}
+                                >
+                                    View profile
+                                </LemonButton>
+                                <LemonButton fullWidth size="small" onClick={() => alert(`Copying ${value}`)}>
+                                    Copy name
+                                </LemonButton>
+                            </>
+                        ),
+                    },
+                    {
+                        title: 'Occupation',
+                        dataIndex: 'occupation',
+                        cellActions: (value, record) => (
+                            <>
+                                <LemonButton fullWidth size="small" onClick={() => alert(`Filtering to ${value}`)}>
+                                    Filter to {value}
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => alert(`Removing ${record.name}`)}
+                                >
+                                    Remove person
+                                </LemonButton>
+                            </>
+                        ),
+                    },
+                    {
+                        title: 'Age',
+                        key: 'age',
+                        render: (_, person) => `${person.name.length * 12} years`,
+                    },
+                ]}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
+        )
+    },
 }
 
-export const WithRowActions = (): JSX.Element => {
-    return (
-        <LemonTable
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                },
-                {
-                    title: 'Occupation',
-                    dataIndex: 'occupation',
-                },
-                {
-                    title: 'Age',
-                    key: 'age',
-                    render: (_, person) => `${person.name.length * 12} years`,
-                },
-            ]}
-            rowActions={(record) => (
-                <>
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        icon={<IconLink />}
-                        onClick={() => alert(`Viewing ${record.name}'s profile`)}
-                    >
-                        View profile
-                    </LemonButton>
-                    <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
-                        Edit
-                    </LemonButton>
-                    <LemonDivider />
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={() => alert(`Deleting ${record.name}`)}
-                    >
-                        Delete
-                    </LemonButton>
-                </>
-            )}
-            dataSource={MANY_PEOPLE.slice(0, 5)}
-        />
-    )
+export const WithRowActions: Story = {
+    render: () => {
+        return (
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                    },
+                    {
+                        title: 'Occupation',
+                        dataIndex: 'occupation',
+                    },
+                    {
+                        title: 'Age',
+                        key: 'age',
+                        render: (_, person) => `${person.name.length * 12} years`,
+                    },
+                ]}
+                rowActions={(record) => (
+                    <>
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            icon={<IconLink />}
+                            onClick={() => alert(`Viewing ${record.name}'s profile`)}
+                        >
+                            View profile
+                        </LemonButton>
+                        <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
+                            Edit
+                        </LemonButton>
+                        <LemonDivider />
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            onClick={() => alert(`Deleting ${record.name}`)}
+                        >
+                            Delete
+                        </LemonButton>
+                    </>
+                )}
+                dataSource={MANY_PEOPLE.slice(0, 5)}
+            />
+        )
+    },
 }
 
-export const WithHorizontalOverflow = (): JSX.Element => {
-    return (
-        <div className="max-w-120">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
-        </div>
-    )
+export const WithHorizontalOverflow: Story = {
+    render: () => {
+        return (
+            <div className="max-w-120">
+                <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
+            </div>
+        )
+    },
 }
 
-export const WithVerticalOverflow = (): JSX.Element => {
-    return (
-        <div className="max-h-60 flex flex-col overflow-auto">
-            <LemonTable columns={WIDE_COLUMNS.slice(0, 2)} dataSource={MANY_PEOPLE} />
-        </div>
-    )
+export const WithVerticalOverflow: Story = {
+    render: () => {
+        return (
+            <div className="max-h-60 flex flex-col overflow-auto">
+                <LemonTable columns={WIDE_COLUMNS.slice(0, 2)} dataSource={MANY_PEOPLE} />
+            </div>
+        )
+    },
 }
 
-export const WithHorizontalAndVerticalOverflow = (): JSX.Element => {
-    return (
-        <div className="max-w-120 max-h-60 flex flex-col overflow-auto">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} />
-        </div>
-    )
+export const WithHorizontalAndVerticalOverflow: Story = {
+    render: () => {
+        return (
+            <div className="max-w-120 max-h-60 flex flex-col overflow-auto">
+                <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} />
+            </div>
+        )
+    },
 }

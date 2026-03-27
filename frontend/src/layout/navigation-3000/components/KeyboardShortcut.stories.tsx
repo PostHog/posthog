@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -10,9 +10,10 @@ const meta: Meta<KeyboardShortcutProps> = {
     component: KeyboardShortcut,
     tags: ['autodocs'],
 }
+type Story = StoryObj<KeyboardShortcutProps>
 export default meta
 
-export const Default = {
+export const Default: Story = {
     args: {
         cmd: true,
         shift: true,
@@ -20,18 +21,20 @@ export const Default = {
     },
 }
 
-export const WithinTooltip: StoryFn = () => {
-    return (
-        <Tooltip
-            title={
-                <>
-                    Press <KeyboardShortcut command shift k /> to create a new feature flag
-                </>
-            }
-            placement="right"
-            visible
-        >
-            <IconInfo className="text-2xl" />
-        </Tooltip>
-    )
+export const WithinTooltip: Story = {
+    render: () => {
+        return (
+            <Tooltip
+                title={
+                    <>
+                        Press <KeyboardShortcut command shift k /> to create a new feature flag
+                    </>
+                }
+                placement="right"
+                visible
+            >
+                <IconInfo className="text-2xl" />
+            </Tooltip>
+        )
+    },
 }

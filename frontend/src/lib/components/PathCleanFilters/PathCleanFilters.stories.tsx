@@ -1,4 +1,4 @@
-import type { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
@@ -22,7 +22,7 @@ const meta: Meta<PathCleanFiltersProps> = {
 }
 export default meta
 
-const TableTemplate: StoryFn<PathCleanFiltersTableProps> = (props) => {
+const TableTemplate = (props: PathCleanFiltersTableProps): JSX.Element => {
     const [filters, setFilters] = useState<PathCleaningFilter[]>([
         { alias: 'insights', regex: '/insights/\\w+/dashboard$', order: 0 },
         { alias: 'feature-flags', regex: '/feature_flags/\\d+$', order: 1 },

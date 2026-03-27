@@ -86,34 +86,38 @@ export const ExplicitValue: Story = {
     },
 }
 
-export const IconPositions = (): JSX.Element => {
-    return (
-        <div className="space-y-4">
-            <div>
-                <h4 className="mb-2">Icon at end (default)</h4>
-                <CopyToClipboardInline iconPosition="end">Copy this text</CopyToClipboardInline>
+export const IconPositions: Story = {
+    render: () => {
+        return (
+            <div className="space-y-4">
+                <div>
+                    <h4 className="mb-2">Icon at end (default)</h4>
+                    <CopyToClipboardInline iconPosition="end">Copy this text</CopyToClipboardInline>
+                </div>
+                <div>
+                    <h4 className="mb-2">Icon at start</h4>
+                    <CopyToClipboardInline iconPosition="start">Copy this text</CopyToClipboardInline>
+                </div>
             </div>
-            <div>
-                <h4 className="mb-2">Icon at start</h4>
-                <CopyToClipboardInline iconPosition="start">Copy this text</CopyToClipboardInline>
-            </div>
-        </div>
-    )
+        )
+    },
 }
 
-export const IconSizes = (): JSX.Element => {
-    return (
-        <div className="space-y-4">
-            <div>
-                <h4 className="mb-2">Small icon (default)</h4>
-                <CopyToClipboardInline iconSize="small">Copy this text</CopyToClipboardInline>
+export const IconSizes: Story = {
+    render: () => {
+        return (
+            <div className="space-y-4">
+                <div>
+                    <h4 className="mb-2">Small icon (default)</h4>
+                    <CopyToClipboardInline iconSize="small">Copy this text</CopyToClipboardInline>
+                </div>
+                <div>
+                    <h4 className="mb-2">Extra small icon</h4>
+                    <CopyToClipboardInline iconSize="xsmall">Copy this text</CopyToClipboardInline>
+                </div>
             </div>
-            <div>
-                <h4 className="mb-2">Extra small icon</h4>
-                <CopyToClipboardInline iconSize="xsmall">Copy this text</CopyToClipboardInline>
-            </div>
-        </div>
-    )
+        )
+    },
 }
 
 export const IconOnly: Story = {

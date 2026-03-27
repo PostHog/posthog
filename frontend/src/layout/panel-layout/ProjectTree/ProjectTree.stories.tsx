@@ -1,4 +1,4 @@
-import type { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
@@ -68,13 +68,15 @@ export const NarrowSize: Story = {
 }
 
 // Story showing the products sidebar (non-custom)
-export const AllProducts: StoryFn<StoryProps> = () => {
-    return (
-        <div className="w-[280px] h-[600px] border rounded bg-surface-primary overflow-hidden">
-            <div className="p-2 border-b text-sm font-semibold text-secondary">All Products Sidebar</div>
-            <div className="h-[calc(100%-40px)] overflow-auto group/colorful-product-icons colorful-product-icons-true">
-                <ProjectTree root="products://" onlyTree />
+export const AllProducts: Story = {
+    render: () => {
+        return (
+            <div className="w-[280px] h-[600px] border rounded bg-surface-primary overflow-hidden">
+                <div className="p-2 border-b text-sm font-semibold text-secondary">All Products Sidebar</div>
+                <div className="h-[calc(100%-40px)] overflow-auto group/colorful-product-icons colorful-product-icons-true">
+                    <ProjectTree root="products://" onlyTree />
+                </div>
             </div>
-        </div>
-    )
+        )
+    },
 }

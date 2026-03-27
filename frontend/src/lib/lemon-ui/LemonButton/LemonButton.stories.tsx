@@ -74,248 +74,275 @@ const TypesAndStatusesTemplate = (props: LemonButtonProps): JSX.Element => {
     )
 }
 
-export const TypesAndStatuses: Story = () => {
-    return (
-        <div className="deprecated-space-y-12">
-            <div className="p-2 rounded-lg border">
-                <TypesAndStatusesTemplate />
+export const TypesAndStatuses: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-12">
+                <div className="p-2 rounded-lg border">
+                    <TypesAndStatusesTemplate />
+                </div>
+                <div className="p-2 bg-surface-primary rounded-lg border">
+                    <TypesAndStatusesTemplate />
+                </div>
             </div>
-            <div className="p-2 bg-surface-primary rounded-lg border">
-                <TypesAndStatusesTemplate />
-            </div>
-        </div>
-    )
+        )
+    },
+    args: { ...Default.args },
 }
-
-TypesAndStatuses.args = { ...Default.args }
 
 type PopoverStory = StoryObj<LemonButtonWithDropdownProps>
 
-export const NoPadding = (): JSX.Element => {
-    return <StatusesTemplate noText noPadding />
-}
-
-export const TextOnly = (): JSX.Element => {
-    return <StatusesTemplate type="secondary" icon={null} />
-}
-
-export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
-
-    return (
-        <div className="deprecated-space-y-2">
-            {sizes.map((size) => (
-                <div key={size}>
-                    <h5>size={size}</h5>
-                    <StatusesTemplate size={size} type="secondary" />
-                </div>
-            ))}
-        </div>
-    )
-}
-
-export const SizesIconOnly = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
-
-    return (
-        <div className="deprecated-space-y-2">
-            {sizes.map((size) => (
-                <div key={size}>
-                    <h5>size={size}</h5>
-                    <StatusesTemplate size={size} type="secondary" noText />
-                </div>
-            ))}
-        </div>
-    )
-}
-
-export const DisabledWithReason = (): JSX.Element => {
-    return <StatusesTemplate disabledReason="You're not cool enough to click this." accommodateTooltip />
-}
-// TODO: Add DisabledWithReason.play for a proper snapshot showcasing the tooltip
-
-export const Loading: Story = (): JSX.Element => {
-    return <TypesAndStatusesTemplate loading />
-}
-Loading.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
+export const NoPadding: Story = {
+    render: () => {
+        return <StatusesTemplate noText noPadding />
     },
 }
 
-export const Active = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <p>
-                Sometimes you may need to keep the LemonButton in it's active state e.g. the hover state. This can be
-                done by setting the <code>active</code> property
-            </p>
-            <div className="flex items-center gap-2">
-                <LemonButton>I am not active</LemonButton>
-                <LemonButton active>I am active</LemonButton>
-            </div>
-            <div className="flex items-center gap-2">
-                <LemonButton type="primary">I am not active</LemonButton>
-                <LemonButton type="primary" active>
-                    I am active
-                </LemonButton>
-            </div>
-            <div className="flex items-center gap-2">
-                <LemonButton type="primary" status="alt">
-                    I am not active
-                </LemonButton>
-                <LemonButton type="primary" status="alt" active>
-                    I am active
-                </LemonButton>
-            </div>
-            <div className="flex items-center gap-2">
-                <LemonButton type="secondary">I am not active</LemonButton>
-                <LemonButton type="secondary" active>
-                    I am active
-                </LemonButton>
-            </div>
-            <div className="flex items-center gap-2">
-                <LemonButton type="secondary" status="alt">
-                    I am not active
-                </LemonButton>
-                <LemonButton type="secondary" status="alt" active>
-                    I am active
-                </LemonButton>
-            </div>
-        </div>
-    )
+export const TextOnly: Story = {
+    render: () => {
+        return <StatusesTemplate type="secondary" icon={null} />
+    },
 }
 
-export const MenuButtons = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <div className="border rounded-lg flex flex-col p-2 deprecated-space-y-1">
-                <LemonButton active>Active item</LemonButton>
-                <LemonButton>Item 1</LemonButton>
-                <LemonButton>Item 2</LemonButton>
-            </div>
-        </div>
-    )
-}
+export const Sizes: Story = {
+    render: () => {
+        const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
-export const WithSideIcon = (): JSX.Element => {
-    return <StatusesTemplate sideIcon={<IconInfo />} />
-}
-
-export const FullWidth = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <LemonButton fullWidth>Full Width</LemonButton>
-            <LemonButton type="primary" fullWidth>
-                Full Width
-            </LemonButton>
-
-            <LemonButton type="primary" fullWidth center icon={<IconPlus />}>
-                Full Width centered with icon
-            </LemonButton>
-
-            <LemonButton
-                type="secondary"
-                fullWidth
-                icon={<IconCalculate />}
-                sideAction={{
-                    icon: <IconPlus />,
-                    tooltip: 'Create new',
-                    onClick: () => alert('Side action!'),
-                }}
-            >
-                Full Width with side action
-            </LemonButton>
-        </div>
-    )
-}
-
-export const WithSideAction = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            {types.map((type) => (
-                <div key={type}>
-                    <h5>type={capitalizeFirstLetter(type || '')}</h5>
-                    <div className="flex items-center gap-2">
-                        {statuses.map((status, i) => (
-                            <LemonButton
-                                key={i}
-                                type={type}
-                                sideAction={{
-                                    icon: <IconPlus />,
-                                    tooltip: 'Create new',
-                                    onClick: () => alert('Side action!'),
-                                }}
-                                status={status}
-                            >
-                                {capitalizeFirstLetter(status || 'Default')}
-                            </LemonButton>
-                        ))}
+        return (
+            <div className="deprecated-space-y-2">
+                {sizes.map((size) => (
+                    <div key={size}>
+                        <h5>size={size}</h5>
+                        <StatusesTemplate size={size} type="secondary" />
                     </div>
-                </div>
-            ))}
-        </div>
-    )
+                ))}
+            </div>
+        )
+    },
 }
 
-export const WithButtonWrapper = (): JSX.Element => {
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="border rounded-lg flex flex-col p-2 space-y-1">
-                <LemonButton
-                    buttonWrapper={(button) => <div className="opacity-50">{button}</div>}
-                    sideAction={{
-                        icon: <IconPlus />,
-                        tooltip: 'No wrapper around side action',
-                        onClick: () => alert('Side action!'),
-                    }}
-                    active
-                >
-                    wrapped with opacity 50
+export const SizesIconOnly: Story = {
+    render: () => {
+        const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
+
+        return (
+            <div className="deprecated-space-y-2">
+                {sizes.map((size) => (
+                    <div key={size}>
+                        <h5>size={size}</h5>
+                        <StatusesTemplate size={size} type="secondary" noText />
+                    </div>
+                ))}
+            </div>
+        )
+    },
+}
+
+export const DisabledWithReason: Story = {
+    render: () => {
+        return <StatusesTemplate disabledReason="You're not cool enough to click this." accommodateTooltip />
+    },
+}
+// TODO: Add DisabledWithReason.play for a proper snapshot showcasing the tooltip
+
+export const Loading: Story = {
+    render: () => {
+        return <TypesAndStatusesTemplate loading />
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
+}
+
+export const Active: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <p>
+                    Sometimes you may need to keep the LemonButton in it's active state e.g. the hover state. This can
+                    be done by setting the <code>active</code> property
+                </p>
+                <div className="flex items-center gap-2">
+                    <LemonButton>I am not active</LemonButton>
+                    <LemonButton active>I am active</LemonButton>
+                </div>
+                <div className="flex items-center gap-2">
+                    <LemonButton type="primary">I am not active</LemonButton>
+                    <LemonButton type="primary" active>
+                        I am active
+                    </LemonButton>
+                </div>
+                <div className="flex items-center gap-2">
+                    <LemonButton type="primary" status="alt">
+                        I am not active
+                    </LemonButton>
+                    <LemonButton type="primary" status="alt" active>
+                        I am active
+                    </LemonButton>
+                </div>
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary">I am not active</LemonButton>
+                    <LemonButton type="secondary" active>
+                        I am active
+                    </LemonButton>
+                </div>
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" status="alt">
+                        I am not active
+                    </LemonButton>
+                    <LemonButton type="secondary" status="alt" active>
+                        I am active
+                    </LemonButton>
+                </div>
+            </div>
+        )
+    },
+}
+
+export const MenuButtons: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <div className="border rounded-lg flex flex-col p-2 deprecated-space-y-1">
+                    <LemonButton active>Active item</LemonButton>
+                    <LemonButton>Item 1</LemonButton>
+                    <LemonButton>Item 2</LemonButton>
+                </div>
+            </div>
+        )
+    },
+}
+
+export const WithSideIcon: Story = {
+    render: () => {
+        return <StatusesTemplate sideIcon={<IconInfo />} />
+    },
+}
+
+export const FullWidth: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <LemonButton fullWidth>Full Width</LemonButton>
+                <LemonButton type="primary" fullWidth>
+                    Full Width
                 </LemonButton>
+
+                <LemonButton type="primary" fullWidth center icon={<IconPlus />}>
+                    Full Width centered with icon
+                </LemonButton>
+
                 <LemonButton
-                    buttonWrapper={(button) => <div className="opacity-20">{button}</div>}
+                    type="secondary"
+                    fullWidth
+                    icon={<IconCalculate />}
                     sideAction={{
                         icon: <IconPlus />,
-                        tooltip: 'No wrapper around side action',
+                        tooltip: 'Create new',
                         onClick: () => alert('Side action!'),
                     }}
                 >
-                    wrapped with opacity 20
+                    Full Width with side action
                 </LemonButton>
             </div>
-        </div>
-    )
+        )
+    },
 }
 
-export const AsLinks = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <LemonBanner type="info">
-                <b>Reminder</b> - if you just want a link, use the{' '}
-                <Link to="/?path=/docs/lemon-ui-link" disableClientSideRouting>
-                    Link component
-                </Link>
-            </LemonBanner>
+export const WithSideAction: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                {types.map((type) => (
+                    <div key={type}>
+                        <h5>type={capitalizeFirstLetter(type || '')}</h5>
+                        <div className="flex items-center gap-2">
+                            {statuses.map((status, i) => (
+                                <LemonButton
+                                    key={i}
+                                    type={type}
+                                    sideAction={{
+                                        icon: <IconPlus />,
+                                        tooltip: 'Create new',
+                                        onClick: () => alert('Side action!'),
+                                    }}
+                                    status={status}
+                                >
+                                    {capitalizeFirstLetter(status || 'Default')}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )
+    },
+}
 
-            <p>
-                Buttons can act as links via the <b>to</b> prop. If this is an internal endpoint it will be routed
-                client-side
-            </p>
-            <LemonButton to={urls.projectHomepage()}>Internal link with "to"</LemonButton>
+export const WithButtonWrapper: Story = {
+    render: () => {
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="border rounded-lg flex flex-col p-2 space-y-1">
+                    <LemonButton
+                        buttonWrapper={(button) => <div className="opacity-50">{button}</div>}
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'No wrapper around side action',
+                            onClick: () => alert('Side action!'),
+                        }}
+                        active
+                    >
+                        wrapped with opacity 50
+                    </LemonButton>
+                    <LemonButton
+                        buttonWrapper={(button) => <div className="opacity-20">{button}</div>}
+                        sideAction={{
+                            icon: <IconPlus />,
+                            tooltip: 'No wrapper around side action',
+                            onClick: () => alert('Side action!'),
+                        }}
+                    >
+                        wrapped with opacity 20
+                    </LemonButton>
+                </div>
+            </div>
+        )
+    },
+}
 
-            <p>External links will be automatically detected and routed to normally</p>
-            <LemonButton to="https://posthog.com">External link</LemonButton>
+export const AsLinks: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <LemonBanner type="info">
+                    <b>Reminder</b> - if you just want a link, use the{' '}
+                    <Link to="/?path=/docs/lemon-ui-link" disableClientSideRouting>
+                        Link component
+                    </Link>
+                </LemonBanner>
 
-            <p>
-                The <code>targetBlank</code> prop will open the link in a new window/tab, setting the appropriate
-                attributed like <code>rel="noopener"</code>
-            </p>
-            <LemonButton to="https://posthog.com" targetBlank>
-                External link with "targetBlank"
-            </LemonButton>
-        </div>
-    )
+                <p>
+                    Buttons can act as links via the <b>to</b> prop. If this is an internal endpoint it will be routed
+                    client-side
+                </p>
+                <LemonButton to={urls.projectHomepage()}>Internal link with "to"</LemonButton>
+
+                <p>External links will be automatically detected and routed to normally</p>
+                <LemonButton to="https://posthog.com">External link</LemonButton>
+
+                <p>
+                    The <code>targetBlank</code> prop will open the link in a new window/tab, setting the appropriate
+                    attributed like <code>rel="noopener"</code>
+                </p>
+                <LemonButton to="https://posthog.com" targetBlank>
+                    External link with "targetBlank"
+                </LemonButton>
+            </div>
+        )
+    },
 }
 
 export const WithDropdownToTheRight: PopoverStory = {
@@ -399,57 +426,63 @@ export const WithTooltipPlacementAndArrowOffset: Story = {
     },
 }
 
-export const More_ = (): JSX.Element => {
-    return (
-        <More
-            overlay={
-                <>
-                    <LemonButton fullWidth>View</LemonButton>
-                    <LemonButton fullWidth>Edit</LemonButton>
-                    <LemonDivider />
-                    <LemonButton status="danger" fullWidth>
-                        Delete
-                    </LemonButton>
-                </>
-            }
-        />
-    )
+export const More_: Story = {
+    render: () => {
+        return (
+            <More
+                overlay={
+                    <>
+                        <LemonButton fullWidth>View</LemonButton>
+                        <LemonButton fullWidth>Edit</LemonButton>
+                        <LemonDivider />
+                        <LemonButton status="danger" fullWidth>
+                            Delete
+                        </LemonButton>
+                    </>
+                }
+            />
+        )
+    },
 }
 
-export const WithOverflowingContent = (): JSX.Element => {
-    const longText = 'long text that will overflow the button by at least a little!'
+export const WithOverflowingContent: Story = {
+    render: () => {
+        const longText = 'long text that will overflow the button by at least a little!'
 
-    return (
-        <div className="w-200 border p-2 rounded flex items-center gap-2 overflow-hidden">
-            <LemonButton type="secondary">No shrink</LemonButton>
-            <LemonButton type="secondary" icon={<IconLink />}>
-                Small button
-            </LemonButton>
-            <LemonButton type="secondary" icon={<IconGear />} sideIcon={<IconLink />} truncate>
-                Truncating {longText}
-            </LemonButton>
-            <LemonButton type="secondary">{longText}</LemonButton>
-        </div>
-    )
+        return (
+            <div className="w-200 border p-2 rounded flex items-center gap-2 overflow-hidden">
+                <LemonButton type="secondary">No shrink</LemonButton>
+                <LemonButton type="secondary" icon={<IconLink />}>
+                    Small button
+                </LemonButton>
+                <LemonButton type="secondary" icon={<IconGear />} sideIcon={<IconLink />} truncate>
+                    Truncating {longText}
+                </LemonButton>
+                <LemonButton type="secondary">{longText}</LemonButton>
+            </div>
+        )
+    },
 }
 
-export const WithAccessControl = (): JSX.Element => {
-    return (
-        <div className="flex gap-2">
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Project}
-                minAccessLevel={AccessControlLevel.Admin}
-                userAccessLevel={AccessControlLevel.Admin}
-            >
-                <LemonButton type="primary">Enabled (admin ≥ admin)</LemonButton>
-            </AccessControlAction>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Project}
-                minAccessLevel={AccessControlLevel.Admin}
-                userAccessLevel={AccessControlLevel.Viewer}
-            >
-                <LemonButton type="primary">Disabled (viewer {'<'} admin)</LemonButton>
-            </AccessControlAction>
-        </div>
-    )
+export const WithAccessControl: Story = {
+    render: () => {
+        return (
+            <div className="flex gap-2">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Project}
+                    minAccessLevel={AccessControlLevel.Admin}
+                    userAccessLevel={AccessControlLevel.Admin}
+                >
+                    <LemonButton type="primary">Enabled (admin ≥ admin)</LemonButton>
+                </AccessControlAction>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Project}
+                    minAccessLevel={AccessControlLevel.Admin}
+                    userAccessLevel={AccessControlLevel.Viewer}
+                >
+                    <LemonButton type="primary">Disabled (viewer {'<'} admin)</LemonButton>
+                </AccessControlAction>
+            </div>
+        )
+    },
 }

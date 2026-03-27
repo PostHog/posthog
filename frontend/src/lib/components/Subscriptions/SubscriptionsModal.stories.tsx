@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useRef, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -22,6 +22,8 @@ const meta: Meta<SubscriptionsModalProps> = {
     },
 }
 export default meta
+
+type Story = StoryObj<SubscriptionsModalProps>
 
 const Template = (
     args: Partial<SubscriptionsModalProps> & { noIntegrations?: boolean; featureAvailable?: boolean }
@@ -99,26 +101,38 @@ const Template = (
     )
 }
 
-export const Subscriptions_ = (): JSX.Element => {
-    return <Template />
+export const Subscriptions_: Story = {
+    render: () => {
+        return <Template />
+    },
 }
 
-export const SubscriptionsEmpty = (): JSX.Element => {
-    return <Template insightShortId={'empty' as InsightShortId} />
+export const SubscriptionsEmpty: Story = {
+    render: () => {
+        return <Template insightShortId={'empty' as InsightShortId} />
+    },
 }
 
-export const SubscriptionsNew = (): JSX.Element => {
-    return <Template subscriptionId="new" />
+export const SubscriptionsNew: Story = {
+    render: () => {
+        return <Template subscriptionId="new" />
+    },
 }
 
-export const SubscriptionNoIntegrations = (): JSX.Element => {
-    return <Template subscriptionId="new" noIntegrations={true} />
+export const SubscriptionNoIntegrations: Story = {
+    render: () => {
+        return <Template subscriptionId="new" noIntegrations={true} />
+    },
 }
 
-export const SubscriptionsEdit = (): JSX.Element => {
-    return <Template subscriptionId={1} />
+export const SubscriptionsEdit: Story = {
+    render: () => {
+        return <Template subscriptionId={1} />
+    },
 }
 
-export const SubscriptionsUnavailable = (): JSX.Element => {
-    return <Template featureAvailable={false} />
+export const SubscriptionsUnavailable: Story = {
+    render: () => {
+        return <Template featureAvailable={false} />
+    },
 }

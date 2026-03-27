@@ -1,4 +1,4 @@
-import type { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -52,44 +52,50 @@ export const Default: Story = {
     args: {},
 }
 
-export const NoUrlsTemplate: StoryFn = () => {
-    const { currentTeam } = useValues(teamLogic)
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+export const NoUrlsTemplate: Story = {
+    render: () => {
+        const { currentTeam } = useValues(teamLogic)
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useOnMountEffect(() => {
-        const team = { ...currentTeam, app_urls: [] }
-        loadCurrentTeamSuccess(team as TeamPublicType)
-    })
+        useOnMountEffect(() => {
+            const team = { ...currentTeam, app_urls: [] }
+            loadCurrentTeamSuccess(team as TeamPublicType)
+        })
 
-    useOnMountEffect(() => router.actions.push(urls.dashboards()))
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
 
-    return <ToolbarLaunch />
+        return <ToolbarLaunch />
+    },
 }
 
-export const NoSuggestionsTemplate: StoryFn = () => {
-    useStorybookMocks({
-        post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
-    })
+export const NoSuggestionsTemplate: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
+        })
 
-    useOnMountEffect(() => router.actions.push(urls.dashboards()))
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
 
-    return <ToolbarLaunch />
+        return <ToolbarLaunch />
+    },
 }
 
-export const EmptyStateTemplate: StoryFn = () => {
-    const { currentTeam } = useValues(teamLogic)
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+export const EmptyStateTemplate: Story = {
+    render: () => {
+        const { currentTeam } = useValues(teamLogic)
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useOnMountEffect(() => {
-        const team = { ...currentTeam, app_urls: [] }
-        loadCurrentTeamSuccess(team as TeamPublicType)
-    })
+        useOnMountEffect(() => {
+            const team = { ...currentTeam, app_urls: [] }
+            loadCurrentTeamSuccess(team as TeamPublicType)
+        })
 
-    useStorybookMocks({
-        post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
-    })
+        useStorybookMocks({
+            post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
+        })
 
-    useOnMountEffect(() => router.actions.push(urls.dashboards()))
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
 
-    return <ToolbarLaunch />
+        return <ToolbarLaunch />
+    },
 }

@@ -27,29 +27,31 @@ export const Base: Story = {
     args: { name: 'Athena' },
 }
 
-export const Overview = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <div>
-                <Lettermark name="Ben" /> Text
-            </div>
-            <div>
-                <Lettermark name={42} /> Number
-            </div>
-            <div>
-                <Lettermark name={null} /> Missing
-            </div>
+export const Overview: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <div>
+                    <Lettermark name="Ben" /> Text
+                </div>
+                <div>
+                    <Lettermark name={42} /> Number
+                </div>
+                <div>
+                    <Lettermark name={null} /> Missing
+                </div>
 
-            <div>
-                <p>Color based on index</p>
-                <div className="deprecated-space-x-1">
-                    {range(NUM_LETTERMARK_STYLES).map((x) => (
-                        <Lettermark key={x} index={x} name={x + 1} />
-                    ))}
+                <div>
+                    <p>Color based on index</p>
+                    <div className="deprecated-space-x-1">
+                        {range(NUM_LETTERMARK_STYLES).map((x) => (
+                            <Lettermark key={x} index={x} name={x + 1} />
+                        ))}
+                    </div>
                 </div>
             </div>
-        </div>
-    )
+        )
+    },
 }
 
 export const String: Story = {

@@ -138,37 +138,41 @@ export const CustomElement: Story = {
     },
 }
 
-export const FullWidth = (props: LemonSelectProps<any>): JSX.Element => {
-    return (
-        <div className="items-center w-full border p-4 gap-2">
-            <LemonSelect {...props} fullWidth={true} allowClear={true} value="poodle" />
-        </div>
-    )
+export const FullWidth: Story = {
+    render: (props) => {
+        return (
+            <div className="items-center w-full border p-4 gap-2">
+                <LemonSelect {...props} fullWidth={true} allowClear={true} value="poodle" />
+            </div>
+        )
+    },
 }
 
-export const WithAccessControl = (): JSX.Element => {
-    const options = [
-        { value: 'husky', label: 'Husky' },
-        { value: 'poodle', label: 'Poodle' },
-        { value: 'labrador', label: 'Labrador' },
-    ] as LemonSelectOptions<string>
+export const WithAccessControl: Story = {
+    render: () => {
+        const options = [
+            { value: 'husky', label: 'Husky' },
+            { value: 'poodle', label: 'Poodle' },
+            { value: 'labrador', label: 'Labrador' },
+        ] as LemonSelectOptions<string>
 
-    return (
-        <div className="flex gap-4 items-center">
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Dashboard}
-                minAccessLevel={AccessControlLevel.Viewer}
-                userAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonSelect options={options} placeholder="Enabled (editor ≥ viewer)" />
-            </AccessControlAction>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Dashboard}
-                minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={AccessControlLevel.Viewer}
-            >
-                <LemonSelect options={options} placeholder="Disabled (viewer < editor)" />
-            </AccessControlAction>
-        </div>
-    )
+        return (
+            <div className="flex gap-4 items-center">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Dashboard}
+                    minAccessLevel={AccessControlLevel.Viewer}
+                    userAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonSelect options={options} placeholder="Enabled (editor ≥ viewer)" />
+                </AccessControlAction>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Dashboard}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={AccessControlLevel.Viewer}
+                >
+                    <LemonSelect options={options} placeholder="Disabled (viewer < editor)" />
+                </AccessControlAction>
+            </div>
+        )
+    },
 }

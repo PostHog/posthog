@@ -1,7 +1,7 @@
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -44,6 +44,8 @@ const meta: Meta = {
 }
 export default meta
 
+type Story = StoryObj
+
 type ToolbarStoryProps = {
     menu?: MenuState
     minimized?: boolean
@@ -51,7 +53,7 @@ type ToolbarStoryProps = {
     theme?: 'light' | 'dark'
 }
 
-const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
+const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
     const toolbarParams: ToolbarParams = {
         accessToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
         actionId: undefined,
@@ -112,81 +114,83 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
     )
 }
 
-export const Default = (): JSX.Element => {
-    return <BasicTemplate />
+export const Default: Story = {
+    render: () => <BasicTemplate />,
 }
 
-export const Unauthenticated = (): JSX.Element => {
-    return <BasicTemplate unauthenticated />
+export const Unauthenticated: Story = {
+    render: () => <BasicTemplate unauthenticated />,
 }
 
-export const Minimized = (): JSX.Element => {
-    return <BasicTemplate minimized />
+export const Minimized: Story = {
+    render: () => <BasicTemplate minimized />,
 }
 
-export const Heatmap = (): JSX.Element => {
-    return <BasicTemplate menu="heatmap" />
+export const Heatmap: Story = {
+    render: () => <BasicTemplate menu="heatmap" />,
 }
 
-export const Inspect = (): JSX.Element => {
-    return <BasicTemplate menu="inspect" />
+export const Inspect: Story = {
+    render: () => <BasicTemplate menu="inspect" />,
 }
 
-export const Actions = (): JSX.Element => {
-    return <BasicTemplate menu="actions" />
+export const Actions: Story = {
+    render: () => <BasicTemplate menu="actions" />,
 }
 
-export const FeatureFlags = (): JSX.Element => {
-    return <BasicTemplate menu="flags" />
+export const FeatureFlags: Story = {
+    render: () => <BasicTemplate menu="flags" />,
 }
 
-export const EventsDebuggerEmpty = (): JSX.Element => {
-    return <BasicTemplate menu="debugger" />
+export const EventsDebuggerEmpty: Story = {
+    render: () => <BasicTemplate menu="debugger" />,
 }
 
-export const Experiments = (): JSX.Element => {
-    return <BasicTemplate menu="experiments" />
+export const Experiments: Story = {
+    render: () => <BasicTemplate menu="experiments" />,
 }
 
-export const ExperimentsDisabledInParent = (): JSX.Element => {
-    // fake that the host site posthog config disables web experiments
-    window.parent.posthog = { config: { disable_web_experiments: true } }
-    return <BasicTemplate menu="experiments" />
+export const ExperimentsDisabledInParent: Story = {
+    render: () => {
+        // fake that the host site posthog config disables web experiments
+        window.parent.posthog = { config: { disable_web_experiments: true } }
+        return <BasicTemplate menu="experiments" />
+    },
 }
 
-export const WebVitals = (): JSX.Element => {
-    return <BasicTemplate menu="web-vitals" />
+export const WebVitals: Story = {
+    render: () => <BasicTemplate menu="web-vitals" />,
 }
 
 // Dark theme
-export const DefaultDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" />
+export const DefaultDark: Story = {
+    render: () => <BasicTemplate theme="dark" />,
 }
 
-export const MinimizedDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" minimized />
+export const MinimizedDark: Story = {
+    render: () => <BasicTemplate theme="dark" minimized />,
 }
 
-export const HeatmapDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="heatmap" />
+export const HeatmapDark: Story = {
+    render: () => <BasicTemplate theme="dark" menu="heatmap" />,
 }
 
-export const InspectDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="inspect" />
+export const InspectDark: Story = {
+    render: () => <BasicTemplate theme="dark" menu="inspect" />,
 }
 
-export const ActionsDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="actions" />
+export const ActionsDark: Story = {
+    render: () => <BasicTemplate theme="dark" menu="actions" />,
 }
 
-export const FeatureFlagsDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="flags" />
+export const FeatureFlagsDark: Story = {
+    render: () => <BasicTemplate theme="dark" menu="flags" />,
 }
 
-export const EventsDebuggerEmptyDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="debugger" />
+export const EventsDebuggerEmptyDark: Story = {
+    render: () => <BasicTemplate theme="dark" menu="debugger" />,
 }
 
-export const WebVitalsDark = (): JSX.Element => {
-    return <BasicTemplate theme="dark" menu="web-vitals" />
+export const WebVitalsDark: Story = {
+    render: () => <BasicTemplate theme="dark" menu="web-vitals" />,
 }

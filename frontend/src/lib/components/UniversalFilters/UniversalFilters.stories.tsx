@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -17,6 +17,8 @@ const meta: Meta<UniversalFiltersProps> = {
     decorators: [taxonomicFilterMocksDecorator],
 }
 export default meta
+
+type Story = StoryObj<UniversalFiltersProps>
 
 // When implementing UniversalFilters, customize this to render your own UI
 const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
@@ -47,32 +49,34 @@ const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
     )
 }
 
-export const Default: StoryFn<UniversalFiltersProps> = ({ group }) => {
-    const [filterGroup, setFilterGroup] = useState(group)
-    useMountedLogic(cohortsModel)
-    useMountedLogic(actionsModel)
+export const Default: Story = {
+    render: ({ group }) => {
+        const [filterGroup, setFilterGroup] = useState(group)
+        useMountedLogic(cohortsModel)
+        useMountedLogic(actionsModel)
 
-    const rootKey = 'session-recordings'
+        const rootKey = 'session-recordings'
 
-    return (
-        <UniversalFilters
-            rootKey={rootKey}
-            group={filterGroup}
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.Events,
-                TaxonomicFilterGroupType.Actions,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.SessionProperties,
-            ]}
-            onChange={(filterGroup) => {
-                setFilterGroup(filterGroup)
-            }}
-        >
-            <NestedFilterGroup rootKey={rootKey} />
-        </UniversalFilters>
-    )
-}
-Default.args = {
-    group: DEFAULT_UNIVERSAL_GROUP_FILTER,
+        return (
+            <UniversalFilters
+                rootKey={rootKey}
+                group={filterGroup}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.SessionProperties,
+                ]}
+                onChange={(filterGroup) => {
+                    setFilterGroup(filterGroup)
+                }}
+            >
+                <NestedFilterGroup rootKey={rootKey} />
+            </UniversalFilters>
+        )
+    },
+    args: {
+        group: DEFAULT_UNIVERSAL_GROUP_FILTER,
+    },
 }

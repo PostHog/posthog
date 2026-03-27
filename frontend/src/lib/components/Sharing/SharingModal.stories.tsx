@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
@@ -27,6 +27,8 @@ const meta: Meta<SharingModalProps> = {
     },
 }
 export default meta
+
+type Story = StoryObj<SharingModalProps>
 
 const Template = (
     args: Partial<SharingModalProps> & { licensed?: boolean; passwordRequired?: boolean }
@@ -105,46 +107,56 @@ const Template = (
     )
 }
 
-export const DashboardSharing = (): JSX.Element => {
-    return (
-        <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
-            <Template title="Dashboard permissions" dashboardId={123} />
-        </BindLogic>
-    )
+export const DashboardSharing: Story = {
+    render: () => {
+        return (
+            <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+                <Template title="Dashboard permissions" dashboardId={123} />
+            </BindLogic>
+        )
+    },
 }
 
-export const DashboardSharingLicensed = (): JSX.Element => {
-    return (
-        <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
-            <Template title="Dashboard permissions" licensed passwordRequired dashboardId={123} />
-        </BindLogic>
-    )
+export const DashboardSharingLicensed: Story = {
+    render: () => {
+        return (
+            <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+                <Template title="Dashboard permissions" licensed passwordRequired dashboardId={123} />
+            </BindLogic>
+        )
+    },
 }
 
-export const InsightSharing = (): JSX.Element => {
-    return (
-        <Template
-            title="Insight permissions"
-            insightShortId={fakeInsight.short_id}
-            insight={fakeInsight}
-            previewIframe
-        />
-    )
+export const InsightSharing: Story = {
+    render: () => {
+        return (
+            <Template
+                title="Insight permissions"
+                insightShortId={fakeInsight.short_id}
+                insight={fakeInsight}
+                previewIframe
+            />
+        )
+    },
 }
 
-export const InsightSharingLicensed = (): JSX.Element => {
-    return (
-        <Template
-            title="Insight permissions"
-            insightShortId={fakeInsight.short_id}
-            insight={fakeInsight}
-            licensed
-            passwordRequired
-            previewIframe
-        />
-    )
+export const InsightSharingLicensed: Story = {
+    render: () => {
+        return (
+            <Template
+                title="Insight permissions"
+                insightShortId={fakeInsight.short_id}
+                insight={fakeInsight}
+                licensed
+                passwordRequired
+                previewIframe
+            />
+        )
+    },
 }
 
-export const RecordingSharingLicensed = (): JSX.Element => {
-    return <Template title="Share Recording" recordingId="fake-id" licensed previewIframe />
+export const RecordingSharingLicensed: Story = {
+    render: () => {
+        return <Template title="Share Recording" recordingId="fake-id" licensed previewIframe />
+    },
 }

@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { Splotch, SplotchColor, SplotchProps } from './Splotch'
 
@@ -12,6 +12,10 @@ const meta: Meta<SplotchProps> = {
 }
 export default meta
 
-export const _Splotch: StoryFn<SplotchProps> = (props) => {
-    return <Splotch {...props} />
+type Story = StoryObj<SplotchProps>
+
+export const _Splotch: Story = {
+    render: (props) => {
+        return <Splotch {...props} />
+    },
 }

@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { ProjectNoticeVariant } from './navigationLogic'
 import { Notice, NoticeProps, NOTICES } from './ProjectNotice'
@@ -19,25 +19,26 @@ const DEFAULT_NOTICE_PROPS: NoticeProps = {
     requestVerificationLink: () => {},
 }
 
-function noticeStoryFactory(
-    variant: ProjectNoticeVariant,
-    extraProps: Partial<NoticeProps> = {}
-): StoryFn<NoticeProps> {
+type Story = StoryObj<NoticeProps>
+
+function noticeStoryFactory(variant: ProjectNoticeVariant, extraProps: Partial<NoticeProps> = {}): Story {
     const factory = NOTICES[variant]
     if (!factory) {
         throw new Error(`No notice factory for variant: ${variant}`)
     }
 
     const notice = factory({ ...DEFAULT_NOTICE_PROPS, ...extraProps })
-    return () => (
-        <div className="min-w-[600px] h-full m-4">
-            <Notice variant={variant} notice={notice} />
-        </div>
-    )
+    return {
+        render: () => (
+            <div className="min-w-[600px] h-full m-4">
+                <Notice variant={variant} notice={notice} />
+            </div>
+        ),
+    }
 }
 
-export const DemoProject: StoryFn<NoticeProps> = noticeStoryFactory('demo_project')
-export const DemoProjectWithAltTeam: StoryFn<NoticeProps> = noticeStoryFactory('demo_project', {
+export const DemoProject: Story = noticeStoryFactory('demo_project')
+export const DemoProjectWithAltTeam: Story = noticeStoryFactory('demo_project', {
     altTeamForIngestion: {
         id: 2,
         name: 'My Project',
@@ -46,8 +47,8 @@ export const DemoProjectWithAltTeam: StoryFn<NoticeProps> = noticeStoryFactory('
     } as NoticeProps['altTeamForIngestion'],
 })
 
-export const InviteTeammates: StoryFn<NoticeProps> = noticeStoryFactory('invite_teammates')
-export const UnverifiedEmail: StoryFn<NoticeProps> = noticeStoryFactory('unverified_email')
-export const InternetConnectionIssue: StoryFn<NoticeProps> = noticeStoryFactory('internet_connection_issue')
-export const EventIngestionRestriction: StoryFn<NoticeProps> = noticeStoryFactory('event_ingestion_restriction')
-export const MissingReverseProxy: StoryFn<NoticeProps> = noticeStoryFactory('missing_reverse_proxy')
+export const InviteTeammates: Story = noticeStoryFactory('invite_teammates')
+export const UnverifiedEmail: Story = noticeStoryFactory('unverified_email')
+export const InternetConnectionIssue: Story = noticeStoryFactory('internet_connection_issue')
+export const EventIngestionRestriction: Story = noticeStoryFactory('event_ingestion_restriction')
+export const MissingReverseProxy: Story = noticeStoryFactory('missing_reverse_proxy')

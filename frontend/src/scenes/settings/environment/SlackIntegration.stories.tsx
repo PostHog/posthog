@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -13,6 +13,8 @@ const meta: Meta<typeof SlackIntegration> = {
     parameters: {},
 }
 export default meta
+
+type Story = StoryObj<typeof SlackIntegration>
 
 const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }): JSX.Element => {
     const { instanceConfigured = true, integrated = false } = args
@@ -42,14 +44,14 @@ const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }):
     return <SlackIntegration />
 }
 
-export const SlackIntegration_ = (): JSX.Element => {
-    return <Template />
+export const SlackIntegration_: Story = {
+    render: () => <Template />,
 }
 
-export const SlackIntegrationInstanceNotConfigured = (): JSX.Element => {
-    return <Template instanceConfigured={false} />
+export const SlackIntegrationInstanceNotConfigured: Story = {
+    render: () => <Template instanceConfigured={false} />,
 }
 
-export const SlackIntegrationAdded = (): JSX.Element => {
-    return <Template integrated />
+export const SlackIntegrationAdded: Story = {
+    render: () => <Template integrated />,
 }

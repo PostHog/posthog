@@ -37,64 +37,66 @@ export const Basic: Story = {
     },
 }
 
-export const Overview = (): JSX.Element => {
-    const [progress, setProgress] = useState(0.2)
-    const [animate, setAnimate] = useState(false)
+export const Overview: Story = {
+    render: () => {
+        const [progress, setProgress] = useState(0.2)
+        const [animate, setAnimate] = useState(false)
 
-    useEffect(() => {
-        if (!animate) {
-            return
-        }
-        const interval = setInterval(() => {
-            setProgress((progress) => {
-                const newProgress = progress + 0.1
-                return newProgress > 1 ? newProgress - 1 : newProgress
-            })
-        }, 500)
-        return () => clearInterval(interval)
-    }, [animate])
+        useEffect(() => {
+            if (!animate) {
+                return
+            }
+            const interval = setInterval(() => {
+                setProgress((progress) => {
+                    const newProgress = progress + 0.1
+                    return newProgress > 1 ? newProgress - 1 : newProgress
+                })
+            }, 500)
+            return () => clearInterval(interval)
+        }, [animate])
 
-    return (
-        <div className="flex flex-col gap-2">
-            <LemonCheckbox checked={animate} onChange={setAnimate} bordered label="Animate" />
-            <LemonProgressCircle progress={progress} />
-            <LemonProgressCircle progress={progress} strokePercentage={0.5} size={30} />
+        return (
+            <div className="flex flex-col gap-2">
+                <LemonCheckbox checked={animate} onChange={setAnimate} bordered label="Animate" />
+                <LemonProgressCircle progress={progress} />
+                <LemonProgressCircle progress={progress} strokePercentage={0.5} size={30} />
 
-            <span className="flex items-center gap-2">
-                <LemonButton
-                    icon={<LemonProgressCircle progress={progress} />}
-                    sideIcon={<IconGear />}
-                    type="secondary"
-                    size="small"
-                >
-                    In a button!
-                </LemonButton>
+                <span className="flex items-center gap-2">
+                    <LemonButton
+                        icon={<LemonProgressCircle progress={progress} />}
+                        sideIcon={<IconGear />}
+                        type="secondary"
+                        size="small"
+                    >
+                        In a button!
+                    </LemonButton>
 
-                <LemonButton
-                    icon={<LemonProgressCircle progress={progress} size={20} />}
-                    sideIcon={<IconGear />}
-                    type="secondary"
-                >
-                    In a button!
-                </LemonButton>
+                    <LemonButton
+                        icon={<LemonProgressCircle progress={progress} size={20} />}
+                        sideIcon={<IconGear />}
+                        type="secondary"
+                    >
+                        In a button!
+                    </LemonButton>
 
-                <LemonButton
-                    icon={<LemonProgressCircle progress={progress} size={24} />}
-                    sideIcon={<IconGear />}
-                    type="secondary"
-                    size="large"
-                >
-                    In a button!
-                </LemonButton>
-            </span>
+                    <LemonButton
+                        icon={<LemonProgressCircle progress={progress} size={24} />}
+                        sideIcon={<IconGear />}
+                        type="secondary"
+                        size="large"
+                    >
+                        In a button!
+                    </LemonButton>
+                </span>
 
-            <LemonProgressCircle progress={progress} size={40}>
-                <span className="font-semibold text-sm">{(100 * progress).toFixed(0)}</span>
-            </LemonProgressCircle>
+                <LemonProgressCircle progress={progress} size={40}>
+                    <span className="font-semibold text-sm">{(100 * progress).toFixed(0)}</span>
+                </LemonProgressCircle>
 
-            <span>
-                Here is one inline <LemonProgressCircle progress={progress} /> with some text...
-            </span>
-        </div>
-    )
+                <span>
+                    Here is one inline <LemonProgressCircle progress={progress} /> with some text...
+                </span>
+            </div>
+        )
+    },
 }

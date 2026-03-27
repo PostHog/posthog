@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -19,6 +19,8 @@ const meta: Meta<PayGateMiniProps> = {
     },
 }
 export default meta
+
+type Story = StoryObj<PayGateMiniProps>
 
 const Template = ({ cloud, ...props }: PayGateMiniProps & { cloud?: boolean }): JSX.Element => {
     useStorybookMocks({
@@ -44,88 +46,108 @@ const Template = ({ cloud, ...props }: PayGateMiniProps & { cloud?: boolean }): 
     )
 }
 
-export const PayGateMini_ = (): JSX.Element => {
-    return <Template feature={AvailableFeature.SUBSCRIPTIONS} />
+export const PayGateMini_: Story = {
+    render: () => {
+        return <Template feature={AvailableFeature.SUBSCRIPTIONS} />
+    },
 }
 
-export const PayGateMiniWithDocsLink = (): JSX.Element => {
-    return <Template feature={AvailableFeature.SUBSCRIPTIONS} docsLink="https://docs.posthog.com/" />
+export const PayGateMiniWithDocsLink: Story = {
+    render: () => {
+        return <Template feature={AvailableFeature.SUBSCRIPTIONS} docsLink="https://docs.posthog.com/" />
+    },
 }
 
-export const PayGateMiniWithoutBackground = (): JSX.Element => {
-    return <Template feature={AvailableFeature.SUBSCRIPTIONS} background={false} />
+export const PayGateMiniWithoutBackground: Story = {
+    render: () => {
+        return <Template feature={AvailableFeature.SUBSCRIPTIONS} background={false} />
+    },
 }
 
-export const PayGateMiniSelfHost = (): JSX.Element => {
-    return <Template feature={AvailableFeature.SUBSCRIPTIONS} cloud={false} />
+export const PayGateMiniSelfHost: Story = {
+    render: () => {
+        return <Template feature={AvailableFeature.SUBSCRIPTIONS} cloud={false} />
+    },
 }
 
-export const PayGateMiniContactSales = (): JSX.Element => {
-    return <Template feature={AvailableFeature.CUSTOM_MSA} />
+export const PayGateMiniContactSales: Story = {
+    render: () => {
+        return <Template feature={AvailableFeature.CUSTOM_MSA} />
+    },
 }
 
-export const PayGateMiniGrandfathered = (): JSX.Element => {
-    return <Template feature={AvailableFeature.SUBSCRIPTIONS} isGrandfathered />
+export const PayGateMiniGrandfathered: Story = {
+    render: () => {
+        return <Template feature={AvailableFeature.SUBSCRIPTIONS} isGrandfathered />
+    },
 }
 
-export const PayGateMiniAddon = (): JSX.Element => {
-    return <Template feature={AvailableFeature.GROUP_ANALYTICS} />
+export const PayGateMiniAddon: Story = {
+    render: () => {
+        return <Template feature={AvailableFeature.GROUP_ANALYTICS} />
+    },
 }
 
-export const PayGateMiniLimitFeatureOther = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/api/users/@me': () => [
-                200,
-                {
-                    ...meCurrent,
-                    organization: {
-                        ...meCurrent.organization,
-                        available_product_features: [
-                            {
-                                key: 'advanced_permissions',
-                                name: 'Advanced Permissions',
-                            },
-                        ],
+export const PayGateMiniLimitFeatureOther: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        ...meCurrent,
+                        organization: {
+                            ...meCurrent.organization,
+                            available_product_features: [
+                                {
+                                    key: 'advanced_permissions',
+                                    name: 'Advanced Permissions',
+                                },
+                            ],
+                        },
                     },
-                },
-            ],
-        },
-    })
-    return <Template feature={AvailableFeature.ADVANCED_PERMISSIONS} currentUsage={3} />
-}
-
-export const PayGateMiniLimitFeatureProjects = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/api/users/@me': () => [
-                200,
-                {
-                    ...meCurrent,
-                    organization: {
-                        ...meCurrent.organization,
-                        available_product_features: [
-                            {
-                                key: 'organizations_projects',
-                                name: 'Projects',
-                                limit: 2,
-                            },
-                        ],
-                    },
-                },
-            ],
-        },
-    })
-    return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
-}
-
-export const PayGateMiniFree = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/api/billing/': {
-                ...billingUnsubscribedJson,
+                ],
             },
-        },
-    })
-    return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
+        })
+        return <Template feature={AvailableFeature.ADVANCED_PERMISSIONS} currentUsage={3} />
+    },
+}
+
+export const PayGateMiniLimitFeatureProjects: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        ...meCurrent,
+                        organization: {
+                            ...meCurrent.organization,
+                            available_product_features: [
+                                {
+                                    key: 'organizations_projects',
+                                    name: 'Projects',
+                                    limit: 2,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        })
+        return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
+    },
+}
+
+export const PayGateMiniFree: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingUnsubscribedJson,
+                },
+            },
+        })
+        return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
+    },
 }
