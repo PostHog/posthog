@@ -12,7 +12,7 @@ mod tests {
         flags::{
             flag_group_type_mapping::GroupTypeCacheManager,
             flag_match_reason::FeatureFlagMatchReason,
-            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
+            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
             flag_matching_utils::{
                 get_fetch_calls_count, get_hash_key_override_lookup_count, reset_fetch_calls_count,
                 reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
@@ -1431,8 +1431,15 @@ mod tests {
             empty_group_type_cache(),
             None,
         );
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1498,8 +1505,15 @@ mod tests {
         matcher
             .flag_evaluation_state
             .add_flag_evaluation_result(1, FlagValue::Boolean(true));
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1597,8 +1611,14 @@ mod tests {
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
         // All filters match: should pass
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&person_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1622,8 +1642,13 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(true));
 
+        let ctx2 = PropertyContext {
+            person_properties: Some(&mismatched_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher2
-            .is_condition_match(&flag, &condition, &mismatched_properties, None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx2, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -1642,8 +1667,13 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(dependent_flag_id, FlagValue::Boolean(false));
 
+        let ctx3 = PropertyContext {
+            person_properties: Some(&person_properties),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher3
-            .is_condition_match(&flag, &condition, &person_properties, None, None, &None)
+            .is_condition_match(&flag, &condition, &ctx3, None, &None)
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
@@ -2284,15 +2314,15 @@ mod tests {
             None,
         );
 
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &flag.filters.groups[0],
-                &HashMap::new(),
-                None,
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &flag.filters.groups[0], &ctx, None, &None)
             .unwrap();
 
         assert!(is_match);
@@ -10224,5 +10254,350 @@ mod tests {
         // Group condition (index 0) matches first since both are 100% rollout
         assert!(result.matches);
         assert_eq!(result.condition_index, Some(0));
+    }
+
+    /// Scenario 3: A single condition combines person and group property filters. The
+    /// condition is group-aggregated (rollout hashes on the group key), but person filters
+    /// act as an additional gate — only pro users within enterprise companies.
+    #[rstest::rstest]
+    #[case("pro", "enterprise", true, "both filters match")]
+    #[case("free", "enterprise", false, "person filter fails")]
+    #[case("pro", "startup", false, "group filter fails")]
+    #[tokio::test]
+    async fn test_mixed_targeting_single_condition_with_person_and_group_filters(
+        #[case] plan: &str,
+        #[case] company_size: &str,
+        #[case] expected_match: bool,
+        #[case] scenario: &str,
+    ) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("mixed-single-condition".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "plan".to_string(),
+                            value: Some(json!("pro")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                        PropertyFilter {
+                            key: "size".to_string(),
+                            value: Some(json!("enterprise")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(0),
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(Some(0)),
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("company".to_string(), 0)].into_iter().collect());
+
+        let groups = HashMap::from([("company".to_string(), json!("acme"))]);
+        let person_overrides = HashMap::from([("plan".to_string(), json!(plan))]);
+        let group_overrides = HashMap::from([(
+            "company".to_string(),
+            HashMap::from([("size".to_string(), json!(company_size))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(
+                &flag,
+                Some(&person_overrides),
+                Some(&group_overrides),
+                None,
+                &None,
+            )
+            .unwrap();
+        assert_eq!(
+            result.matches, expected_match,
+            "Scenario '{scenario}': expected matches={expected_match}"
+        );
+    }
+
+    /// Regression test: when a condition has an explicitly typed group filter for one index
+    /// and an untyped filter that falls back to the condition's aggregation index, properties
+    /// for the aggregation index must still be loaded.
+    #[tokio::test]
+    async fn test_mixed_typed_and_untyped_filters_loads_aggregation_properties() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Condition aggregates on group index 1 (project), has an explicitly typed
+        // group filter for index 0 (company), plus an untyped filter that should
+        // resolve against index 1 via the aggregation fallback.
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("mixed-typed-untyped".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "size".to_string(),
+                            value: Some(json!("enterprise")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(0),
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                        // Untyped filter — resolve_for_filter falls back to aggregation index (1)
+                        PropertyFilter {
+                            key: "tier".to_string(),
+                            value: Some(json!("premium")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(Some(1)),
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let group_type_cache = mock_group_type_cache(
+            [("company".to_string(), 0), ("project".to_string(), 1)]
+                .into_iter()
+                .collect(),
+        );
+
+        let groups = HashMap::from([
+            ("company".to_string(), json!("acme")),
+            ("project".to_string(), json!("proj-1")),
+        ]);
+        let group_overrides = HashMap::from([
+            (
+                "company".to_string(),
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            ),
+            (
+                "project".to_string(),
+                HashMap::from([("tier".to_string(), json!("premium"))]),
+            ),
+        ]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, None, Some(&group_overrides), None, &None)
+            .unwrap();
+
+        assert!(
+            result.matches,
+            "Both filters should match: typed filter against index 0, untyped filter against aggregation index 1"
+        );
+
+        // Verify routing: when the aggregation index's data doesn't match,
+        // the untyped filter should fail (proving it resolves against index 1, not index 0).
+        let group_overrides_mismatch = HashMap::from([
+            (
+                "company".to_string(),
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            ),
+            (
+                "project".to_string(),
+                HashMap::from([("tier".to_string(), json!("basic"))]),
+            ),
+        ]);
+
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(HashMap::from([
+                ("company".to_string(), json!("acme")),
+                ("project".to_string(), json!("proj-1")),
+            ])),
+        );
+        matcher2
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher2
+            .get_match(&flag, None, Some(&group_overrides_mismatch), None, &None)
+            .unwrap();
+
+        assert!(
+            !result.matches,
+            "Untyped filter should fail when aggregation index data doesn't match"
+        );
+    }
+
+    mod property_context_tests {
+        use super::*;
+        use crate::flags::flag_matching::PropertyContext;
+
+        fn person_filter(key: &str) -> PropertyFilter {
+            PropertyFilter {
+                key: key.to_string(),
+                value: Some(json!("v")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+            }
+        }
+
+        fn group_filter(key: &str, gti: Option<i32>) -> PropertyFilter {
+            PropertyFilter {
+                key: key.to_string(),
+                value: Some(json!("v")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Group,
+                group_type_index: gti,
+                negation: None,
+                compiled_regex: None,
+            }
+        }
+
+        #[test]
+        fn test_person_filter_uses_person_properties() {
+            let person_props = HashMap::from([("plan".into(), json!("pro"))]);
+            let group_props = HashMap::new();
+            let ctx = PropertyContext {
+                person_properties: Some(&person_props),
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&person_filter("plan"));
+            assert_eq!(result.get("plan"), Some(&json!("pro")));
+        }
+
+        #[test]
+        fn test_person_filter_returns_empty_when_no_person_properties() {
+            let group_props = HashMap::new();
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&person_filter("plan"));
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_group_filter_with_explicit_index() {
+            let person_props = HashMap::new();
+            let group_props = HashMap::from([(
+                0,
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            )]);
+            let ctx = PropertyContext {
+                person_properties: Some(&person_props),
+                group_properties: &group_props,
+                aggregation: Some(1),
+            };
+            // Explicit group_type_index takes precedence over aggregation
+            let result = ctx.resolve_for_filter(&group_filter("size", Some(0)));
+            assert_eq!(result.get("size"), Some(&json!("enterprise")));
+        }
+
+        #[test]
+        fn test_group_filter_without_index_falls_back_to_aggregation() {
+            let group_props =
+                HashMap::from([(1, HashMap::from([("tier".to_string(), json!("premium"))]))]);
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: Some(1),
+            };
+            let result = ctx.resolve_for_filter(&group_filter("tier", None));
+            assert_eq!(result.get("tier"), Some(&json!("premium")));
+        }
+
+        #[test]
+        fn test_group_filter_with_no_index_and_no_aggregation_returns_empty() {
+            let group_props =
+                HashMap::from([(0, HashMap::from([("size".to_string(), json!("big"))]))]);
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&group_filter("size", None));
+            assert!(result.is_empty());
+        }
     }
 }

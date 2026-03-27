@@ -25,6 +25,7 @@ import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
@@ -140,10 +141,14 @@ export function createErrorTrackingPipeline(
                             ])
                         )
                 )
-                // Map team to context for handleIngestionWarnings
+                // Map team to context for handleIngestionWarnings, and carry
+                // the Kafka message byte size through for Cymbal batch chunking.
                 .filterMap(
                     (element) => ({
-                        result: element.result,
+                        result: ok({
+                            ...element.result.value,
+                            messageBytes: element.context.message.value?.length ?? 0,
+                        }),
                         context: {
                             ...element.context,
                             team: { id: element.result.value.team.id },

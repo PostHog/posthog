@@ -155,6 +155,7 @@ export class ErrorTrackingServer implements NodeServer {
                     outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
                     cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
                     cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+                    cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
                     lane: this.config.INGESTION_LANE ?? 'main',
                     overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                     overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
