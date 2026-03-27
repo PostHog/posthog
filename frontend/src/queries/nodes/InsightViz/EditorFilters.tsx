@@ -122,7 +122,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'hogql',
                     label: 'SQL Expression',
                     component: PathsHogQL,
-                    show: hasPathsHogQL,
+                    show: isPaths && !!hasPathsHogQL,
                 },
                 {
                     key: 'wildcard-groups',
