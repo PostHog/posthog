@@ -258,7 +258,6 @@ class QueryCoalescingMiddleware:
 
     For matched endpoints, only one request (leader) executes while
     concurrent identical requests (followers) wait and get the same response.
-    Follows the pattern used by go-chi/httpcoala and reverse proxy request collapsing.
     """
 
     def __init__(self, get_response):
