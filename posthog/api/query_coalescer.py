@@ -5,7 +5,7 @@ import uuid
 import hashlib
 import threading
 from enum import StrEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import parse_qs, urlencode
 
 from django.http import HttpRequest, HttpResponse
@@ -382,7 +382,15 @@ class QueryCoalescingMiddleware:
         return hashlib.sha256(raw.encode()).hexdigest()
 
 
-class QueryCoalescingMixin:
+if TYPE_CHECKING:
+    from rest_framework.views import APIView
+
+    _MixinBase = APIView
+else:
+    _MixinBase = object
+
+
+class QueryCoalescingMixin(_MixinBase):
     """DRF ViewSet mixin that gates coalesced responses behind permission checks.
 
     The QueryCoalescingMiddleware attaches cached response data to
@@ -396,22 +404,15 @@ class QueryCoalescingMixin:
         if coalesced is None:
             return super().dispatch(request, *args, **kwargs)
 
-        # Cached response exists — run auth/perms before returning it
         request = self.initialize_request(request, *args, **kwargs)
         self.request = request
-        self.args = args
-        self.kwargs = kwargs
-        self.headers = self.default_response_headers
-
         try:
             self.initial(request, *args, **kwargs)
-            response = HttpResponse(
-                coalesced["body"],
-                status=coalesced["status"],
-                content_type=coalesced.get("content_type", "application/json"),
-            )
         except Exception as exc:
-            response = self.handle_exception(exc)
+            return self.handle_exception(exc)
 
-        self.response = self.finalize_response(request, response, *args, **kwargs)
-        return self.response
+        return HttpResponse(
+            coalesced["body"],
+            status=coalesced["status"],
+            content_type=coalesced.get("content_type", "application/json"),
+        )
