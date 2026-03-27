@@ -12,7 +12,7 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dags.common import JobOwners, skip_if_already_running
 from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.dags.common.resources import redis
@@ -50,7 +50,13 @@ QUERY = parse_select("""
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
 def run_query(team: Team) -> HogQLQueryResponse:
     query_type = "sdk_versions_for_team"
-    with tags_context(product=Product.SDK_DOCTOR, team_id=team.pk, org_id=team.organization_id, query_type=query_type):
+    with tags_context(
+        product=Product.SDK_DOCTOR,
+        feature=Feature.HEALTH_CHECK,
+        team_id=team.pk,
+        org_id=team.organization_id,
+        query_type=query_type,
+    ):
         response = execute_hogql_query(QUERY, team, query_type=query_type)
     return response
 
