@@ -844,7 +844,6 @@ describe('Session Recording Consumer Integration', () => {
 
         const ingester = new SessionRecordingIngester(
             hub as any,
-            false,
             hub.postgres,
             kafkaMetadataProducer,
             kafkaMessageProducer

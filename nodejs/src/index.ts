@@ -5,6 +5,7 @@ import { defaultConfig } from '~/config/config'
 import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
+import { IngestionRecordingsServer } from '~/servers/ingestion-recordings-server'
 import { initSuperProperties } from '~/utils/posthog'
 
 function createServer(): NodeServer {
@@ -14,8 +15,13 @@ function createServer(): NodeServer {
         case PluginServerMode.ingestion_v2_combined:
             return new IngestionGeneralServer()
 
+        case PluginServerMode.recordings_blob_ingestion_v2:
+        case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+        case PluginServerMode.recording_api:
+            return new IngestionRecordingsServer()
+
         default:
-            // CDP modes, logs, evaluation scheduler, recordings, local dev (null), local-cdp
+            // CDP modes, logs, evaluation scheduler, local dev (null), local-cdp
             return new PluginServer()
     }
 }

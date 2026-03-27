@@ -101,7 +101,6 @@ export class SessionRecordingIngester {
 
     constructor(
         private config: SessionRecordingIngesterConfig,
-        private consumeOverflow: boolean,
         postgres: PostgresRouter,
         kafkaMetadataProducer: KafkaProducerWrapper,
         kafkaMessageProducer: KafkaProducerWrapper
@@ -253,7 +252,7 @@ export class SessionRecordingIngester {
         this.sessionReplayPipeline = createSessionReplayPipeline({
             kafkaProducer: this.kafkaMessageProducer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: !this.consumeOverflow,
+            overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic,
             dlqTopic: this.config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
             promiseScheduler: this.promiseScheduler,
@@ -431,5 +430,12 @@ export class SessionRecordingIngester {
             this.kafkaConsumer.offsetsStore(offsets)
             return Promise.resolve()
         })
+    }
+
+    private overflowEnabled(): boolean {
+        return (
+            !!this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC &&
+            this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        )
     }
 }
