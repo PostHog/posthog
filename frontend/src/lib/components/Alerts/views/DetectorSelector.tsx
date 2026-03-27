@@ -121,8 +121,8 @@ const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ense
 
 function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorConfig> {
     return {
-        zscore: { type: 'zscore', threshold: DEFAULT_THRESHOLD, window },
-        mad: { type: 'mad', threshold: DEFAULT_THRESHOLD, window },
+        zscore: { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+        mad: { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
         iqr: { type: 'iqr', multiplier: 1.5, window },
         threshold: { type: 'threshold' },
         ecod: { type: 'ecod', threshold: DEFAULT_THRESHOLD, window },
@@ -160,8 +160,8 @@ function getDefaultEnsemble(window: number): EnsembleDetectorConfig {
         type: 'ensemble',
         operator: EnsembleOperator.AND,
         detectors: [
-            { type: 'zscore', threshold: DEFAULT_THRESHOLD, window },
-            { type: 'mad', threshold: DEFAULT_THRESHOLD, window },
+            { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+            { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
         ],
     }
 }

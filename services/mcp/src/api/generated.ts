@@ -7001,6 +7001,24 @@ export namespace Schemas {
       value: string;
     }
 
+    /**
+     * * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid
+     */
+    export type ConclusionF33Enum = typeof ConclusionF33Enum[keyof typeof ConclusionF33Enum];
+
+
+    export const ConclusionF33Enum = {
+      Won: 'won',
+      Lost: 'lost',
+      Inconclusive: 'inconclusive',
+      StoppedEarly: 'stopped_early',
+      Invalid: 'invalid',
+    } as const;
+
     export interface ConditionalFormattingRule {
       bytecode: unknown[];
       color: string;
@@ -12386,24 +12404,6 @@ export namespace Schemas {
       design?: unknown;
     }
 
-    /**
-     * * `won` - won
-    * `lost` - lost
-    * `inconclusive` - inconclusive
-    * `stopped_early` - stopped_early
-    * `invalid` - invalid
-     */
-    export type EndExperimentConclusionEnum = typeof EndExperimentConclusionEnum[keyof typeof EndExperimentConclusionEnum];
-
-
-    export const EndExperimentConclusionEnum = {
-      Won: 'won',
-      Lost: 'lost',
-      Inconclusive: 'inconclusive',
-      StoppedEarly: 'stopped_early',
-      Invalid: 'invalid',
-    } as const;
-
     export interface EndExperiment {
       /** The conclusion of the experiment.
 
@@ -12412,7 +12412,7 @@ export namespace Schemas {
     * `inconclusive` - inconclusive
     * `stopped_early` - stopped_early
     * `invalid` - invalid */
-      conclusion?: EndExperimentConclusionEnum | NullEnum | null;
+      conclusion?: ConclusionF33Enum | NullEnum | null;
       /**
        * Optional comment about the experiment conclusion.
        * @nullable
@@ -28405,6 +28405,24 @@ export namespace Schemas {
       settings?: unknown | null;
       password_required?: boolean;
       readonly share_passwords: readonly SharePassword[];
+    }
+
+    export interface ShipVariant {
+      /** The conclusion of the experiment.
+
+    * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid */
+      conclusion?: ConclusionF33Enum | NullEnum | null;
+      /**
+       * Optional comment about the experiment conclusion.
+       * @nullable
+       */
+      conclusion_comment?: string | null;
+      /** The key of the variant to ship to 100% of users. */
+      variant_key: string;
     }
 
     export interface SummaryBullet {
