@@ -167,6 +167,7 @@ export type SettingId =
     | 'replay-ai-config'
     | 'heatmaps'
     | 'hedgehog-mode'
+    | 'sidebar-auto-suggest'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
     | 'session-join-mode'
