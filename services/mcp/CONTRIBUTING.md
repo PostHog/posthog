@@ -229,7 +229,7 @@ Use `withUiApp(appKey, config)` to wrap a tool definition with UI app metadata,
 `WithPostHogUrl<T>` for result types, and `withPostHogUrl(context, data, path)` to add the URL at runtime:
 
 ```typescript
-import { withUiApp } from '@/resources/ui-apps.generated'
+import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 

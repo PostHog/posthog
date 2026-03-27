@@ -35,7 +35,7 @@ jobs:
                         - 'services/mcp/scripts/build-ui-apps.ts'
                         - 'services/mcp/scripts/generate-ui-apps.ts'
                         - 'services/mcp/scripts/yaml-config-schema.ts'
-                        - 'products/*/mcp/tools.yaml'
+                        - 'products/*/mcp/**'
                         - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
