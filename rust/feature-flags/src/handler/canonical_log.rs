@@ -252,7 +252,8 @@ pub struct FlagsCanonicalLogLine {
 
     // Transit time
     /// Client-to-server transit time in milliseconds (server_now - sent_at).
-    /// None when sent_at is missing or delta is negative (client clock ahead).
+    /// None when sent_at is missing or delta is outside [0, 5min) (negative = client clock
+    /// ahead, >= 5min = stale/garbage timestamp).
     pub sent_at_delta_ms: Option<i64>,
 
     // Cache sources (populated during data fetching)

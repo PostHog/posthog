@@ -262,19 +262,9 @@ pub async fn flags(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let ua_info = UserAgentInfo::parse(user_agent);
 
-    // Compute client-to-server transit time from sent_at query param.
-    // Deltas outside [0, 5min) are filtered: negative means client clock ahead,
-    // very large means stale/garbage timestamp.
-    const MAX_PLAUSIBLE_TRANSIT_MS: i64 = 300_000; // 5 minutes
-    let sent_at_delta_ms: Option<i64> = query_params.sent_at.and_then(|sent_at| {
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let delta = now_ms - sent_at;
-        if (0..MAX_PLAUSIBLE_TRANSIT_MS).contains(&delta) {
-            Some(delta)
-        } else {
-            None
-        }
-    });
+    let sent_at_delta_ms: Option<i64> = query_params
+        .sent_at
+        .and_then(|sent_at| compute_sent_at_delta(sent_at, chrono::Utc::now().timestamp_millis()));
 
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
@@ -451,6 +441,19 @@ fn create_request_span(
         sent_at = %query_params.sent_at.unwrap_or(0).to_string(),
         request_id = %request_id
     )
+}
+
+/// Compute client-to-server transit time from a `sent_at` timestamp.
+/// Returns `None` if the delta is outside [0, 5min) — negative means client
+/// clock ahead, very large means stale/garbage timestamp.
+fn compute_sent_at_delta(sent_at_ms: i64, now_ms: i64) -> Option<i64> {
+    const MAX_PLAUSIBLE_TRANSIT_MS: i64 = 300_000; // 5 minutes
+    let delta = now_ms - sent_at_ms;
+    if (0..MAX_PLAUSIBLE_TRANSIT_MS).contains(&delta) {
+        Some(delta)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -691,5 +694,30 @@ mod tests {
         // Two calls without header should generate different UUIDs
         let extracted_id_empty2 = extract_request_id(&empty_headers);
         assert_ne!(extracted_id_empty, extracted_id_empty2);
+    }
+
+    #[test]
+    fn test_compute_sent_at_delta() {
+        use super::compute_sent_at_delta;
+
+        let now = 1_700_000_000_000i64;
+
+        // Normal transit time (100ms)
+        assert_eq!(compute_sent_at_delta(now - 100, now), Some(100));
+
+        // Zero delta (sent_at == now)
+        assert_eq!(compute_sent_at_delta(now, now), Some(0));
+
+        // Just below 5min threshold
+        assert_eq!(compute_sent_at_delta(now - 299_999, now), Some(299_999));
+
+        // Exactly 5min — excluded
+        assert_eq!(compute_sent_at_delta(now - 300_000, now), None);
+
+        // Large delta (stale timestamp)
+        assert_eq!(compute_sent_at_delta(now - 600_000, now), None);
+
+        // Negative delta (client clock ahead)
+        assert_eq!(compute_sent_at_delta(now + 1000, now), None);
     }
 }
