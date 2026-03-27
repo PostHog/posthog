@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 import { renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
+import type { CSSProperties } from 'react'
 
 import { SurveyPosition, SurveyQuestionType, SurveyType } from '~/types'
 
@@ -13,7 +14,11 @@ jest.mock('posthog-js/dist/surveys-preview', () => ({
 }))
 
 const mockRenderSurveysPreview = jest.mocked(renderSurveysPreview)
-type RenderSurveysPreviewArgs = Parameters<typeof renderSurveysPreview>[0]
+
+interface RenderSurveysPreviewArgs {
+    parentElement: HTMLDivElement
+    positionStyles?: CSSProperties
+}
 
 describe('SurveyAppearancePreview', () => {
     const survey = {
