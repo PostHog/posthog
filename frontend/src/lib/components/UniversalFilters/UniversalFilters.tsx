@@ -18,7 +18,7 @@ import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isEditableFilter, isEventFilter } from './utils'
 
-type UniversalFiltersProps = {
+export type UniversalFiltersProps = {
     rootKey: string
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
