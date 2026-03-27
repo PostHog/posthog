@@ -82,6 +82,18 @@ class TestExtractEndUserIdFromBody:
         request = _make_request({"model": "gpt-4o", "metadata": "not-a-dict"})
         assert await _extract_end_user_id_from_body(request) is None
 
+    @pytest.mark.asyncio
+    async def test_returns_none_for_non_dict_json_body(self) -> None:
+        request = MagicMock(spec=Request)
+        request.state = MagicMock()
+        del request.state._cached_body
+
+        async def fake_body():
+            return b'["not", "a", "dict"]'
+
+        request.body = fake_body
+        assert await _extract_end_user_id_from_body(request) is None
+
 
 class TestEnforceThrottles:
     async def _run_enforce_throttles(

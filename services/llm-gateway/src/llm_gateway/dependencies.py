@@ -97,8 +97,10 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     if not body:
         return None
     try:
-        data: dict[str, Any] = json.loads(body)
+        data = json.loads(body)
     except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
         return None
 
     user_id = data.get("user")
@@ -122,6 +124,7 @@ async def enforce_throttles(
     ensure_costs_fresh()
     product = get_product_from_request(request)
 
+    end_user_id: str | None
     if user.auth_method == "oauth_access_token":
         end_user_id = str(user.user_id)
     else:
