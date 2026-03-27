@@ -16,9 +16,10 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 try:
-    from posthog.taxonomy.taxonomy import IGNORED_EVENT_NAMES
+    from posthog.taxonomy.taxonomy import IGNORED_EVENT_NAMES, WELL_KNOWN_EVENT_NAMES
 except ImportError:
     IGNORED_EVENT_NAMES = []
+    WELL_KNOWN_EVENT_NAMES: list[str] = []
 
 DEFAULT_LIMIT = 500
 
@@ -58,6 +59,12 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
         results: list[TeamTaxonomyItem] = [
             TeamTaxonomyItem(event=event, count=count) for event, count in self.paginator.results
         ]
+
+        if not self.paginator.has_more():
+            found_events = {item.event for item in results}
+            results.extend(
+                TeamTaxonomyItem(event=name, count=0) for name in WELL_KNOWN_EVENT_NAMES if name not in found_events
+            )
 
         return TeamTaxonomyQueryResponse(
             results=results,

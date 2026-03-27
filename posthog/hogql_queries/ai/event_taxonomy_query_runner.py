@@ -12,12 +12,19 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action
+
+try:
+    from posthog.taxonomy.taxonomy import WELL_KNOWN_EVENT_PROPERTY_NAMES
+except ImportError:
+    WELL_KNOWN_EVENT_PROPERTY_NAMES: list[str] = []
+
+DEFAULT_LIMIT = 500
 
 
 class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):
@@ -33,13 +40,17 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = settings
+        self.paginator = HogQLHasMorePaginator(
+            limit=self.query.limit or DEFAULT_LIMIT,
+            offset=self.query.offset or 0,
+        )
 
     def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
         with tags_context(product=Product.MAX_AI):
-            response = execute_hogql_query(
+            self.paginator.execute_hogql_query(
                 query_type="EventTaxonomyQuery",
                 query=query,
                 team=self.team,
@@ -49,7 +60,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             )
 
         results: list[EventTaxonomyItem] = []
-        for prop, sample_values, sample_count in response.results:
+        for prop, sample_values, sample_count in self.paginator.results:
             results.append(
                 EventTaxonomyItem(
                     property=prop,
@@ -58,11 +69,20 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 )
             )
 
+        if not self.query.properties and not self.paginator.has_more():
+            found_properties = {item.property for item in results}
+            results.extend(
+                EventTaxonomyItem(property=name, sample_values=[], sample_count=0)
+                for name in WELL_KNOWN_EVENT_PROPERTY_NAMES
+                if name not in found_properties
+            )
+
         return EventTaxonomyQueryResponse(
             results=results,
-            timings=response.timings,
+            timings=self.paginator.response.timings if self.paginator.response else None,
             hogql=hogql,
             modifiers=self.modifiers,
+            **self.paginator.response_params(),
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -81,7 +101,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 WHERE {filter}
                 GROUP BY key
                 ORDER BY total_count DESC
-                LIMIT 500
             """,
                 placeholders={
                     "from_query": self._get_subquery(),
@@ -98,7 +117,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
                 GROUP BY key
-                LIMIT 500
             """,
             placeholders={
                 "from_query": self._get_subquery(),

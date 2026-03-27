@@ -4255,10 +4255,17 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     actionId?: integer
     properties?: string[]
     maxPropertyValues?: integer
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
 }
 
 export interface EventTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: EventTaxonomyResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
