@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useState } from 'react'
 
-import { IconShare, IconTrash } from '@posthog/icons'
+import { IconCheck, IconPencil, IconShare, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -30,6 +31,7 @@ import {
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
+import { updatePlaylist } from '../playlist/playlistUtils'
 import { SavedFiltersEmptyState, SavedFiltersLoadingState } from './SavedFiltersStates'
 
 export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
@@ -124,10 +126,22 @@ export function SavedFilters({
     const { filters, savedFilters, paginationSavedFilters, savedFiltersLoading } = useValues(
         sessionRecordingSavedFiltersLogic
     )
-    const { deletePlaylist, setSavedPlaylistsFilters, setAppliedSavedFilter } = useActions(
+    const { deletePlaylist, setSavedPlaylistsFilters, setAppliedSavedFilter, loadSavedFilters } = useActions(
         sessionRecordingSavedFiltersLogic
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
+
+    const [editingId, setEditingId] = useState<string | null>(null)
+    const [editName, setEditName] = useState('')
+
+    const doSave = (shortId: string, newName: string): void => {
+        const trimmed = newName.trim()
+        if (!trimmed) {
+            return
+        }
+        setEditingId(null)
+        void updatePlaylist(shortId, { name: trimmed }).then(() => loadSavedFilters())
+    }
 
     if (savedFiltersLoading && !filters.search) {
         return <SavedFiltersLoadingState />
@@ -142,11 +156,50 @@ export function SavedFilters({
             title: 'Name',
             dataIndex: 'name',
             render: function Render(name, { short_id, derived_name }) {
+                const displayName = (name as string) || derived_name || 'Unnamed'
+
+                if (editingId === short_id) {
+                    return (
+                        <div className="flex items-center gap-1">
+                            <LemonInput
+                                value={editName}
+                                onChange={setEditName}
+                                size="small"
+                                autoFocus
+                                fullWidth
+                                stopPropagation
+                                onPressEnter={() => doSave(short_id, editName)}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconCheck />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    doSave(short_id, editName)
+                                }}
+                                tooltip="Save"
+                                className="shrink-0"
+                            />
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconX />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingId(null)
+                                }}
+                                tooltip="Cancel"
+                                className="shrink-0"
+                            />
+                        </div>
+                    )
+                }
+
                 const filter = savedFilters.results.find(
                     (filter: SessionRecordingPlaylistType) => filter.short_id === short_id
                 )
                 return (
-                    <>
+                    <div className="flex items-center gap-1 group">
                         <div
                             onClick={() => {
                                 if (filter && filter.filters) {
@@ -155,11 +208,22 @@ export function SavedFilters({
                                     setAppliedSavedFilter(filter)
                                 }
                             }}
-                            className="cursor-pointer text-current hover:text-accent"
+                            className="cursor-pointer text-current hover:text-accent truncate"
                         >
-                            {name || derived_name || 'Unnamed'}
+                            {displayName}
                         </div>
-                    </>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconPencil />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setEditName((name as string) || derived_name || '')
+                                setEditingId(short_id)
+                            }}
+                            tooltip="Rename saved filter"
+                            className="opacity-0 group-hover:opacity-100 shrink-0"
+                        />
+                    </div>
                 )
             },
         }
