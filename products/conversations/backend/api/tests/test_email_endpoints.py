@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
-from products.conversations.backend.models import TeamConversationsEmailConfig
+from products.conversations.backend.models import EmailChannel
 from products.conversations.backend.models.ticket import Ticket
 
 
@@ -32,7 +32,7 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
         )
 
         assert response.status_code == 200
-        config = TeamConversationsEmailConfig.objects.get(team=self.team)
+        config = EmailChannel.objects.get(team=self.team)
         assert config.from_email == "support@example.com"
         assert config.domain == "example.com"
 
@@ -146,7 +146,7 @@ class TestEmailMultiConfig(BaseTest):
         )
         assert r2.status_code == 200
 
-        configs = TeamConversationsEmailConfig.objects.filter(team=self.team)
+        configs = EmailChannel.objects.filter(team=self.team)
         assert configs.count() == 2
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
@@ -244,7 +244,7 @@ class TestEmailMultiConfig(BaseTest):
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings.get("email_enabled") is True
-        assert TeamConversationsEmailConfig.objects.filter(team=self.team).count() == 1
+        assert EmailChannel.objects.filter(team=self.team).count() == 1
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
@@ -407,7 +407,7 @@ class TestEmailMultiConfig(BaseTest):
         assert response.json()["domain_verified"] is True
 
         # Both configs should be verified
-        configs = TeamConversationsEmailConfig.objects.filter(team=self.team)
+        configs = EmailChannel.objects.filter(team=self.team)
         assert all(c.domain_verified for c in configs)
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
@@ -489,8 +489,8 @@ class TestEmailInboundMultiConfig(BaseTest):
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save()
 
-    def _create_config(self, from_email: str, token: str) -> TeamConversationsEmailConfig:
-        return TeamConversationsEmailConfig.objects.create(
+    def _create_config(self, from_email: str, token: str) -> EmailChannel:
+        return EmailChannel.objects.create(
             team=self.team,
             inbound_token=token,
             from_email=from_email,
@@ -547,8 +547,8 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save()
 
-    def _create_config(self, from_email: str, token: str, verified: bool = True) -> TeamConversationsEmailConfig:
-        return TeamConversationsEmailConfig.objects.create(
+    def _create_config(self, from_email: str, token: str, verified: bool = True) -> EmailChannel:
+        return EmailChannel.objects.create(
             team=self.team,
             inbound_token=token,
             from_email=from_email,
@@ -557,7 +557,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             domain_verified=verified,
         )
 
-    def _create_ticket(self, config: TeamConversationsEmailConfig | None) -> Ticket:
+    def _create_ticket(self, config: EmailChannel | None) -> Ticket:
         from products.conversations.backend.models.constants import Channel, Status
 
         return Ticket.objects.create_with_number(

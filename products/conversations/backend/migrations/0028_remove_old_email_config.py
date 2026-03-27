@@ -4,9 +4,9 @@ from django.db import migrations
 class Migration(migrations.Migration):
     """Remove old TeamConversationsEmailConfig from Django state.
 
-    The table is empty in production. This migration only removes the model
-    from Django's state so that 0029 can safely DROP the table and recreate
-    it with a UUID PK and ForeignKey to team.
+    The old table (posthog_conversations_email_config) stays in the DB and
+    will be dropped in a follow-up PR. Migration 0029 creates a new
+    EmailChannel model with a separate table.
     """
 
     dependencies = [

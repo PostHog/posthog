@@ -65,7 +65,7 @@ class Ticket(UUIDTModel):
 
     # Email channel fields (only set for channel_source="email")
     email_config = models.ForeignKey(
-        "conversations.TeamConversationsEmailConfig",
+        "conversations.EmailChannel",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

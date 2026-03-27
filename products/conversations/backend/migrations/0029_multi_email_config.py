@@ -5,14 +5,9 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    """Create new TeamConversationsEmailConfig with UUID PK and many-per-team support.
+    """Create EmailChannel model with UUID PK and many-per-team support.
 
-    Old table was dropped in 0028. This creates the new table with:
-    - UUID PK instead of team as PK
-    - team as ForeignKey instead of OneToOneField
-    - unique(from_email) instead of unique(domain)
-
-    Also adds Ticket.email_config FK to link tickets to their receiving config.
+    Also adds Ticket.email_config FK to link tickets to their receiving channel.
     """
 
     dependencies = [
@@ -21,7 +16,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="TeamConversationsEmailConfig",
+            name="EmailChannel",
             fields=[
                 (
                     "id",
@@ -36,7 +31,7 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="email_configs",
+                        related_name="email_channels",
                         to="posthog.team",
                     ),
                 ),
@@ -49,9 +44,9 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                "db_table": "posthog_conversations_email_config",
+                "db_table": "posthog_conversations_email_channel",
                 "constraints": [
-                    models.UniqueConstraint(fields=["from_email"], name="unique_email_from_email"),
+                    models.UniqueConstraint(fields=["from_email"], name="unique_email_channel_from_email"),
                 ],
             },
         ),
@@ -63,7 +58,7 @@ class Migration(migrations.Migration):
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="tickets",
-                to="conversations.teamconversationsemailconfig",
+                to="conversations.emailchannel",
             ),
         ),
     ]

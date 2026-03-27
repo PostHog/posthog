@@ -25,7 +25,7 @@ from products.conversations.backend.mailgun import (
     get_smtp_connection,
     verify_domain as mailgun_verify_domain,
 )
-from products.conversations.backend.models import TeamConversationsEmailConfig
+from products.conversations.backend.models import EmailChannel
 from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
 from products.conversations.backend.permissions import IsConversationsAdmin
 
@@ -49,12 +49,12 @@ def _set_email_enabled(team: Team, *, enabled: bool) -> None:
     t.save(update_fields=["conversations_settings"])
 
 
-def _get_config_for_team(config_id: uuid.UUID, team: Team) -> TeamConversationsEmailConfig | None:
+def _get_config_for_team(config_id: uuid.UUID, team: Team) -> EmailChannel | None:
     """Look up a config by id scoped to team. Returns None if not found."""
-    return TeamConversationsEmailConfig.objects.filter(id=config_id, team=team).first()
+    return EmailChannel.objects.filter(id=config_id, team=team).first()
 
 
-def _resolve_config_from_request(request: Request) -> tuple[User, Team, TeamConversationsEmailConfig] | Response:
+def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailChannel] | Response:
     """Parse config_id from request body, look up config scoped to team.
 
     Returns (user, team, config) or a Response on failure.
@@ -73,7 +73,7 @@ def _resolve_config_from_request(request: Request) -> tuple[User, Team, TeamConv
     return user, team, config
 
 
-def _config_to_dict(config: TeamConversationsEmailConfig, inbound_domain: str | None = None) -> dict:
+def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict:
     """Serialize a config to the API response shape."""
     forwarding_address = f"team-{config.inbound_token}@{inbound_domain}" if inbound_domain else None
     return {
@@ -116,7 +116,7 @@ class EmailStatusView(APIView):
             return result
         _, team = result
 
-        configs = TeamConversationsEmailConfig.objects.filter(team=team).order_by("created_at")
+        configs = EmailChannel.objects.filter(team=team).order_by("created_at")
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
 
         return Response({"configs": [_config_to_dict(c, inbound_domain) for c in configs]})
@@ -146,11 +146,11 @@ class EmailConnectView(APIView):
             )
 
         # Guard: cross-team domain ownership
-        if TeamConversationsEmailConfig.objects.filter(domain=domain).exclude(team=team).exists():
+        if EmailChannel.objects.filter(domain=domain).exclude(team=team).exists():
             return Response({"error": "This domain is already in use by another team."}, status=409)
 
         # Check if team already has a config on this domain (single query for both existence + data)
-        sibling = TeamConversationsEmailConfig.objects.filter(team=team, domain=domain).first()
+        sibling = EmailChannel.objects.filter(team=team, domain=domain).first()
 
         dns_records: dict = {}
         if sibling:
@@ -179,14 +179,14 @@ class EmailConnectView(APIView):
                 # Lock team row to serialize concurrent connects and enforce the config limit
                 Team.objects.select_for_update().get(id=team.id)
 
-                current_count = TeamConversationsEmailConfig.objects.filter(team=team).count()
+                current_count = EmailChannel.objects.filter(team=team).count()
                 if current_count >= MAX_EMAIL_CONFIGS_PER_TEAM:
                     return Response(
                         {"error": f"Maximum of {MAX_EMAIL_CONFIGS_PER_TEAM} email addresses per team."},
                         status=400,
                     )
 
-                config = TeamConversationsEmailConfig.objects.create(
+                config = EmailChannel.objects.create(
                     team=team,
                     inbound_token=secrets.token_hex(16),
                     from_email=from_email,
@@ -235,7 +235,7 @@ class EmailVerifyDomainView(APIView):
         dns_records = {"sending_dns_records": mg_result.get("sending_dns_records", [])}
 
         # Update all configs on this team sharing the same domain
-        TeamConversationsEmailConfig.objects.filter(team=team, domain=config.domain).update(
+        EmailChannel.objects.filter(team=team, domain=config.domain).update(
             domain_verified=is_active,
             dns_records=dns_records,
         )
@@ -321,7 +321,7 @@ class EmailDisconnectView(APIView):
         should_delete_from_mailgun = False
 
         with transaction.atomic():
-            config = TeamConversationsEmailConfig.objects.select_for_update().filter(id=config_id, team=team).first()
+            config = EmailChannel.objects.select_for_update().filter(id=config_id, team=team).first()
             if not config:
                 return Response({"error": "Email config not found"}, status=404)
 
@@ -329,11 +329,11 @@ class EmailDisconnectView(APIView):
             config.delete()
 
             # Only delete from Mailgun if no other config (on any team) uses this domain
-            if not TeamConversationsEmailConfig.objects.filter(domain=domain_to_delete).exists():
+            if not EmailChannel.objects.filter(domain=domain_to_delete).exists():
                 should_delete_from_mailgun = True
 
             # Only disable email on team if this was the last config
-            if not TeamConversationsEmailConfig.objects.filter(team=team).exists():
+            if not EmailChannel.objects.filter(team=team).exists():
                 _set_email_enabled(team, enabled=False)
 
         if should_delete_from_mailgun:

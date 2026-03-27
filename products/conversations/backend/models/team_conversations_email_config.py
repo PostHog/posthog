@@ -6,18 +6,17 @@ from posthog.models.utils import UUIDModel
 MAX_EMAIL_CONFIGS_PER_TEAM = 10
 
 
-class TeamConversationsEmailConfig(UUIDModel):
-    """Per-team email channel configuration.
+class EmailChannel(UUIDModel):
+    """Per-team email channel configuration (many-per-team).
 
-    A team can have multiple email configs (e.g. support@, billing@).
-    Each config has its own inbound_token for routing and its own sender identity.
+    A team can have multiple email channels (e.g. support@, billing@).
+    Each channel has its own inbound_token for routing and its own sender identity.
 
-    Unlike TeamConversationsSlackConfig, this model is NOT auto-created via
-    register_team_extension_signal. Rows only exist for teams that have
-    explicitly connected email (from_email and inbound_token are required).
+    The old TeamConversationsEmailConfig (one-per-team, team as PK) still exists
+    in the DB and will be removed in a follow-up PR.
     """
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="email_configs")
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="email_channels")
 
     # Inbound routing — unique token in the receiving address
     # Generated via secrets.token_hex(16) → 32 hex chars (128 bits)
@@ -36,7 +35,7 @@ class TeamConversationsEmailConfig(UUIDModel):
 
     class Meta:
         app_label = "conversations"
-        db_table = "posthog_conversations_email_config"
+        db_table = "posthog_conversations_email_channel"
         constraints = [
-            models.UniqueConstraint(fields=["from_email"], name="unique_email_from_email"),
+            models.UniqueConstraint(fields=["from_email"], name="unique_email_channel_from_email"),
         ]
