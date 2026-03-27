@@ -84,6 +84,8 @@ function isDuplicateRecentFilter(
     return true
 }
 
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+
 export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'recentTaxonomicFiltersLogic']),
     actions({
@@ -107,7 +109,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
     reducers({
         recentFilters: [
             [] as RecentTaxonomicFilter[],
-            { persist: true },
+            { persist: true, prefix: `${teamId}__` },
             {
                 clearRecentFilters: () => [],
                 recordRecentFilter: (state, { groupType, groupName, value, item, teamId, propertyFilter }) => {

@@ -3,6 +3,7 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { DateTime } from 'luxon'
 
 import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { ASYNC_OUTPUT } from '~/ingestion/analytics/outputs'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
@@ -4339,7 +4340,7 @@ describe('PersonState.processEvent()', () => {
                     expect(result.type).toBe(PipelineResultType.REDIRECT)
                     if (isRedirectResult(result)) {
                         expect(result.reason).toBe('Event redirected to async merge topic')
-                        expect(result.topic).toBe('async-merge-topic')
+                        expect(result.output).toBe(ASYNC_OUTPUT)
                     }
                 })
 

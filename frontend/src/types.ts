@@ -3004,6 +3004,7 @@ export type InsightEditorFilterGroup = {
     title: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
+    show?: boolean
 }
 
 export interface SystemStatusSubrows {
@@ -5338,6 +5339,7 @@ export enum ActivityScope {
     ORGANIZATION = 'Organization',
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
+    ORGANIZATION_DOMAIN = 'OrganizationDomain',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',

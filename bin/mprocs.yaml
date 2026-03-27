@@ -83,6 +83,11 @@ procs:
             fi
         capability: temporal_workflows
 
+    stripe-mock:
+        shell: 'bin/start-stripe-mock'
+        capability: stripe_mock
+        ready_pattern: 'Application startup complete'
+
     recording-rasterizer:
         shell: |-
             bin/wait-for-docker temporal && \

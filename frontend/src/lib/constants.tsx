@@ -377,6 +377,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_SOCIAL_PROOF_INFO: 'onboarding-social-proof-info', // owner: @fercgomes #team-growth, payload overrides social proof strings per product
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     OPTIMIZED_RELATED_GROUPS_QUERY: 'optimized-related-groups-query', // owner: @arthurdedeus #team-customer-analytics
+    OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     POST_ONBOARDING_MODAL_EXPERIMENT: 'post-onboarding-modal-experiment', // owner: @fercgomes #team-growth multivariate=control,test
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
@@ -409,6 +410,7 @@ export const FEATURE_FLAGS = {
     SEEKBAR_PREVIEW_SCRUBBING: 'seekbar-preview-scrubbing', // owner: @pauldambra #team-replay
     SEMVER_TARGETING: 'semver-targeting', // owner: #team-feature-flags
     SHOPIFY_DWH: 'shopify-dwh', // owner: #team-warehouse-sources
+    SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SHOW_DATA_PIPELINES_NAV_ITEM: 'show-data-pipelines-nav-item', // owner: @raquelmsmith
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay

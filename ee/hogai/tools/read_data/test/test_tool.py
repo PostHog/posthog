@@ -17,9 +17,11 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models import Insight
 from posthog.models.feature_flag import FeatureFlag
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 from products.experiments.backend.models.experiment import Experiment
 from products.llm_analytics.backend.summarization.llm.schema import (
