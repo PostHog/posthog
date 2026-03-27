@@ -8,6 +8,7 @@ import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantStickinessQuery,
     AssistantTrendsQuery,
@@ -15,6 +16,7 @@ import type {
 import type {
     FunnelsQuery,
     HogQLQuery,
+    PathsQuery,
     QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
@@ -236,6 +238,7 @@ export type AnyAssistantGeneratedQuery =
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
     | AssistantStickinessQuery
+    | AssistantPathsQuery
     | AssistantHogQLQuery
 
 export interface VisualizationItem {
@@ -248,6 +251,7 @@ export interface VisualizationItem {
         | FunnelsQuery
         | RetentionQuery
         | StickinessQuery
+        | PathsQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -480,7 +484,6 @@ export type AssistantTool =
     | 'upsert_alert'
     | 'finalize_plan'
     | 'call_mcp_server'
-    | 'recommend_products'
     | 'search_llm_traces'
 
 export enum AgentMode {
@@ -491,7 +494,6 @@ export enum AgentMode {
     Plan = 'plan',
     Execution = 'execution',
     Survey = 'survey',
-    Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
     LLMAnalytics = 'llm_analytics',

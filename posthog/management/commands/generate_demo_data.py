@@ -12,6 +12,7 @@ from django.core import exceptions
 from django.core.management.base import BaseCommand
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
@@ -212,6 +213,13 @@ class Command(BaseCommand):
             if existing_team_id != 0 and team:
                 print("Marking all quick start tasks as completed...")
                 self.complete_all_quick_start_tasks(team)
+
+            print("Seeding extra global dashboard templates (dev)...")
+            created_templates = seed_dev_dashboard_templates()
+            if created_templates:
+                print(f"Created dashboard templates: {', '.join(created_templates)}")
+            else:
+                print("Dashboard template seeds already present.")
 
             print(
                 "\nMaster project reset!\n"

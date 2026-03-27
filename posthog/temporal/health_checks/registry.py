@@ -16,6 +16,7 @@ HEALTH_CHECK_MODULES = [
     "products.data_warehouse.backend.temporal.health_checks.external_data_failure",
     "products.web_analytics.backend.temporal.health_checks.no_live_events",
     "products.web_analytics.backend.temporal.health_checks.no_pageleave_events",
+    "products.growth.backend.temporal.health_checks.sdk_outdated",
     "products.cdp.backend.temporal.health_checks.ingestion_warnings",
     "products.data_warehouse.backend.temporal.health_checks.materialized_view_failure",
     "products.web_analytics.backend.temporal.health_checks.scroll_depth",

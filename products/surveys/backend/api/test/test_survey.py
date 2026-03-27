@@ -29,11 +29,13 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import nh3_clean_with_allow_list
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, surveys_hypercache
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestSurvey(APIBaseTest):
@@ -500,8 +502,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
 
         assert survey.internal_targeting_flag is not None
@@ -555,8 +559,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
         assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.filters == expected_filters_without_iteration
@@ -598,8 +604,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
 
         assert survey.internal_targeting_flag is not None
@@ -667,8 +675,10 @@ class TestSurvey(APIBaseTest):
                         }
                     ],
                     "rollout_percentage": None,
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
@@ -729,8 +739,10 @@ class TestSurvey(APIBaseTest):
                         }
                     ],
                     "rollout_percentage": None,
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
@@ -994,8 +1006,10 @@ class TestSurvey(APIBaseTest):
                         }
                     ],
                     "rollout_percentage": None,
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
         updated_survey_updates_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
@@ -1005,7 +1019,10 @@ class TestSurvey(APIBaseTest):
         )
         assert updated_survey_updates_targeting_flag.status_code == status.HTTP_200_OK
         assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().filters == {
-            "groups": [{"variant": None, "properties": [], "rollout_percentage": 20}]
+            "groups": [
+                {"variant": None, "properties": [], "rollout_percentage": 20, "aggregation_group_type_index": None}
+            ],
+            "aggregation_group_type_index": None,
         }
 
     def test_updating_survey_to_send_none_targeting_doesnt_delete_targeting_flag(self):
@@ -1896,6 +1913,7 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 },
                 {
                     "variant": "",
@@ -1920,8 +1938,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_date_before",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 },
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
         assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.filters == expected_filters
@@ -1965,8 +1985,10 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
         assert survey.internal_targeting_flag.filters == expected_filters
 
@@ -2088,8 +2110,10 @@ class TestSurvey(APIBaseTest):
                                         },
                                     ],
                                     "rollout_percentage": 100,
+                                    "aggregation_group_type_index": None,
                                 }
-                            ]
+                            ],
+                            "aggregation_group_type_index": None,
                         },
                         "deleted": False,
                         "active": False,
@@ -2097,7 +2121,6 @@ class TestSurvey(APIBaseTest):
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
-                        "evaluation_tags": [],
                         "evaluation_contexts": [],
                         "bucketing_identifier": "distinct_id",
                     },
@@ -2483,7 +2506,10 @@ class TestSurvey(APIBaseTest):
 
     def _assert_survey_activity(self, expected):
         activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
-        self.assertEqual(activity["results"], expected)
+        results = activity["results"]
+        for item in results:
+            item.pop("id", None)
+        self.assertEqual(results, expected)
 
     def test_validate_schedule_on_create(self):
         response = self.client.post(
@@ -2742,6 +2768,30 @@ class TestSurvey(APIBaseTest):
         assert "Special Folder/Surveys" in fs_entry.path, (
             f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
         )
+
+    def test_survey_activity_respects_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="secret survey",
+        )
+        AccessControl.objects.create(resource="survey", resource_id=survey.id, team=self.team, access_level="none")
+
+        self.client.force_login(user2)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.pk}/surveys/{survey.id}/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        activity_response = self.client.get(f"/api/projects/{self.team.pk}/surveys/{survey.id}/activity/")
+        self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -3875,7 +3925,10 @@ class TestSurveyResponseSampling(APIBaseTest):
         assert survey.response_sampling_daily_limits is not None
         assert survey.internal_response_sampling_flag is not None
         assert survey.internal_response_sampling_flag.filters == {
-            "groups": [{"properties": [], "rollout_percentage": 100, "variant": ""}]
+            "groups": [
+                {"properties": [], "rollout_percentage": 100, "variant": "", "aggregation_group_type_index": None}
+            ],
+            "aggregation_group_type_index": None,
         }
 
 
@@ -3990,8 +4043,10 @@ class TestSurveysRecurringIterations(APIBaseTest):
                             "operator": "is_not_set",
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 }
-            ]
+            ],
+            "aggregation_group_type_index": None,
         }
 
         assert survey.internal_targeting_flag.filters == user_submitted_dismissed_filter
@@ -5705,7 +5760,10 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
 
     def _assert_survey_activity(self, expected):
         activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
-        self.assertEqual(activity["results"], expected)
+        results = activity["results"]
+        for item in results:
+            item.pop("id", None)
+        self.assertEqual(results, expected)
 
     @freeze_time("2024-05-01 12:00:00")
     def test_archive_response(self):

@@ -50,10 +50,12 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Cohort, Dashboard, DashboardTile, FeatureFlag, Insight, InsightViewed
+from posthog.models import Action, Cohort, FeatureFlag, Insight, InsightViewed
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -213,25 +215,13 @@ class HedgeboxMatrix(Matrix):
                 }
             ],
         )
-        real_users_cohort = Cohort.objects.create(
-            team=team,
-            name="Real persons",
-            description="People who don't belong to the Hedgebox team.",
-            created_by=user,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@hedgebox.net$",
-                            "operator": "not_regex",
-                        }
-                    ]
-                }
-            ],
-        )
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        # Create the standard internal/test users cohort (same as non-demo teams get)
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=user.email)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"},
+        ]
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(

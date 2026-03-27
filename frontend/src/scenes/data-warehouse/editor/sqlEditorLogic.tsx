@@ -138,13 +138,35 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     types: string[][]
 }
 
+type LegacyDataVisualizationNode = DataVisualizationNode & { connectionId?: string }
+
+function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
+    return {
+        ...source,
+        sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
+    }
+}
+
+function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
+    const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
+
+    return {
+        ...sanitizedSourceQuery,
+        source: normalizeRawQuerySource(sourceQuery.source),
+    }
+}
+
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
+        output_tab: values.outputActiveTab,
     }
     const connectionId = values.sourceQuery?.source.connectionId
     if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
         hash['c'] = connectionId
+        if (values.sourceQuery?.source.sendRawQuery) {
+            hash['raw'] = '1'
+        }
     }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
@@ -157,6 +179,14 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     }
 
     return hash
+}
+
+function parseOutputTab(value: unknown): OutputTab | null {
+    if (Object.values(OutputTab).includes(value as OutputTab)) {
+        return value as OutputTab
+    }
+
+    return null
 }
 
 export function getDisplayTypeToSaveInsight(
@@ -296,6 +326,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -329,7 +360,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 display: ChartDisplayType.Auto,
             } as DataVisualizationNode,
             {
-                setSourceQuery: (_, { sourceQuery }) => sourceQuery,
+                setSourceQuery: (_, { sourceQuery }) => sanitizeSourceQuery(sourceQuery),
             },
         ],
         lastRunQuery: [
@@ -712,13 +743,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
+            const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
             const currentTab = values.activeTab
             if (currentTab) {
                 actions.updateTab({
                     ...currentTab,
-                    sourceQuery,
+                    sourceQuery: nextSourceQuery,
                 })
             }
+        },
+        setSendRawQuery: ({ sendRawQuery }) => {
+            const currentSourceQuery = values.sourceQuery
+
+            actions.setSourceQuery({
+                ...currentSourceQuery,
+                source: {
+                    ...currentSourceQuery.source,
+                    sendRawQuery: sendRawQuery || undefined,
+                },
+            })
+            actions.syncUrlWithQuery()
         },
         initialize: async () => {
             actions.setFinishedLoading(false)
@@ -745,7 +789,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (values.activeTab) {
                 actions.saveAsDraft(
                     {
-                        kind: NodeKind.HogQLQuery,
+                        ...values.sourceQuery.source,
                         query: queryInput,
                     },
                     viewId,
@@ -759,10 +803,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         runQuery: ({ queryOverride, switchTab }) => {
             const query = (queryOverride || values.queryInput) ?? ''
 
-            const newSource = {
+            const newSource = normalizeRawQuerySource({
                 ...values.sourceQuery.source,
                 query,
-            }
+            })
 
             actions.setSourceQuery({
                 ...values.sourceQuery,
@@ -782,7 +826,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab ? 'force_async' : 'async')
+            }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, newSource)
 
             // Mark the first query task as complete when the query is run
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
@@ -844,10 +888,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
-            const queryToSave = {
+            const queryToSave = normalizeRawQuerySource({
                 ...query,
                 query: values.queryInput ?? '',
-            }
+            })
 
             const logic = dataNodeLogic({
                 key: values.dataLogicKey,
@@ -991,10 +1035,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const endpoint = await api.endpoint.create({
                     name: slugify(name),
                     description: description || undefined,
-                    query: {
+                    query: normalizeRawQuerySource({
                         ...(values.sourceQuery.source as HogQLQuery),
                         query: values.queryInput ?? '',
-                    },
+                    }),
                 })
                 lemonToast.success('Endpoint created')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
@@ -1252,6 +1296,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
             },
         ],
+        sendRawQueryEnabled: [
+            (s) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
+        ],
         isEditingMaterializedView: [
             (s) => [s.editingView],
             (editingView) => {
@@ -1479,6 +1527,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
+        setActiveTab: () => {
+            if (values.isEmbeddedMode || !values.activeTab) {
+                return
+            }
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
@@ -1489,6 +1543,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (searchParams.source === 'endpoint' || searchParams.source === 'insight') {
                 actions.setEditorSource(searchParams.source)
             }
+
+            const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
+
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
@@ -1497,8 +1554,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.c &&
+                !hashParams.raw &&
                 !hashParams.view &&
                 !hashParams.insight &&
+                !hashParams.draft &&
+                !hashParams.output_tab &&
                 values.queryInput !== null
             ) {
                 return
@@ -1510,17 +1570,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 hashParams.c !== ''
                     ? hashParams.c
                     : undefined
+            const sendRawQueryFromHash =
+                connectionIdFromHash !== undefined &&
+                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
+                String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
+            const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
 
-            if (connectionIdFromHash !== currentConnectionId) {
-                const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
-                    values.sourceQuery as typeof values.sourceQuery & { connectionId?: string }
-
+            if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
                 actions.setSourceQuery({
-                    ...sourceQueryWithoutLegacyConnectionId,
+                    ...values.sourceQuery,
                     source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
+                        sendRawQuery: sendRawQueryFromHash || undefined,
                     },
                 })
             }
@@ -1528,8 +1591,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.output_tab) {
-                    actions.setActiveTab(searchParams.output_tab as OutputTab)
+                if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
+                    actions.setActiveTab(outputTabFromUrl)
                 }
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
@@ -1556,7 +1619,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
-                    actions.setActiveTab(OutputTab.Materialization)
+                    if (!outputTabFromUrl) {
+                        actions.setActiveTab(OutputTab.Materialization)
+                    }
                     actions.setViewLoading(true)
 
                     if (values.dataWarehouseSavedQueries.length === 0) {
@@ -1583,7 +1648,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')
 
-                    actions.editView(queryToOpen, view)
+                    if (outputTabFromUrl) {
+                        actions.createTab(queryToOpen, view)
+                    } else {
+                        actions.editView(queryToOpen, view)
+                    }
                     actions.setViewLoading(false)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
@@ -1630,7 +1699,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.setSourceQuery(insight.query as DataVisualizationNode)
                     }
                     actions.editInsight(queryToOpen, insight)
-                    actions.setActiveTab(OutputTab.Visualization)
+                    if (!outputTabFromUrl) {
+                        actions.setActiveTab(OutputTab.Visualization)
+                    }
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
                     if (

@@ -268,13 +268,20 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
+	case msg.Code == tea.KeyEscape:
+		if !m.viewportAtBottom {
+			m.dbg("viewport: escape → goto bottom")
+			m.viewport.GotoBottom()
+			m.viewportAtBottom = true
+		}
+
 	case key.Matches(msg, m.keys.GotoTop):
-		m.dbg("viewport: goto top")
+		m.dbg("viewport: home → goto top")
 		m.viewport.GotoTop()
 		m.viewportAtBottom = false
 
 	case key.Matches(msg, m.keys.GotoBottom):
-		m.dbg("viewport: goto bottom")
+		m.dbg("viewport: end → goto bottom")
 		m.viewport.GotoBottom()
 		m.viewportAtBottom = true
 
@@ -303,6 +310,11 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.copyAnchor = -1
 		m.applyCopyStyle()
 		m.dbg("copy mode: enter at line %d", m.copyCursor)
+
+	case key.Matches(msg, m.keys.Sort):
+		m.sortMode = (m.sortMode + 1) % SortMode(sortModeCount)
+		m.sortServices()
+		m.dbg("sort: %s", m.sortMode)
 
 	case key.Matches(msg, m.keys.Info):
 		m.infoMode = true
