@@ -13792,13 +13792,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -13817,10 +13823,20 @@ export namespace Schemas {
       /** @nullable */
       event?: string | null;
       kind?: EventTaxonomyQueryKind;
+      /**
+       * Number of rows to return
+       * @nullable
+       */
+      limit?: number | null;
       /** @nullable */
       maxPropertyValues?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Number of rows to skip before returning rows
+       * @nullable
+       */
+      offset?: number | null;
       /** @nullable */
       properties?: string[] | null;
       response?: EventTaxonomyQueryResponse | null;
@@ -29050,13 +29066,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
