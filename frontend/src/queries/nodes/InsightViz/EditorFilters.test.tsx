@@ -25,39 +25,11 @@ import { BaseMathType, InsightShortId } from '~/types'
 
 import { EditorFilters } from './EditorFilters'
 
-// Mock MaxTool to render children directly (avoids AI integration setup)
+// MaxTool has AI integration that requires additional setup — render children directly in tests
 jest.mock('scenes/max/MaxTool', () => ({
     __esModule: true,
     default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
-
-// Mock heavy filter components — we're testing EditorFilters' orchestration, not the components themselves
-jest.mock('./TrendsSeries', () => ({ TrendsSeries: () => null }))
-jest.mock('./TrendsFormula', () => ({ TrendsFormula: () => null }))
-jest.mock('./GlobalAndOrFilters', () => ({ GlobalAndOrFilters: () => null }))
-jest.mock('./Breakdown', () => ({ Breakdown: () => null }))
-jest.mock('./CumulativeStickinessFilter', () => ({ CumulativeStickinessFilter: () => null }))
-jest.mock('~/queries/nodes/InsightViz/StickinessCriteria', () => ({ StickinessCriteria: () => null }))
-jest.mock('scenes/insights/EditorFilters/AttributionFilter', () => ({ Attribution: () => null }))
-jest.mock('scenes/insights/EditorFilters/FunnelsAdvanced', () => ({ FunnelsAdvanced: () => null }))
-jest.mock('scenes/insights/EditorFilters/FunnelsQuerySteps', () => ({ FunnelsQuerySteps: () => null }))
-jest.mock('scenes/insights/EditorFilters/GoalLines', () => ({ GoalLines: () => null }))
-jest.mock('scenes/insights/EditorFilters/PathsAdvanced', () => ({ PathsAdvanced: () => null }))
-jest.mock('scenes/insights/EditorFilters/PathsEventTypes', () => ({ PathsEventsTypes: () => null }))
-jest.mock('scenes/insights/EditorFilters/PathsExclusions', () => ({ PathsExclusions: () => null }))
-jest.mock('scenes/insights/EditorFilters/PathsHogQL', () => ({ PathsHogQL: () => null }))
-jest.mock('scenes/insights/EditorFilters/PathsTarget', () => ({
-    PathsTargetStart: () => null,
-    PathsTargetEnd: () => null,
-}))
-jest.mock('scenes/insights/EditorFilters/PathsWildcardGroups', () => ({ PathsWildcardGroups: () => null }))
-jest.mock('scenes/insights/EditorFilters/PoeFilter', () => ({ PoeFilter: () => null }))
-jest.mock('scenes/insights/EditorFilters/RetentionCondition', () => ({ RetentionCondition: () => null }))
-jest.mock('scenes/insights/EditorFilters/RetentionOptions', () => ({ RetentionOptions: () => null }))
-jest.mock('scenes/insights/EditorFilters/SamplingDeprecationNotice', () => ({
-    SamplingDeprecationNotice: () => null,
-}))
-jest.mock('./LifecycleToggles', () => ({ LifecycleToggles: () => null }))
 
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
