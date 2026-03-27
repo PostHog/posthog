@@ -32,9 +32,9 @@ const Template: StoryFn<typeof LemonLabel> = (props: LemonLabelProps) => {
 
 export const Basic: Story = Template.bind({})
 Basic.args = {
-    info: 'This field is optional',
-    showOptional: true,
-    children: 'Your label',
+    info: 'This field is required',
+    showOptional: false,
+    children: 'Label',
 }
 
 function ExplanationModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {
