@@ -802,6 +802,7 @@ class TestServiceFlagsDataFormat(BaseTest):
             created_by=self.user,
             version=1,
             evaluation_runtime="all",
+            bucketing_identifier=None,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": 100, "variant": None}],
                 "multivariate": None,
@@ -817,6 +818,7 @@ class TestServiceFlagsDataFormat(BaseTest):
             created_by=self.user,
             version=1,
             evaluation_runtime="all",
+            bucketing_identifier=None,
             filters={
                 "groups": [
                     {
@@ -838,6 +840,7 @@ class TestServiceFlagsDataFormat(BaseTest):
             created_by=self.user,
             version=2,
             evaluation_runtime="all",
+            bucketing_identifier=None,
             filters={
                 "groups": [
                     {
