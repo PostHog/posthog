@@ -623,7 +623,8 @@ class TestRealisticScoreBehavior:
     def test_batch_false_positive_rate_below_2_percent(self, _name: str, detector: Any) -> None:
         """Fewer than 2% of stable data points should trigger in batch mode."""
         result = detector.detect_batch(STABLE_HOURLY)
-        n_scorable = len(STABLE_HOURLY) - 168
+        window = detector.config.get("window", 30)
+        n_scorable = len(STABLE_HOURLY) - window
         fp_rate = len(result.triggered_indices) / n_scorable if n_scorable > 0 else 0
         assert fp_rate < 0.02, (
             f"{_name} FP rate {fp_rate:.1%} — triggered {len(result.triggered_indices)}/{n_scorable} points"

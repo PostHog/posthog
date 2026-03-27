@@ -9,6 +9,17 @@ from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
+def _iqr_fence_distances(
+    window_data: np.ndarray, lower_fence: float, upper_fence: float, iqr: float | np.floating
+) -> np.ndarray:
+    """Compute IQR fence distances for all points in a window."""
+    return np.where(
+        window_data < lower_fence,
+        (lower_fence - window_data) / iqr if iqr > 0 else 0.0,
+        np.where(window_data > upper_fence, (window_data - upper_fence) / iqr if iqr > 0 else 0.0, 0.0),
+    )
+
+
 def _iqr_distance_to_probability(distance: float, window_distances: np.ndarray) -> float:
     """Normalize an IQR fence distance to a [0, 1] anomaly probability.
 
@@ -72,12 +83,7 @@ class IQRDetector(BaseDetector):
         else:
             raw_distance = 0.0
 
-        # Compute distances for all window points for linear normalization
-        window_distances = np.where(
-            window_data < lower_fence,
-            (lower_fence - window_data) / iqr if iqr > 0 else 0.0,
-            np.where(window_data > upper_fence, (window_data - upper_fence) / iqr if iqr > 0 else 0.0, 0.0),
-        )
+        window_distances = _iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)
 
         prob = _iqr_distance_to_probability(raw_distance, window_distances)
         is_anomaly = prob > threshold
