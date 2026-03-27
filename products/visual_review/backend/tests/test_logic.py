@@ -487,6 +487,7 @@ class TestApproveRun:
         )
 
         assert updated.approved is True
+        assert updated.review_decision == "human_approved"
         assert updated.approved_at is not None
         assert updated.approved_by_id == user.id
 
