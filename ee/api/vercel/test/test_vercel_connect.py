@@ -685,7 +685,8 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_backfill",
-            config={"credentials": {"access_token": "tok_backfill"}},
+            config={},
+            sensitive_config={"credentials": {"access_token": "tok_backfill"}},
             created_by=self.user,
         )
         assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
