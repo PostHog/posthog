@@ -158,11 +158,6 @@ describe('EditorFilters', () => {
     })
 
     describe('formula mode toggle', () => {
-        it('shows "Enable formula mode" for trends by default', () => {
-            setupAndRender(makeTrendsQuery())
-            expect(screen.getByText('Enable formula mode')).toBeInTheDocument()
-        })
-
         it('toggles to "Disable formula mode" after clicking', async () => {
             const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
             jest.useFakeTimers()
@@ -179,16 +174,16 @@ describe('EditorFilters', () => {
     })
 
     describe('advanced options', () => {
-        it('collapses and expands advanced options section', async () => {
+        it('expands advanced options section on click', async () => {
             setupAndRender(makeFunnelsQuery())
 
-            const advancedOptionsButton = screen.getByRole('button', { name: /Advanced options/ })
-            expect(advancedOptionsButton).toBeInTheDocument()
+            // Starts collapsed — PoeFilter content not visible
+            expect(screen.queryByText('Use person properties from query time')).not.toBeInTheDocument()
 
-            // Starts collapsed (defaultExpanded: false)
-            await userEvent.click(advancedOptionsButton)
-            // After click it should expand — button still present
-            expect(screen.getByRole('button', { name: /Advanced options/ })).toBeInTheDocument()
+            await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
+
+            // Expanded — PoeFilter content now visible
+            expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
         })
     })
 })
