@@ -11,7 +11,7 @@ import { AccessControlLevel, ActionType } from '~/types'
 
 const MOCK_ACTION: ActionType = {
     id: 1,
-    storyName: 'Test Action',
+    name: 'Test Action',
     description: '',
     tags: [],
     post_to_slack: false,
@@ -85,7 +85,7 @@ const MOCK_ACTION: ActionType = {
 
 const MOCK_SCREEN_ACTION: ActionType = {
     id: 2,
-    storyName: 'Mobile Screen Views',
+    name: 'Mobile Screen Views',
     description: 'Tracks key screen views in the mobile app',
     tags: ['mobile'],
     post_to_slack: false,

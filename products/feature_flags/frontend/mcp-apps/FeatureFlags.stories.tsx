@@ -20,7 +20,7 @@ type Story = StoryObj<{}>
 const sampleBooleanFlag: FeatureFlagData = {
     id: 1,
     key: 'enable-new-dashboard',
-    storyName: 'New dashboard experience',
+    name: 'New dashboard experience',
     description: 'Enables the redesigned dashboard for selected users.',
     active: true,
     filters: {
@@ -43,7 +43,7 @@ const sampleBooleanFlag: FeatureFlagData = {
 const sampleMultivariateFlag: FeatureFlagData = {
     id: 2,
     key: 'checkout-flow-variant',
-    storyName: 'Checkout flow experiment',
+    name: 'Checkout flow experiment',
     description: 'A/B/C test for the checkout experience.',
     active: true,
     filters: {
@@ -74,7 +74,7 @@ const sampleMultivariateFlag: FeatureFlagData = {
 const sampleInactiveFlag: FeatureFlagData = {
     id: 3,
     key: 'deprecated-feature',
-    storyName: 'Old feature toggle',
+    name: 'Old feature toggle',
     active: false,
     filters: {
         groups: [
