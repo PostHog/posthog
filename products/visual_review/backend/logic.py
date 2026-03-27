@@ -412,9 +412,9 @@ def _register_snapshots(
 
         _snapshot, created = RunSnapshot.objects.get_or_create(
             run=run,
+            team_id=repo.team_id,
             identifier=identifier,
             defaults={
-                "team_id": repo.team_id,
                 "current_hash": current_hash,
                 "baseline_hash": baseline_hash or "",
                 "current_artifact": current_artifact,
@@ -433,9 +433,9 @@ def _register_snapshots(
         baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
         _snapshot, created = RunSnapshot.objects.get_or_create(
             run=run,
+            team_id=repo.team_id,
             identifier=identifier,
             defaults={
-                "team_id": repo.team_id,
                 "current_hash": "",
                 "baseline_hash": baseline_hash or "",
                 "baseline_artifact": baseline_artifact,
@@ -499,7 +499,9 @@ def add_snapshots_to_run(
     added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
 
     # Atomically increment total (safe for concurrent shards)
-    Run.objects.filter(id=run_id).update(total_snapshots=F("total_snapshots") + added + unchanged_count)
+    Run.objects.filter(id=run_id, team_id=team_id).update(
+        total_snapshots=F("total_snapshots") + added + unchanged_count
+    )
     _update_run_counts(run)
 
     return added, uploads
