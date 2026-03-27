@@ -340,7 +340,7 @@ resource "posthog_insight" "slo_volume" {
         SELECT
             properties.operation AS operation,
             if(
-                count(DISTINCT properties.region) OVER (PARTITION BY properties.operation) = 1,
+                count(properties.region) OVER (PARTITION BY properties.operation) = 1,
                 'all*',
                 properties.region
             ) AS region,
