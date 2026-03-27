@@ -328,11 +328,6 @@ export function ProjectTree({
                     return
                 }
 
-                // Other load-more items (recent, search) handle loading via their own onClick
-                if (item?.id.includes('-load-more/')) {
-                    return
-                }
-
                 // Track when Data pipelines button is clicked
                 if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
                     setDataPipelinesClicked(true)
