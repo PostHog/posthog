@@ -13,11 +13,9 @@ import {
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { buildGroupRepository } from '../../ingestion/personhog'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PersonHogClient } from '../../personhog/client'
-import { PersonHogGroupRepository } from '../../personhog/personhog-group-repository'
+import { buildGroupRepository } from '../../personhog'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { isTestEnv } from '../env-utils'
@@ -96,34 +94,11 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     }
     const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
 
-    let groupRepository: GroupRepository = postgresGroupRepository
-
-    if (
-        serverConfig.PERSONHOG_ENABLED &&
-        serverConfig.PERSONHOG_ADDR &&
-        serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE > 0
-    ) {
-        const grpcClient = new PersonHogClient({
-            addr: serverConfig.PERSONHOG_ADDR,
-            useTls: serverConfig.PERSONHOG_TLS,
-            timeoutMs: serverConfig.PERSONHOG_TIMEOUT_MS,
-            readMaxBytes: serverConfig.PERSONHOG_READ_MAX_BYTES,
-            writeMaxBytes: serverConfig.PERSONHOG_WRITE_MAX_BYTES,
-            pingIntervalMs: serverConfig.PERSONHOG_PING_INTERVAL_MS,
-            pingTimeoutMs: serverConfig.PERSONHOG_PING_TIMEOUT_MS,
-            pingIdleConnection: serverConfig.PERSONHOG_PING_IDLE_CONNECTION,
-        })
-        groupRepository = new PersonHogGroupRepository(
-            postgresGroupRepository,
-            grpcClient,
-            serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE,
-            serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
-        )
-        logger.info(
-            '🔌',
-            `PersonHog gRPC enabled at ${serverConfig.PERSONHOG_ADDR} (${serverConfig.PERSONHOG_ROLLOUT_PERCENTAGE}%)`
-        )
-    }
+    const groupRepository = buildGroupRepository(
+        serverConfig,
+        postgresGroupRepository,
+        serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+    )
 
     const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 

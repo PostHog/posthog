@@ -25,8 +25,7 @@ import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-sche
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
-import { PersonHogClient } from './personhog/client'
-import { PersonHogGroupRepository } from './personhog/personhog-group-repository'
+import { buildGroupRepository } from './personhog'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -348,35 +347,11 @@ export class PluginServer implements NodeServer {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
-
-        let groupRepository: GroupRepository = postgresGroupRepository
-
-        if (
-            this.config.PERSONHOG_ENABLED &&
-            this.config.PERSONHOG_ADDR &&
-            this.config.PERSONHOG_ROLLOUT_PERCENTAGE > 0
-        ) {
-            const grpcClient = new PersonHogClient({
-                addr: this.config.PERSONHOG_ADDR,
-                useTls: this.config.PERSONHOG_TLS,
-                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
-                readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
-                writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
-                pingIntervalMs: this.config.PERSONHOG_PING_INTERVAL_MS,
-                pingTimeoutMs: this.config.PERSONHOG_PING_TIMEOUT_MS,
-                pingIdleConnection: this.config.PERSONHOG_PING_IDLE_CONNECTION,
-            })
-            groupRepository = new PersonHogGroupRepository(
-                postgresGroupRepository,
-                grpcClient,
-                this.config.PERSONHOG_ROLLOUT_PERCENTAGE,
-                this.config.PLUGIN_SERVER_MODE ?? 'unknown'
-            )
-            logger.info(
-                '🔌',
-                `PersonHog gRPC enabled at ${this.config.PERSONHOG_ADDR} (${this.config.PERSONHOG_ROLLOUT_PERCENTAGE}%)`
-            )
-        }
+        const groupRepository = buildGroupRepository(
+            this.config,
+            postgresGroupRepository,
+            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)

@@ -63,6 +63,8 @@ export class PersonHogGroupRepository implements GroupRepository {
         groupKey: string,
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<Group | undefined> {
+        // Only route to gRPC for eventually-consistent replica reads (useReadReplica: true)
+        // where no row-level lock is needed (forUpdate: false/unset).
         if (options?.forUpdate || !options?.useReadReplica || !this.shouldUseGrpc()) {
             return this.timedPostgres('fetchGroup', () =>
                 this.postgres.fetchGroup(teamId, groupTypeIndex, groupKey, options)
