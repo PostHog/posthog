@@ -397,7 +397,7 @@ export class PluginServer implements NodeServer {
     private async createSharedInfrastructure(): Promise<{ teamManager: TeamManager }> {
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        this.postgres = new PostgresRouter(this.config)
+        this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
