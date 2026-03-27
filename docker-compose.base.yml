@@ -407,10 +407,30 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
-            COOKIELESS_REDIS_HOST: redis7
-            COOKIELESS_REDIS_PORT: 6379
             SESSION_RECORDING_API_REDIS_HOST: redis7
             SESSION_RECORDING_API_REDIS_PORT: 6379
+            # Logs/traces consumers default to 127.0.0.1 which doesn't work in Docker
+            LOGS_REDIS_HOST: redis7
+            TRACES_REDIS_HOST: redis7
+
+    ingestion-general:
+        command: node nodejs/dist/index.js
+        restart: on-failure
+        environment:
+            PLUGIN_SERVER_MODE: 'ingestion-v2-combined'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis7:6379/'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            COOKIELESS_REDIS_HOST: redis7
+            COOKIELESS_REDIS_PORT: 6379
+            CDP_REDIS_HOST: redis7
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
 
     livestream:
         image: 'ghcr.io/posthog/posthog/livestream:master'

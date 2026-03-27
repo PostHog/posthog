@@ -905,15 +905,8 @@ export interface DashboardTemplateApi {
     scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
-}
-
-export interface PaginatedDashboardTemplateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardTemplateApi[]
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
 }
 
 export interface PatchedDashboardTemplateApi {
@@ -949,6 +942,8 @@ export interface PatchedDashboardTemplateApi {
     scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
 }
 
 /**
@@ -1924,17 +1919,6 @@ export type CommentsListParams = {
      * The pagination cursor value.
      */
     cursor?: string
-}
-
-export type DashboardTemplatesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type ExportsListParams = {

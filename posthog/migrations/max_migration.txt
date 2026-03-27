@@ -1,1 +1,1 @@
-1066_alter_insight_saved
+1073_migrate_dashboards_models

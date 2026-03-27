@@ -7,7 +7,7 @@ from django_scim import constants
 from django_scim.adapters import SCIMUser
 from scim2_filter_parser.attr_paths import AttrPath
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.rbac.role import RoleMembership
@@ -18,12 +18,12 @@ class SCIMUserConflict(Exception):
     """User is already SCIM-provisioned for this organization domain."""
 
 
-def _validate_email_domain_matches(email: str, organization_domain: OrganizationDomain) -> None:
+def _validate_email_domain_is_verified(email: str, organization: Organization) -> None:
     """Ensure email domain matches any verified domain for the organization. Prevents cross-tenant user adoption."""
     email_domain = email.split("@")[1].lower()
     verified_domains = set(
         OrganizationDomain.objects.filter(
-            organization=organization_domain.organization,
+            organization=organization,
             verified_at__isnull=False,
         ).values_list("domain", flat=True)
     )
@@ -184,7 +184,7 @@ class PostHogSCIMUser(SCIMUser):
                     user=user, organization=organization_domain.organization
                 ).exists()
                 if not is_member:
-                    _validate_email_domain_matches(email, organization_domain)
+                    _validate_email_domain_is_verified(email, organization_domain.organization)
 
                 if first_name:
                     user.first_name = first_name
@@ -192,7 +192,7 @@ class PostHogSCIMUser(SCIMUser):
                     user.last_name = last_name
                 user.save()
             else:
-                _validate_email_domain_matches(email, organization_domain)
+                _validate_email_domain_is_verified(email, organization_domain.organization)
                 # Create new user with no password (they'll use SAML)
                 user = User.objects.create_user(
                     email=email, password=None, first_name=first_name, last_name=last_name, is_email_verified=True
@@ -243,7 +243,9 @@ class PostHogSCIMUser(SCIMUser):
             if existing_user_with_email:
                 raise ValueError("Email belongs to another user")
 
-            _validate_email_domain_matches(email, self._organization_domain)
+            _validate_email_domain_is_verified(email, self._organization_domain.organization)
+            # Org must also own the current email domain to prevent cross-tenant account takeover
+            _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
 
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
@@ -348,7 +350,9 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
-                    _validate_email_domain_matches(email, self._organization_domain)
+                    _validate_email_domain_is_verified(email, self._organization_domain.organization)
+                    # Org must also own the current email domain to prevent cross-tenant account takeover
+                    _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
@@ -410,7 +414,9 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
-                    _validate_email_domain_matches(email, self._organization_domain)
+                    _validate_email_domain_is_verified(email, self._organization_domain.organization)
+                    # Org must also own the current email domain to prevent cross-tenant account takeover
+                    _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
                     self.obj.email = email
                     self.obj.save()
 

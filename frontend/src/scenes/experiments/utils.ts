@@ -965,3 +965,14 @@ export function getOrderedMetricsWithResults(
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }
+
+export function matchesSharedMetricSearch(
+    metric: { name: string; description?: string; tags?: string[] },
+    searchLower: string
+): boolean {
+    return (
+        metric.name.toLowerCase().includes(searchLower) ||
+        (metric.description?.toLowerCase().includes(searchLower) ?? false) ||
+        (metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ?? false)
+    )
+}

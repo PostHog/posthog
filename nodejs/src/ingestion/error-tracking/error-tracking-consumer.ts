@@ -17,6 +17,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { OverflowOutput } from '../common/outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
@@ -94,7 +95,12 @@ const latestOffsetTimestampGauge = new Gauge({
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
     protected kafkaConsumer: KafkaConsumer
-    protected pipeline!: BatchPipelineUnwrapper<{ message: Message }, ErrorTrackingPipelineOutput, { message: Message }>
+    protected pipeline!: BatchPipelineUnwrapper<
+        { message: Message },
+        ErrorTrackingPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
     protected eventIngestionRestrictionManager: EventIngestionRestrictionManager

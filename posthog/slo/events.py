@@ -1,8 +1,9 @@
-import os
+from collections.abc import Callable
 
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
+from posthog.git import get_git_commit_short
 from posthog.slo.types import SloCompletedProperties, SloStartedProperties
 
 OPERATION_STARTED_COUNTER = Counter(
@@ -49,13 +50,15 @@ def emit_slo_started(
     distinct_id: str,
     properties: SloStartedProperties,
     extra_properties: dict | None = None,
+    capture: Callable | None = None,
 ) -> None:
     all_properties = properties.to_dict()
-    all_properties["deploy_sha"] = os.environ.get("COMMIT_SHA")
+    all_properties["deploy_sha"] = get_git_commit_short()
     if extra_properties:
         all_properties.update(extra_properties)
 
-    posthoganalytics.capture(
+    _capture = capture or posthoganalytics.capture
+    _capture(
         distinct_id=distinct_id,
         event="slo_operation_started",
         properties=all_properties,
@@ -70,13 +73,15 @@ def emit_slo_completed(
     distinct_id: str,
     properties: SloCompletedProperties,
     extra_properties: dict | None = None,
+    capture: Callable | None = None,
 ) -> None:
     all_properties = properties.to_dict()
-    all_properties["deploy_sha"] = os.environ.get("COMMIT_SHA")
+    all_properties["deploy_sha"] = get_git_commit_short()
     if extra_properties:
         all_properties.update(extra_properties)
 
-    posthoganalytics.capture(
+    _capture = capture or posthoganalytics.capture
+    _capture(
         distinct_id=distinct_id,
         event="slo_operation_completed",
         properties=all_properties,

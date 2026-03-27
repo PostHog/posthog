@@ -3,6 +3,7 @@ import { CDPSession, Page } from 'puppeteer'
 import { PuppeteerCaptureFormat, capture as captureVideo } from 'puppeteer-capture'
 
 import { config } from '../config'
+import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
 import { InactivityPeriod, RasterizeRecordingInput, RecordingResult } from '../types'
 import { elapsed } from '../utils'
@@ -66,7 +67,7 @@ function overrideScreenshotFormat(page: Page, format: 'jpeg' | 'png', quality?: 
     ;(page as any).createCDPSession = async (): Promise<CDPSession> => {
         const session = await originalCreateCDPSession()
         const originalSend = session.send.bind(session)
-        ;(session as any).send = async (method: string, ...args: any[]): Promise<any> => {
+        ;(session as any).send = (method: string, ...args: any[]): Promise<any> => {
             if (method === 'HeadlessExperimental.beginFrame') {
                 const params = args[0] ?? {}
                 params.screenshot = { format }
@@ -111,6 +112,9 @@ export async function capturePlayback(
             for (const filter of captureConfig.ffmpegVideoFilters) {
                 ffmpeg.videoFilters(filter)
             }
+            ffmpeg.on('start', (cmd: string) => log.info({ cmd }, 'ffmpeg started'))
+            ffmpeg.on('stderr', (line: string) => log.debug({ ffmpeg: line }, 'ffmpeg'))
+            ffmpeg.on('error', (err: Error) => log.error({ err }, 'ffmpeg error'))
         },
         ffmpeg: process.env.FFMPEG_PATH || undefined,
     })
@@ -131,6 +135,16 @@ export async function capturePlayback(
         }
     })
 
+    // When ffmpeg dies, puppeteer-capture stops capturing but waitForTimeout()
+    // hangs forever. Listen for captureStopped to break out of the loop.
+    let captureAborted: Error | null = null
+    let captureAbortReject: ((err: Error) => void) | null = null
+    recorder.on('captureStopped', () => {
+        const err = new RasterizationError('capture stopped unexpectedly (ffmpeg crashed)', true, 'CAPTURE_ABORTED')
+        captureAborted = err
+        captureAbortReject?.(err)
+    })
+
     let virtualElapsed = 0
     let truncated = false
     try {
@@ -147,7 +161,16 @@ export async function capturePlayback(
         const checkIntervalMs = 250
 
         while (virtualElapsed < captureConfig.captureTimeoutMs) {
-            await recorder.waitForTimeout(checkIntervalMs)
+            if (captureAborted) {
+                throw captureAborted
+            }
+            await Promise.race([
+                recorder.waitForTimeout(checkIntervalMs),
+                new Promise<never>((_, reject) => {
+                    captureAbortReject = reject
+                }),
+            ])
+            captureAbortReject = null
             virtualElapsed += checkIntervalMs
 
             // Stop early when we've captured enough frames for the trim duration.
@@ -177,6 +200,7 @@ export async function capturePlayback(
             truncated = true
         }
     } finally {
+        captureAbortReject = null
         try {
             await recorder.stop()
         } catch {

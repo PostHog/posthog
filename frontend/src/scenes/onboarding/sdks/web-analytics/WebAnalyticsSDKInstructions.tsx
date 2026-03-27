@@ -27,11 +27,13 @@ import {
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations for web analytics
 const WEB_SNIPPETS = {
     WebFinalSteps,
+    ...JS_WEB_SNIPPETS,
 }
 
 const MOBILE_SNIPPETS = {

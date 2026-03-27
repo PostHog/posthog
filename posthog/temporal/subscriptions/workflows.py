@@ -1,12 +1,11 @@
 import json
-import typing
 import asyncio
 import datetime as dt
 import traceback
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloOutcome
@@ -19,6 +18,7 @@ from posthog.temporal.exports.types import (
     ExportAssetActivityInputs,
     ExportAssetResult,
     ExportError,
+    extract_error_details,
 )
 from posthog.temporal.subscriptions.activities import (
     advance_next_delivery_date,
@@ -35,40 +35,6 @@ from posthog.temporal.subscriptions.types import (
 )
 
 
-class ExportErrorDetails(typing.NamedTuple):
-    """Failure metadata extracted from a Temporal activity exception.
-
-    Fields mirror the ApplicationError details emitted by export_asset_activity:
-    [exception_class, duration_ms, export_format, attempt, error_trace].
-    """
-
-    exception_class: str | None = None
-    duration_ms: float | None = None
-    export_format: str = ""
-    attempts: int = 1
-    error_trace: str | None = None
-
-
-def _extract_error_details(exc: BaseException) -> ExportErrorDetails:
-    """Extract failure metadata from a Temporal activity exception chain.
-
-    asyncio.gather(return_exceptions=True) yields BaseException, but Temporal
-    wraps activity failures as ActivityError → ApplicationError. We narrow
-    through that chain to reach the structured details.
-    """
-    if not isinstance(exc, ActivityError) or not isinstance(exc.cause, ApplicationError):
-        return ExportErrorDetails()
-
-    details = exc.cause.details
-    return ExportErrorDetails(
-        exception_class=details[0] if len(details) >= 1 and isinstance(details[0], str) else None,
-        duration_ms=details[1] if len(details) >= 2 and isinstance(details[1], (int, float)) else None,
-        export_format=details[2] if len(details) >= 3 and isinstance(details[2], str) else "",
-        attempts=details[3] if len(details) >= 4 and isinstance(details[3], int) else 1,
-        error_trace=details[4] if len(details) >= 5 and isinstance(details[4], str) else None,
-    )
-
-
 def _build_outcome_assets(
     asset_ids: list[int],
     export_results: list[ExportAssetResult | BaseException],
@@ -83,7 +49,7 @@ def _build_outcome_assets(
     successful_asset_ids: list[int] = []
     for asset_id, result in zip(asset_ids, export_results):
         if isinstance(result, BaseException):
-            err = _extract_error_details(result)
+            err = extract_error_details(result)
             outcome_assets.append(
                 ExportAssetResult(
                     exported_asset_id=asset_id,
@@ -94,9 +60,6 @@ def _build_outcome_assets(
                     )
                     if err.exception_class
                     else None,
-                    duration_ms=err.duration_ms,
-                    export_format=err.export_format,
-                    attempts=err.attempts,
                 )
             )
         else:
@@ -132,9 +95,9 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         )
 
         # Fan-out child workflows — one per subscription, fully isolated.
-        # Idempotent ID (no run_id suffix) prevents duplicate deliveries when
-        # schedule runs overlap: if the previous run's child is still executing,
-        # Temporal rejects the duplicate start and we log it below.
+        # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
+        # schedule runs overlap: Temporal guarantees no two open workflows can
+        # share the same ID, so a still-running child rejects the duplicate start.
         tasks = []
         for sub_id in subscription_ids:
             task = temporalio.workflow.execute_child_workflow(
@@ -153,11 +116,19 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             failed_ids = []
             for sub_id, result in zip(subscription_ids, results):
                 if isinstance(result, BaseException):
-                    failed_ids.append(sub_id)
-                    temporalio.workflow.logger.warning(
-                        "process_subscription.child_workflow_error",
-                        extra={"subscription_id": sub_id, "error": str(result)},
-                    )
+                    if isinstance(result, WorkflowAlreadyStartedError):
+                        # A previous schedule run's child is still processing this
+                        # subscription — not a failure, just skip it.
+                        temporalio.workflow.logger.info(
+                            "process_subscription.already_running",
+                            extra={"subscription_id": sub_id},
+                        )
+                    else:
+                        failed_ids.append(sub_id)
+                        temporalio.workflow.logger.warning(
+                            "process_subscription.child_workflow_error",
+                            extra={"subscription_id": sub_id, "error": str(result)},
+                        )
 
             if failed_ids:
                 raise ApplicationError(

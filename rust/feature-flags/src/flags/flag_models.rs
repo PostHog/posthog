@@ -6,6 +6,10 @@ use std::collections::{HashMap, HashSet};
 use crate::cohorts::cohort_models::Cohort;
 use crate::properties::property_models::PropertyFilter;
 
+// NOTE: The `evaluation_tags` field was renamed to `evaluation_contexts` in the Python
+// serializer (PR #52186). The Rust field keeps the old name for internal compatibility,
+// but uses `#[serde(rename = "evaluation_contexts")]` to match the JSON key.
+
 /// Deserializes a JSON object with string keys into `HashMap<i32, HashSet<i32>>`.
 /// JSON only supports string keys, so Python serializes `{1: [2, 3]}` as `{"1": [2, 3]}`.
 fn deserialize_string_keyed_i32_map<'de, D>(
@@ -44,6 +48,20 @@ where
         ser_map.serialize_entry(&k.to_string(), &sorted)?;
     }
     ser_map.end()
+}
+
+/// Deserializes a field into `Option<Option<T>>` to distinguish "absent" from "null":
+/// - Field absent → `None` (outer)
+/// - Field present, value `null` → `Some(None)`
+/// - Field present, value `v` → `Some(Some(v))`
+fn deserialize_double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    // When serde calls this, the field was present in JSON. Absent fields
+    // never reach the deserializer — #[serde(default)] yields None instead.
+    Ok(Some(Option::deserialize(deserializer)?))
 }
 
 /// Pre-computed dependency metadata, built by Django at cache-write time.
@@ -93,11 +111,12 @@ pub struct FlagPropertyGroup {
     pub rollout_percentage: Option<f64>,
     #[serde(default)]
     pub variant: Option<String>,
-    /// Per-condition-set aggregation group type index. When present, this condition
-    /// set uses the specified group type for hashing and property evaluation. When
-    /// absent/null, the condition set uses person-level aggregation (distinct_id).
-    #[serde(default)]
-    pub aggregation_group_type_index: Option<i32>,
+    /// Per-condition-set aggregation group type index. The outer Option distinguishes
+    /// "field absent" (legacy flags, should fall back to flag-level) from "field
+    /// present but null" (explicit person aggregation). When the inner Option holds
+    /// a value, the condition uses that group type for hashing and property evaluation.
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub aggregation_group_type_index: Option<Option<i32>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -145,6 +164,11 @@ pub struct FlagFilters {
     /// fallback to regular conditions.
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
+    /// New format for early access feature enrollment. When `true`, the flag is evaluated
+    /// against the person property `$feature_enrollment/{flag_key}`. Takes precedence over
+    /// `super_groups` when both are present.
+    #[serde(default)]
+    pub feature_enrollment: Option<bool>,
     /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
     /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
@@ -180,7 +204,9 @@ pub struct FeatureFlag {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
-    #[serde(default)]
+    /// Evaluation context tags for this flag. JSON key is `evaluation_contexts`,
+    /// but Rust field remains `evaluation_tags` for internal compatibility.
+    #[serde(default, rename = "evaluation_contexts")]
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
@@ -197,6 +223,8 @@ impl FeatureFlag {
     }
 }
 
+/// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
+/// always named `evaluation_tags` in the SQL query, so no alias is needed.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct FeatureFlagRow {
     pub id: i32,
