@@ -328,9 +328,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     // Calculate active variant index for drag overlay
-    const activeVariantIndex = activeId
-        ? variants.findIndex((_, index) => `variant-${index}` === String(activeId))
-        : -1
+    const activeVariantIndex = activeId ? variants.findIndex((_, index) => `variant-${index}` === String(activeId)) : -1
 
     // Calculate expand/collapse button state
     const allVariantKeys = variants.map((_, index) => `variant-${index}`)
@@ -785,9 +783,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             onDragEnd={handleDragEnd}
                                         >
                                             <SortableContext
-                                                items={variants.map(
-                                                    (_, index) => `variant-${index}`
-                                                )}
+                                                items={variants.map((_, index) => `variant-${index}`)}
                                                 strategy={verticalListSortingStrategy}
                                             >
                                                 <LemonCollapse
