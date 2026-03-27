@@ -127,6 +127,25 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         assert pat is not None
         assert pat.label.startswith("Stripe Projects")
 
+    def test_create_resource_replaces_existing_stripe_pat(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        assert first_pat is not None
+
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        stripe_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
+        assert stripe_pats.count() == 1
+        assert stripe_pats.first().id != first_pat.id
+
     def test_get_resource_does_not_include_personal_api_key(self):
         token = self._get_bearer_token()
         res = self._get_signed_with_bearer(

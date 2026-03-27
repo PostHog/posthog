@@ -623,12 +623,16 @@ def _exchange_refresh_token(request: Request) -> Response:
 
 def _create_provisioned_pat(user: User, team: Team) -> str:
     """Create a Personal API Key for a Stripe-provisioned user and return the raw key value."""
+    PersonalAPIKey.objects.filter(
+        user=user,
+        label__startswith=STRIPE_PROVISIONED_PAT_LABEL_PREFIX,
+    ).delete()
+
     api_key_value = generate_random_token_personal()
 
-    timestamp = timezone.now().strftime("%Y-%m-%d %H:%M")
-    max_team_name_len = 40 - len(f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - ") - len(f" - {timestamp}")
+    max_team_name_len = 40 - len(f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - ")
     team_name = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
-    label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team_name} - {timestamp}"
+    label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team_name}"
 
     PersonalAPIKey.objects.create(
         user=user,
