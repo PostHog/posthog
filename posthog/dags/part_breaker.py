@@ -18,7 +18,7 @@ The process per oversized part:
 8. DETACH new parts from target staging (SQL)
 9. Move detached parts to source table's detached dir (SSH)
 10. ATTACH PART on source table — adds each new broken part individually (SQL, replicated)
-11. Wait for replication — polls all replicas' log_pointer via ZooKeeper until past our ATTACHes (SQL)
+11. Wait for replication — polls all replicas' log_pointer via clusterAllReplicas(system.replicas) (SQL)
 12. DROP PART — removes only the original oversized part (SQL)
 13. Clean up — SYSTEM UNFREEZE BY NAME, truncate staging tables (SQL)
 
@@ -120,11 +120,12 @@ class BreakResult:
     """Result of breaking a single oversized part."""
 
     part: PartStats
-    source_count: int
-    post_count: int
-    new_largest_part_gib: float
-    new_part_count: int
-    duration_seconds: float
+    source_count: int = 0
+    post_count: int = 0
+    new_largest_part_gib: float = 0.0
+    new_part_count: int = 0
+    duration_seconds: float = 0.0
+    dry_run: bool = False
 
     @property
     def count_diff_pct(self) -> float:
@@ -335,6 +336,16 @@ def _check_no_active_breaker(client: Client, staging_source: str, staging_target
         },
     )
     return rows[0][0] == 0
+
+
+def _table_exists(client: Client, table: str) -> bool:
+    """Check if a table exists."""
+    database = _get_database()
+    rows = client.execute(
+        "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        {"db": database, "table": table},
+    )
+    return rows[0][0] > 0
 
 
 def _check_staging_table_empty(client: Client, staging_table: str) -> bool:
@@ -549,65 +560,67 @@ def _get_staging_stats(client: Client, staging_table: str, partition_id: str) ->
     return row_count, part_count, largest_gib
 
 
-def _wait_for_replication(client: Client, source_table: str, target_log_index: int, max_wait: int = 0) -> None:
+def _wait_for_replication(
+    client: Client, source_table: str, target_log_index: int, shard_num: int, max_wait: int = 0
+) -> None:
     """Wait for ALL replicas to process past a specific replication log index.
 
     After ATTACHing new parts, we capture the current log_max_index and pass it here.
-    This function waits until every replica's log_pointer >= that index, meaning they
-    have all fetched the new parts. Only then is it safe to DROP the old part.
+    This function waits until every active replica's log_pointer >= that index, meaning
+    they have all fetched the new parts. Only then is it safe to DROP the old part.
 
     This handles active ingestion correctly — we don't need replicas to be fully
     caught up with everything, just past the point where our ATTACHes were recorded.
 
-    Raises if ZK is unreachable — we cannot safely drop the old part without confirming replication.
+    Uses clusterAllReplicas() to query system.replicas across all nodes via a single
+    connection — avoids querying internal ZooKeeper state directly.
     """
     if max_wait <= 0:
         max_wait = settings.PART_BREAKER_MAX_REPLICATION_WAIT_TIME
 
     database = _get_database()
-
-    # Get the ZooKeeper path for this replicated table
-    zk_rows = client.execute(
-        "SELECT zookeeper_path FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
-        {"db": database, "table": source_table},
-    )
-    if not zk_rows or not zk_rows[0][0]:
-        raise dagster.Failure(
-            description=f"Could not get ZooKeeper path for {source_table} — "
-            "cannot safely verify replication before dropping the old part"
-        )
-
-    zk_path = zk_rows[0][0]
-
-    # Get list of replica names from ZK
-    replica_rows = client.execute(
-        "SELECT name FROM system.zookeeper WHERE path = %(path)s",
-        {"path": f"{zk_path}/replicas"},
-    )
-    replica_names = [row[0] for row in replica_rows]
-
-    logger.info(f"Waiting for {len(replica_names)} replicas to reach log index {target_log_index}...")
+    cluster = settings.CLICKHOUSE_CLUSTER
 
     behind_replicas: list[str] = []
+    first_poll = True
     start = time.time()
     while time.time() - start < max_wait:
+        # Query all replicas across the cluster, scoped to this shard via getMacro('shard').
+        # clusterAllReplicas returns rows for ALL shards, but log_pointer values differ
+        # per shard — we only care about replicas on the same shard.
+        rows = client.execute(
+            f"SELECT replica_name, log_pointer, is_session_expired "
+            f"FROM clusterAllReplicas(%(cluster)s, system.replicas) "
+            f"WHERE database = %(db)s AND table = %(table)s "
+            f"AND getMacro('shard') = %(shard)s",
+            {"cluster": cluster, "db": database, "table": source_table, "shard": str(shard_num)},
+        )
+
+        if not rows:
+            raise dagster.Failure(
+                description=f"No replicas found for {source_table} via clusterAllReplicas — "
+                "cannot safely verify replication before dropping the old part"
+            )
+
+        # Filter to active replicas (session not expired)
+        active = [(name, pointer) for name, pointer, expired in rows if not expired]
+        inactive = [name for name, _, expired in rows if expired]
+
+        if inactive:
+            logger.info(f"Skipping {len(inactive)} inactive replica(s): {', '.join(inactive)}")
+
+        if not active:
+            raise dagster.Failure(
+                description=f"No active replicas found for {source_table} — cannot verify replication"
+            )
+
+        if first_poll:
+            logger.info(f"Waiting for {len(active)} active replica(s) to reach log index {target_log_index}...")
+            first_poll = False
+
         all_synced = True
         behind_replicas = []
-        for replica_name in replica_names:
-            pointer_rows = client.execute(
-                "SELECT value FROM system.zookeeper WHERE path = %(path)s AND name = 'log_pointer'",
-                {"path": f"{zk_path}/replicas/{replica_name}"},
-            )
-            if not pointer_rows:
-                all_synced = False
-                behind_replicas.append(f"{replica_name} (no log_pointer — replica may be down/initializing)")
-                continue
-            try:
-                log_pointer = int(pointer_rows[0][0])
-            except (ValueError, TypeError):
-                all_synced = False
-                behind_replicas.append(f"{replica_name} (invalid log_pointer value: {pointer_rows[0][0]!r})")
-                continue
+        for replica_name, log_pointer in active:
             if log_pointer < target_log_index:
                 all_synced = False
                 behind_replicas.append(
@@ -616,7 +629,7 @@ def _wait_for_replication(client: Client, source_table: str, target_log_index: i
                 )
 
         if all_synced:
-            logger.info(f"All {len(replica_names)} replicas have reached log index {target_log_index}")
+            logger.info(f"All {len(active)} replicas have reached log index {target_log_index}")
             return
 
         elapsed = int(time.time() - start)
@@ -720,8 +733,99 @@ def break_part(
     )
 
     if config.dry_run:
-        context.log.info("DRY RUN — skipping actual processing")
-        return None
+
+        def _dry_run(client: Client) -> None:
+            """Run pre-flight checks and report what would happen without modifying anything."""
+            context.log.info("DRY RUN — running pre-flight checks only, no modifications will be made")
+
+            # Check disk space
+            has_space, free_bytes = _check_disk_space(client, part.part_bytes, config.min_free_space_multiplier)
+            free_gib = free_bytes / (1024**3)
+            required_gib = part.part_gib * config.min_free_space_multiplier
+            if has_space:
+                context.log.info(f"  Disk space: OK ({free_gib:.1f} GiB free, need {required_gib:.1f} GiB)")
+            else:
+                context.log.warning(
+                    f"  Disk space: INSUFFICIENT ({free_gib:.1f} GiB free, need {required_gib:.1f} GiB)"
+                )
+
+            # Check for active breaker
+            no_active = _check_no_active_breaker(client, staging_source, staging_target)
+            context.log.info(f"  No active breaker: {'OK' if no_active else 'BLOCKED — another INSERT SELECT running'}")
+
+            # Check staging tables
+            src_empty = (
+                _check_staging_table_empty(client, staging_source) if _table_exists(client, staging_source) else True
+            )
+            tgt_empty = (
+                _check_staging_table_empty(client, staging_target) if _table_exists(client, staging_target) else True
+            )
+            context.log.info(
+                f"  Staging source ({staging_source}): "
+                f"{'empty' if src_empty else 'NOT EMPTY — would truncate'}"
+                f"{' (does not exist — would create)' if not _table_exists(client, staging_source) else ''}"
+            )
+            context.log.info(
+                f"  Staging target ({staging_target}): "
+                f"{'empty' if tgt_empty else 'NOT EMPTY — would truncate'}"
+                f"{' (does not exist — would create)' if not _table_exists(client, staging_target) else ''}"
+            )
+
+            # Check replication health
+            repl_ok = _check_replication_healthy(client, source_table)
+            context.log.info(f"  Replication health: {'OK' if repl_ok else 'UNHEALTHY — queue > 100 entries'}")
+
+            # Get disk/path info
+            disk_paths = _get_disk_paths(client)
+            part_disk = _get_part_disk(client, source_table, part.part_name)
+            primary_disk = _get_table_primary_disk(client, source_table)
+            copy_method = (
+                "hardlink (cp -rl)"
+                if part_disk == primary_disk
+                else f"real copy (cp -r, part on '{part_disk}', staging on '{primary_disk}')"
+            )
+            context.log.info(f"  Part disk: '{part_disk}' ({disk_paths[part_disk]})")
+            context.log.info(f"  Primary disk: '{primary_disk}' ({disk_paths[primary_disk]})")
+            context.log.info(f"  Copy method: {copy_method}")
+
+            # Get host info
+            host_rows = client.execute("SELECT hostName()")
+            context.log.info(f"  Target host: {host_rows[0][0]}")
+
+            # Replication status
+            cluster_name = settings.CLICKHOUSE_CLUSTER
+            replica_rows = client.execute(
+                f"SELECT replica_name, log_pointer, log_max_index, is_session_expired "
+                f"FROM clusterAllReplicas(%(cluster)s, system.replicas) "
+                f"WHERE database = %(db)s AND table = %(table)s "
+                f"AND getMacro('shard') = %(shard)s",
+                {"cluster": cluster_name, "db": database, "table": source_table, "shard": str(shard)},
+            )
+            context.log.info(f"  Replicas for shard {shard}:")
+            for rname, rpointer, rmax, rexpired in replica_rows:
+                status = "EXPIRED" if rexpired else "active"
+                behind = rmax - rpointer if rmax > rpointer else 0
+                context.log.info(
+                    f"    {rname}: log_pointer={rpointer}, log_max_index={rmax}, behind={behind}, status={status}"
+                )
+
+            # Summary
+            context.log.info(
+                f"  WOULD DO: FREEZE partition {partition_id} → {copy_method} → "
+                f"INSERT SELECT {part.part_gib:.1f} GiB ({part.part_rows:,} rows) → "
+                f"ATTACH new parts → wait for replication → DROP {part.part_name}"
+            )
+
+        workload = Workload[settings.PART_BREAKER_WORKLOAD]
+        try:
+            cluster.map_any_host_in_shards_by_role(
+                {shard: _dry_run},
+                node_role=NodeRole.DATA,
+                workload=workload,
+            ).result()
+        except Exception:
+            context.log.exception(f"Dry run failed for {source_table} shard {shard}, part {part.part_name}")
+        return BreakResult(part=part, dry_run=True)
 
     start_time = time.time()
 
@@ -939,7 +1043,7 @@ def break_part(
             context.log.info(
                 f"Waiting for all replicas to reach log index {target_log_index} before dropping old part..."
             )
-            _wait_for_replication(client, source_table, target_log_index)
+            _wait_for_replication(client, source_table, target_log_index, part.shard_num)
             context.log.info("Replication complete — all replicas have the new parts")
 
             # -- Step 13: DROP the original oversized part --
@@ -1000,25 +1104,11 @@ def break_part(
                 )
 
             # -- Step 14: Get final stats --
-            new_parts_rows = client.execute(
-                "SELECT count(), max(bytes_on_disk) FROM system.parts "
-                "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(pid)s",
-                {"db": database, "table": source_table, "pid": partition_id},
-            )
-            new_part_count = new_parts_rows[0][0]
-            new_largest_bytes = new_parts_rows[0][1] if new_parts_rows[0][1] else 0
-            new_largest_gib = new_largest_bytes / (1024**3)
-
-            # Get post-break count for this partition
-            partition_key_expr = client.execute(
-                "SELECT partition_key FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-                {"db": database, "table": source_table},
-            )[0][0]
-            post_count_rows = client.execute(
-                f"SELECT count() FROM {database}.{source_table} WHERE {partition_key_expr} = %(pid)s",
-                {"pid": _cast_partition_id(partition_id)},
-            )
-            post_count = post_count_rows[0][0]
+            # Use the verified staging target stats from Step 8 — these reflect exactly
+            # what we created, not the whole partition which includes unrelated parts.
+            new_part_count = target_parts
+            new_largest_gib = target_largest_gib
+            post_count = target_count
 
             # -- Step 15: Clean up --
             context.log.info("Cleaning up staging tables...")
@@ -1114,11 +1204,17 @@ def report_results(
     results: list[Optional[BreakResult]],
 ):
     """Summarize the results of the part breaking run."""
-    completed = [r for r in results if r is not None]
-    failed_count = len(results) - len(completed)
+    dry_runs = [r for r in results if r is not None and r.dry_run]
+    completed = [r for r in results if r is not None and not r.dry_run]
+    failed_count = len(results) - len(completed) - len(dry_runs)
+
+    if dry_runs and not completed and failed_count == 0:
+        context.log.info(f"DRY RUN complete — checked {len(dry_runs)} part(s), no modifications made")
+        context.add_output_metadata({"parts_checked": len(dry_runs), "status": "dry_run"})
+        return
 
     if not completed and failed_count == 0:
-        context.log.info("No parts were processed (dry run or nothing to do)")
+        context.log.info("No parts were processed (nothing to do)")
         context.add_output_metadata({"parts_processed": 0, "status": "no_work"})
         return
 
@@ -1145,15 +1241,9 @@ def report_results(
     )
 
     if failed_count > 0:
-        context.log.warning(f"{failed_count} part(s) failed — check individual op logs for details")
-
-
-def _cast_partition_id(partition_id: str):
-    """Cast partition_id to the appropriate type for WHERE clause comparison."""
-    try:
-        return int(partition_id)
-    except ValueError:
-        return partition_id
+        raise dagster.Failure(
+            description=f"{failed_count} part(s) failed out of {len(results)} — check individual op logs for details"
+        )
 
 
 # -- Dagster Job --
@@ -1162,8 +1252,6 @@ def _cast_partition_id(partition_id: str):
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
-        # Disable slack alerts during initial validation — remove once stable
-        "disable_slack_notifications": True,
     },
     resource_defs=PART_BREAKER_RESOURCE_DEFS,
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": settings.PART_BREAKER_MAX_CONCURRENT}),

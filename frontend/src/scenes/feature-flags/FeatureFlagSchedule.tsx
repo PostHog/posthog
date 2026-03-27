@@ -635,7 +635,8 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                         ? 'Enter a cron expression'
                                         : hasFormErrors(schedulePayloadErrors)
                                           ? 'Fix release condition errors'
-                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                                          : scheduledChangeOperation ===
+                                                ScheduledChangeOperationType.UpdateVariants &&
                                               variantErrors.some((error) => error.key != null)
                                             ? 'Fix schedule variant changes errors'
                                             : undefined
