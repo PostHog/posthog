@@ -72,7 +72,7 @@ export function SurveyViewRedesign(): JSX.Element {
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
-    const [tabKey, setTabKey] = useState('summary')
+    const [tabKey, setTabKey] = useState(() => (searchParams.activity ? 'history' : 'summary'))
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)

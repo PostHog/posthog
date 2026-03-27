@@ -29,6 +29,10 @@ inputs:
     github-token:
         description: 'GitHub token for authentication'
         required: true
+    extra-files:
+        description: 'Additional file paths to include in the commit (space-separated)'
+        required: false
+        default: ''
 
 outputs:
     committed:
@@ -54,10 +58,15 @@ runs:
                   echo "::group::Applying snapshot patches"
                   echo "Applying patches from $PATCH_PATH..."
                   for patch in $PATCHES; do
-                    echo "Applying $patch"
-                    git apply --index "$patch"
+                    if git apply --check "$patch" 2>/dev/null; then
+                      echo "Applying $patch"
+                      git apply --index "$patch"
+                    elif git apply --reverse --check "$patch" 2>/dev/null; then
+                      echo "Skipping $patch (already applied)"
+                    else
+                      echo "::warning::Patch $patch could not be applied — skipping"
+                    fi
                   done
-                  echo "Applied all patches successfully"
                   echo "::endgroup::"
                 else
                   echo "No patch files found in $PATCH_PATH"
@@ -144,7 +153,7 @@ runs:
               commit_message: ${{ inputs.commit-message }}
               repo: ${{ inputs.repository }}
               branch: ${{ inputs.branch-name }}
-              file_pattern: ${{ inputs.snapshot-path }}
+              file_pattern: '${{ inputs.snapshot-path }} ${{ inputs.extra-files }}'
           env:
               GITHUB_TOKEN: ${{ inputs.github-token }}
 

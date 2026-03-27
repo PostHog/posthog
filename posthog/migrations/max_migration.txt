@@ -1,1 +1,1 @@
-1071_move_tokens_to_sensitive_config
+1075_team_snippet_config

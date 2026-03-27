@@ -12,7 +12,14 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import AlertCondition, AlertState, DetectorConfig, InsightThreshold, TrendsAlertConfig
+from posthog.schema import (
+    AlertCalculationInterval,
+    AlertCondition,
+    AlertState,
+    DetectorConfig,
+    InsightThreshold,
+    TrendsAlertConfig,
+)
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
@@ -176,7 +183,6 @@ class AlertSerializer(serializers.ModelSerializer):
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        allow_null=True,
         help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
@@ -428,8 +434,13 @@ class AlertSerializer(serializers.ModelSerializer):
         elif self.instance and self.instance.threshold:
             threshold_config = self.instance.threshold.configuration
 
+        calculation_interval = attrs.get(
+            "calculation_interval",
+            self.instance.calculation_interval if self.instance else AlertCalculationInterval.DAILY,
+        )
+
         try:
-            validate_alert_config(query, condition, config, threshold_config)
+            validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         except ValueError as e:
             raise ValidationError(str(e))
 

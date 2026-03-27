@@ -875,6 +875,80 @@ class TestExternalDataSource(APIBaseTest):
         self.assertFalse(restored_schema.should_sync)
         self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_updates_labels_on_existing_schemas(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c123", label="general", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="c123", team_id=self.team.pk, source_id=source.pk, should_sync=False
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        schema.refresh_from_db()
+        self.assertEqual(schema.label, "general")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_updates_changed_label(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c123", label="renamed-channel", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="c123", label="general", team_id=self.team.pk, source_id=source.pk, should_sync=False
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        schema.refresh_from_db()
+        self.assertEqual(schema.label, "renamed-channel")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_sets_label_on_new_schema(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c456", label="random", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="c456")
+        self.assertEqual(schema.label, "random")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_sets_label_on_restored_deleted_schema(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="c789", label="announcements", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        deleted_schema = ExternalDataSchema.objects.create(
+            name="c789", team_id=self.team.pk, source_id=source.pk, should_sync=False, deleted=True
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        deleted_schema.refresh_from_db()
+        self.assertFalse(deleted_schema.deleted)
+        self.assertEqual(deleted_schema.label, "announcements")
+
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
         source = self._create_external_data_source()
         source.job_inputs = None

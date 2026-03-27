@@ -4,6 +4,7 @@ import {
     KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
 } from '../../config/kafka-topics'
+import { IngestionLane } from '../config'
 
 export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_CONSUMER_GROUP_ID: string
@@ -24,6 +25,11 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     /** TTL in seconds for local cache entries */
     ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+
+    /** Pipeline name for metrics labeling */
+    INGESTION_PIPELINE: string | null
+    /** Lane identifier (main, overflow) for metrics labeling */
+    INGESTION_LANE: IngestionLane | null
 }
 
 export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerConfig {
@@ -40,5 +46,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED: false,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
+        INGESTION_PIPELINE: null,
+        INGESTION_LANE: null,
     }
 }

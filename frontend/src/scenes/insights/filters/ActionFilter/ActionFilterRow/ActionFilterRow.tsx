@@ -376,10 +376,11 @@ export function ActionFilterRow({
     const propertyFiltersButton = (
         <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
-                icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
+                icon={<IconFilter />}
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
                 noPadding
+                active={propertyFiltersVisible}
                 onClick={() => {
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
