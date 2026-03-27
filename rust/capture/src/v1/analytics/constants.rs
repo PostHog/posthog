@@ -44,6 +44,9 @@ pub(super) const CAPTURE_V1_EVENTS_REROUTED_HISTORICAL: &str =
 /// Counter for events dropped (e.g. due to event restrictions).
 pub(super) const CAPTURE_V1_EVENTS_DROPPED: &str = "capture_v1_events_dropped";
 
+/// Counter for events marked as quota-limited, labeled by resource bucket.
+pub(crate) const CAPTURE_V1_EVENTS_QUOTA_LIMITED: &str = "capture_v1_events_quota_limited";
+
 /// Counter/gauge key for the per-token global rate limiter.
 pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
 

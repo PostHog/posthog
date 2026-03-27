@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use common_types::HasEventName;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
@@ -73,6 +74,25 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub skip_person_processing: bool,
+}
+
+/// Shim implementation of HasEventName for CaptureQuotaLimiter compatibility.
+///
+/// The v1 capture pipeline does not deserialize event.properties -- they are
+/// forwarded as raw JSON to Kafka. Property checks here are limited to fields
+/// that have been promoted to the typed Event::Options struct. If a new quota
+/// limiter predicate needs a property not in Options, add it there first.
+impl HasEventName for WrappedEvent {
+    fn event_name(&self) -> &str {
+        &self.event.name
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        match key {
+            "$product_tour_id" => self.event.options.product_tour_id.is_some(),
+            _ => false,
+        }
+    }
 }
 
 /// The Kafka-ready event produced by the v1 analytics pipeline.

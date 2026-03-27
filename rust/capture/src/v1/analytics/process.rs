@@ -29,6 +29,13 @@ pub async fn process_batch(
 
     let mut events: Vec<WrappedEvent> = validate_events(context, batch);
 
+    crate::v1::quota_limiter_shim::apply_quota_limits(
+        &state.quota_limiter,
+        &context.api_token,
+        &mut events,
+    )
+    .await?;
+
     if let Some(ref service) = state.event_restriction_service {
         apply_restrictions(
             service,
