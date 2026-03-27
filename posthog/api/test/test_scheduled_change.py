@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.api.scheduled_change import ScheduledChangeSerializer
@@ -139,66 +140,56 @@ class TestScheduledChange(APIBaseTest):
         assert "recurrence_interval" in str(response_data)
         assert "required when is_recurring is true" in str(response_data)
 
-    def test_recurring_schedule_only_allows_update_status_operation(self):
-        """Test that recurring schedules only support the update_status operation"""
+    @parameterized.expand(
+        [
+            (
+                "update_status_allowed",
+                "update_status",
+                False,
+                "daily",
+                status.HTTP_201_CREATED,
+            ),
+            (
+                "update_variants_allowed",
+                "update_variants",
+                {"variants": [{"key": "control", "rollout_percentage": 100}], "payloads": {}},
+                "weekly",
+                status.HTTP_201_CREATED,
+            ),
+            (
+                "add_release_condition_blocked",
+                "add_release_condition",
+                {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "daily",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_recurring_schedule_operation_validation(self, _name, operation, value, interval, expected_status):
         feature_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.user, key="recurring-op-test-flag", name="Recurring Op Test Flag"
+            team=self.team, created_by=self.user, key="recurring-op-flag", name="Recurring Op Flag"
         )
-
-        # Try with add_release_condition operation
-        payload = {
-            "operation": "add_release_condition",
-            "value": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-        }
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/scheduled_changes/",
             data={
                 "record_id": str(feature_flag.id),
                 "model_name": "FeatureFlag",
-                "payload": payload,
+                "payload": {"operation": operation, "value": value},
                 "scheduled_at": "2024-01-15T09:00:00Z",
                 "is_recurring": True,
-                "recurrence_interval": "daily",
+                "recurrence_interval": interval,
             },
         )
 
         response_data = response.json()
+        assert response.status_code == expected_status, response_data
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert "Recurring schedules only support the update_status operation" in str(response_data)
-
-    def test_can_create_valid_recurring_schedule(self):
-        """Test that valid recurring schedules can be created"""
-        feature_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.user, key="valid-recurring-flag", name="Valid Recurring Flag"
-        )
-
-        payload = {"operation": "update_status", "value": False}
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/scheduled_changes/",
-            data={
-                "record_id": str(feature_flag.id),
-                "model_name": "FeatureFlag",
-                "payload": payload,
-                "scheduled_at": "2024-01-15T09:00:00Z",
-                "is_recurring": True,
-                "recurrence_interval": "weekly",
-            },
-        )
-
-        response_data = response.json()
-
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert response_data["is_recurring"] is True
-        assert response_data["recurrence_interval"] == "weekly"
-        assert ScheduledChange.objects.filter(id=response_data["id"]).exists()
-
-        # Verify the stored record
-        scheduled_change = ScheduledChange.objects.get(id=response_data["id"])
-        assert scheduled_change.is_recurring is True
-        assert scheduled_change.recurrence_interval == "weekly"
+        if expected_status == status.HTTP_201_CREATED:
+            assert response_data["is_recurring"] is True
+            assert response_data["recurrence_interval"] == interval
+        else:
+            assert "not supported for add_release_condition" in str(response_data)
 
     def test_non_recurring_schedule_rejects_interval(self):
         """Test that new non-recurring schedules cannot have recurrence_interval set"""

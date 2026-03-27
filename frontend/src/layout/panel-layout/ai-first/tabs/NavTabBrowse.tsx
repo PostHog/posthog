@@ -10,6 +10,8 @@ import {
     IconFolderOpen,
     IconHome,
     IconNotification,
+    IconCheck,
+    IconPencil,
     IconStar,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -40,6 +42,7 @@ import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
+import { inlineEditAppsLogic } from './inlineEditAppsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -186,6 +189,8 @@ export function NavTabBrowse(): JSX.Element {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { loadRecentItems } = useActions(navRecentsLogic)
+    const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -394,13 +399,51 @@ export function NavTabBrowse(): JSX.Element {
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
                     data-attr="nav-section-apps"
                 >
-                    <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
+                    <div className="relative">
+                        <SectionTrigger icon={<IconApps />} label="My Apps" isCollapsed={isLayoutNavCollapsed} />
+                        {expandedNavSections.apps && (
+                            <ButtonPrimitive
+                                iconOnly
+                                size="xs"
+                                tooltip={isEditMode ? 'Save' : 'Choose which apps to show in the sidebar'}
+                                tooltipPlacement="top"
+                                onClick={() => {
+                                    if (isEditMode) {
+                                        posthog.capture('nav apps edit saved')
+                                        saveAndExitEditMode()
+                                    } else {
+                                        posthog.capture('nav apps edit toggled', { is_editing: true })
+                                        enterEditMode()
+                                    }
+                                }}
+                                data-attr="nav-apps-edit-button"
+                                className="absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5"
+                            >
+                                {isEditMode ? (
+                                    <IconCheck className="size-3 text-primary" />
+                                ) : (
+                                    <IconPencil className="size-3 text-secondary" />
+                                )}
+                            </ButtonPrimitive>
+                        )}
+                    </div>
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
                         {(expandedNavSections.apps ?? false) && (
                             <ProjectTree
-                                root="products://"
+                                root={isEditMode ? 'products://' : 'custom-products://'}
                                 onlyTree
                                 treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                                selectModeOverride={isEditMode ? 'multi' : undefined}
+                                checkedItemsOverride={isEditMode ? checkedItems : undefined}
+                                onItemCheckedOverride={
+                                    isEditMode
+                                        ? (id) => {
+                                              // Tree item IDs for products:// are "products/{path}"
+                                              const productPath = id.replace(/^products\//, '')
+                                              toggleProduct(productPath)
+                                          }
+                                        : undefined
+                                }
                             />
                         )}
                     </Collapsible.Panel>

@@ -104,6 +104,6 @@ describe('TwoDimensionalHeatmap', () => {
         })
 
         expect(await screen.findAllByText('(cell null)')).toHaveLength(2)
-        expect(screen.getAllByText('(header null)')).toHaveLength(2)
+        expect(await screen.findAllByText('(header null)')).toHaveLength(2)
     })
 })
