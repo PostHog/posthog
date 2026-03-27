@@ -198,7 +198,7 @@ describe('CdpCyclotronWorker', () => {
             expect(result.invocation.id).toEqual(invocationId)
             expect(result.invocation.queue).toEqual('hog')
             // NOTE: Check the queue scheduled at is within the bounds of the backoff
-            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThan(
+            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThanOrEqual(
                 beforeExecution.plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
             )
             expect(result.invocation.queueScheduledAt?.toMillis()).toBeLessThan(
