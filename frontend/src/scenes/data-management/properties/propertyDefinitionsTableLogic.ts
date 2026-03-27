@@ -166,9 +166,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                 search: values.filters.property,
                 type: values.filters.type,
                 group_type_index: values.filters.group_type_index,
-            }
-            if (values.filters.verified !== undefined) {
-                params.verified = values.filters.verified
+                verified: values.filters.verified,
             }
             actions.loadPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(values.propertyDefinitions.current, params, true)
