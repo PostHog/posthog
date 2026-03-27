@@ -9,7 +9,9 @@ import { AvailableFeature, Realm } from '~/types'
 import meCurrent from './__mocks__/@me.json'
 import { PayGateMini, PayGateMiniProps } from './PayGateMini'
 
-const meta: Meta<PayGateMiniProps> = {
+type StoryArgs = PayGateMiniProps & { cloud?: boolean }
+
+const meta: Meta<StoryArgs> = {
     title: 'Components/Pay Gate Mini',
     component: PayGateMini,
     parameters: {
@@ -17,81 +19,76 @@ const meta: Meta<PayGateMiniProps> = {
         viewMode: 'story',
         mockDate: '2023-01-31 12:00:00',
     },
+    render: ({ cloud, ...props }) => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: cloud !== undefined ? cloud : true,
+                    is_debug: cloud !== undefined ? cloud : true,
+                    realm: Realm.Cloud,
+                },
+                '/api/billing/': {
+                    ...billingJson,
+                },
+            },
+        })
+
+        return (
+            <div className="p-10 max-w-4xl mx-auto">
+                <PayGateMini {...props}>
+                    <></>
+                </PayGateMini>
+            </div>
+        )
+    },
 }
 export default meta
 
-type Story = StoryObj<PayGateMiniProps>
-
-const Template = ({ cloud, ...props }: PayGateMiniProps & { cloud?: boolean }): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: cloud !== undefined ? cloud : true,
-                is_debug: cloud !== undefined ? cloud : true,
-                realm: Realm.Cloud,
-            },
-            '/api/billing/': {
-                ...billingJson,
-            },
-        },
-    })
-
-    return (
-        <div className="p-10 max-w-4xl mx-auto">
-            <PayGateMini {...props}>
-                <></>
-            </PayGateMini>
-        </div>
-    )
-}
+type Story = StoryObj<StoryArgs>
 
 export const PayGateMini_: Story = {
-    render: () => {
-        return <Template feature={AvailableFeature.SUBSCRIPTIONS} />
-    },
+    args: { feature: AvailableFeature.SUBSCRIPTIONS },
 }
 
 export const PayGateMiniWithDocsLink: Story = {
-    render: () => {
-        return <Template feature={AvailableFeature.SUBSCRIPTIONS} docsLink="https://docs.posthog.com/" />
-    },
+    args: { feature: AvailableFeature.SUBSCRIPTIONS, docsLink: 'https://docs.posthog.com/' },
 }
 
 export const PayGateMiniWithoutBackground: Story = {
-    render: () => {
-        return <Template feature={AvailableFeature.SUBSCRIPTIONS} background={false} />
-    },
+    args: { feature: AvailableFeature.SUBSCRIPTIONS, background: false },
 }
 
 export const PayGateMiniSelfHost: Story = {
-    render: () => {
-        return <Template feature={AvailableFeature.SUBSCRIPTIONS} cloud={false} />
-    },
+    args: { feature: AvailableFeature.SUBSCRIPTIONS, cloud: false },
 }
 
 export const PayGateMiniContactSales: Story = {
-    render: () => {
-        return <Template feature={AvailableFeature.CUSTOM_MSA} />
-    },
+    args: { feature: AvailableFeature.CUSTOM_MSA },
 }
 
 export const PayGateMiniGrandfathered: Story = {
-    render: () => {
-        return <Template feature={AvailableFeature.SUBSCRIPTIONS} isGrandfathered />
-    },
+    args: { feature: AvailableFeature.SUBSCRIPTIONS, isGrandfathered: true },
 }
 
 export const PayGateMiniAddon: Story = {
-    render: () => {
-        return <Template feature={AvailableFeature.GROUP_ANALYTICS} />
-    },
+    args: { feature: AvailableFeature.GROUP_ANALYTICS },
 }
 
 export const PayGateMiniLimitFeatureOther: Story = {
-    render: () => {
+    args: { feature: AvailableFeature.ADVANCED_PERMISSIONS, currentUsage: 3 },
+    render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: cloud !== undefined ? cloud : true,
+                    is_debug: cloud !== undefined ? cloud : true,
+                    realm: Realm.Cloud,
+                },
+                '/api/billing/': {
+                    ...billingJson,
+                },
                 '/api/users/@me': () => [
                     200,
                     {
@@ -109,14 +106,31 @@ export const PayGateMiniLimitFeatureOther: Story = {
                 ],
             },
         })
-        return <Template feature={AvailableFeature.ADVANCED_PERMISSIONS} currentUsage={3} />
+
+        return (
+            <div className="p-10 max-w-4xl mx-auto">
+                <PayGateMini {...props}>
+                    <></>
+                </PayGateMini>
+            </div>
+        )
     },
 }
 
 export const PayGateMiniLimitFeatureProjects: Story = {
-    render: () => {
+    args: { feature: AvailableFeature.ORGANIZATIONS_PROJECTS, currentUsage: 2 },
+    render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: cloud !== undefined ? cloud : true,
+                    is_debug: cloud !== undefined ? cloud : true,
+                    realm: Realm.Cloud,
+                },
+                '/api/billing/': {
+                    ...billingJson,
+                },
                 '/api/users/@me': () => [
                     200,
                     {
@@ -135,19 +149,40 @@ export const PayGateMiniLimitFeatureProjects: Story = {
                 ],
             },
         })
-        return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
+
+        return (
+            <div className="p-10 max-w-4xl mx-auto">
+                <PayGateMini {...props}>
+                    <></>
+                </PayGateMini>
+            </div>
+        )
     },
 }
 
 export const PayGateMiniFree: Story = {
-    render: () => {
+    args: { feature: AvailableFeature.ORGANIZATIONS_PROJECTS, currentUsage: 2 },
+    render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: cloud !== undefined ? cloud : true,
+                    is_debug: cloud !== undefined ? cloud : true,
+                    realm: Realm.Cloud,
+                },
                 '/api/billing/': {
                     ...billingUnsubscribedJson,
                 },
             },
         })
-        return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
+
+        return (
+            <div className="p-10 max-w-4xl mx-auto">
+                <PayGateMini {...props}>
+                    <></>
+                </PayGateMini>
+            </div>
+        )
     },
 }

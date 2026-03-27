@@ -4,13 +4,13 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import { OAuthApps } from './OAuthApps'
 
-const meta: Meta<typeof OAuthApps> = {
+const meta: Meta = {
     title: 'Scenes-Other/Settings/Organization/OAuth Apps',
     component: OAuthApps,
 }
 export default meta
 
-type Story = StoryObj<typeof OAuthApps>
+type Story = StoryObj<{}>
 
 export const Empty: Story = {
     render: () => {

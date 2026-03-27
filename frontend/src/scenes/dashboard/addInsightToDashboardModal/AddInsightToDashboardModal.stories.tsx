@@ -42,7 +42,7 @@ const mockInsightsList = {
 
 const DASHBOARD_ID = 1
 
-const meta: Meta<typeof AddInsightToDashboardModal> = {
+const meta: Meta = {
     component: AddInsightToDashboardModal,
     title: 'Scenes-App/Dashboards/Add Insight to Dashboard Modal',
     decorators: [
@@ -66,7 +66,7 @@ const meta: Meta<typeof AddInsightToDashboardModal> = {
 }
 export default meta
 
-type Story = StoryObj<typeof AddInsightToDashboardModal>
+type Story = StoryObj<{}>
 
 function ModalStory({ showMore = false }: { showMore?: boolean }): JSX.Element {
     addInsightToDashboardLogic.mount()
