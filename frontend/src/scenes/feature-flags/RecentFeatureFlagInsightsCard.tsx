@@ -31,6 +31,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
             loading={relatedInsightsLoading}
             emptyMessage={{
                 title: 'No insights use this flag yet',
+                description: "Create an insight with this flag's breakdown to see it here.",
                 buttonText: 'Create insight',
                 buttonTo: urls.insightNew({ query }),
                 buttonOnClick: () => {
