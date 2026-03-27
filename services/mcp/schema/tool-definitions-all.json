@@ -1719,6 +1719,81 @@
             "readOnlyHint": false
         }
     },
+    "scheduled-changes-list": {
+        "description": "List scheduled changes in the current project. Filter by model_name=FeatureFlag and record_id to see schedules for a specific flag. Returns pending, executed, and failed schedules with their payloads and timing. Use this to check what changes are queued for a feature flag before modifying it.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "List scheduled changes for feature flags",
+        "title": "List scheduled changes for feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scheduled-changes-get": {
+        "description": "Get a single scheduled change by ID. Returns the full details including the payload, schedule timing, execution status, and any failure reason.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get a scheduled change",
+        "title": "Get a scheduled change",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scheduled-changes-create": {
+        "description": "Schedule a future change to a feature flag. Supported operations: 'update_status' (enable/disable), 'add_release_condition', and 'update_variants'. Provide the flag ID as record_id, model_name as \"FeatureFlag\", a payload with the operation and value, and a scheduled_at datetime.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Create a scheduled change",
+        "title": "Create a scheduled change",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scheduled-changes-update": {
+        "description": "Update a pending scheduled change by ID. You can modify the payload, scheduled_at time, or recurrence settings. Cannot change the target record (record_id) or model type (model_name).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Update a scheduled change",
+        "title": "Update a scheduled change",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scheduled-changes-delete": {
+        "description": "Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete a scheduled change",
+        "title": "Delete a scheduled change",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-list": {
         "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
         "category": "Notebooks",
@@ -2115,6 +2190,21 @@
         "feature": "insights",
         "summary": "Run a retention query",
         "title": "Run a retention query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-paths": {
+        "description": "Run a paths query to analyze the most common sequences of events or pages that users navigate through. Paths insights visualize user flows as a directed graph, showing how users move between steps and where they drop off.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What do users do after signing up?\n- What pages do users visit before making a purchase?\n- What are the most common navigation flows on your website?\n- Where do users drop off in a particular flow?\n- What custom events lead to a conversion?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Paths guidelines\n\n## Event types\n\nPaths analyze sequences of events. Specify which event types to include using `includeEventTypes`. If omitted, all events are included without type filtering.\n\n- `$pageview` - web page views. Path values come from `$current_url`, with trailing slashes stripped, so they must match your stored URL format. This is often a path like `/login`, but may also be a full URL like `https://example.com/login`. Best for analyzing website navigation flows. This is the most common choice.\n- `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). Use for mobile app navigation analysis.\n- `custom_event` - custom events (any event whose name does not start with `$`). Path values are event names. Use for analyzing flows of custom-tracked events like button clicks, form submissions, or feature usage.\n- `hogql` - custom HogQL expression. Use with `pathsHogQLExpression` for advanced path definitions.\n\nYou can combine multiple types. For example, include both `$pageview` and `custom_event` to see how page views and custom events interleave.\n\n## Start and end points\n\nUse `startPoint` to filter paths that begin at a specific step, or `endPoint` to filter paths that end at a specific step. The value format depends on the event type:\n\n- For `$pageview`: use the same URL format as your `$current_url` values, often paths like `/login`, `/dashboard`, `/settings`, but sometimes full URLs\n- For `$screen`: use screen names\n- For `custom_event`: use event names like `user signed up`, `purchase completed`\n\n## Path cleaning\n\nUse `localPathCleaningFilters` to normalize dynamic URLs. Each filter has a `regex` pattern (ClickHouse regex syntax) and an `alias` replacement. Filters are applied in sequence using `replaceRegexpAll(path, regex, alias)`. For example, to normalize product URLs: `{ \"regex\": \"\\\\/product\\\\/\\\\d+\", \"alias\": \"/product/:id\" }`.\n\nUse `pathGroupings` for simpler glob-like grouping of paths into single nodes. Use `*` as a wildcard — the patterns are auto-escaped so only `*` has special meaning. For example, `/product/*` groups all product sub-pages into one node.\n\n## Exclusions\n\nUse `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these must match your stored `$current_url` format (e.g., `/health-check` or `https://example.com/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.\n\n# Examples\n\n## What pages do users visit after the homepage?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"startPoint\": \"/\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What do users do after signing up?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"startPoint\": \"user signed up\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Navigation paths excluding noisy URLs\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"excludeEvents\": [\"/health-check\", \"/ping\"],\n    \"stepLimit\": 5,\n    \"edgeLimit\": 30\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Custom event paths excluding noisy events\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"excludeEvents\": [\"heartbeat\"],\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Paths with URL cleaning for dynamic segments\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"stepLimit\": 5,\n    \"localPathCleaningFilters\": [\n      { \"regex\": \"\\\\/user\\\\/\\\\d+\", \"alias\": \"/user/:id\" },\n      { \"regex\": \"\\\\/project\\\\/[a-f0-9-]+\", \"alias\": \"/project/:id\" }\n    ]\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What paths lead to the pricing page for mobile users?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"endPoint\": \"/pricing\",\n    \"stepLimit\": 5\n  },\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.\n- Always specify `includeEventTypes` to scope the analysis to relevant event types. If omitted, all events are included which may produce noisy results.\n- Use `$pageview` as the default event type for web navigation questions.\n- Path cleaning filters (`localPathCleaningFilters`) use ClickHouse regex and are only needed when dynamic URL segments would fragment the visualization. Path groupings (`pathGroupings`) use glob-like patterns with `*` wildcards for simpler cases.\n- Paths group events into sessions with a 30-minute inactivity threshold — events more than 30 minutes apart start a new path session.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a paths query",
+        "title": "Run a paths query",
         "required_scopes": ["query:read"],
         "new_mcp": true,
         "annotations": {

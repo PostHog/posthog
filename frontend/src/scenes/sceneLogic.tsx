@@ -732,8 +732,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     isCurrentTeamUnavailable &&
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
-                    !location.pathname.startsWith('/settings') &&
-                    location.pathname !== urls.settings('user-danger-zone')
+                    !location.pathname.startsWith('/settings')
                 ) {
                     return Scene.ErrorProjectUnavailable
                 }
@@ -1151,7 +1150,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
-                            location.pathname !== urls.settings('user-danger-zone')
+                            !location.pathname.startsWith(urls.settings('user'))
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())

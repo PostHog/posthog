@@ -16,6 +16,7 @@ import { closeHub, createHub } from '../utils/db/hub'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '../worker/ingestion/persons/repositories/test-helpers'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -248,11 +249,13 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
+            const outputs = createTestIngestionOutputs(hub.kafkaProducer)
             const ingester = new IngestionConsumer(hub, {
                 ...hub,
                 kafkaMetricsProducer: hub.kafkaProducer,
                 hogTransformer: createHogTransformerService(hub, hub),
-                outputs: createTestIngestionOutputs(hub.kafkaProducer),
+                outputs,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
             })
             // NOTE: We don't actually use kafka so we skip instantiation for faster tests
             ingester['kafkaConsumer'] = {

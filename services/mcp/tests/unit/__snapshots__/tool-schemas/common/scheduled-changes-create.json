@@ -1,0 +1,65 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "end_date": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional ISO 8601 datetime after which a recurring schedule stops executing."
+        },
+        "is_recurring": {
+            "default": false,
+            "description": "Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules.",
+            "type": "boolean"
+        },
+        "model_name": {
+            "description": "The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n* `FeatureFlag` - feature flag",
+            "enum": ["FeatureFlag"],
+            "type": "string"
+        },
+        "payload": {
+            "description": "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
+        },
+        "record_id": {
+            "description": "The ID of the record to modify (e.g. the feature flag ID).",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "recurrence_interval": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly",
+                            "enum": ["daily", "weekly", "monthly", "yearly"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly"
+        },
+        "scheduled_at": {
+            "description": "ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z').",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        }
+    },
+    "required": ["record_id", "model_name", "payload", "scheduled_at"],
+    "type": "object"
+}
