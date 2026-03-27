@@ -1,13 +1,12 @@
 import { BindLogic, useValues } from 'kea'
 
-import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
-import { BatchExportBackfillsLogicProps } from 'scenes/data-pipelines/batch-exports/batchExportBackfillsLogic'
 import { batchExportDataLogic } from 'scenes/data-pipelines/batch-exports/batchExportDataLogic'
 import { BatchExportLoadingSkeleton } from 'scenes/data-pipelines/batch-exports/BatchExportLoadingSkeleton'
+import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
 
-import { hogFunctionBackfillsLogic } from './hogFunctionBackfillsLogic'
+import { hogFunctionBackfillsLogic, HogFunctionBackfillsLogicProps } from '../backfills/hogFunctionBackfillsLogic'
 
-export function HogFunctionBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
+export function HogFunctionRuns({ id }: HogFunctionBackfillsLogicProps): JSX.Element {
     const { configuration, isReady } = useValues(hogFunctionBackfillsLogic({ id }))
 
     if (!isReady) {
@@ -16,7 +15,7 @@ export function HogFunctionBackfills({ id }: BatchExportBackfillsLogicProps): JS
 
     return (
         <BindLogic logic={batchExportDataLogic} props={{ id: configuration.batch_export_id! }}>
-            <BatchExportBackfills id={configuration.batch_export_id!} context="hog_function" />
+            <BatchExportRuns id={configuration.batch_export_id!} context="hog_function" />
         </BindLogic>
     )
 }

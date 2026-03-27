@@ -1126,6 +1126,7 @@ export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
     pinnedColumns?: string[]
+    transpose?: boolean
 }
 
 export interface SharingConfigurationSettings {
@@ -5096,6 +5097,7 @@ export interface SourceFieldOauthConfig {
     label: string
     required: boolean
     kind: string
+    requiredScopes?: string
 }
 
 export type SourceFieldInputConfigType =

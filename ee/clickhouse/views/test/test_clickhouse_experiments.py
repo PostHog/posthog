@@ -3802,6 +3802,115 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_ship_variant_endpoint(self):
+        data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "conclusion": "won", "conclusion_comment": "Test won"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(ship_response.json()["status"], "stopped")
+        self.assertIsNotNone(ship_response.json()["end_date"])
+        self.assertEqual(ship_response.json()["conclusion"], "won")
+        self.assertEqual(ship_response.json()["conclusion_comment"], "Test won")
+
+        # Verify flag filters were rewritten
+        flag_filters = ship_response.json()["feature_flag"]["filters"]
+        variants = flag_filters["multivariate"]["variants"]
+        test_variant = next(v for v in variants if v["key"] == "test")
+        control_variant = next(v for v in variants if v["key"] == "control")
+        self.assertEqual(test_variant["rollout_percentage"], 100)
+        self.assertEqual(control_variant["rollout_percentage"], 0)
+
+        # Verify catch-all group prepended
+        self.assertEqual(flag_filters["groups"][0]["rollout_percentage"], 100)
+        self.assertEqual(flag_filters["groups"][0]["properties"], [])
+
+    def test_ship_variant_on_stopped_experiment(self):
+        data = self._create_running_experiment(name="Ship Stopped Endpoint", flag_key="ship-stopped-endpoint-flag")
+        experiment_id = data["id"]
+
+        # End the experiment first
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            {"conclusion": "inconclusive"},
+            format="json",
+        )
+
+        # Ship a variant on the already-ended experiment
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "conclusion": "won"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_200_OK)
+        # Conclusion updated
+        self.assertEqual(ship_response.json()["conclusion"], "won")
+
+        # Flag filters rewritten
+        variants = ship_response.json()["feature_flag"]["filters"]["multivariate"]["variants"]
+        test_variant = next(v for v in variants if v["key"] == "test")
+        self.assertEqual(test_variant["rollout_percentage"], 100)
+
+    def test_ship_variant_invalid_variant_key_returns_400(self):
+        data = self._create_running_experiment(
+            name="Ship Invalid Variant", flag_key="ship-invalid-variant-endpoint-flag"
+        )
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "nonexistent"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ship_variant_missing_variant_key_returns_400(self):
+        data = self._create_running_experiment(name="Ship Missing Key", flag_key="ship-missing-key-endpoint-flag")
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ship_variant_draft_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Ship Draft",
+                "feature_flag_key": "ship-draft-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ship_variant_invalid_conclusion_returns_400(self):
+        data = self._create_running_experiment(
+            name="Ship Invalid Conclusion", flag_key="ship-invalid-conclusion-endpoint-flag"
+        )
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "conclusion": "amazing"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
