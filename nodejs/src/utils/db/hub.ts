@@ -55,7 +55,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
     logger.info('👍', `Kafka ready`)
 
-    const postgres = new PostgresRouter(serverConfig)
+    const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
     logger.info('👍', `Postgres Router ready`)
 
     logger.info('🤔', `Connecting to ingestion Redis...`)

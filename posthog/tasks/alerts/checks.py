@@ -198,39 +198,41 @@ def check_alert_task(alert_id: str, team_id: int = 0, calculation_interval: str 
     outcome = SloOutcome.FAILURE
     started_at = time.monotonic()
     error_extra: dict | None = None
-    try:
-        emit_slo_started(
-            distinct_id=alert_id,
-            properties=SloStartedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_CHECK,
-                team_id=team_id,
-                resource_id=alert_id,
-            ),
-            extra_properties={"calculation_interval": calculation_interval},
-        )
-        with ph_scoped_capture() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
+        try:
+            emit_slo_started(
+                distinct_id=alert_id,
+                properties=SloStartedProperties(
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.ALERT_CHECK,
+                    team_id=team_id,
+                    resource_id=alert_id,
+                ),
+                extra_properties={"calculation_interval": calculation_interval},
+                capture=capture_ph_event,
+            )
             check_alert(alert_id, capture_ph_event)
-        outcome = SloOutcome.SUCCESS
-    except Exception as exc:
-        error_extra = {
-            "error_type": type(exc).__name__,
-            "error_message": str(exc),
-        }
-        raise
-    finally:
-        emit_slo_completed(
-            distinct_id=alert_id,
-            properties=SloCompletedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_CHECK,
-                team_id=team_id,
-                resource_id=alert_id,
-                outcome=outcome,
-                duration_ms=(time.monotonic() - started_at) * 1000,
-            ),
-            extra_properties={"calculation_interval": calculation_interval, **(error_extra or {})},
-        )
+            outcome = SloOutcome.SUCCESS
+        except Exception as exc:
+            error_extra = {
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            }
+            raise
+        finally:
+            emit_slo_completed(
+                distinct_id=alert_id,
+                properties=SloCompletedProperties(
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.ALERT_CHECK,
+                    team_id=team_id,
+                    resource_id=alert_id,
+                    outcome=outcome,
+                    duration_ms=(time.monotonic() - started_at) * 1000,
+                ),
+                extra_properties={"calculation_interval": calculation_interval, **(error_extra or {})},
+                capture=capture_ph_event,
+            )
 
 
 @retry(

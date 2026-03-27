@@ -12,7 +12,6 @@ import type {
     CommentApi,
     CommentsListParams,
     DashboardTemplateApi,
-    DashboardTemplatesListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
@@ -34,7 +33,6 @@ import type {
     OrganizationInviteApi,
     OrganizationMemberApi,
     PaginatedCommentListApi,
-    PaginatedDashboardTemplateListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
@@ -44,6 +42,7 @@ import type {
     PaginatedOrganizationMemberListApi,
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
+    PaginatedProjectSecretAPIKeyListApi,
     PaginatedRoleListApi,
     PaginatedScheduledChangeListApi,
     PaginatedSubscriptionListApi,
@@ -56,11 +55,14 @@ import type {
     PatchedOrganizationDomainApi,
     PatchedOrganizationMemberApi,
     PatchedProjectBackwardCompatApi,
+    PatchedProjectSecretAPIKeyApi,
     PatchedRoleApi,
     PatchedScheduledChangeApi,
     PatchedSubscriptionApi,
     PatchedUserApi,
     ProjectBackwardCompatApi,
+    ProjectSecretAPIKeyApi,
+    ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
     RoleApi,
     RolesListParams,
@@ -969,50 +971,6 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     })
 }
 
-export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboard_templates/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboard_templates/`
-}
-
-export const dashboardTemplatesList = async (
-    projectId: string,
-    params?: DashboardTemplatesListParams,
-    options?: RequestInit
-): Promise<PaginatedDashboardTemplateListApi> => {
-    return apiMutator<PaginatedDashboardTemplateListApi>(getDashboardTemplatesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardTemplatesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/`
-}
-
-export const dashboardTemplatesCreate = async (
-    projectId: string,
-    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
-    options?: RequestInit
-): Promise<DashboardTemplateApi> => {
-    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardTemplateApi),
-    })
-}
-
 export const getDashboardTemplatesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/dashboard_templates/${id}/`
 }
@@ -1079,17 +1037,6 @@ export const dashboardTemplatesDestroy = async (
     return apiMutator<unknown>(getDashboardTemplatesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getDashboardTemplatesJsonSchemaRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/json_schema/`
-}
-
-export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -1875,6 +1822,134 @@ export const integrationsDomainConnectCheckRetrieve = async (
     return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getProjectSecretApiKeysListUrl = (projectId: string, params?: ProjectSecretApiKeysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/project_secret_api_keys/?${stringifiedParams}`
+        : `/api/projects/${projectId}/project_secret_api_keys/`
+}
+
+export const projectSecretApiKeysList = async (
+    projectId: string,
+    params?: ProjectSecretApiKeysListParams,
+    options?: RequestInit
+): Promise<PaginatedProjectSecretAPIKeyListApi> => {
+    return apiMutator<PaginatedProjectSecretAPIKeyListApi>(getProjectSecretApiKeysListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProjectSecretApiKeysCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/`
+}
+
+export const projectSecretApiKeysCreate = async (
+    projectId: string,
+    projectSecretAPIKeyApi: NonReadonly<ProjectSecretAPIKeyApi>,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(projectSecretAPIKeyApi),
+    })
+}
+
+export const getProjectSecretApiKeysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProjectSecretApiKeysUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysUpdate = async (
+    projectId: string,
+    id: string,
+    projectSecretAPIKeyApi: NonReadonly<ProjectSecretAPIKeyApi>,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(projectSecretAPIKeyApi),
+    })
+}
+
+export const getProjectSecretApiKeysPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedProjectSecretAPIKeyApi: NonReadonly<PatchedProjectSecretAPIKeyApi>,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProjectSecretAPIKeyApi),
+    })
+}
+
+export const getProjectSecretApiKeysDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getProjectSecretApiKeysDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Roll a project secret API key
+ */
+export const getProjectSecretApiKeysRollCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/roll/`
+}
+
+export const projectSecretApiKeysRollCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysRollCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
