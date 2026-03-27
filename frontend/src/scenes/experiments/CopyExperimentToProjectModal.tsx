@@ -57,9 +57,9 @@ export function CopyExperimentToProjectModal({
                         onChange={(id) => setSelectedProjectId(id)}
                         options={
                             currentOrganization?.teams
-                                ?.map((team) => ({ value: team.id, label: team.name }))
+                                ?.map((team) => ({ value: team.project_id, label: team.name }))
                                 .sort((a, b) => a.label.localeCompare(b.label))
-                                .filter((option) => option.value !== currentTeam?.id) || []
+                                .filter((option) => option.value !== currentTeam?.project_id) || []
                         }
                     />
                 </div>
