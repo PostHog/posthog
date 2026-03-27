@@ -45,7 +45,7 @@ def backfill_feature_enrollment(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1074_backfill_vercel_connectable_resources"),
+        ("posthog", "1075_team_snippet_config"),
     ]
 
     operations = [
