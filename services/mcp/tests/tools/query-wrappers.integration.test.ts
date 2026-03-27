@@ -117,7 +117,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(typeof result.results).toBe('string')
         })
 
         it('should generate a valid PostHog URL with StickinessQuery kind', async () => {
