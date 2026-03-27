@@ -15,9 +15,10 @@ from products.visual_review.backend.facade.contracts import (
     UpdateRepoInput,
 )
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProjectAPI:
     def test_create_repo_returns_dto(self, team):
         result = api.create_repo(team_id=team.id, repo_external_id=12345, repo_full_name="org/my-repo")
@@ -67,7 +68,7 @@ class TestProjectAPI:
         assert result.repo_full_name == "org/test"  # unchanged
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunAPI:
     @pytest.fixture
     def repo(self, team):
@@ -185,7 +186,7 @@ class TestRunAPI:
         mock_delay.assert_called_once_with(str(create_result.run_id))
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveRunAPI:
     @pytest.fixture
     def repo(self, team):

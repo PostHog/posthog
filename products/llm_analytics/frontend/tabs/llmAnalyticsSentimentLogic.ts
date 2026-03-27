@@ -26,6 +26,8 @@ export interface SentimentGeneration {
     model: string | null
     distinctId: string
     timestamp: string
+    /** Earliest event in the trace — used for trace deep-links (matches trace createdAt) */
+    createdAt: string
 }
 
 /** A generation paired with the index of the best matching message for display */
@@ -49,8 +51,14 @@ export interface LLMAnalyticsSentimentLogicProps {
 }
 
 const GENERATIONS_PAGE_SIZE = 200
+/** Stop auto-loading once we have at least this many visible cards */
+const MIN_VISIBLE_CARDS = 50
+/** Cap how many extra pages we fetch automatically to avoid runaway API calls */
+const MAX_AUTO_LOAD_ROUNDS = 3
 // Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
 export const CLASSIFIER_WINDOW = 2000
+/** Number of other visible cards to sample as negative (impressed) examples per engagement */
+const IMPRESSION_SAMPLE_SIZE = 5
 
 /** Parse aiInput and return the raw content text for the message at the given index, or '' on failure */
 function getRawMessageText(aiInput: unknown, messageIndex: number): string {
@@ -75,6 +83,74 @@ function getCardMessageText(card: SentimentCard): string {
 
 function getSnippetFromCard(card: SentimentCard): string {
     return getRawMessageText(card.generation.aiInput, card.messageIndex).slice(-CLASSIFIER_WINDOW)
+}
+
+/** Fisher-Yates shuffle on a copy, return first n elements */
+function sampleCards(cards: GroupedSentimentCard[], n: number): GroupedSentimentCard[] {
+    if (cards.length <= n) {
+        return cards
+    }
+    const shuffled = [...cards]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    }
+    return shuffled.slice(0, n)
+}
+
+function cardKey(card: SentimentCard): string {
+    return `${card.generation.uuid}:${card.messageIndex}`
+}
+
+function captureEngagementEvents(
+    engagementType: 'expanded' | 'trace_clicked',
+    card: SentimentCard,
+    allVisibleCards: GroupedSentimentCard[],
+    sentimentFilter: SentimentFilterLabel,
+    intensityThreshold: number
+): void {
+    const interactionId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    const engagedKey = cardKey(card)
+    const cardPosition = allVisibleCards.findIndex((g) => cardKey(g.card) === engagedKey)
+
+    // Positive example: the card the user engaged with
+    posthog.capture('llma sentiment card engaged', {
+        interaction_id: interactionId,
+        engagement_type: engagementType,
+        generation_uuid: card.generation.uuid,
+        trace_id: card.generation.traceId,
+        message_index: card.messageIndex,
+        message_text_snippet: getSnippetFromCard(card),
+        model_prediction_label: card.sentiment.label,
+        model_prediction_score: card.sentiment.score,
+        ai_model: card.generation.model,
+        sentiment_filter: sentimentFilter,
+        intensity_threshold: intensityThreshold,
+        card_position: cardPosition,
+        visible_card_count: allVisibleCards.length,
+    })
+
+    // Negative examples: sample of other visible cards not interacted with
+    const otherCards = allVisibleCards.filter((g) => cardKey(g.card) !== engagedKey)
+    const sampled = sampleCards(otherCards, IMPRESSION_SAMPLE_SIZE)
+    for (const { card: impressedCard } of sampled) {
+        const impressedPosition = allVisibleCards.findIndex((g) => cardKey(g.card) === cardKey(impressedCard))
+        posthog.capture('llma sentiment card impressed', {
+            interaction_id: interactionId,
+            generation_uuid: impressedCard.generation.uuid,
+            trace_id: impressedCard.generation.traceId,
+            message_index: impressedCard.messageIndex,
+            message_text_snippet: getSnippetFromCard(impressedCard),
+            model_prediction_label: impressedCard.sentiment.label,
+            model_prediction_score: impressedCard.sentiment.score,
+            ai_model: impressedCard.generation.model,
+            card_position: impressedPosition,
+            sentiment_filter: sentimentFilter,
+            intensity_threshold: intensityThreshold,
+            trigger_event: engagementType,
+            trigger_generation_uuid: card.generation.uuid,
+        })
+    }
 }
 
 interface GenerationsQueryValues {
@@ -108,6 +184,7 @@ async function fetchGenerations(values: GenerationsQueryValues, cursor: string |
         model: row[3] as string | null,
         distinctId: row[4] as string,
         timestamp: row[5] as string,
+        createdAt: row[6] as string,
     }))
 }
 
@@ -134,6 +211,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         toggleCardExpanded: (cardKey: string) => ({ cardKey }),
         loadMoreGenerations: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        trackTraceClicked: (card: SentimentCard) => ({ card }),
         submitSentimentFeedback: (cardKey: string, feedbackLabel: SentimentFeedbackLabel, card: SentimentCard) => ({
             cardKey,
             feedbackLabel,
@@ -184,6 +262,13 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     [cardKey]: feedbackLabel,
                 }),
                 loadGenerations: () => ({}),
+            },
+        ],
+        autoLoadRounds: [
+            0 as number,
+            {
+                loadGenerations: () => 0,
+                loadMoreGenerations: (state: number) => state + 1,
             },
         ],
         hasLoadedOnce: [
@@ -353,6 +438,32 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     }
                 }
             },
+            toggleCardExpanded: ({ cardKey: key }) => {
+                // Only track when expanding (key is now in the set), not collapsing
+                if (!values.expandedCardIds.has(key)) {
+                    return
+                }
+                const group = values.groupedSentimentCards.find((g) => cardKey(g.card) === key)
+                if (!group) {
+                    return
+                }
+                captureEngagementEvents(
+                    'expanded',
+                    group.card,
+                    values.groupedSentimentCards,
+                    values.sentimentFilter,
+                    values.intensityThreshold
+                )
+            },
+            trackTraceClicked: ({ card }) => {
+                captureEngagementEvents(
+                    'trace_clicked',
+                    card,
+                    values.groupedSentimentCards,
+                    values.sentimentFilter,
+                    values.intensityThreshold
+                )
+            },
             submitSentimentFeedback: ({ card, feedbackLabel }) => {
                 posthog.capture('llma sentiment feedback', {
                     generation_uuid: card.generation.uuid,
@@ -399,8 +510,15 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                         (gen) => values.sentimentByGenerationId[gen.uuid] === null
                     ).length
                     const cardCount = values.sentimentCards.length
+                    const visibleCards = values.groupedSentimentCards.length
 
-                    if (totalGenerations === 0 || cardCount === 0) {
+                    // Auto-load more generations if we don't have enough visible cards
+                    const shouldAutoLoad =
+                        visibleCards < MIN_VISIBLE_CARDS &&
+                        values.hasMore &&
+                        values.autoLoadRounds < MAX_AUTO_LOAD_ROUNDS
+
+                    if ((totalGenerations === 0 || cardCount === 0) && !shouldAutoLoad) {
                         posthog.capture('llma sentiment empty state', {
                             reason:
                                 totalGenerations === 0
@@ -413,6 +531,10 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                             sentiment_filter: values.sentimentFilter,
                             intensity_threshold: values.intensityThreshold,
                         })
+                    }
+
+                    if (shouldAutoLoad) {
+                        actions.loadMoreGenerations()
                     }
                 }
                 wasAnalyzing = stillAnalyzing

@@ -352,6 +352,21 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+activity_logs: PostgresTable = PostgresTable(
+    name="activity_logs",
+    postgres_table_name="posthog_activitylog",
+    access_scope="activity_log",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "activity": StringDatabaseField(name="activity"),
+        "item_id": StringDatabaseField(name="item_id"),
+        "scope": StringDatabaseField(name="scope"),
+        "detail": StringJSONDatabaseField(name="detail"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 actions: PostgresTable = PostgresTable(
     name="actions",
     postgres_table_name="posthog_action",
@@ -512,10 +527,27 @@ error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
     },
 )
 
+early_access_features: PostgresTable = PostgresTable(
+    name="early_access_features",
+    postgres_table_name="posthog_earlyaccessfeature",
+    access_scope="early_access_feature",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "feature_flag_id": IntegerDatabaseField(name="feature_flag_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "stage": StringDatabaseField(name="stage"),
+        "documentation_url": StringDatabaseField(name="documentation_url"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
@@ -533,6 +565,7 @@ class SystemTables(TableNode):
             name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
+        "early_access_features": TableNode(name="early_access_features", table=early_access_features),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),

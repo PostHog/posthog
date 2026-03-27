@@ -24,7 +24,7 @@ tools:
             Returns each function's name, type, enabled status, execution order, and template info. Filter by type
             (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app,
             transformation) and enabled status via query parameters.
-        mcp_version: 1
+
     cdp-functions-create:
         operation: hog_functions_create
         enabled: true
@@ -108,7 +108,7 @@ tools:
         description: >
             Get a specific function by ID. Returns the full configuration including source code, inputs schema,
             input values (secrets are masked), filters, mappings, masking config, and runtime status.
-        mcp_version: 1
+
     cdp-functions-update:
         operation: hog_functions_update
         enabled: false

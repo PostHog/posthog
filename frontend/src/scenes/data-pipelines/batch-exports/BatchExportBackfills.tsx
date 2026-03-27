@@ -14,11 +14,8 @@ import { BatchExportBackfill } from '~/types'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
 
-export function BatchExportBackfills({
-    id,
-    batchExportConfig: initialConfig,
-}: BatchExportBackfillsLogicProps): JSX.Element {
-    const logic = batchExportBackfillsLogic({ id, batchExportConfig: initialConfig })
+export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
+    const logic = batchExportBackfillsLogic({ id })
     const { batchExportConfig } = useValues(logic)
 
     if (!batchExportConfig) {

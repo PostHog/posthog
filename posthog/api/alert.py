@@ -6,7 +6,9 @@ from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -134,7 +136,7 @@ class AlertSerializer(serializers.ModelSerializer):
     checks = AlertCheckSerializer(
         many=True,
         read_only=True,
-        help_text="The last 5 alert check results (only populated on retrieve).",
+        help_text="Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve.",
     )
     threshold = ThresholdSerializer(
         help_text="Threshold configuration with bounds and type for evaluating the alert.",
@@ -352,8 +354,42 @@ class AlertSerializer(serializers.ModelSerializer):
         if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
+            for sub in root.detectors:
+                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
+                self._validate_detector_params(sub_dict)
+        else:
+            self._validate_detector_params(value)
 
         return validated.model_dump() if hasattr(validated, "model_dump") else value
+
+    @staticmethod
+    def _validate_detector_params(config: dict) -> None:
+        """Validate detector parameter ranges match frontend constraints."""
+        # Parameter ranges: (min, max, name)
+        PARAM_RANGES: dict[str, tuple[float, float, str]] = {
+            "threshold": (0.0, 1.0, "Sensitivity threshold"),
+            "window": (5, 1000, "Window size"),
+            "n_estimators": (10, 500, "Number of trees"),
+            "n_neighbors": (1, 50, "Number of neighbors"),
+            "n_bins": (5, 50, "Number of bins"),
+            "multiplier": (0.5, 10.0, "IQR multiplier"),
+            "training_offset_n": (1, 500, "Training offset"),
+        }
+
+        for param, (min_val, max_val, label) in PARAM_RANGES.items():
+            val = config.get(param)
+            if val is not None:
+                if val < min_val or val > max_val:
+                    raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
+
+        preprocessing = config.get("preprocessing")
+        if preprocessing and isinstance(preprocessing, dict):
+            smooth_n = preprocessing.get("smooth_n")
+            if smooth_n is not None and (smooth_n < 0 or smooth_n > 30):
+                raise ValidationError("Smoothing window must be between 0 and 30.")
+            lags_n = preprocessing.get("lags_n")
+            if lags_n is not None and (lags_n < 0 or lags_n > 10):
+                raise ValidationError("Lag features must be between 0 and 10.")
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):
@@ -407,6 +443,75 @@ class AlertSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class AlertSimulateSerializer(serializers.Serializer):
+    insight = TeamScopedPrimaryKeyRelatedField(
+        queryset=Insight.objects.all(),
+        help_text="Insight ID to simulate the detector on.",
+    )
+    detector_config = DetectorConfigField(
+        help_text="Detector configuration to simulate.",
+    )
+    series_index = serializers.IntegerField(
+        default=0,
+        help_text="Zero-based index of the series to analyze.",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
+        "If not provided, uses the detector's minimum required samples.",
+    )
+
+    def validate_detector_config(self, value):
+        if value is None:
+            raise ValidationError("detector_config is required.")
+
+        import pydantic
+
+        try:
+            validated = DetectorConfig.model_validate(value)
+        except pydantic.ValidationError:
+            raise ValidationError("Invalid detector configuration.")
+
+        root = validated.root if hasattr(validated, "root") else validated
+        if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
+            if len(root.detectors) < 2:
+                raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
+            for sub in root.detectors:
+                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
+                AlertSerializer._validate_detector_params(sub_dict)
+        else:
+            AlertSerializer._validate_detector_params(value)
+
+        return validated.model_dump() if hasattr(validated, "model_dump") else value
+
+
+class AlertSimulateResponseSerializer(serializers.Serializer):
+    data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
+    scores = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Anomaly score for each point (null if insufficient data).",
+    )
+    triggered_indices = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Indices of points flagged as anomalies."
+    )
+    triggered_dates = serializers.ListField(
+        child=serializers.CharField(), help_text="Dates of points flagged as anomalies."
+    )
+    interval = serializers.CharField(
+        allow_null=True, help_text="Interval of the trends query (hour, day, week, month)."
+    )
+    total_points = serializers.IntegerField(help_text="Total number of data points analyzed.")
+    anomaly_count = serializers.IntegerField(help_text="Number of anomalies detected.")
+    sub_detector_scores = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
+    )
+
+
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = AlertConfiguration.objects.all().order_by("-created_at")
@@ -422,9 +527,57 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
+    CHECKS_DEFAULT_LIMIT = 5
+    CHECKS_MAX_LIMIT = 500
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="checks_date_from",
+                type=str,
+                required=False,
+                description="Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.",
+            ),
+            OpenApiParameter(
+                name="checks_date_to",
+                type=str,
+                required=False,
+                description="Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified.",
+            ),
+            OpenApiParameter(
+                name="checks_limit",
+                type=int,
+                required=False,
+                description="Maximum number of check results to return (default 5, max 500). Applied after date filtering.",
+            ),
+        ],
+    )
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
+
+        checks_qs = instance.alertcheck_set.all().order_by("-created_at")
+
+        checks_date_from = request.query_params.get("checks_date_from")
+        if checks_date_from:
+            parsed_date = relative_date_parse(checks_date_from, ZoneInfo("UTC"))
+            checks_qs = checks_qs.filter(created_at__gte=parsed_date)
+
+        checks_date_to = request.query_params.get("checks_date_to")
+        if checks_date_to:
+            parsed_date = relative_date_parse(checks_date_to, ZoneInfo("UTC"))
+            checks_qs = checks_qs.filter(created_at__lte=parsed_date)
+
+        has_date_filter = checks_date_from or checks_date_to
+        raw_limit = request.query_params.get("checks_limit")
+        if raw_limit is not None:
+            try:
+                limit = max(1, min(int(raw_limit), self.CHECKS_MAX_LIMIT))
+            except (ValueError, TypeError):
+                limit = self.CHECKS_DEFAULT_LIMIT
+        else:
+            limit = self.CHECKS_MAX_LIMIT if has_date_filter else self.CHECKS_DEFAULT_LIMIT
+
+        instance.checks = checks_qs[:limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -435,13 +588,66 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if insight_id is not None:
             queryset = queryset.filter(insight=insight_id)
 
+        # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)
+        alerts = list(page) if page is not None else list(queryset)
+
+        # Prefetch firing checks for anomaly point display on chart.
+        if alerts:
+            alert_ids = [a.id for a in alerts]
+            firing_checks = (
+                AlertCheck.objects.filter(
+                    alert_configuration_id__in=alert_ids,
+                    triggered_points__isnull=False,
+                )
+                .exclude(triggered_points=[])
+                .order_by("-created_at")
+            )
+            checks_by_alert: dict[str, list] = {str(a.id): [] for a in alerts}
+            for check in firing_checks:
+                checks_by_alert.setdefault(str(check.alert_configuration_id), []).append(check)
+            for alert in alerts:
+                alert.checks = checks_by_alert.get(str(alert.id), [])
+
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            serializer = self.get_serializer(alerts, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=AlertSimulateSerializer,
+        responses={200: AlertSimulateResponseSerializer},
+        description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
+    )
+    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
+    def simulate(self, request, *args, **kwargs):
+        from posthog.tasks.alerts.trends import simulate_detector_on_insight
+
+        serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+
+        insight = serializer.validated_data["insight"]
+        detector_config = serializer.validated_data["detector_config"]
+        series_index = serializer.validated_data["series_index"]
+        date_from = serializer.validated_data.get("date_from")
+
+        try:
+            result = simulate_detector_on_insight(
+                insight=insight,
+                team=self.team,
+                detector_config=detector_config,
+                series_index=series_index,
+                date_from=date_from,
+            )
+        except (ValueError, IndexError) as e:
+            raise ValidationError(str(e))
+        except RuntimeError:
+            raise ValidationError("Simulation failed: unable to compute results for this insight.")
+
+        response_serializer = AlertSimulateResponseSerializer(result)
+        return Response(response_serializer.data)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):

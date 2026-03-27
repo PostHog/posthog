@@ -1,8 +1,9 @@
 import { Edge, MarkerType, Node } from '@xyflow/react'
-import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { getElk } from 'lib/elk'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps } from '~/types'
@@ -61,8 +62,6 @@ export interface FunnelFlowEdgeData extends Record<string, unknown> {
 
 export type AnyFlowNode = Node<FunnelFlowNodeData> | Node<PathFlowNodeData>
 
-const elk = new ELK()
-
 const DEFAULT_LOGIC_KEY = 'default_funnel_flow_graph'
 
 async function layoutNodes(
@@ -100,6 +99,7 @@ async function layoutNodes(
         })) as ElkExtendedEdge[],
     }
 
+    const elk = await getElk()
     const laidOutGraph = await elk.layout(graph)
     const positionMap = new Map<string, { x: number; y: number }>()
     for (const child of laidOutGraph.children ?? []) {

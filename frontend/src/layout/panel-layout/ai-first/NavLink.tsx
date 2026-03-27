@@ -20,12 +20,16 @@ interface NavLinkProps {
 }
 
 export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, onClick }: NavLinkProps): JSX.Element {
-    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
-    const { pathname } = useValues(panelLayoutLogic)
+    const { showConfigurePinnedTabsModal, hideConfigurePinnedTabsTooltip } = useActions(navigationLogic)
+    const { isConfigurePinnedTabsTooltipVisible, mobileLayout } = useValues(navigationLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
+    const { pathname, navExperimentActiveTab } = useValues(panelLayoutLogic)
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
     const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
+    const isBrowseTabActive = navExperimentActiveTab === 'home'
+    const showTooltip = isConfigurePinnedTabsTooltipVisible && isBrowseTabActive
 
     return (
         <ButtonGroupPrimitive
@@ -67,15 +71,45 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
             </Link>
             {isHomePage && !isCollapsed && (
                 <ButtonPrimitive
-                    className="opacity-50 hover:!opacity-100 transition-all duration-50 -outline-offset-2 focus-visible:opacity-100"
+                    className={cn(
+                        'opacity-50 hover:!opacity-100 transition-all duration-50 -outline-offset-2 focus-visible:opacity-100',
+                        showTooltip && 'opacity-100 text-primary'
+                    )}
                     iconOnly
+                    variant={showTooltip ? 'panel' : 'default'}
                     isSideActionRight
+                    forceVariant={showTooltip}
                     onClick={(e) => {
                         e.stopPropagation()
+                        showTooltip ? hideConfigurePinnedTabsTooltip() : null
                         showConfigurePinnedTabsModal()
                     }}
-                    tooltip="Configure tabs & home"
+                    tooltip={
+                        showTooltip ? (
+                            <div className="flex gap-1 items-center">
+                                <span>Change your homepage settings here.</span>
+                                <ButtonPrimitive
+                                    className="bg-surface-popover text-primary"
+                                    size="xs"
+                                    forceVariant
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        hideConfigurePinnedTabsTooltip()
+                                        if (mobileLayout) {
+                                            showLayoutNavBar(false)
+                                        }
+                                    }}
+                                >
+                                    Dismiss
+                                </ButtonPrimitive>
+                            </div>
+                        ) : (
+                            'Configure tabs & home'
+                        )
+                    }
                     tooltipPlacement="right"
+                    tooltipVisible={showTooltip || undefined}
+                    tooltipInteractive={showTooltip}
                 >
                     <IconGear className="size-3 text-secondary" />
                 </ButtonPrimitive>

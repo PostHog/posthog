@@ -98,6 +98,7 @@ const createMockHogTransformer = (): jest.Mocked<ErrorTrackingHogTransformer> =>
     transformEventAndProduceMessages: jest
         .fn()
         .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
+    processInvocationResults: jest.fn().mockResolvedValue(undefined),
 })
 
 let offsetIncrementer = 0
@@ -225,9 +226,9 @@ describe('ErrorTrackingConsumer', () => {
     describe('configuration', () => {
         it('should have correct config defaults', () => {
             expect(consumer['name']).toBe('error-tracking-consumer')
-            expect(consumer['config'].groupId).toBe('ingestion-error-tracking')
-            expect(consumer['config'].topic).toBe('ingestion-error_tracking-main_test')
-            expect(consumer['config'].dlqTopic).toBe('ingestion-error_tracking-main-dlq_test')
+            expect(consumer['config'].groupId).toBe('ingestion-errortracking')
+            expect(consumer['config'].topic).toBe('ingestion-errortracking-main_test')
+            expect(consumer['config'].dlqTopic).toBe('ingestion-errortracking-main-dlq_test')
             expect(consumer['config'].outputTopic).toBe('clickhouse_events_json_test')
         })
     })
@@ -332,6 +333,24 @@ describe('ErrorTrackingConsumer', () => {
             const properties = parseJSON(producedMessages[0].value.properties as string)
             expect(properties.$geoip_country_code).toBe('SE')
             expect(properties.$geoip_city_name).toBe('Linköping')
+        })
+
+        it('should flush invocation results after batch processing', async () => {
+            const messages = createKafkaMessages([createEvent()])
+            await consumer.handleKafkaBatch(messages)
+
+            expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
+        })
+
+        it('should flush invocation results even when batch processing fails', async () => {
+            // Make the pipeline throw an error
+            mockHogTransformer.transformEventAndProduceMessages.mockRejectedValueOnce(new Error('Test error'))
+
+            const messages = createKafkaMessages([createEvent()])
+            await expect(consumer.handleKafkaBatch(messages)).rejects.toThrow('Test error')
+
+            // processInvocationResults should still be called via finally block
+            expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
         })
     })
 

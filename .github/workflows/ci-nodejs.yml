@@ -60,6 +60,7 @@ jobs:
         name: Node.js Code quality
         needs: changes
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
               with:
@@ -100,6 +101,7 @@ jobs:
         name: Node.js Build
         needs: changes
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
               with:
@@ -176,6 +178,8 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: dev_tools,localstack
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down
 
@@ -356,6 +360,7 @@ jobs:
         needs: [tests, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

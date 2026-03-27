@@ -1,14 +1,15 @@
 import clsx from 'clsx'
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { inStorybook, inStorybookTestRunner, slugify } from 'lib/utils'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'
+
+import { EditorFilterItems } from './EditorFilterItems'
 
 export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
@@ -41,7 +42,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                     title={isRowExpanded ? 'Show less' : 'Show more'}
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
                 >
-                    <div className="flex items-center deprecated-space-x-2 font-semibold">
+                    <div className="flex items-center gap-2 font-semibold">
                         <span>{title}</span>
                     </div>
                 </LemonButton>
@@ -53,24 +54,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                         'border rounded p-2 mt-1': isExpandable && isRowExpanded,
                     })}
                 >
-                    {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
-                        if (Component && Component.name === 'component') {
-                            throw new Error(
-                                `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
-                            )
-                        }
-                        return (
-                            <Fragment key={key}>
-                                <LemonField.Pure
-                                    label={typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label}
-                                    info={tooltip}
-                                    showOptional={showOptional}
-                                >
-                                    {Component ? <Component insightProps={insightProps} /> : null}
-                                </LemonField.Pure>
-                            </Fragment>
-                        )
-                    })}
+                    <EditorFilterItems editorFilters={editorFilters} insightProps={insightProps} />
                 </div>
             )}
         </div>

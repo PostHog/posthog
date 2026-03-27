@@ -1,49 +1,20 @@
 import { Page } from '@playwright/test'
 
 import { expect, test } from '../../utils/playwright-test-base'
+import { createMockBatchExport, MOCK_EXPORT_ID, setupBatchExportRoutes } from './batch-export-helpers'
 
 async function setupBackfillRoutes(
     page: Page,
-    mockExportId: string,
     options: {
         backfillOnGet?: (callCount: number) => object | null
     } = {}
 ): Promise<void> {
-    const mockExport = {
-        id: mockExportId,
-        team_id: 1,
-        name: 'Test S3 Export',
-        model: 'events',
-        destination: {
-            type: 'S3',
-            config: {
-                bucket_name: 'test-bucket',
-                region: 'us-east-1',
-                prefix: 'events/',
-            },
-        },
-        interval: 'hour',
-        timezone: null,
-        offset_day: null,
-        offset_hour: null,
-        paused: false,
-        created_at: '2026-01-01T00:00:00Z',
-        last_updated_at: '2026-01-01T00:00:00Z',
-        last_paused_at: null,
-        start_at: null,
-        end_at: null,
-        latest_runs: [],
-        filters: [],
-    }
+    await setupBatchExportRoutes(page, MOCK_EXPORT_ID, createMockBatchExport())
 
     const mockBackfillId = 'backfill-001'
 
-    await page.route(`**/api/environments/*/batch_exports/${mockExportId}/`, async (route) => {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockExport) })
-    })
-
     await page.route(
-        (url) => url.pathname.includes(`/batch_exports/${mockExportId}/runs`),
+        (url) => url.pathname.includes(`/batch_exports/${MOCK_EXPORT_ID}/runs`),
         async (route) => {
             await route.fulfill({
                 status: 200,
@@ -57,7 +28,7 @@ async function setupBackfillRoutes(
     let backfillCreated = false
 
     await page.route(
-        (url) => url.pathname.includes(`/batch_exports/${mockExportId}/backfills`),
+        (url) => url.pathname.includes(`/batch_exports/${MOCK_EXPORT_ID}/backfills`),
         async (route) => {
             const url = route.request().url()
 
@@ -106,9 +77,7 @@ async function setupBackfillRoutes(
 
 test.describe('Batch export backfills', () => {
     test('Shows backfill estimate toast with cancel option after creating a backfill', async ({ page }) => {
-        const mockExportId = '01234567-0123-0123-0123-0123456789ab'
-
-        await setupBackfillRoutes(page, mockExportId, {
+        await setupBackfillRoutes(page, {
             backfillOnGet: (callCount) => {
                 if (callCount <= 2) {
                     // First 2 calls: backfill exists but no estimate yet
@@ -133,7 +102,7 @@ test.describe('Batch export backfills', () => {
         })
 
         // Navigate to the backfills tab
-        await page.goto(`/pipeline/batch-exports/${mockExportId}?tab=backfills`)
+        await page.goto(`/pipeline/batch-exports/${MOCK_EXPORT_ID}?tab=backfills`)
         await expect(page.getByRole('button', { name: 'Start backfill', exact: true }).first()).toBeVisible()
 
         // Open the backfill modal and submit

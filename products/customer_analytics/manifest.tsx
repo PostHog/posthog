@@ -39,6 +39,7 @@ export const manifest: ProductManifest = {
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
         '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
+        '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
         '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     },
@@ -53,6 +54,7 @@ export const manifest: ProductManifest = {
         customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
         customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
         customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
+        customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
     },
     treeItemsProducts: [
         {

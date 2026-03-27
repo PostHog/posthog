@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import time
+import uuid
 import secrets
 from datetime import timedelta
 from typing import Any, cast
@@ -15,6 +17,7 @@ from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -30,6 +33,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.utils import get_instance_region
+
+from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
@@ -54,73 +59,86 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — two plans (free + pay_as_you_go) and one deployable
-# (analytics). The deployable provisions a PostHog project and defaults to the
-# free plan. When pay_as_you_go is selected, Stripe collects SPT for
-# usage-based billing across all products.
+# Service catalog — a single free deployable (analytics) that provisions a
+# PostHog project. Paid plan (pay_as_you_go with SPT) will be re-added once
+# billing integration is complete.
 # ---------------------------------------------------------------------------
 
-FREE_PLAN_ID = "free"
-PAY_AS_YOU_GO_PLAN_ID = "pay_as_you_go"
-USAGE_BASED_PRICING = {"type": "freeform", "freeform": "Usage-based pricing"}
 ANALYTICS_SERVICE_ID = "analytics"
 
 ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
 
-FREE_PLAN_SERVICE: dict[str, Any] = {
-    "id": FREE_PLAN_ID,
-    "description": "Free — generous free tier across all PostHog products, no credit card required.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {"type": "free"},
-    "kind": "plan",
-}
+SERVICES_CACHE_KEY = "agentic_provisioning:services"
+SERVICES_CACHE_TTL = 3600
+SERVICES_CACHE_RETRY_TTL = 300
+SERVICES_CACHE_EXPIRES_KEY = "agentic_provisioning:services:expires_at"
+SERVICES_CACHE_STORE_TTL = 86400
 
-PAY_AS_YOU_GO_PLAN_SERVICE: dict[str, Any] = {
-    "id": PAY_AS_YOU_GO_PLAN_ID,
-    "description": "Pay-as-you-go — usage-based pricing across all PostHog products with no minimum commitment.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {
-        "type": "paid",
-        "paid": USAGE_BASED_PRICING,
-    },
-    "kind": "plan",
-}
+_EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-ANALYTICS_DEPLOYABLE_SERVICE: dict[str, Any] = {
-    "id": ANALYTICS_SERVICE_ID,
-    "description": "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {
-        "type": "component",
-        "component": {
-            "options": [
-                {
-                    "parent_service_ids": [FREE_PLAN_ID],
-                    "type": "free",
-                },
-                {
-                    "parent_service_ids": [PAY_AS_YOU_GO_PLAN_ID],
-                    "type": "paid",
-                    "paid": {
-                        "type": "freeform",
-                        "freeform": "Usage-based pricing",
-                    },
-                },
-            ]
-        },
-    },
-    "kind": "deployable",
-}
+_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
 
-# For backwards compat, POSTHOG_SERVICE_ID is the deployable that gets provisioned
-POSTHOG_SERVICE_ID = ANALYTICS_SERVICE_ID
+
+def _build_analytics_service(description: str) -> dict[str, Any]:
+    return {
+        "id": ANALYTICS_SERVICE_ID,
+        "description": description,
+        "categories": ALL_CATEGORIES,
+        "pricing": {"type": "free"},
+        "kind": "deployable",
+    }
+
+
+def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
+    """Fetch product catalog from billing and build the service list."""
+    try:
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/products-v2",
+            params={"plan": "standard"},
+        )
+        res.raise_for_status()
+        products = res.json().get("products", [])
+    except Exception:
+        logger.exception("agentic_provisioning.services.billing_fetch_failed")
+        return None
+
+    product_names = [
+        p.get("name", "")
+        for p in products
+        if p.get("type", "") not in _EXCLUDED_PRODUCT_TYPES and not p.get("inclusion_only")
+    ]
+    description = f"PostHog — {', '.join(n for n in product_names if n).lower()}, and more."
+
+    return [_build_analytics_service(description)]
 
 
 def _get_services() -> list[dict[str, Any]]:
-    return [FREE_PLAN_SERVICE, PAY_AS_YOU_GO_PLAN_SERVICE, ANALYTICS_DEPLOYABLE_SERVICE]
+    cached = cache.get(SERVICES_CACHE_KEY)
+    expires_at = cache.get(SERVICES_CACHE_EXPIRES_KEY)
+
+    now = time.time()
+    if cached is not None and expires_at is not None and now < expires_at:
+        return cached
+
+    services = _fetch_services_from_billing()
+    if services is not None:
+        cache.set(SERVICES_CACHE_KEY, services, SERVICES_CACHE_STORE_TTL)
+        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_TTL, SERVICES_CACHE_STORE_TTL)
+        return services
+
+    if cached is not None:
+        logger.warning("agentic_provisioning.services.serving_stale_cache")
+        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_STORE_TTL)
+        return cached
+
+    logger.warning("agentic_provisioning.services.no_cache_fallback")
+    fallback = [_build_analytics_service(_FALLBACK_DESCRIPTION)]
+    cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
+    cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
+    return fallback
 
 
-VALID_SERVICE_IDS: set[str] = {FREE_PLAN_ID, PAY_AS_YOU_GO_PLAN_ID, ANALYTICS_SERVICE_ID}
+VALID_SERVICE_IDS: set[str] = {ANALYTICS_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +195,7 @@ def account_requests(request: Request) -> Response:
     request_id = data.get("id", "")
     email = data.get("email")
     if not email:
+        _capture_provisioning_event("account_request", "error", error_code="missing_email")
         return Response(
             {"type": "error", "error": {"code": "invalid_request", "message": "email is required"}}, status=400
         )
@@ -192,6 +211,7 @@ def account_requests(request: Request) -> Response:
 
         expires_at = parse_datetime(expires_at_str)
         if expires_at and expires_at < timezone.now():
+            _capture_provisioning_event("account_request", "error", error_code="expired")
             return Response(
                 {"type": "error", "error": {"code": "expired", "message": "Account request has expired"}},
                 status=400,
@@ -200,6 +220,7 @@ def account_requests(request: Request) -> Response:
     stripe_info = orchestrator.get("stripe") or {}
     stripe_account_id = stripe_info.get("account", "") if orchestrator.get("type") == "stripe" else ""
     if not stripe_account_id:
+        _capture_provisioning_event("account_request", "error", error_code="missing_stripe_account")
         return Response(
             {
                 "type": "error",
@@ -237,6 +258,8 @@ def _handle_existing_user(
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
 
+    _capture_provisioning_event("account_request", "existing_user", region=region)
+
     authorize_url = _build_authorize_url(confirmation_secret, scopes)
     return Response(
         {
@@ -271,9 +294,11 @@ def _handle_new_user(
     except IntegrityError:
         existing = User.objects.filter(email=email).first()
         if existing:
+            _capture_provisioning_event("account_request", "race_condition_existing_user", region=region)
             return _handle_existing_user(
                 request_id, existing, data.get("confirmation_secret", ""), scopes, stripe_account_id, region
             )
+        _capture_provisioning_event("account_request", "creation_failed", region=region)
         return Response(
             {
                 "id": request_id,
@@ -282,6 +307,8 @@ def _handle_new_user(
             },
             status=500,
         )
+
+    _capture_provisioning_event("account_request", "new_user", region=region)
 
     code = secrets.token_urlsafe(32)
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
@@ -319,14 +346,17 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 def agentic_authorize(request: Any) -> HttpResponseBase:
     state = request.GET.get("state", "")
     if not state or not _SAFE_STATE_RE.match(state):
+        _capture_provisioning_event("authorize", "missing_state")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
     pending = cache.get(pending_key)
     if pending is None:
+        _capture_provisioning_event("authorize", "expired_state")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=expired_or_invalid_state")
 
     if request.user.email != pending["email"]:
+        _capture_provisioning_event("authorize", "email_mismatch")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
     scope = " ".join(pending.get("scopes", []))
@@ -334,12 +364,14 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())
     if not memberships:
+        _capture_provisioning_event("authorize", "no_organization")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
 
     org_ids = [m.organization_id for m in memberships]
     non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
 
     if not non_demo_teams:
+        _capture_provisioning_event("authorize", "no_team")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
 
     if len(memberships) == 1 and len(non_demo_teams) == 1:
@@ -362,10 +394,14 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
             timeout=AUTH_CODE_TTL_SECONDS,
         )
 
+        _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
+
         callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
         sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
         params = urlencode({"code": code, "state": sanitized_state})
         return HttpResponseRedirect(f"{callback_url}?{params}")
+
+    _capture_provisioning_event("authorize", "selection_required")
 
     base = settings.SITE_URL.rstrip("/")
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
@@ -380,24 +416,29 @@ def agentic_authorize_confirm(request: Request) -> Response:
     team_id = request.data.get("team_id")
 
     if not state or team_id is None or not _SAFE_STATE_RE.match(state):
+        _capture_provisioning_event("authorize_confirm", "invalid_request")
         return Response({"error": "state and team_id are required"}, status=400)
 
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
     pending = cache.get(pending_key)
     if pending is None:
+        _capture_provisioning_event("authorize_confirm", "expired_state")
         return Response({"error": "expired_or_invalid_state"}, status=400)
 
     user = cast(User, request.user)
 
     if user.email != pending["email"]:
+        _capture_provisioning_event("authorize_confirm", "email_mismatch")
         return Response({"error": "email_mismatch"}, status=403)
 
     try:
         team = Team.objects.get(id=team_id, is_demo=False)
     except Team.DoesNotExist:
+        _capture_provisioning_event("authorize_confirm", "team_not_found", team_id=team_id)
         return Response({"error": "team_not_found"}, status=404)
 
     if not user.organization_memberships.filter(organization_id=team.organization_id).exists():
+        _capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
         return Response({"error": "team_not_accessible"}, status=403)
 
     cache.delete(pending_key)
@@ -421,6 +462,8 @@ def agentic_authorize_confirm(request: Request) -> Response:
     params = urlencode({"code": code, "state": sanitized_state})
     redirect_url = f"{callback_url}?{params}"
 
+    _capture_provisioning_event("authorize_confirm", "success", team_id=team_id)
+
     return Response({"redirect_url": redirect_url})
 
 
@@ -441,6 +484,7 @@ def oauth_token(request: Request) -> Response:
     elif grant_type == "refresh_token":
         return _exchange_refresh_token(request)
     else:
+        _capture_provisioning_event("token_exchange", "unsupported_grant_type", grant_type=grant_type)
         return Response(
             {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"},
             status=400,
@@ -450,11 +494,13 @@ def oauth_token(request: Request) -> Response:
 def _exchange_authorization_code(request: Request) -> Response:
     code = request.data.get("code", "")
     if not code:
+        _capture_provisioning_event("token_exchange", "missing_code", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "code is required"}, status=400)
 
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
     code_data = cache.get(cache_key)
     if code_data is None:
+        _capture_provisioning_event("token_exchange", "invalid_code", grant_type="authorization_code")
         return Response(
             {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
         )
@@ -468,6 +514,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
+        _capture_provisioning_event("token_exchange", "user_not_found", grant_type="authorization_code")
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
     oauth_app = _get_stripe_oauth_app()
@@ -494,6 +541,8 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     account_id = str(code_data.get("org_id", ""))
 
+    _capture_provisioning_event("token_exchange", "success", grant_type="authorization_code")
+
     return Response(
         {
             "token_type": "bearer",
@@ -511,10 +560,12 @@ def _exchange_authorization_code(request: Request) -> Response:
 def _exchange_refresh_token(request: Request) -> Response:
     refresh_token_value = request.data.get("refresh_token", "")
     if not refresh_token_value:
+        _capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
 
     old_refresh = find_oauth_refresh_token(refresh_token_value)
     if old_refresh is None:
+        _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
 
     oauth_app = old_refresh.application
@@ -549,6 +600,8 @@ def _exchange_refresh_token(request: Request) -> Response:
         scoped_teams=scoped_teams,
     )
 
+    _capture_provisioning_event("token_exchange", "success", grant_type="refresh_token")
+
     return Response(
         {
             "token_type": "bearer",
@@ -580,24 +633,29 @@ def provisioning_resources_create(request: Request) -> Response:
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
+        _capture_provisioning_event("resource_created", "error", error_code="unknown_service")
         return _error_response("unknown_service", f"Unknown service_id: {service_id}")
 
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
+        _capture_provisioning_event("resource_created", "error", error_code="no_team")
         return _error_response("no_team", "No team associated with this token")
 
     team_id = scoped_teams[0]
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
+        _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
-    resolved_service_id = service_id or POSTHOG_SERVICE_ID
+    resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
+
+    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team_id)
 
     return Response(
         {
@@ -666,11 +724,14 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         team.reset_token_and_save(user=user, is_impersonated_session=False)
     except Exception:
         capture_exception(additional_properties={"team_id": team_id})
+        _capture_provisioning_event("credential_rotation", "failed", team_id=team_id)
         return _error_response(
             "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
+
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -732,7 +793,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -772,6 +833,7 @@ def deep_links(request: Request) -> Response:
 
     purpose = request.data.get("purpose", "dashboard")
     if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
+        _capture_provisioning_event("deep_link_created", "unsupported_purpose", purpose=purpose)
         return Response(
             {
                 "error": {
@@ -805,6 +867,8 @@ def deep_links(request: Request) -> Response:
     url = f"{host}/agentic/login?token={token}"
     if team_id:
         url += f"&team_id={team_id}"
+
+    _capture_provisioning_event("deep_link_created", "success", purpose=purpose, team_id=team_id)
 
     return Response(
         {
@@ -948,9 +1012,15 @@ def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
     return "/"
 
 
-def _capture_deep_link_event(outcome: str, **extra: object) -> None:
+def _capture_provisioning_event(event_type: str, outcome: str, **extra: object) -> None:
+    team_id = extra.get("team_id")
+    distinct_id = f"agentic_provisioning_team_{team_id}" if team_id else f"agentic_provisioning_{uuid.uuid4().hex[:16]}"
     posthoganalytics.capture(
-        "agentic_provisioning deep link login",
-        distinct_id="agentic_provisioning_system",
+        f"agentic_provisioning {event_type}",
+        distinct_id=distinct_id,
         properties={"outcome": outcome, **extra},
     )
+
+
+def _capture_deep_link_event(outcome: str, **extra: object) -> None:
+    _capture_provisioning_event("deep link login", outcome, **extra)

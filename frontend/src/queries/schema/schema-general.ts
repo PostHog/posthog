@@ -106,6 +106,7 @@ export enum NodeKind {
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
+    TraceSpansQuery = 'TraceSpansQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -226,6 +227,7 @@ export type AnyDataNode =
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
+    | TraceSpansQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -319,6 +321,9 @@ export type QuerySchema =
     | LogAttributesQuery
     | LogValuesQuery
 
+    // Tracing
+    | TraceSpansQuery
+
     // AI
     | SuggestedQuestionsQuery
     | TeamTaxonomyQuery
@@ -375,6 +380,7 @@ export type AnyResponseType =
     | LogsQueryResponse
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
+    | TraceSpansQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -476,6 +482,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     query: string
     /** Optional direct external data source id for running against a specific source */
     connectionId?: string
+    /** Run the selected connection query directly without translating it through HogQL first */
+    sendRawQuery?: boolean
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -2890,6 +2898,32 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
+export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
+    kind: NodeKind.TraceSpansQuery
+    dateRange: DateRange
+    limit?: integer
+    offset?: integer
+    orderBy?: 'latest' | 'earliest'
+    searchTerm?: string
+    serviceNames?: string[]
+    statusCodes?: integer[]
+    traceId?: string
+    rootSpans?: boolean
+    /** Cursor for fetching the next page of results */
+    after?: string
+}
+
+export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
+}
+
+export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3813,7 +3847,15 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort' | 'revenue_analytics'
+    | 'person'
+    | 'event'
+    | 'event_metadata'
+    | 'group'
+    | 'session'
+    | 'hogql'
+    | 'cohort'
+    | 'revenue_analytics'
+    | 'data_warehouse_person_property'
 >
 
 export interface Breakdown {
@@ -3916,6 +3958,15 @@ export enum DetectorType {
     ZSCORE = 'zscore',
     MAD = 'mad',
     THRESHOLD = 'threshold',
+    IQR = 'iqr',
+    COPOD = 'copod',
+    ECOD = 'ecod',
+    ISOLATION_FOREST = 'isolation_forest',
+    KNN = 'knn',
+    HBOS = 'hbos',
+    LOF = 'lof',
+    OCSVM = 'ocsvm',
+    PCA = 'pca',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -3948,6 +3999,16 @@ export interface MADDetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
+export interface IQRDetectorConfig {
+    type: 'iqr'
+    /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
+    multiplier?: number
+    /** Rolling window size for calculating quartiles (default: 30) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
 export interface ThresholdDetectorConfig {
     type: 'threshold'
     /** Upper bound - values above this are anomalies */
@@ -3958,13 +4019,119 @@ export interface ThresholdDetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
+export interface ECODDetectorConfig {
+    type: 'ecod'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface COPODDetectorConfig {
+    type: 'copod'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface IsolationForestDetectorConfig {
+    type: 'isolation_forest'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of trees in the forest (default: 100) */
+    n_estimators?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface KNNDetectorConfig {
+    type: 'knn'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of neighbors to consider (default: 5) */
+    n_neighbors?: integer
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: 'largest' | 'mean' | 'median'
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface HBOSDetectorConfig {
+    type: 'hbos'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of histogram bins (default: 10) */
+    n_bins?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface LOFDetectorConfig {
+    type: 'lof'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of neighbors for LOF (default: 20) */
+    n_neighbors?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface OCSVMDetectorConfig {
+    type: 'ocsvm'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** SVM kernel type (default: "rbf") */
+    kernel?: string
+    /** Upper bound on training errors fraction (default: 0.1) */
+    nu?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface PCADetectorConfig {
+    type: 'pca'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
 export enum EnsembleOperator {
     AND = 'and',
     OR = 'or',
 }
 
 /** A single (leaf) detector config */
-export type SingleDetectorConfig = ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig
+export type SingleDetectorConfig =
+    | ZScoreDetectorConfig
+    | MADDetectorConfig
+    | IQRDetectorConfig
+    | ThresholdDetectorConfig
+    | ECODDetectorConfig
+    | COPODDetectorConfig
+    | IsolationForestDetectorConfig
+    | KNNDetectorConfig
+    | HBOSDetectorConfig
+    | LOFDetectorConfig
+    | OCSVMDetectorConfig
+    | PCADetectorConfig
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
@@ -5011,6 +5178,8 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+    webhookSetupCaption?: string
+    webhookFields?: SourceFieldConfig[]
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why
@@ -5166,6 +5335,7 @@ export const externalDataSources = [
     'Postmark',
     'Granola',
     'BuildBetter',
+    'Convex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5812,6 +5982,7 @@ export interface ReplayInactivityPeriod {
 
 export enum DomainConnectProviderName {
     Cloudflare = 'Cloudflare',
+    Vercel = 'Vercel',
 }
 
 export enum PropertyType {
