@@ -952,7 +952,7 @@ def execute_summarize_session_stream(
                 }
                 yield serialize_to_sse_event(
                     event_label="session-summary-error",
-                    event_data=status_messages.get(status, "Failed to generate summary. Please try again."),
+                    event_data=status_messages[status],
                 )
                 _clean_up_redis(redis_client, redis_input_key, redis_output_key)
                 return
