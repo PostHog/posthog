@@ -104,9 +104,7 @@ export default defineConfig(({ mode }) => {
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
             // Configure origin for proper asset URL generation
-            // JS_URL overrides for codespace/sandbox environments where Vite is on a different port
-            origin: process.env.JS_URL || 'http://localhost:8234',
-            hmr: process.env.JS_URL ? { clientPort: parseInt(new URL(process.env.JS_URL).port) } : undefined,
+            origin: 'http://localhost:8234',
             proxy: {
                 '/static': {
                     target: 'http://localhost:8000',

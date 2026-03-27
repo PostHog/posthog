@@ -360,16 +360,13 @@ def human_list(items: Sequence[str]) -> str:
 
 def get_js_url(request: HttpRequest) -> str:
     """
-    As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container
-    or a codespace with forwarded ports) it is necessary to set the JS_URL host based on the calling origin.
+    As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
+    it is necessary to set the JS_URL host based on the calling origin.
     """
-    from urllib.parse import urlparse
-
-    parsed = urlparse(settings.JS_URL)
-    if settings.DEBUG and parsed.hostname == "localhost":
+    if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
         # given the strict usage of 'get_host()', this string is not susceptible to xss
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"http://{request.get_host().split(':')[0]}:{parsed.port}"
+        return f"http://{request.get_host().split(':')[0]}:8234"
     return settings.JS_URL
 
 
@@ -399,18 +396,17 @@ def get_context_for_template(
         elif template_name == "render_query.html":
             source_path = "src/render-query/index.tsx"
         # Add vite dev scripts for development
-        js_url = get_js_url(request)
         context["vite_dev_scripts"] = f"""
         <script nonce="{request.csp_nonce}" type="module">
-            import RefreshRuntime from '{js_url}/@react-refresh'
+            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
             window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
-        <script type="module" src="{js_url}/@vite/client"></script>
-        <script type="module" src="{js_url}/{source_path}"></script>"""
+        <script type="module" src="http://localhost:8234/@vite/client"></script>
+        <script type="module" src="http://localhost:8234/{source_path}"></script>"""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
