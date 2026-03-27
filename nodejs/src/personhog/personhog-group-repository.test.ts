@@ -1,5 +1,13 @@
+import { create } from '@bufbuild/protobuf'
+import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
+import { PersonHogService } from '../generated/personhog/personhog/service/v1/service_pb'
+import {
+    GroupSchema,
+    GroupTypeMappingSchema,
+    GroupTypeMappingsByKeySchema,
+} from '../generated/personhog/personhog/types/v1/group_pb'
 import { Group, GroupTypeIndex, ProjectId, TeamId } from '../types'
 import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonHogClient } from './client'
@@ -7,10 +15,18 @@ import { PersonHogGroupRepository } from './personhog-group-repository'
 
 jest.mock('../utils/logger')
 
+const textEncoder = new TextEncoder()
+
+function jsonBytes(obj: unknown): Uint8Array {
+    return textEncoder.encode(JSON.stringify(obj))
+}
+
 const TEAM_ID = 1 as TeamId
 const GROUP_TYPE_INDEX = 0 as GroupTypeIndex
 const GROUP_KEY = 'test-group'
 const PROJECT_ID = 100 as ProjectId
+
+const CREATED_AT = DateTime.fromISO('2024-01-01T00:00:00Z', { zone: 'utc' })
 
 const TEST_GROUP: Group = {
     id: 42,
@@ -20,14 +36,57 @@ const TEST_GROUP: Group = {
     group_properties: { name: 'Acme Corp', industry: 'tech' },
     properties_last_updated_at: {},
     properties_last_operation: {},
-    created_at: DateTime.fromISO('2024-01-01T00:00:00Z', { zone: 'utc' }),
+    created_at: CREATED_AT,
     version: 1,
+}
+
+function makeProtoGroup(
+    overrides: Partial<{
+        id: bigint
+        teamId: bigint
+        groupTypeIndex: number
+        groupKey: string
+        groupProperties: Uint8Array
+        createdAt: bigint
+        propertiesLastUpdatedAt: Uint8Array
+        propertiesLastOperation: Uint8Array
+        version: bigint
+    }> = {}
+) {
+    return create(GroupSchema, {
+        id: 42n,
+        teamId: BigInt(TEAM_ID),
+        groupTypeIndex: GROUP_TYPE_INDEX,
+        groupKey: GROUP_KEY,
+        groupProperties: jsonBytes({ name: 'Acme Corp', industry: 'tech' }),
+        propertiesLastUpdatedAt: jsonBytes({}),
+        propertiesLastOperation: jsonBytes({}),
+        createdAt: BigInt(CREATED_AT.toMillis()),
+        version: 1n,
+        ...overrides,
+    })
+}
+
+function makeGroupTypeMappingsProto(key: number | bigint, mappings: { groupType: string; groupTypeIndex: number }[]) {
+    return create(GroupTypeMappingsByKeySchema, {
+        key: BigInt(key),
+        mappings: mappings.map((m) => create(GroupTypeMappingSchema, m)),
+    })
 }
 
 const GROUP_TYPE_MAPPINGS = {
     [TEAM_ID.toString()]: [
         { group_type: 'organization', group_type_index: 0 as GroupTypeIndex },
         { group_type: 'project', group_type_index: 1 as GroupTypeIndex },
+    ],
+}
+
+const GROUP_TYPE_MAPPINGS_PROTO = {
+    results: [
+        makeGroupTypeMappingsProto(TEAM_ID, [
+            { groupType: 'organization', groupTypeIndex: 0 },
+            { groupType: 'project', groupTypeIndex: 1 },
+        ]),
     ],
 }
 
@@ -45,36 +104,62 @@ function createMockPostgres(): jest.Mocked<GroupRepository> {
     }
 }
 
-function createMockGrpcClient(): jest.Mocked<
-    Pick<
-        PersonHogClient,
-        'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
-    >
-> {
-    return {
-        fetchGroup: jest.fn(),
-        fetchGroupsByKeys: jest.fn(),
-        fetchGroupTypesByTeamIds: jest.fn(),
-        fetchGroupTypesByProjectIds: jest.fn(),
+type ServiceHandlers = {
+    getGroup: jest.Mock
+    getGroupsBatch: jest.Mock
+    getGroupTypeMappingsByTeamIds: jest.Mock
+    getGroupTypeMappingsByProjectIds: jest.Mock
+}
+
+function createGrpcClient(): { client: PersonHogClient; handlers: ServiceHandlers } {
+    const handlers: ServiceHandlers = {
+        getGroup: jest.fn(() => ({})),
+        getGroupsBatch: jest.fn(() => ({ results: [] })),
+        getGroupTypeMappingsByTeamIds: jest.fn(() => ({ results: [] })),
+        getGroupTypeMappingsByProjectIds: jest.fn(() => ({ results: [] })),
     }
+
+    const transport = createRouterTransport(({ service }) => {
+        service(PersonHogService, {
+            ...handlers,
+            // no-op defaults for RPCs not under test
+            getGroups: () => ({ groups: [], missingGroups: [] }),
+            getGroupTypeMappingsByTeamId: () => ({ mappings: [] }),
+            getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
+            getPerson: () => ({}),
+            getPersons: () => ({ persons: [] }),
+            getPersonByUuid: () => ({}),
+            getPersonsByUuids: () => ({ persons: [] }),
+            getPersonByDistinctId: () => ({}),
+            getPersonsByDistinctIdsInTeam: () => ({ results: [] }),
+            getPersonsByDistinctIds: () => ({ results: [] }),
+            getDistinctIdsForPerson: () => ({ distinctIds: [] }),
+            getDistinctIdsForPersons: () => ({ personDistinctIds: [] }),
+            getHashKeyOverrideContext: () => ({ results: [] }),
+            upsertHashKeyOverrides: () => ({}),
+            deleteHashKeyOverridesByTeams: () => ({}),
+            checkCohortMembership: () => ({ memberships: [] }),
+            updatePersonProperties: () => ({}),
+        })
+    })
+
+    return { client: PersonHogClient.fromTransport(transport), handlers }
 }
 
 describe('PersonHogGroupRepository', () => {
     let mockPostgres: jest.Mocked<GroupRepository>
-    let mockGrpc: ReturnType<typeof createMockGrpcClient>
+    let grpcClient: PersonHogClient
+    let handlers: ServiceHandlers
 
     beforeEach(() => {
         mockPostgres = createMockPostgres()
-        mockGrpc = createMockGrpcClient()
+        const grpc = createGrpcClient()
+        grpcClient = grpc.client
+        handlers = grpc.handlers
     })
 
     function createRepo(grpcPercentage: number): PersonHogGroupRepository {
-        return new PersonHogGroupRepository(
-            mockPostgres,
-            mockGrpc as unknown as PersonHogClient,
-            grpcPercentage,
-            'test'
-        )
+        return new PersonHogGroupRepository(mockPostgres, grpcClient, grpcPercentage, 'test')
     }
 
     describe.each([
@@ -86,26 +171,26 @@ describe('PersonHogGroupRepository', () => {
         describe('fetchGroup', () => {
             it('returns the group for a replica read', async () => {
                 mockPostgres.fetchGroup.mockResolvedValue(TEST_GROUP)
-                mockGrpc.fetchGroup.mockResolvedValue(TEST_GROUP)
+                handlers.getGroup.mockReturnValue({ group: makeProtoGroup() })
 
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchGroup(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, { useReadReplica: true })
 
                 expect(result).toEqual(TEST_GROUP)
                 if (expectGrpc) {
-                    expect(mockGrpc.fetchGroup).toHaveBeenCalledWith(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY)
+                    expect(handlers.getGroup).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroup).not.toHaveBeenCalled()
                 } else {
                     expect(mockPostgres.fetchGroup).toHaveBeenCalledWith(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, {
                         useReadReplica: true,
                     })
-                    expect(mockGrpc.fetchGroup).not.toHaveBeenCalled()
+                    expect(handlers.getGroup).not.toHaveBeenCalled()
                 }
             })
 
             it('returns undefined when the group does not exist', async () => {
                 mockPostgres.fetchGroup.mockResolvedValue(undefined)
-                mockGrpc.fetchGroup.mockResolvedValue(undefined)
+                handlers.getGroup.mockReturnValue({})
 
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchGroup(TEAM_ID, GROUP_TYPE_INDEX, 'nonexistent', { useReadReplica: true })
@@ -126,14 +211,21 @@ describe('PersonHogGroupRepository', () => {
 
             it('returns matching groups', async () => {
                 mockPostgres.fetchGroupsByKeys.mockResolvedValue(expectedResult)
-                mockGrpc.fetchGroupsByKeys.mockResolvedValue(expectedResult)
+                handlers.getGroupsBatch.mockReturnValue({
+                    results: [
+                        {
+                            key: { teamId: BigInt(TEAM_ID), groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+                            group: makeProtoGroup({ groupProperties: jsonBytes({ name: 'Acme Corp' }) }),
+                        },
+                    ],
+                })
 
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
 
                 expect(result).toEqual(expectedResult)
                 if (expectGrpc) {
-                    expect(mockGrpc.fetchGroupsByKeys).toHaveBeenCalledWith([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
+                    expect(handlers.getGroupsBatch).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
                 } else {
                     expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalledWith(
@@ -141,13 +233,12 @@ describe('PersonHogGroupRepository', () => {
                         [GROUP_TYPE_INDEX],
                         [GROUP_KEY]
                     )
-                    expect(mockGrpc.fetchGroupsByKeys).not.toHaveBeenCalled()
+                    expect(handlers.getGroupsBatch).not.toHaveBeenCalled()
                 }
             })
 
             it('returns empty array for empty input', async () => {
                 mockPostgres.fetchGroupsByKeys.mockResolvedValue([])
-                mockGrpc.fetchGroupsByKeys.mockResolvedValue([])
 
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchGroupsByKeys([], [], [])
@@ -159,18 +250,18 @@ describe('PersonHogGroupRepository', () => {
         describe('fetchGroupTypesByTeamIds', () => {
             it('returns group type mappings', async () => {
                 mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
-                mockGrpc.fetchGroupTypesByTeamIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
+                handlers.getGroupTypeMappingsByTeamIds.mockReturnValue(GROUP_TYPE_MAPPINGS_PROTO)
 
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchGroupTypesByTeamIds([TEAM_ID])
 
                 expect(result).toEqual(GROUP_TYPE_MAPPINGS)
                 if (expectGrpc) {
-                    expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_ID])
+                    expect(handlers.getGroupTypeMappingsByTeamIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
                 } else {
                     expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_ID])
-                    expect(mockGrpc.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+                    expect(handlers.getGroupTypeMappingsByTeamIds).not.toHaveBeenCalled()
                 }
             })
         })
@@ -178,18 +269,18 @@ describe('PersonHogGroupRepository', () => {
         describe('fetchGroupTypesByProjectIds', () => {
             it('returns group type mappings', async () => {
                 mockPostgres.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
-                mockGrpc.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
+                handlers.getGroupTypeMappingsByProjectIds.mockReturnValue(GROUP_TYPE_MAPPINGS_PROTO)
 
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchGroupTypesByProjectIds([PROJECT_ID])
 
                 expect(result).toEqual(GROUP_TYPE_MAPPINGS)
                 if (expectGrpc) {
-                    expect(mockGrpc.fetchGroupTypesByProjectIds).toHaveBeenCalledWith([PROJECT_ID])
+                    expect(handlers.getGroupTypeMappingsByProjectIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupTypesByProjectIds).not.toHaveBeenCalled()
                 } else {
                     expect(mockPostgres.fetchGroupTypesByProjectIds).toHaveBeenCalledWith([PROJECT_ID])
-                    expect(mockGrpc.fetchGroupTypesByProjectIds).not.toHaveBeenCalled()
+                    expect(handlers.getGroupTypeMappingsByProjectIds).not.toHaveBeenCalled()
                 }
             })
         })
@@ -209,7 +300,7 @@ describe('PersonHogGroupRepository', () => {
 
             expect(result).toEqual(TEST_GROUP)
             expect(mockPostgres.fetchGroup).toHaveBeenCalledWith(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, options)
-            expect(mockGrpc.fetchGroup).not.toHaveBeenCalled()
+            expect(handlers.getGroup).not.toHaveBeenCalled()
         })
     })
 
@@ -217,9 +308,11 @@ describe('PersonHogGroupRepository', () => {
         it.each([
             [
                 'fetchGroup',
-                () => {
-                    mockGrpc.fetchGroup.mockRejectedValue(new Error('connection refused'))
-                    mockPostgres.fetchGroup.mockResolvedValue(TEST_GROUP)
+                (h: ServiceHandlers, pg: jest.Mocked<GroupRepository>) => {
+                    h.getGroup.mockImplementation(() => {
+                        throw new ConnectError('connection refused', Code.Unavailable)
+                    })
+                    pg.fetchGroup.mockResolvedValue(TEST_GROUP)
                     return {
                         call: (repo: PersonHogGroupRepository) =>
                             repo.fetchGroup(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, { useReadReplica: true }),
@@ -229,7 +322,7 @@ describe('PersonHogGroupRepository', () => {
             ],
             [
                 'fetchGroupsByKeys',
-                () => {
+                (h: ServiceHandlers, pg: jest.Mocked<GroupRepository>) => {
                     const expected = [
                         {
                             team_id: TEAM_ID,
@@ -238,8 +331,10 @@ describe('PersonHogGroupRepository', () => {
                             group_properties: {},
                         },
                     ]
-                    mockGrpc.fetchGroupsByKeys.mockRejectedValue(new Error('timeout'))
-                    mockPostgres.fetchGroupsByKeys.mockResolvedValue(expected)
+                    h.getGroupsBatch.mockImplementation(() => {
+                        throw new ConnectError('timeout', Code.DeadlineExceeded)
+                    })
+                    pg.fetchGroupsByKeys.mockResolvedValue(expected)
                     return {
                         call: (repo: PersonHogGroupRepository) =>
                             repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY]),
@@ -249,9 +344,11 @@ describe('PersonHogGroupRepository', () => {
             ],
             [
                 'fetchGroupTypesByTeamIds',
-                () => {
-                    mockGrpc.fetchGroupTypesByTeamIds.mockRejectedValue(new Error('unavailable'))
-                    mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
+                (h: ServiceHandlers, pg: jest.Mocked<GroupRepository>) => {
+                    h.getGroupTypeMappingsByTeamIds.mockImplementation(() => {
+                        throw new ConnectError('unavailable', Code.Unavailable)
+                    })
+                    pg.fetchGroupTypesByTeamIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
                     return {
                         call: (repo: PersonHogGroupRepository) => repo.fetchGroupTypesByTeamIds([TEAM_ID]),
                         expected: GROUP_TYPE_MAPPINGS,
@@ -260,23 +357,34 @@ describe('PersonHogGroupRepository', () => {
             ],
             [
                 'fetchGroupTypesByProjectIds',
-                () => {
-                    mockGrpc.fetchGroupTypesByProjectIds.mockRejectedValue(new Error('unavailable'))
-                    mockPostgres.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
+                (h: ServiceHandlers, pg: jest.Mocked<GroupRepository>) => {
+                    h.getGroupTypeMappingsByProjectIds.mockImplementation(() => {
+                        throw new ConnectError('unavailable', Code.Unavailable)
+                    })
+                    pg.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
                     return {
                         call: (repo: PersonHogGroupRepository) => repo.fetchGroupTypesByProjectIds([PROJECT_ID]),
                         expected: GROUP_TYPE_MAPPINGS,
                     }
                 },
             ],
-        ])('%s falls back to postgres', async (_method, setup) => {
-            const { call, expected } = setup()
-            const repo = createRepo(100)
+        ])(
+            '%s falls back to postgres',
+            async (
+                _method,
+                setup: (
+                    h: ServiceHandlers,
+                    pg: jest.Mocked<GroupRepository>
+                ) => { call: (repo: PersonHogGroupRepository) => Promise<unknown>; expected: unknown }
+            ) => {
+                const { call, expected } = setup(handlers, mockPostgres)
+                const repo = createRepo(100)
 
-            const result = await call(repo)
+                const result = await call(repo)
 
-            expect(result).toEqual(expected)
-        })
+                expect(result).toEqual(expected)
+            }
+        )
     })
 
     describe('gRPC empty result shape divergence from Postgres', () => {
@@ -284,7 +392,8 @@ describe('PersonHogGroupRepository', () => {
             // gRPC returns {} when a team has no group types (key absent),
             // whereas Postgres returns { "5": [] } (key present with empty array).
             // Downstream code uses result[teamId] ?? [] so both shapes work.
-            mockGrpc.fetchGroupTypesByTeamIds.mockResolvedValue({})
+            // The handler returns empty results, which PersonHogClient converts to {}.
+            handlers.getGroupTypeMappingsByTeamIds.mockReturnValue({ results: [] })
             jest.spyOn(Math, 'random').mockReturnValue(0) // force gRPC path
 
             const repo = createRepo(100)
@@ -298,7 +407,7 @@ describe('PersonHogGroupRepository', () => {
         })
 
         it('fetchGroupTypesByProjectIds with missing key works via ?? [] fallback', async () => {
-            mockGrpc.fetchGroupTypesByProjectIds.mockResolvedValue({})
+            handlers.getGroupTypeMappingsByProjectIds.mockReturnValue({ results: [] })
             jest.spyOn(Math, 'random').mockReturnValue(0) // force gRPC path
 
             const repo = createRepo(100)
@@ -326,8 +435,17 @@ describe('PersonHogGroupRepository', () => {
             ]
             mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue(expectedTypes)
             mockPostgres.fetchGroupsByKeys.mockResolvedValue(expectedGroups)
-            mockGrpc.fetchGroupTypesByTeamIds.mockResolvedValue(expectedTypes)
-            mockGrpc.fetchGroupsByKeys.mockResolvedValue(expectedGroups)
+            handlers.getGroupTypeMappingsByTeamIds.mockReturnValue({
+                results: [makeGroupTypeMappingsProto(TEAM_ID, [{ groupType: 'organization', groupTypeIndex: 0 }])],
+            })
+            handlers.getGroupsBatch.mockReturnValue({
+                results: [
+                    {
+                        key: { teamId: BigInt(TEAM_ID), groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+                        group: makeProtoGroup({ groupProperties: jsonBytes({}) }),
+                    },
+                ],
+            })
 
             // At 50% rollout, without sticky routing each call would independently
             // roll the dice and could split across backends. With sticky routing,
@@ -339,8 +457,8 @@ describe('PersonHogGroupRepository', () => {
             await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
 
             // Both should hit gRPC, not a mix
-            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalled()
-            expect(mockGrpc.fetchGroupsByKeys).toHaveBeenCalled()
+            expect(handlers.getGroupTypeMappingsByTeamIds).toHaveBeenCalled()
+            expect(handlers.getGroupsBatch).toHaveBeenCalled()
             expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
             expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
 
@@ -349,13 +467,13 @@ describe('PersonHogGroupRepository', () => {
 
         it('decision resets after setImmediate fires', async () => {
             mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue({})
-            mockGrpc.fetchGroupTypesByTeamIds.mockResolvedValue({})
+            handlers.getGroupTypeMappingsByTeamIds.mockReturnValue({ results: [] })
 
             const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.3) // → gRPC at 50%
             const repo = createRepo(50)
 
             await repo.fetchGroupTypesByTeamIds([TEAM_ID])
-            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+            expect(handlers.getGroupTypeMappingsByTeamIds).toHaveBeenCalledTimes(1)
 
             // Let setImmediate fire to clear the cached decision
             await new Promise((resolve) => setImmediate(resolve))

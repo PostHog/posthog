@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import { createClient } from '@connectrpc/connect'
+import { Transport, createClient } from '@connectrpc/connect'
 import { createGrpcTransport } from '@connectrpc/connect-node'
 import { DateTime } from 'luxon'
 
@@ -60,6 +60,12 @@ export interface PersonHogClientConfig {
 
 export class PersonHogClient {
     private client: ReturnType<typeof createClient<typeof PersonHogService>>
+
+    static fromTransport(transport: Transport): PersonHogClient {
+        const instance = Object.create(PersonHogClient.prototype) as PersonHogClient
+        instance.client = createClient(PersonHogService, transport)
+        return instance
+    }
 
     constructor(config: PersonHogClientConfig) {
         const scheme = config.useTls ? 'https' : 'http'
