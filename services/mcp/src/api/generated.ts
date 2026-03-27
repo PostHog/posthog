@@ -6557,6 +6557,10 @@ export namespace Schemas {
       gradientPreset?: string | null;
       gradientScaleMode?: GradientScaleMode | null;
       /** @nullable */
+      nullLabel?: string | null;
+      /** @nullable */
+      nullValue?: string | null;
+      /** @nullable */
       valueColumn?: string | null;
       /** @nullable */
       xAxisColumn?: string | null;

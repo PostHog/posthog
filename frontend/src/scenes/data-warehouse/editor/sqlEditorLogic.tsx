@@ -161,6 +161,7 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
+        output_tab: values.outputActiveTab,
     }
     const connectionId = values.sourceQuery?.source.connectionId
     if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
@@ -180,6 +181,14 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     }
 
     return hash
+}
+
+function parseOutputTab(value: unknown): OutputTab | null {
+    if (Object.values(OutputTab).includes(value as OutputTab)) {
+        return value as OutputTab
+    }
+
+    return null
 }
 
 export function getDisplayTypeToSaveInsight(
@@ -1580,6 +1589,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
+        setActiveTab: () => {
+            if (values.isEmbeddedMode || !values.activeTab) {
+                return
+            }
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
@@ -1596,6 +1611,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setDashboardId(parsed)
                 }
             }
+
+            const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
+
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
@@ -1607,6 +1625,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hashParams.raw &&
                 !hashParams.view &&
                 !hashParams.insight &&
+                !hashParams.draft &&
+                !hashParams.output_tab &&
                 values.queryInput !== null
             ) {
                 return
@@ -1639,8 +1659,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.output_tab) {
-                    actions.setActiveTab(searchParams.output_tab as OutputTab)
+                if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
+                    actions.setActiveTab(outputTabFromUrl)
                 }
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
@@ -1667,7 +1687,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
-                    actions.setActiveTab(OutputTab.Materialization)
+                    if (!outputTabFromUrl) {
+                        actions.setActiveTab(OutputTab.Materialization)
+                    }
                     actions.setViewLoading(true)
 
                     if (values.dataWarehouseSavedQueries.length === 0) {
@@ -1694,7 +1716,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')
 
-                    actions.editView(queryToOpen, view)
+                    if (outputTabFromUrl) {
+                        actions.createTab(queryToOpen, view)
+                    } else {
+                        actions.editView(queryToOpen, view)
+                    }
                     actions.setViewLoading(false)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
@@ -1741,7 +1767,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.setSourceQuery(insight.query as DataVisualizationNode)
                     }
                     actions.editInsight(queryToOpen, insight)
-                    actions.setActiveTab(OutputTab.Visualization)
+                    if (!outputTabFromUrl) {
+                        actions.setActiveTab(OutputTab.Visualization)
+                    }
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
                     if (

@@ -1079,6 +1079,8 @@ export interface HeatmapSettings {
     valueColumn?: string
     xAxisLabel?: string
     yAxisLabel?: string
+    nullLabel?: string
+    nullValue?: string
     gradient?: HeatmapGradientStop[]
     gradientPreset?: string
     gradientScaleMode?: 'absolute' | 'relative'

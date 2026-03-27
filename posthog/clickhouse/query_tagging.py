@@ -31,6 +31,7 @@ class Product(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
+    PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SDK_DOCTOR = "sdk_doctor"
@@ -47,6 +48,7 @@ class Feature(StrEnum):
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
+    DIGEST = "digest"
     QUERY = "query"  # user-facing queries only
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
