@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestRelatedGroupsQuery.test_query
   '''
-
+  
   SELECT DISTINCT group_type_index,
                   group_key
   FROM groups
@@ -23,7 +23,7 @@
 # ---
 # name: TestRelatedPersonsQuery.test_query_related_people
   '''
-
+  
   SELECT DISTINCT argMax(person_id, version) AS person_id
   FROM person_distinct_id2
   WHERE team_id = 99999
@@ -40,7 +40,7 @@
 # ---
 # name: TestRelatedPersonsQuery.test_query_related_people.1
   '''
-
+  
   SELECT DISTINCT group_type_index,
                   group_key
   FROM groups
