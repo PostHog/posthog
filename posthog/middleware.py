@@ -734,9 +734,9 @@ class OAuthCoopMiddleware:
     """
 
     OAUTH_PATH_PREFIXES = (
-        "/toolbar_oauth/",
-        "/oauth/",
-        "/connect/vercel/",
+        "/toolbar_oauth",
+        "/oauth",
+        "/connect/vercel",
         "/login/vercel/",
         "/api/agentic/authorize",
         "/api/agentic/oauth/",
@@ -747,9 +747,10 @@ class OAuthCoopMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if any(request.path.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
+        path = request.path.rstrip("/")
+        if any(path.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif request.path == "/login" or request.path == "/login/":
+        elif path == "/login":
             next_url = request.GET.get("next", "")
             normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
             if any(normalized.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
