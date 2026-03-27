@@ -45,7 +45,6 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
-    ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
@@ -506,7 +505,6 @@ class AssistantTool(StrEnum):
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
-    RECOMMEND_PRODUCTS = "recommend_products"
     SEARCH_LLM_TRACES = "search_llm_traces"
 
 
@@ -1461,6 +1459,31 @@ class ErrorTrackingIssueStatus(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
+
+
+class ErrorTrackingSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fingerprint: str
+
+
+class SourceType(StrEnum):
+    ISSUE_CREATED = "issue_created"
+    ISSUE_REOPENED = "issue_reopened"
+    ISSUE_SPIKING = "issue_spiking"
+
+
+class ErrorTrackingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ErrorTrackingSignalExtra
+    source_id: str
+    source_product: Literal["error_tracking"] = "error_tracking"
+    source_type: SourceType
+    weight: float
 
 
 class EventDefinition(BaseModel):
@@ -3926,6 +3949,25 @@ class SharingConfigurationSettings(BaseModel):
     whitelabel: bool | None = None
 
 
+class SignalSourceProduct(StrEnum):
+    SESSION_REPLAY = "session_replay"
+    LLM_ANALYTICS = "llm_analytics"
+    GITHUB = "github"
+    LINEAR = "linear"
+    ZENDESK = "zendesk"
+    ERROR_TRACKING = "error_tracking"
+
+
+class SignalSourceType(StrEnum):
+    SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
+    EVALUATION = "evaluation"
+    ISSUE = "issue"
+    TICKET = "ticket"
+    ISSUE_CREATED = "issue_created"
+    ISSUE_REOPENED = "issue_reopened"
+    ISSUE_SPIKING = "issue_spiking"
+
+
 class SimilarIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4003,6 +4045,7 @@ class SourceFieldOauthConfig(BaseModel):
     label: str
     name: str
     required: bool
+    requiredScopes: str | None = None
     type: Literal["oauth"] = "oauth"
 
 
@@ -7162,6 +7205,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ErrorTrackingSignalInput
     ]
 ):
     root: (
@@ -7170,6 +7214,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ErrorTrackingSignalInput
     ) = Field(..., discriminator="source_product")
 
 
@@ -7351,6 +7396,7 @@ class TableSettings(BaseModel):
     columns: list[ChartAxis] | None = None
     conditionalFormatting: list[ConditionalFormattingRule] | None = None
     pinnedColumns: list[str] | None = None
+    transpose: bool | None = None
 
 
 class TaskExecutionItem(BaseModel):
@@ -17155,6 +17201,10 @@ class HogQLQuery(BaseModel):
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str
     response: HogQLQueryResponse | None = None
+    sendRawQuery: bool | None = Field(
+        default=None,
+        description=("Run the selected connection query directly without translating it through HogQL first"),
+    )
     tags: QueryLogTags | None = None
     values: dict[str, Any] | None = Field(
         default=None,

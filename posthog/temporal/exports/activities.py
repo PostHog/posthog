@@ -1,4 +1,3 @@
-import time
 import traceback
 
 import structlog
@@ -12,8 +11,14 @@ from posthog.slo.events import emit_slo_completed, emit_slo_started
 from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloStartedProperties
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
+from posthog.tasks.exports.failure_handler import SYSTEM_ERROR_NAMES
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.exports.types import EmitDeliveryOutcomeInput, ExportAssetActivityInputs, ExportAssetResult
+from posthog.temporal.exports.types import (
+    EmitDeliveryOutcomeInput,
+    EmitExportOutcomeInput,
+    ExportAssetActivityInputs,
+    ExportAssetResult,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -34,14 +39,12 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             team_id=asset.team_id,
         )
 
-        start = time.monotonic()
         try:
             await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                 asset,
                 source=EventSource(inputs.source) if inputs.source else None,
             )
         except Exception as e:
-            duration_ms = (time.monotonic() - start) * 1000
             await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
             exception_class = type(e).__name__
             error_trace = "\n".join(traceback.format_exception(e)[:5])
@@ -55,27 +58,22 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             )
             # Wrap in ApplicationError to propagate failure metadata as details
             # while preserving the exception class name for retry policy matching.
-            # Detail order: [exception_class, duration_ms, export_format, attempt, error_trace]
+            # Only known transient errors (CH/network) are worth retrying — unknown
+            # errors like Chrome crashes or programming errors should fail fast.
+            # exception_class is on .type; details carry [error_trace]
+            # See: posthog.temporal.exports.types.extract_error_details
             raise ApplicationError(
                 str(e),
-                exception_class,
-                duration_ms,
-                asset.export_format,
-                temporalio.activity.info().attempt,
                 error_trace,
                 type=exception_class,
+                non_retryable=exception_class not in SYSTEM_ERROR_NAMES,
             ) from e
 
-        duration_ms = (time.monotonic() - start) * 1000
         await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
 
         return ExportAssetResult(
             exported_asset_id=asset.id,
             success=asset.has_content,
-            insight_id=asset.insight_id,
-            duration_ms=duration_ms,
-            export_format=asset.export_format,
-            attempts=temporalio.activity.info().attempt,
         )
 
 
@@ -119,5 +117,31 @@ async def emit_delivery_outcome(inputs: EmitDeliveryOutcomeInput) -> None:
     logger.info(
         "emit_delivery_outcome.emitted",
         subscription_id=inputs.subscription_id,
+        outcome=inputs.outcome,
+    )
+
+
+@temporalio.activity.defn
+async def emit_export_outcome(inputs: EmitExportOutcomeInput) -> None:
+    emit_slo_completed(
+        distinct_id=inputs.distinct_id,
+        properties=SloCompletedProperties(
+            operation=SloOperation.EXPORT,
+            resource_id=str(inputs.exported_asset_id),
+            area=SloArea.ANALYTIC_PLATFORM,
+            team_id=inputs.team_id,
+            outcome=inputs.outcome,
+            duration_ms=inputs.duration_ms,
+        ),
+        extra_properties={
+            "export_format": inputs.export_format,
+            "error": {"exception_class": inputs.error.exception_class, "error_trace": inputs.error.error_trace}
+            if inputs.error
+            else None,
+        },
+    )
+    logger.info(
+        "emit_export_outcome.emitted",
+        exported_asset_id=inputs.exported_asset_id,
         outcome=inputs.outcome,
     )

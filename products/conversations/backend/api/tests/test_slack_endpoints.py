@@ -6,10 +6,12 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SlackIntegrationError
+from posthog.models.organization import OrganizationMembership
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
 
@@ -228,3 +230,43 @@ class TestSlackChannelsAPI(APIBaseTest):
 
         assert response.status_code == 400
         assert response.json()["error"] == "Too many channel pages returned by Slack"
+
+
+class TestSlackChannelPermissions(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    @parameterized.expand(
+        [
+            ("authorize", "get", "/api/conversations/v1/slack/authorize", {}),
+            ("disconnect", "post", "/api/conversations/v1/slack/disconnect", {}),
+        ]
+    )
+    def test_member_cannot_access(self, _name, method, path, body):
+        response = getattr(self.client, method)(path, body, content_type="application/json")
+        assert response.status_code == 403
+
+    @patch(
+        "products.conversations.backend.api.slack_oauth.get_instance_settings",
+        return_value={"SUPPORT_SLACK_APP_CLIENT_ID": "test-client-id"},
+    )
+    def test_admin_can_authorize_slack(self, _mock_settings: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.get("/api/conversations/v1/slack/authorize")
+        assert response.status_code == 200
+
+    @patch(
+        "products.conversations.backend.api.slack_oauth.clear_supporthog_slack_token",
+    )
+    def test_admin_can_disconnect_slack(self, _mock_clear: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/slack/disconnect",
+            content_type="application/json",
+        )
+        assert response.status_code == 200

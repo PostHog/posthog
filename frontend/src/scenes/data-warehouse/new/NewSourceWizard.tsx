@@ -309,12 +309,12 @@ function WebhookSetupStep(): JSX.Element {
     const { createWebhook } = useActions(sourceWizardLogic)
 
     const webhookTables = databaseSchema
-        .filter((s) => s.supports_webhooks && s.sync_type === 'incremental' && s.should_sync)
+        .filter((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync)
         .map((s) => ({ name: s.table }))
 
     return (
         <WebhookSetupForm
-            sourceName={selectedConnector?.label ?? 'source'}
+            sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
             sourceConfig={selectedConnector}
             webhookTables={webhookTables}
             webhookResult={webhookResult}

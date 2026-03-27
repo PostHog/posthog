@@ -102,6 +102,8 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS="true"
     export PERSONS_URL=postgres://posthog:posthog@localhost:5432/posthog_persons
     export ISSUE_BUCKETS_REDIS_URL=redis://localhost:6379
+    export SIGNALS_API_BASE_URL=http://localhost:8000 # Used to emit signals, via the internal API
+    export INTERNAL_API_SECRET=posthog123
     ;;
 
   embedding-worker)
