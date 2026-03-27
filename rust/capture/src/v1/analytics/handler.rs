@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::extract::{MatchedPath, Query as AxumQuery, State};
-use axum::http::{HeaderMap, Method};
+use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 
 use super::constants::*;
@@ -85,7 +85,7 @@ fn log_and_return_header_error(
     method: &Method,
     path: &MatchedPath,
 ) -> v1::Error {
-    let token = raw_header_str(headers, POSTHOG_API_TOKEN);
+    let token = raw_header_str(headers, header::AUTHORIZATION.as_str());
     let request_id = raw_header_str(headers, POSTHOG_REQUEST_ID);
     let sdk_info = raw_header_str(headers, POSTHOG_SDK_INFO);
     let attempt = raw_header_str(headers, POSTHOG_ATTEMPT);

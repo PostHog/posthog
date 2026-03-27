@@ -24,11 +24,11 @@ pub const SUPPORTED_ENCODINGS: &[&str] = &["gzip", "deflate", "br", "zstd"];
 // Route paths
 // ---------------------------------------------------------------------------
 
-/// Primary route path for the v1 analytics events endpoint.
-pub const CAPTURE_V1_PATH: &str = "/i/v1/general/analytics/events";
+/// Primary route path for the v1 events endpoint.
+pub const CAPTURE_V1_PATH: &str = "/i/v1/general/events";
 
 /// Trailing-slash variant registered so both URL forms resolve to the same handler.
-pub(super) const CAPTURE_V1_PATH_TRAILING: &str = "/i/v1/general/analytics/events/";
+pub(super) const CAPTURE_V1_PATH_TRAILING: &str = "/i/v1/general/events/";
 
 // ---------------------------------------------------------------------------
 // Metrics keys

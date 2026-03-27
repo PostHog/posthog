@@ -545,7 +545,6 @@ mod tests {
     fn event_malformed_properties() {
         let ctx = Context {
             api_token: "phc_test".to_string(),
-            authorization: None,
             user_agent: "test/1.0".to_string(),
             content_type: "application/json".to_string(),
             content_encoding: None,
@@ -556,7 +555,7 @@ mod tests {
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             query: crate::v1::analytics::query::Query::default(),
             method: axum::http::Method::POST,
-            path: "/i/v1/general/analytics/events".to_string(),
+            path: "/i/v1/general/events".to_string(),
             server_received_at: Utc::now(),
             created_at: None,
             capture_internal: false,
@@ -586,7 +585,6 @@ mod tests {
     fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> Context {
         Context {
             api_token: "phc_test".to_string(),
-            authorization: None,
             user_agent: "test/1.0".to_string(),
             content_type: "application/json".to_string(),
             content_encoding: None,
@@ -597,7 +595,7 @@ mod tests {
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             query: crate::v1::analytics::query::Query::default(),
             method: axum::http::Method::POST,
-            path: "/i/v1/general/analytics/events".to_string(),
+            path: "/i/v1/general/events".to_string(),
             server_received_at,
             created_at: None,
             capture_internal: false,
@@ -1144,7 +1142,6 @@ mod tests {
     fn test_context(historical_migration: bool) -> Context {
         Context {
             api_token: "phc_test_token".to_string(),
-            authorization: None,
             user_agent: "test-agent/1.0".to_string(),
             content_type: "application/json".to_string(),
             content_encoding: None,
@@ -1155,7 +1152,7 @@ mod tests {
             client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             query: Query::default(),
             method: Method::POST,
-            path: "/i/v1/general/analytics/events".to_string(),
+            path: "/i/v1/general/events".to_string(),
             server_received_at: Utc::now(),
             created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
             capture_internal: false,

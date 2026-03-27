@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
 use axum::extract::Query as AxumQuery;
-use axum::http::{HeaderMap, Method};
+use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -15,7 +15,6 @@ use crate::v1::Error;
 #[derive(Debug)]
 pub struct Context {
     pub api_token: String,
-    pub authorization: Option<String>,
     pub user_agent: String,
     pub content_type: String,
     pub content_encoding: Option<String>,
@@ -69,27 +68,18 @@ impl Context {
 
         // All required headers are present — validate each one
 
-        let token_raw = header_str(headers, POSTHOG_API_TOKEN)?;
+        // Authorization header presence is guaranteed by the REQUIRED_HEADERS gate above.
+        // The Bearer scheme is case-insensitive per RFC 6750 Section 1.1.
+        let auth_raw = header_str(headers, header::AUTHORIZATION.as_str())?;
+        let token_raw = if auth_raw.len() > 7 && auth_raw[..7].eq_ignore_ascii_case("Bearer ") {
+            auth_raw[7..].trim()
+        } else {
+            return Err(Error::InvalidHeaderValue(
+                "Authorization must use Bearer scheme".into(),
+            ));
+        };
         validate_token(token_raw).map_err(|reason| Error::InvalidApiToken(reason.to_string()))?;
         let api_token = token_raw.to_string();
-
-        let authorization = match headers.get("authorization") {
-            Some(val) => {
-                let val_str = val.to_str().map_err(|_| {
-                    Error::InvalidHeaderValue(
-                        "Authorization contains non-visible ASCII characters".into(),
-                    )
-                })?;
-                if let Some(token) = val_str.strip_prefix("Bearer ") {
-                    Some(token.to_string())
-                } else {
-                    return Err(Error::InvalidHeaderValue(
-                        "Authorization must use Bearer scheme".into(),
-                    ));
-                }
-            }
-            None => None,
-        };
 
         let content_type_raw = header_str(headers, "content-type")?;
         let mime_type = content_type_raw
@@ -151,7 +141,6 @@ impl Context {
 
         Ok(Self {
             api_token,
-            authorization,
             user_agent,
             content_type,
             content_encoding,
@@ -202,8 +191,8 @@ mod tests {
     fn valid_headers() -> HeaderMap {
         let mut h = HeaderMap::new();
         h.insert(
-            POSTHOG_API_TOKEN,
-            HeaderValue::from_static("phc_test_token_123"),
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer phc_test_token_123"),
         );
         h.insert(
             POSTHOG_SDK_INFO,
@@ -232,7 +221,6 @@ mod tests {
         assert_eq!(ctx.api_token, "phc_test_token_123");
         assert_eq!(ctx.attempt, 1);
         assert_eq!(ctx.content_type, "application/json");
-        assert!(ctx.authorization.is_none());
         assert!(ctx.content_encoding.is_none());
         assert!(ctx.created_at.is_none());
         assert!(!ctx.capture_internal);
@@ -242,11 +230,11 @@ mod tests {
     #[test]
     fn missing_single_required_header() {
         let mut headers = valid_headers();
-        headers.remove(POSTHOG_API_TOKEN);
+        headers.remove(header::AUTHORIZATION.as_str());
         let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
-                assert_eq!(names, vec![POSTHOG_API_TOKEN]);
+                assert_eq!(names, vec![header::AUTHORIZATION.as_str()]);
             }
             other => panic!("expected MissingRequiredHeaders, got: {other:?}"),
         }
@@ -255,12 +243,12 @@ mod tests {
     #[test]
     fn missing_multiple_required_headers() {
         let mut headers = valid_headers();
-        headers.remove(POSTHOG_API_TOKEN);
+        headers.remove(header::AUTHORIZATION.as_str());
         headers.remove("user-agent");
         let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
-                assert!(names.contains(&POSTHOG_API_TOKEN.to_string()));
+                assert!(names.contains(&header::AUTHORIZATION.as_str().to_string()));
                 assert!(names.contains(&"user-agent".to_string()));
                 assert_eq!(names.len(), 2);
             }
@@ -272,27 +260,47 @@ mod tests {
     fn invalid_token_returns_error() {
         let mut headers = valid_headers();
         headers.insert(
-            POSTHOG_API_TOKEN,
-            HeaderValue::from_static("phx_personal_key"),
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer phx_personal_key"),
         );
         let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidApiToken(_)));
     }
 
     #[test]
-    fn bad_authorization_format() {
+    fn bearer_token_whitespace_trimmed() {
         let mut headers = valid_headers();
-        headers.insert("authorization", HeaderValue::from_static("Basic abc123"));
-        let err = test_context(&headers).unwrap_err();
-        assert!(matches!(err, Error::InvalidHeaderValue(_)));
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer   phc_test_token_123  "),
+        );
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.api_token, "phc_test_token_123");
     }
 
     #[test]
-    fn valid_bearer_authorization() {
+    fn bearer_scheme_case_insensitive() {
+        for scheme in &["bearer ", "BEARER ", "beaRER "] {
+            let val = format!("{scheme}phc_test_token_123");
+            let mut headers = valid_headers();
+            headers.insert(header::AUTHORIZATION, HeaderValue::from_str(&val).unwrap());
+            let ctx = test_context(&headers).unwrap();
+            assert_eq!(
+                ctx.api_token, "phc_test_token_123",
+                "failed for scheme: {scheme}"
+            );
+        }
+    }
+
+    #[test]
+    fn bad_authorization_format() {
         let mut headers = valid_headers();
-        headers.insert("authorization", HeaderValue::from_static("Bearer my_token"));
-        let ctx = test_context(&headers).unwrap();
-        assert_eq!(ctx.authorization, Some("my_token".to_string()));
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic abc123"),
+        );
+        let err = test_context(&headers).unwrap_err();
+        assert!(matches!(err, Error::InvalidHeaderValue(_)));
     }
 
     #[test]

@@ -4,9 +4,6 @@
 // Defined at the v1 level (not in analytics/) so that REQUIRED_HEADERS
 // can reference them without a cross-submodule dependency.
 
-/// Header carrying the project API token for authentication.
-pub const POSTHOG_API_TOKEN: &str = "PostHog-Api-Token";
-
 /// Header carrying SDK name/version metadata.
 pub const POSTHOG_SDK_INFO: &str = "PostHog-Sdk-Info";
 
@@ -25,8 +22,10 @@ pub const POSTHOG_ATTEMPT_TIMESTAMP: &str = "PostHog-Attempt-Timestamp";
 
 /// Headers that must be present on every v1 analytics request.
 /// Missing any of these triggers an Error::MissingRequiredHeaders response.
+// Standard header names are inlined as &str because HeaderName::as_str() isn't const.
+// They correspond to header::AUTHORIZATION, header::CONTENT_TYPE, header::USER_AGENT.
 pub(super) const REQUIRED_HEADERS: &[&str] = &[
-    POSTHOG_API_TOKEN,
+    "authorization",
     POSTHOG_SDK_INFO,
     POSTHOG_ATTEMPT,
     POSTHOG_REQUEST_ID,
