@@ -16,16 +16,11 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
-import {
-    HogTransformerServiceDeps,
-    createHogTransformerService,
-} from './cdp/hog-transformations/hog-transformer.service'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
@@ -96,14 +91,13 @@ export class PluginServer implements NodeServer {
         )
         const needsLogs = !!capabilities.logsIngestion
         const needsTraces = !!capabilities.tracesIngestion
-        const needsErrorTracking = !!capabilities.errorTrackingIngestion
 
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
-        // 2. Services shared by CDP and error tracking (geoip, repos, encryption)
+        // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
-        if (needsCdp || needsErrorTracking) {
+        if (needsCdp) {
             cdpServices = await this.createCdpSharedServices()
         }
 
@@ -323,51 +317,6 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        if (capabilities.errorTrackingIngestion) {
-            serviceLoaders.push(async () => {
-                const hogTransformerDeps: HogTransformerServiceDeps = {
-                    geoipService: cdpServices!.geoipService,
-                    postgres: this.postgres!,
-                    pubSub: this.pubsub!,
-                    encryptedFields: cdpServices!.encryptedFields,
-                    integrationManager: cdpServices!.integrationManager,
-                    kafkaProducer: this.kafkaMetricsProducer!,
-                    teamManager,
-                    internalCaptureService: cdpServices!.internalCaptureService,
-                }
-                const consumer = new ErrorTrackingConsumer(
-                    {
-                        groupId: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
-                        topic: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-                        dlqTopic: this.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
-                        overflowTopic: this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
-                        outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
-                        cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
-                        cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
-                        lane: this.config.INGESTION_LANE ?? 'main',
-                        overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
-                        overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                        statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
-                        statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
-                        statefulOverflowLocalCacheTTLSeconds:
-                            this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                        pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
-                    },
-                    {
-                        kafkaProducer: this.kafkaProducer!,
-                        kafkaMetricsProducer: this.kafkaMetricsProducer!,
-                        teamManager,
-                        hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-                        groupTypeManager: new GroupTypeManager(cdpServices!.groupRepository, teamManager),
-                        redisPool: this.redisPool!,
-                        personRepository: cdpServices!.personRepository,
-                    }
-                )
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
         if (capabilities.recordingApi) {
             serviceLoaders.push(async () => {
                 const api = new RecordingApi(this.config, this.postgres!)
@@ -397,7 +346,7 @@ export class PluginServer implements NodeServer {
     private async createSharedInfrastructure(): Promise<{ teamManager: TeamManager }> {
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        this.postgres = new PostgresRouter(this.config)
+        this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')

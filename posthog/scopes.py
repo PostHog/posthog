@@ -95,6 +95,8 @@ APIScopeObjectOrNotSupported = Literal[
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 
+PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
+
 
 def get_scope_descriptions() -> dict[str, str]:
     return {

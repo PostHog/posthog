@@ -847,12 +847,6 @@ impl FeatureFlagMatcher {
             })
             .collect();
 
-        let precomputed_property_overrides = self.precompute_property_overrides(
-            &flags_to_evaluate,
-            person_property_overrides,
-            group_property_overrides,
-        );
-
         let eval_type = if flags_to_evaluate.len() >= self.parallel_eval_threshold {
             EvaluationType::Parallel
         } else {
@@ -880,7 +874,8 @@ impl FeatureFlagMatcher {
                 flags_to_evaluate.iter().for_each(|flag| {
                     let result = self.evaluate_single_flag(
                         flag,
-                        &precomputed_property_overrides,
+                        person_property_overrides,
+                        group_property_overrides,
                         flags_with_missing_deps,
                         hash_key_overrides,
                         request_hash_key_override,
@@ -897,7 +892,8 @@ impl FeatureFlagMatcher {
                 let results = self
                     .evaluate_batch_parallel(
                         flags_to_evaluate,
-                        precomputed_property_overrides,
+                        person_property_overrides,
+                        group_property_overrides,
                         flags_with_missing_deps,
                         hash_key_overrides,
                         request_hash_key_override,
@@ -927,39 +923,6 @@ impl FeatureFlagMatcher {
             .fin();
 
         Ok((level_evaluated_flags_map, errors_while_computing_flags))
-    }
-
-    /// Pre-compute property overrides for all flags upfront.
-    // TODO: We can probably do this even earlier, but I'll save that for another PR - @haacked
-    fn precompute_property_overrides(
-        &mut self,
-        flags: &[FeatureFlag],
-        person_property_overrides: &Option<HashMap<String, Value>>,
-        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
-    ) -> HashMap<String, Option<HashMap<String, Value>>> {
-        let mut overrides = HashMap::new();
-        for flag in flags {
-            let relevant = match flag.get_group_type_index() {
-                Some(group_type_index) => {
-                    match self.group_overrides_to_property_overrides(
-                        group_type_index,
-                        group_property_overrides,
-                    ) {
-                        Ok(o) => o,
-                        Err(e) => {
-                            warn!(
-                                "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
-                                flag.key, group_type_index, e
-                            );
-                            None
-                        }
-                    }
-                }
-                None => person_property_overrides.clone(),
-            };
-            overrides.insert(flag.key.clone(), relevant);
-        }
-        overrides
     }
 
     /// Process a single flag evaluation result: update evaluation state, record metrics, and
@@ -1006,27 +969,18 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Convert group overrides to property overrides
-    fn group_overrides_to_property_overrides(
-        &mut self,
+    /// Resolves group property overrides for a specific group type index by mapping
+    /// the index to the group type name and looking up the corresponding overrides.
+    fn resolve_group_overrides<'a>(
+        &self,
         group_type_index: GroupTypeIndex,
-        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
-    ) -> Result<Option<HashMap<String, Value>>, FlagError> {
-        let mapping = match &self.group_type_mapping {
-            Some(m) => m,
-            None => return Ok(None),
-        };
+        group_property_overrides: Option<&'a HashMap<String, HashMap<String, Value>>>,
+    ) -> Option<&'a HashMap<String, Value>> {
+        let mapping = self.group_type_mapping.as_ref()?;
         let index_to_type_map = mapping.group_indexes_to_types();
-
-        if let Some(group_type) = index_to_type_map.get(&group_type_index) {
-            if let Some(group_overrides) = group_property_overrides {
-                if let Some(group_overrides_by_type) = group_overrides.get(group_type) {
-                    return Ok(Some(group_overrides_by_type.clone()));
-                }
-            }
-        }
-
-        Ok(None)
+        let group_type = index_to_type_map.get(&group_type_index)?;
+        let group_overrides = group_property_overrides?;
+        group_overrides.get(group_type)
     }
 
     /// Pushes CPU-bound flag evaluation onto the Rayon pool via [`RayonDispatcher`],
@@ -1037,13 +991,16 @@ impl FeatureFlagMatcher {
     async fn evaluate_batch_parallel(
         &self,
         flags_to_evaluate: Vec<FeatureFlag>,
-        precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>>,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         flags_with_missing_deps: &HashSet<i32>,
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<Vec<(FeatureFlag, Result<FeatureFlagMatch, FlagError>)>, FlagError> {
         let matcher = self.clone();
         let missing_deps = flags_with_missing_deps.clone();
+        let person_overrides = person_property_overrides.clone();
+        let group_overrides = group_property_overrides.clone();
         let hash_overrides = hash_key_overrides.clone();
         let req_hash_override = request_hash_key_override.clone();
 
@@ -1067,7 +1024,8 @@ impl FeatureFlagMatcher {
                     let _guard = install_rayon_canonical_log();
                     let result = matcher.evaluate_single_flag(
                         &flag,
-                        &precomputed_property_overrides,
+                        &person_overrides,
+                        &group_overrides,
                         &missing_deps,
                         &hash_overrides,
                         &req_hash_override,
@@ -1146,7 +1104,8 @@ impl FeatureFlagMatcher {
     fn evaluate_single_flag(
         &self,
         flag: &FeatureFlag,
-        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         flags_with_missing_deps: &HashSet<i32>,
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
@@ -1155,13 +1114,10 @@ impl FeatureFlagMatcher {
             return Ok(FeatureFlagMatch::missing_dependency());
         }
 
-        let property_overrides = precomputed_property_overrides
-            .get(&flag.key)
-            .and_then(|opt| opt.as_ref());
-
         self.get_match(
             flag,
-            property_overrides,
+            person_property_overrides.as_ref(),
+            group_property_overrides.as_ref(),
             hash_key_overrides.as_ref(),
             request_hash_key_override,
         )
@@ -1183,62 +1139,18 @@ impl FeatureFlagMatcher {
     pub fn get_match(
         &self,
         flag: &FeatureFlag,
-        property_overrides: Option<&HashMap<String, Value>>,
+        person_property_overrides: Option<&HashMap<String, Value>>,
+        group_property_overrides: Option<&HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        // Check if this is a group-based flag with missing group
-        let hashed_id =
-            self.hashed_identifier(flag, hash_key_overrides, request_hash_key_override)?;
-        if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
-            // This is a group-based flag but we don't have the group key
-            return Ok(FeatureFlagMatch {
-                matches: false,
-                variant: None,
-                reason: FeatureFlagMatchReason::NoGroupType,
-                condition_index: None,
-                payload: None,
-            });
-        }
-        // For person-based flags, empty distinct_id is valid and should continue evaluation
-        if flag.get_group_type_index().is_none() {
-            use crate::flags::flag_models::BucketingIdentifier;
-
-            if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
-                if self
-                    .device_id
-                    .as_ref()
-                    .is_some_and(|device_id| !device_id.is_empty())
-                {
-                    with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
-                } else {
-                    with_canonical_log(|log| {
-                        tracing::warn!(
-                            flag_key = %flag.key,
-                            team_id = %flag.team_id,
-                            lib = log.lib,
-                            lib_version = log.lib_version.as_deref(),
-                            "Flag configured for device_id bucketing but no device_id provided, returning false"
-                        );
-                    });
-                    return Ok(FeatureFlagMatch {
-                        matches: false,
-                        variant: None,
-                        reason: FeatureFlagMatchReason::OutOfRolloutBound,
-                        condition_index: None,
-                        payload: None,
-                    });
-                }
-            }
-        }
-
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
 
-        // Lazily compute merged properties only when needed.
-        // For rollout-only flags (no property filters), we skip property fetching entirely.
-        // When properties ARE needed, we compute once and reuse for all conditions.
-        let mut cached_properties: Option<HashMap<String, Value>> = None;
+        // Lazily compute properties per aggregation type. Person and group properties are
+        // cached separately so conditions with different aggregation modes can share them.
+        let mut cached_person_properties: Option<HashMap<String, Value>> = None;
+        let mut cached_group_properties: HashMap<i32, HashMap<String, Value>> = HashMap::new();
 
         // Evaluate feature enrollment (early access features) first.
         // Enrollment is a person-level concept — always uses person properties, even for
@@ -1251,7 +1163,7 @@ impl FeatureFlagMatcher {
         // New format takes precedence when both are present.
         if flag.filters.feature_enrollment == Some(true) {
             let enrollment_key = FlagFilters::enrollment_key(&flag.key);
-            let person_properties = self.get_person_properties(property_overrides)?;
+            let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
                 let is_match = v == "true" || v == &Value::Bool(true);
@@ -1273,10 +1185,13 @@ impl FeatureFlagMatcher {
                     .as_ref()
                     .is_some_and(|p| !p.is_empty())
                 {
-                    let person_properties = self.get_person_properties(property_overrides)?;
+                    if cached_person_properties.is_none() {
+                        cached_person_properties =
+                            Some(self.get_person_properties(person_property_overrides)?);
+                    }
                     let super_condition_evaluation = self.is_super_condition_match(
                         flag,
-                        &person_properties,
+                        cached_person_properties.as_ref().unwrap(),
                         hash_key_overrides,
                         request_hash_key_override,
                     )?;
@@ -1325,26 +1240,130 @@ impl FeatureFlagMatcher {
 
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
+            // Each condition resolves its own aggregation, falling back to the flag-level
+            // value for backwards compatibility with flags that predate per-condition aggregation.
+            let aggregation = condition.effective_aggregation(flag.get_group_type_index());
+
+            // Device_id bucketing only applies to person-aggregated conditions. For mixed
+            // flags, group-aggregated conditions can still match even without a device_id.
+            if aggregation.is_none() {
+                use crate::flags::flag_models::BucketingIdentifier;
+
+                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId
+                    && self
+                        .device_id
+                        .as_ref()
+                        .is_none_or(|device_id| device_id.is_empty())
+                {
+                    with_canonical_log(|log| {
+                        tracing::warn!(
+                            flag_key = %flag.key,
+                            team_id = %flag.team_id,
+                            condition_index = %index,
+                            lib = log.lib,
+                            lib_version = log.lib_version.as_deref(),
+                            "Person condition uses device_id bucketing but no device_id provided, skipping"
+                        );
+                    });
+                    let (new_highest_match, new_highest_index) = self
+                        .get_highest_priority_match_evaluation(
+                            highest_match.clone(),
+                            highest_index,
+                            FeatureFlagMatchReason::OutOfRolloutBound,
+                            Some(index),
+                        );
+                    highest_match = new_highest_match;
+                    highest_index = new_highest_index;
+                    continue;
+                }
+                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                    with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
+                }
+            }
+
+            // For group-aggregated conditions, verify we have the group key. If not, this
+            // condition can't match — log a warning and continue to the next condition.
+            // This checks the group key directly rather than calling hashed_identifier,
+            // which will be called again later in check_rollout/get_matching_variant.
+            if let Some(group_type_index) = aggregation {
+                let has_group_key = self
+                    .group_type_mapping
+                    .as_ref()
+                    .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
+                    .and_then(|name| self.groups.get(name))
+                    .is_some_and(|v| match v {
+                        Value::String(s) => !s.is_empty(),
+                        Value::Number(_) => true,
+                        _ => false,
+                    });
+                if !has_group_key {
+                    warn!(
+                        flag_key = %flag.key,
+                        team_id = %flag.team_id,
+                        condition_index = %index,
+                        "Condition uses group aggregation but group type not provided in evaluation context, skipping"
+                    );
+                    // Record this as a NoGroupType reason but continue to next condition
+                    let (new_highest_match, new_highest_index) = self
+                        .get_highest_priority_match_evaluation(
+                            highest_match.clone(),
+                            highest_index,
+                            FeatureFlagMatchReason::NoGroupType,
+                            Some(index),
+                        );
+                    highest_match = new_highest_match;
+                    highest_index = new_highest_index;
+                    continue;
+                }
+            }
+
             // Lazily compute properties only when a condition actually needs them.
             // A condition needs properties if it has non-empty property filters that aren't
             // purely flag-value filters (which don't require person/group properties).
-            let properties_ref = if Self::condition_needs_properties(condition) {
-                if cached_properties.is_none() {
-                    cached_properties =
-                        Some(self.get_properties_to_check(flag, property_overrides)?);
+            //
+            // Properties are resolved based on the condition's aggregation mode:
+            // - Person aggregation (None): use person properties
+            // - Group aggregation (Some(idx)): use group properties for that type
+            // Properties are cached per type so conditions sharing an aggregation mode reuse them.
+            if Self::condition_needs_properties(condition) {
+                match aggregation {
+                    Some(group_type_index) => {
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            cached_group_properties.entry(group_type_index)
+                        {
+                            let group_overrides = self.resolve_group_overrides(
+                                group_type_index,
+                                group_property_overrides,
+                            );
+                            let group_props =
+                                self.get_group_properties(group_type_index, group_overrides)?;
+                            e.insert(group_props);
+                        }
+                    }
+                    None => {
+                        if cached_person_properties.is_none() {
+                            cached_person_properties =
+                                Some(self.get_person_properties(person_property_overrides)?);
+                        }
+                    }
                 }
-                cached_properties.as_ref().unwrap()
-            } else {
-                // Use a static empty map for conditions that don't need properties
+            }
+            let properties_ref = {
                 static EMPTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
                     std::sync::LazyLock::new(HashMap::new);
-                &*EMPTY_MAP
+                match aggregation {
+                    Some(group_type_index) => cached_group_properties
+                        .get(&group_type_index)
+                        .unwrap_or(&*EMPTY_MAP),
+                    None => cached_person_properties.as_ref().unwrap_or(&*EMPTY_MAP),
+                }
             };
 
             let (is_match, reason) = self.is_condition_match(
                 flag,
                 condition,
                 properties_ref,
+                aggregation,
                 hash_key_overrides,
                 request_hash_key_override,
             )?;
@@ -1378,13 +1397,19 @@ impl FeatureFlagMatcher {
                         // If override isn't valid, fall back to computed variant
                         self.get_matching_variant(
                             flag,
+                            aggregation,
                             hash_key_overrides,
                             request_hash_key_override,
                         )?
                     }
                 } else {
                     // No override, use computed variant
-                    self.get_matching_variant(flag, hash_key_overrides, request_hash_key_override)?
+                    self.get_matching_variant(
+                        flag,
+                        aggregation,
+                        hash_key_overrides,
+                        request_hash_key_override,
+                    )?
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
@@ -1430,18 +1455,18 @@ impl FeatureFlagMatcher {
 
     /// Check if a condition matches for a feature flag.
     ///
-    /// This function evaluates a specific condition of a feature flag to determine if it should be enabled.
-    /// It first checks if the condition has any property filters. If not, it performs a rollout check.
-    /// Otherwise, it checks if the pre-computed merged properties match the condition's filters.
-    /// The function returns a tuple indicating whether the condition matched and the reason for the match.
+    /// Evaluates a specific condition to determine if it should be enabled.
+    /// If the condition has no property filters, performs a rollout check only.
+    /// Otherwise, checks if the provided properties satisfy the condition's filters.
     ///
-    /// Note: `merged_properties` should be pre-computed by the caller using `get_properties_to_check()`
-    /// to avoid redundant HashMap clones and merges when evaluating multiple conditions.
+    /// The caller resolves the correct property map (person or group) for the
+    /// condition's aggregation mode and passes it as `properties`.
     pub(crate) fn is_condition_match(
         &self,
         feature_flag: &FeatureFlag,
         condition: &FlagPropertyGroup,
-        merged_properties: &HashMap<String, Value>,
+        properties: &HashMap<String, Value>,
+        aggregation_group_type_index: Option<i32>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -1452,6 +1477,7 @@ impl FeatureFlagMatcher {
                 return self.check_rollout(
                     feature_flag,
                     rollout_percentage,
+                    aggregation_group_type_index,
                     hash_key_overrides,
                     request_hash_key_override,
                 );
@@ -1471,7 +1497,7 @@ impl FeatureFlagMatcher {
                     }
                 } else if filter.is_cohort() {
                     cohort_filters.push(filter);
-                } else if !match_property(filter, merged_properties, false).unwrap_or(false) {
+                } else if !match_property(filter, properties, false).unwrap_or(false) {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -1482,7 +1508,7 @@ impl FeatureFlagMatcher {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
                 };
-                if !self.evaluate_cohort_filters(&cohort_filters, merged_properties, cohorts)? {
+                if !self.evaluate_cohort_filters(&cohort_filters, properties, cohorts)? {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -1491,6 +1517,7 @@ impl FeatureFlagMatcher {
         self.check_rollout(
             feature_flag,
             rollout_percentage,
+            aggregation_group_type_index,
             hash_key_overrides,
             request_hash_key_override,
         )
@@ -1503,21 +1530,6 @@ impl FeatureFlagMatcher {
             // Check if there are any non-flag-value property filters
             props.iter().any(|prop| !prop.depends_on_feature_flag())
         })
-    }
-
-    /// Gets the properties to check for a feature flag condition, merging DB properties with overrides.
-    /// Overrides take precedence over DB properties when both are present.
-    fn get_properties_to_check(
-        &self,
-        feature_flag: &FeatureFlag,
-        property_overrides: Option<&HashMap<String, Value>>,
-    ) -> Result<HashMap<String, Value>, FlagError> {
-        match feature_flag.get_group_type_index() {
-            Some(group_type_index) => {
-                self.get_group_properties(group_type_index, property_overrides)
-            }
-            None => self.get_person_properties(property_overrides),
-        }
     }
 
     /// Gets group properties by merging DB properties with overrides (overrides take precedence).
@@ -1618,10 +1630,12 @@ impl FeatureFlagMatcher {
                 });
 
             if has_relevant_super_condition_properties {
+                // Super conditions always use person-level aggregation (None)
                 let (is_match, _) = self.is_condition_match(
                     feature_flag,
                     super_condition,
                     person_properties,
+                    None,
                     hash_key_overrides,
                     request_hash_key_override,
                 )?;
@@ -1641,10 +1655,12 @@ impl FeatureFlagMatcher {
         })
     }
 
-    /// Get hashed identifier for a feature flag.
+    /// Get hashed identifier for flag evaluation.
     ///
-    /// This function generates a hashed identifier for a feature flag based on the feature flag's group type index.
-    /// If the feature flag is group-based, it fetches the group key; otherwise, it uses the distinct ID.
+    /// Resolves the identifier used for hashing (rollout and variant assignment) based on
+    /// the provided aggregation group type index. For group-based aggregation, uses the
+    /// group key; for person-based aggregation, uses the distinct_id (with experience
+    /// continuity and device_id bucketing fallbacks).
     ///
     /// For person-based flags with ensure_experience_continuity enabled, the identifier priority is:
     /// 1. DB-stored hash_key_override (for consistency across sessions)
@@ -1653,10 +1669,11 @@ impl FeatureFlagMatcher {
     fn hashed_identifier(
         &self,
         feature_flag: &FeatureFlag,
+        aggregation_group_type_index: Option<i32>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<String, FlagError> {
-        if let Some(group_type_index) = feature_flag.get_group_type_index() {
+        if let Some(group_type_index) = aggregation_group_type_index {
             // Group-based flag
             let group_key = match self.group_type_mapping.as_ref().and_then(|m| {
                 m.group_indexes_to_types()
@@ -1716,11 +1733,16 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         salt: &str,
+        aggregation_group_type_index: Option<i32>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier =
-            self.hashed_identifier(feature_flag, hash_key_overrides, request_hash_key_override)?;
+        let hashed_identifier = self.hashed_identifier(
+            feature_flag,
+            aggregation_group_type_index,
+            hash_key_overrides,
+            request_hash_key_override,
+        )?;
         if hashed_identifier.is_empty() {
             // Return a hash value that will make the flag evaluate to false; since we
             // can't evaluate a flag without an identifier.
@@ -1736,22 +1758,26 @@ impl FeatureFlagMatcher {
         salt: Option<&str>,
         request_hash_key_override: &Option<String>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier =
-            self.hashed_identifier(feature_flag, None, request_hash_key_override)?;
+        // Holdouts use the flag-level aggregation for hashing
+        let hashed_identifier = self.hashed_identifier(
+            feature_flag,
+            feature_flag.get_group_type_index(),
+            None,
+            request_hash_key_override,
+        )?;
         let hash = calculate_hash("holdout-", &hashed_identifier, salt.unwrap_or(""))?;
         Ok(hash)
     }
 
     /// Check if a feature flag should be shown based on its rollout percentage.
     ///
-    /// This function determines if a feature flag should be shown to a user based on the flag's rollout percentage.
-    /// It first calculates a hash of the feature flag's identifier and compares it to the rollout percentage.
-    /// If the hash value is less than or equal to the rollout percentage, the flag is shown; otherwise, it is not.
-    /// The function returns a tuple indicating whether the flag matched and the reason for the match.
+    /// Calculates a hash of the identifier (determined by `aggregation_group_type_index`)
+    /// and compares it to the rollout percentage. Returns whether the flag matched and why.
     fn check_rollout(
         &self,
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
+        aggregation_group_type_index: Option<i32>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -1761,6 +1787,7 @@ impl FeatureFlagMatcher {
         let hash = self.get_hash(
             feature_flag,
             "",
+            aggregation_group_type_index,
             hash_key_overrides,
             request_hash_key_override,
         )?;
@@ -1771,16 +1798,19 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
+    /// Returns the variant key for this flag based on the hashed identifier.
+    /// The aggregation determines which identifier is hashed (group key vs distinct_id).
     pub(crate) fn get_matching_variant(
         &self,
         feature_flag: &FeatureFlag,
+        aggregation_group_type_index: Option<i32>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<Option<String>, FlagError> {
         let hash = self.get_hash(
             feature_flag,
             "variant",
+            aggregation_group_type_index,
             hash_key_overrides,
             request_hash_key_override,
         )?;
@@ -1974,9 +2004,18 @@ impl FeatureFlagMatcher {
         &mut self,
         flags: &[&FeatureFlag],
     ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
+        // Collect group type indexes from both flag-level and per-condition aggregation,
+        // so we fetch data for all group types referenced by any condition.
         let required_type_indexes: HashSet<GroupTypeIndex> = flags
             .iter()
-            .filter_map(|flag| flag.get_group_type_index())
+            .flat_map(|flag| {
+                let flag_level = flag.get_group_type_index();
+                let condition_level = flag
+                    .get_conditions()
+                    .iter()
+                    .filter_map(|c| c.aggregation_group_type_index.flatten());
+                flag_level.into_iter().chain(condition_level)
+            })
             .collect();
 
         if required_type_indexes.is_empty() {
@@ -2163,9 +2202,14 @@ impl FeatureFlagMatcher {
     /// This function checks if any of the feature flags have group type indices and initializes the group type mapping cache if needed.
     /// It returns a boolean indicating if there were any errors while initializing the group type mapping cache.
     async fn initialize_group_type_mappings_if_needed(&mut self, flags: &[&FeatureFlag]) -> bool {
-        // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
+        // Check if we need to fetch group type mappings — any flag or condition uses group aggregation
         let has_type_indexes = flags.iter().any(|flag| {
-            !self.filtered_out_flag_ids.contains(&flag.id) && flag.get_group_type_index().is_some()
+            !self.filtered_out_flag_ids.contains(&flag.id)
+                && (flag.get_group_type_index().is_some()
+                    || flag
+                        .get_conditions()
+                        .iter()
+                        .any(|c| matches!(c.aggregation_group_type_index, Some(Some(_)))))
         });
 
         if !has_type_indexes {

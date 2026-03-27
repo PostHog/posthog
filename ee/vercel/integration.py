@@ -276,16 +276,18 @@ class VercelIntegration:
 
         # Check if there's already an OrganizationIntegration for this installation_id
         # If there is, we don't need to do update anything besides OrganizationIntegration's config.
-        organization_integration_exists = OrganizationIntegration.objects.filter(
+        org_integration = OrganizationIntegration.objects.filter(
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id=installation_id,
-        ).exists()
+        ).first()
 
-        if organization_integration_exists:
-            OrganizationIntegration.objects.filter(
-                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-                integration_id=installation_id,
-            ).update(config=asdict(config))
+        config_dict = asdict(config)
+        credentials = config_dict.pop("credentials", {})
+
+        if org_integration is not None:
+            org_integration.config = config_dict
+            org_integration.sensitive_config = {"credentials": credentials}
+            org_integration.save()
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
@@ -324,7 +326,8 @@ class VercelIntegration:
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=installation_id,
                     defaults={
-                        "config": asdict(config),
+                        "config": config_dict,
+                        "sensitive_config": {"credentials": credentials},
                         "created_by": user,
                     },
                 )
@@ -576,7 +579,10 @@ class VercelIntegration:
 
     @staticmethod
     def _get_access_token(installation: OrganizationIntegration) -> str | None:
-        access_token = installation.config.get("credentials", {}).get("access_token")
+        access_token = installation.sensitive_config.get("credentials", {}).get("access_token")
+        if not access_token:
+            # Fallback for installations not yet migrated
+            access_token = installation.config.get("credentials", {}).get("access_token")
         if not access_token:
             logger.exception(
                 "Missing access token for Vercel installation",
@@ -728,6 +734,20 @@ class VercelIntegration:
             vercel_item=vercel_item,
             created=created,
         )
+
+    @staticmethod
+    def bulk_sync_feature_flags_to_vercel(team: Team) -> None:
+        flags = FeatureFlag.objects.filter(team=team, deleted=False)
+        for flag in flags:
+            try:
+                VercelIntegration.sync_feature_flag_to_vercel(flag, created=True)
+            except Exception:
+                logger.exception(
+                    "Failed to bulk sync feature flag to Vercel",
+                    flag_id=flag.pk,
+                    team_id=team.pk,
+                    integration="vercel",
+                )
 
     @staticmethod
     def _delete_item_from_vercel(team: Team, item_type: VercelItemType, item_id: str) -> None:
@@ -1268,7 +1288,36 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
     exceptions are caught and logged rather than bubbling up to the caller.
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
-        return
+        installation = VercelIntegration._get_installation_for_organization(team.organization)
+        if not installation:
+            return
+        try:
+            resource, created = Integration.objects.get_or_create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                defaults={"config": {"type": "connectable"}},
+            )
+            if created:
+                logger.info(
+                    "Auto-created Vercel resource for connectable installation",
+                    team_id=team.pk,
+                    integration="vercel",
+                )
+                access_token = VercelIntegration._get_access_token(installation)
+                if access_token and installation.integration_id:
+                    client = VercelAPIClient(bearer_token=access_token)
+                    client.import_resource(
+                        integration_config_id=installation.integration_id,
+                        resource_id=str(resource.pk),
+                        product_id="posthog",
+                        name=team.name,
+                        secrets=VercelIntegration._build_secrets(team),
+                    )
+        except Exception as e:
+            logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
+            capture_exception(e)
+            return
 
     try:
         sync_func()
