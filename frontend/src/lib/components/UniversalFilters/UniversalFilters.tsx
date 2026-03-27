@@ -114,7 +114,7 @@ const Value = ({
     ): void => {
         const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
         if (entityType) {
-            onChange({ ...filter, id: value, name: item?.name ?? String(value), type: entityType })
+            onChange({ id: value, name: item?.name ?? String(value), type: entityType, properties: [] })
         }
         setChangingEvent(false)
     }

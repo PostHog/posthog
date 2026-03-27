@@ -37,6 +37,7 @@ import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -414,13 +415,17 @@ function SavedFilterNameEditor({
         if (!trimmed) {
             return
         }
-        const f = await updatePlaylist(
-            appliedSavedFilter.short_id,
-            { name: trimmed, filters: appliedSavedFilter.filters },
-            false
-        )
-        onRenamed(f)
-        setIsRenaming(false)
+        try {
+            const f = await updatePlaylist(
+                appliedSavedFilter.short_id,
+                { name: trimmed, filters: appliedSavedFilter.filters },
+                false
+            )
+            onRenamed(f)
+            setIsRenaming(false)
+        } catch {
+            lemonToast.error('Failed to rename saved filter')
+        }
     }
 
     if (isRenaming) {
