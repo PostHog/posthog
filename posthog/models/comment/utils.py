@@ -123,3 +123,48 @@ def produce_discussion_mention_events(
     except Exception as e:
         logger.exception("Failed to produce discussion mention events", error=e)
         capture_exception(e)
+
+
+def send_mention_notifications(
+    comment: "Comment",
+    mentioned_user_ids: list[int],
+    slug: str,
+) -> None:
+    try:
+        from products.notifications.backend.facade.api import (
+            NotificationData,
+            NotificationType,
+            TargetType,
+            create_notification,
+        )
+        from products.notifications.backend.facade.enums import NotificationOnlyResourceType
+
+        commenter = comment.created_by
+        if not commenter:
+            return
+
+        item_url = build_comment_item_url(comment.scope, comment.item_id, slug)
+        comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+        body = comment_content[:200] if comment_content else ""
+
+        for user_id in mentioned_user_ids:
+            if user_id == commenter.id:
+                continue
+            create_notification(
+                NotificationData(
+                    team_id=comment.team_id,
+                    notification_type=NotificationType.COMMENT_MENTION,
+                    title=f"@{commenter.first_name or commenter.email} mentioned you",
+                    body=body,
+                    target_type=TargetType.USER,
+                    target_id=str(user_id),
+                    resource_type=NotificationOnlyResourceType.COMMENT,
+                    resource_id=str(comment.id),
+                    source_url=item_url.replace(settings.SITE_URL, "")
+                    if item_url.startswith(settings.SITE_URL)
+                    else item_url,
+                )
+            )
+    except Exception as e:
+        logger.exception("Failed to send mention notifications", error=e)
+        capture_exception(e)

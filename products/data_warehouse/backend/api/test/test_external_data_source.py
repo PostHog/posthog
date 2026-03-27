@@ -1,5 +1,6 @@
 import uuid
 import typing as t
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -12,9 +13,22 @@ import psycopg
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import (
+    Option,
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
+
 from posthog.models import Team
 from posthog.models.project import Project
+from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -34,6 +48,10 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_warehouse.backend.api.external_data_source import (
+    get_nonsensitive_and_sensitive_field_names,
+    strip_sensitive_from_dict,
+)
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -639,6 +657,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
+                    "label": schema.label,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
                     "status": schema.status,
@@ -808,6 +827,53 @@ class TestExternalDataSource(APIBaseTest):
             ).count(),
             1,
         )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="restored_table",
+                supports_incremental=False,
+                supports_append=False,
+            ),
+        ]
+        source = self._create_external_data_source()
+        # Simulate the realistic soft-delete path: the schema was syncing,
+        # then got removed from the source which sets should_sync=False before
+        # soft-deleting (see sync_old_schemas_with_new_schemas).
+        deleted_schema = ExternalDataSchema.objects.create(
+            name="restored_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            should_sync=False,
+            deleted=True,
+            sync_type_config={"legacy_key": "keep"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["added"], 1)
+        self.assertEqual(response.json()["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="restored_table", deleted=False
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table").count(),
+            1,
+        )
+
+        restored_schema = ExternalDataSchema.objects.get(pk=deleted_schema.pk)
+        self.assertFalse(restored_schema.deleted)
+        # Restored schemas come back disabled — the user must opt in again
+        self.assertFalse(restored_schema.should_sync)
+        self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
 
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
         source = self._create_external_data_source()
@@ -3466,6 +3532,247 @@ class TestCreateWebhook(APIBaseTest):
         assert "No webhook function found" in response.json()["message"]
 
 
+class TestSensitiveFieldClassification(APIBaseTest):
+    def test_classifies_password_fields_as_sensitive(self):
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="host", label="Host", placeholder="", required=True, type=SourceFieldInputConfigType.TEXT
+            ),
+            SourceFieldInputConfig(
+                name="password",
+                label="Password",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.PASSWORD,
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "host" in nonsensitive
+        assert "password" in sensitive
+        assert "password" not in nonsensitive
+        assert "host" not in sensitive
+
+    def test_classifies_file_upload_as_sensitive(self):
+        fields: list[FieldType] = [
+            SourceFieldFileUploadConfig(
+                name="key_file",
+                label="Key file",
+                required=True,
+                fileFormat=SourceFieldFileUploadJsonFormatConfig(keys=["project_id", "private_key"]),
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "key_file" in sensitive
+        assert "key_file" not in nonsensitive
+
+    def test_classifies_select_with_nested_password(self):
+        fields: list[FieldType] = [
+            SourceFieldSelectConfig(
+                name="auth_type",
+                label="Auth",
+                required=True,
+                defaultValue="password",
+                options=[
+                    Option(
+                        label="Password",
+                        value="password",
+                        fields=[
+                            SourceFieldInputConfig(
+                                name="user",
+                                label="User",
+                                placeholder="",
+                                required=True,
+                                type=SourceFieldInputConfigType.TEXT,
+                            ),
+                            SourceFieldInputConfig(
+                                name="password",
+                                label="Password",
+                                placeholder="",
+                                required=True,
+                                type=SourceFieldInputConfigType.PASSWORD,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "auth_type" in nonsensitive
+        assert "user" in nonsensitive
+        assert "password" in sensitive
+
+    def test_classifies_ssh_tunnel_nested_fields(self):
+        fields: list[FieldType] = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH Tunnel")]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "ssh_tunnel" in nonsensitive
+        assert "host" in nonsensitive
+        assert "port" in nonsensitive
+        assert "username" in nonsensitive
+        assert "auth" in nonsensitive
+        assert "auth_type" in nonsensitive
+        assert "password" in sensitive
+        assert "passphrase" in sensitive
+        assert "private_key" in sensitive
+
+    def test_strip_sensitive_from_dict_basic(self):
+        data = {"host": "localhost", "password": "secret", "unknown_key": "val"}
+        result = strip_sensitive_from_dict(data, nonsensitive={"host"}, sensitive={"password"})
+        assert result == {"host": "localhost"}
+
+    def test_strip_sensitive_from_dict_recursive(self):
+        data = {
+            "ssh_tunnel": {
+                "enabled": True,
+                "host": "bastion.example.com",
+                "port": 22,
+                "auth": {
+                    "selection": "password",
+                    "username": "ubuntu",
+                    "password": "secret",
+                    "private_key": "-----BEGIN-----",
+                },
+            },
+        }
+        nonsensitive = {"ssh_tunnel", "host", "port", "username", "auth"}
+        sensitive = {"password", "private_key", "passphrase"}
+        result = strip_sensitive_from_dict(data, nonsensitive, sensitive)
+
+        assert result["ssh_tunnel"]["enabled"] is True
+        assert result["ssh_tunnel"]["host"] == "bastion.example.com"
+        assert result["ssh_tunnel"]["port"] == 22
+        assert result["ssh_tunnel"]["auth"]["selection"] == "password"
+        assert result["ssh_tunnel"]["auth"]["username"] == "ubuntu"
+        assert "password" not in result["ssh_tunnel"]["auth"]
+        assert "private_key" not in result["ssh_tunnel"]["auth"]
+
+    def test_hyphenated_field_names_include_underscore_variant(self):
+        """Fields with hyphens (e.g. "temporary-dataset") should also match the
+        snake_case variant ("temporary_dataset") produced by dataclasses.asdict()."""
+        fields: list[FieldType] = [
+            SourceFieldSwitchGroupConfig(
+                name="temporary-dataset",
+                label="Temporary dataset",
+                default=False,
+                fields=cast(
+                    list[FieldType],
+                    [
+                        SourceFieldInputConfig(
+                            name="temporary_dataset_id",
+                            label="Dataset ID",
+                            placeholder="",
+                            required=True,
+                            type=SourceFieldInputConfigType.TEXT,
+                        ),
+                    ],
+                ),
+            ),
+        ]
+        nonsensitive, _ = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "temporary-dataset" in nonsensitive
+        assert "temporary_dataset" in nonsensitive
+
+    def test_strip_preserves_aliased_switch_group_from_to_dict(self):
+        """job_inputs persisted via to_dict() uses snake_case keys even when
+        the source field name uses hyphens. The strip function must keep these."""
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="dataset_id",
+                label="Dataset ID",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+            ),
+            SourceFieldSwitchGroupConfig(
+                name="temporary-dataset",
+                label="Temporary dataset",
+                default=False,
+                fields=cast(
+                    list[FieldType],
+                    [
+                        SourceFieldInputConfig(
+                            name="temporary_dataset_id",
+                            label="Dataset ID",
+                            placeholder="",
+                            required=True,
+                            type=SourceFieldInputConfigType.TEXT,
+                        ),
+                    ],
+                ),
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+
+        # Simulate job_inputs as persisted by dataclasses.asdict() (snake_case keys)
+        persisted_data = {
+            "dataset_id": "my-dataset",
+            "temporary_dataset": {
+                "enabled": True,
+                "temporary_dataset_id": "tmp-dataset",
+            },
+        }
+        result = strip_sensitive_from_dict(persisted_data, nonsensitive, sensitive)
+        assert "temporary_dataset" in result
+        assert result["temporary_dataset"]["enabled"] is True
+        assert result["temporary_dataset"]["temporary_dataset_id"] == "tmp-dataset"
+
+    def test_all_registered_sources_have_valid_classification(self):
+        for source in SourceRegistry.get_all_sources().values():
+            config = source.get_source_config
+            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(config.fields)
+
+            # No field should appear in both sets
+            overlap = nonsensitive & sensitive
+            assert not overlap, f"{config.name}: fields in both sets: {overlap}"
+
+    def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
+        """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
+
+        old_allowed = {
+            "stripe_account_id",
+            "database",
+            "host",
+            "port",
+            "user",
+            "schema",
+            "ssh_tunnel",
+            "using_ssl",
+            "region",
+            "site_name",
+            "subdomain",
+            "email_address",
+            "hubspot_integration_id",
+            "custom_properties",
+            "account_id",
+            "warehouse",
+            "role",
+            "dataset_id",
+            "temporary-dataset",
+            "dataset_project",
+            "customer_id",
+            "google_ads_integration_id",
+            "is_mcc_account",
+            "spreadsheet_url",
+            "linkedin_ads_integration_id",
+            "meta_ads_integration_id",
+            "sync_lookback_days",
+            "reddit_integration_id",
+            "salesforce_integration_id",
+            "repository",
+            "shopify_store_id",
+            "namespace",
+        }
+
+        # Collect all nonsensitive field names across all sources
+        all_nonsensitive: set[str] = set()
+        for source in SourceRegistry.get_all_sources().values():
+            config = source.get_source_config
+            nonsensitive, _ = get_nonsensitive_and_sensitive_field_names(config.fields)
+            all_nonsensitive.update(nonsensitive)
+
+        missing = old_allowed - all_nonsensitive
+        assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
+
+
 class TestWebhookInfo(APIBaseTest):
     def _create_stripe_source(self, job_inputs=None) -> ExternalDataSource:
         if job_inputs is None:
@@ -3616,3 +3923,247 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["exists"] is True
         assert data["external_status"] is None
+
+
+class TestDeleteWebhook(APIBaseTest):
+    def _create_stripe_source(self, job_inputs=None) -> ExternalDataSource:
+        if job_inputs is None:
+            job_inputs = {"stripe_secret_key": "sk_test_123"}
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs=job_inputs,
+        )
+
+    def _create_hog_function(self, source: ExternalDataSource, enabled: bool = True):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Stripe warehouse source webhook",
+            type="warehouse_source_webhook",
+            hog="// test",
+            enabled=enabled,
+            inputs_schema=[
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "secret": False},
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "required": True, "secret": False},
+            ],
+            inputs={
+                "source_id": {"value": str(source.pk)},
+                "schema_mapping": {"value": {"customer": "schema-id-1"}},
+            },
+        )
+
+    def _create_incremental_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="incremental",
+            should_sync=True,
+        )
+
+    def _create_full_refresh_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="full_refresh",
+            should_sync=True,
+        )
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    def test_delete_webhook_success(self, mock_delete_webhook, _mock_flag):
+        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
+
+        source = self._create_stripe_source()
+        self._create_full_refresh_schema(source, "Customers")
+        hog_function = self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is True
+        assert data["error"] is None
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_blocked_by_incremental_schemas(self, _mock_flag):
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, "Customers")
+        self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "incremental sync" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook, _mock_flag):
+        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        mock_delete_webhook.return_value = WebhookDeletionResult(success=False, error="Permission denied")
+
+        source = self._create_stripe_source()
+        self._create_full_refresh_schema(source, "Customers")
+        hog_function = self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is False
+        assert data["error"] == "Permission denied"
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_no_hog_function(self, _mock_flag):
+        source = self._create_stripe_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is False
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_non_webhook_source(self, _mock_flag):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={"host": "localhost"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not support webhooks" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_delete_webhook_no_job_inputs_still_cleans_up_hog_function(self, _mock_flag):
+        source = self._create_stripe_source(job_inputs={})
+        hog_function = self._create_hog_function(source)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/delete_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["external_deleted"] is False
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+
+
+class TestDestroySourceCleansUpWebhook(APIBaseTest):
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook, _mock_flag):
+        from posthog.models.hog_functions.hog_function import HogFunction
+        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Stripe warehouse source webhook",
+            type="warehouse_source_webhook",
+            hog="// test",
+            enabled=True,
+            inputs_schema=[
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "secret": False},
+            ],
+            inputs={"source_id": {"value": str(source.pk)}},
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+
+        hog_function.refresh_from_db()
+        assert hog_function.deleted is True
+        assert hog_function.enabled is False
+        mock_delete_webhook.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
+        side_effect=Exception("Stripe API error"),
+    )
+    def test_destroy_source_continues_if_webhook_cleanup_fails(
+        self, _mock_delete_webhook, mock_capture_exception, _mock_flag
+    ):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        HogFunction.objects.create(
+            team=self.team,
+            name="Stripe warehouse source webhook",
+            type="warehouse_source_webhook",
+            hog="// test",
+            enabled=True,
+            inputs_schema=[
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "secret": False},
+            ],
+            inputs={"source_id": {"value": str(source.pk)}},
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+        assert mock_capture_exception.called

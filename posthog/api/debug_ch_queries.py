@@ -251,13 +251,13 @@ class DebugCHQueries(viewsets.ViewSet):
                 SELECT
                     arrayStringConcat(arrayMap(x -> demangle(addressToSymbol(x)), trace), ';') AS stack,
                     count() AS samples
-                FROM system.trace_log
+                FROM clusterAllReplicas(%(cluster)s, system, trace_log)
                 WHERE query_id = %(query_id)s AND trace_type = 'CPU'
                 GROUP BY trace
                 HAVING stack != ''
-                SETTINGS allow_introspection_functions=1
+                SETTINGS allow_introspection_functions=1, skip_unavailable_shards=1
                 """,
-                {"query_id": profile_query_id},
+                {"query_id": profile_query_id, "cluster": CLICKHOUSE_CLUSTER},
             )
         except Exception:
             raise exceptions.ValidationError(

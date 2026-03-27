@@ -1204,6 +1204,30 @@ class TestResolver(BaseTest):
         assert isinstance(selected.type, ast.CallType)
         assert selected.type.return_type == ast.DateTimeType(nullable=False)
 
+    def test_assume_not_null_with_unknown_arg_type(self):
+        # When the inner function has no signatures (returns UnknownType), assumeNotNull should still force nullable=False
+        node = self._select("SELECT assumeNotNull(base64Encode(unhex('DEADBEEF')))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is False
+
+    @parameterized.expand(
+        [
+            ("toNullable('hello')", ""),
+            ("toNullable(event)", "FROM events"),
+            ("nullIf(event, '')", "FROM events"),
+        ],
+    )
+    def test_nullable_functions_force_nullable_true(self, expr, from_clause):
+        node = self._select(f"SELECT {expr} {from_clause}".strip())
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
     def test_interval_type_arithmetic(self):
         operators = ["+", "-"]
         granularites = ["Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year"]

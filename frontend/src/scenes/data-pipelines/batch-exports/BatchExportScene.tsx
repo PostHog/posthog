@@ -15,7 +15,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -31,7 +30,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
-import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
 import { BatchExportConfigFormLogicProps, batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import {
@@ -41,8 +39,7 @@ import {
 import { RenderBatchExportIcon } from './BatchExportIcon'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
-import { normalizeBatchExportService } from './utils'
-import { humanizeBatchExportName } from './utils'
+import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
 const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills'] as const
 export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
@@ -247,14 +244,12 @@ function BatchExportSceneContentInner({
                   label: 'Logs',
                   key: 'logs',
                   content: (
-                      <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer
-                              sourceType="batch_exports"
-                              sourceId={id}
-                              instanceLabel="run"
-                              defaultFilters={{ levels: ['LOG', 'INFO', 'WARN', 'ERROR'] }}
-                          />
-                      </FlaggedFeature>
+                      <LogsViewer
+                          sourceType="batch_exports"
+                          sourceId={id}
+                          instanceLabel="run"
+                          defaultFilters={{ levels: ['LOG', 'INFO', 'WARN', 'ERROR'] }}
+                      />
                   ),
               }
             : null,

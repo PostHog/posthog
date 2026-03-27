@@ -9,10 +9,13 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+from posthog.schema import ProductKey
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -250,6 +253,8 @@ class EndpointVersion(models.Model):
 
         if not clickhouse_sql:
             return []
+
+        tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
 
         # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
         rows = sync_execute(

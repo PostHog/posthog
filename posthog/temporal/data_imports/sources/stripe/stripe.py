@@ -13,7 +13,11 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
-from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo, WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+)
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
@@ -378,6 +382,41 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
             )
 
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
+
+
+def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
+    logger = LOGGER.bind()
+
+    try:
+        client = StripeClient(
+            config.stripe_secret_key,
+            stripe_account=config.stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+
+        for endpoint in endpoints.auto_paging_iter():
+            if endpoint.url == webhook_url:
+                client.webhook_endpoints.delete(endpoint.id)
+                return WebhookDeletionResult(success=True)
+
+        return WebhookDeletionResult(success=True)
+    except Exception as e:
+        error_str = str(e)
+        logger.warning(
+            "Failed to delete Stripe webhook",
+            error=error_str,
+        )
+
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            return WebhookDeletionResult(
+                success=False,
+                error="Your Stripe API key doesn't have permission to delete webhooks. Please delete the webhook manually from your Stripe dashboard.",
+            )
+
+        return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
 
 
 def get_external_webhook_info(config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:

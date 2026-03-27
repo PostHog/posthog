@@ -21,7 +21,7 @@ import {
 } from './client-ingestion-warning-subpipeline'
 import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
 import { HeatmapSubpipelineInput, createHeatmapSubpipeline } from './heatmap-subpipeline'
-import { AiEventOutput, EventOutput, HeatmapsOutput } from './outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, HeatmapsOutput } from './outputs'
 
 export type PerDistinctIdPipelineInput = EventSubpipelineInput &
     HeatmapSubpipelineInput &
@@ -62,7 +62,7 @@ function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
 export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
-): PipelineBuilder<TInput, void, TContext> {
+): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
     const {
         options,
         outputs,
@@ -79,7 +79,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
 
     return builder.retry(
         (e) =>
-            e.branching<EventBranch, void>(classifyEvent, (branches) => {
+            e.branching(classifyEvent, (branches) =>
                 branches
                     .branch('client_ingestion_warning', (b) => createClientIngestionWarningSubpipeline(b))
                     .branch('heatmap', (b) =>
@@ -120,7 +120,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             topHog,
                         })
                     )
-            }),
+            ),
         { tries: 3, sleepMs: 100 }
     )
 }

@@ -62,7 +62,7 @@ tools:
         description: >
             List all error tracking issues in the project. Returns issues with status, volume, first/last seen
             timestamps, and assignee info.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/error-issue-list.html
     error-tracking-issues-create:
         operation: error_tracking_issues_create
@@ -81,7 +81,7 @@ tools:
         description: >
             Get a specific error tracking issue by ID. Returns full issue details including status, description, volume,
             and metadata.
-        mcp_version: 1
+
         ui_resource_uri: ui://posthog/error-issue.html
     error-tracking-issues-update:
         operation: error_tracking_issues_update
