@@ -41,7 +41,7 @@ def backfill_vercel_connectable_resources() -> None:
                     continue
 
                 access_token = installation.config.get("credentials", {}).get("access_token")
-                if not access_token:
+                if not access_token or not installation.integration_id:
                     continue
 
                 client = VercelAPIClient(bearer_token=access_token)

@@ -1305,7 +1305,7 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
                     integration="vercel",
                 )
                 access_token = VercelIntegration._get_access_token(installation)
-                if access_token:
+                if access_token and installation.integration_id:
                     client = VercelAPIClient(bearer_token=access_token)
                     client.import_resource(
                         integration_config_id=installation.integration_id,
