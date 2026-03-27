@@ -840,7 +840,7 @@ def get_teams_with_api_queries_metrics(
         GROUP BY team_id
     """
     with tags_context(
-        product=ProductKey.PLATFORM_AND_SUPPORT,
+        product=ProductKey.PRODUCT_ANALYTICS,
         feature=Feature.USAGE_REPORT,
         usage_report="get_teams_with_api_queries_metrics",
     ):
@@ -870,7 +870,7 @@ def get_teams_with_query_metric(
     access_method: str = "",
     metric: Literal["read_bytes", "read_rows", "query_duration_ms"] = "read_bytes",
 ) -> list[tuple[int, int]]:
-    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.USAGE_REPORT)
+    tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT)
     if metric not in ["read_bytes", "read_rows", "query_duration_ms"]:
         # :TRICKY: Inlined into the query below.
         raise ValueError(f"Invalid metric {metric}")
