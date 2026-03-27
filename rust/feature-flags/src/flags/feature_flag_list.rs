@@ -1119,7 +1119,10 @@ mod tests {
         let meta = EvaluationMetadata::single_stage(&flags);
         assert_eq!(meta.dependency_stages, vec![vec![10, 20]]);
         assert!(meta.flags_with_missing_deps.is_empty());
-        assert!(meta.transitive_deps.is_empty());
+        // Each flag gets an empty dep set so flag_keys filtering works for independent flags
+        assert_eq!(meta.transitive_deps.len(), 2);
+        assert!(meta.transitive_deps[&10].is_empty());
+        assert!(meta.transitive_deps[&20].is_empty());
     }
 
     #[test]
@@ -1127,7 +1130,7 @@ mod tests {
         let meta = EvaluationMetadata::single_stage(&[]);
         assert_eq!(meta.dependency_stages, vec![Vec::<i32>::new()]);
         assert!(meta.flags_with_missing_deps.is_empty());
-        assert!(meta.transitive_deps.is_empty());
+        assert!(meta.transitive_deps.is_empty()); // no flags → genuinely empty
     }
 
     #[test]
