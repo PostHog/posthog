@@ -1,23 +1,12 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import {
-    DLQ_OUTPUT,
-    DlqOutput,
-    EVENTS_OUTPUT,
-    EventOutput,
-    INGESTION_WARNINGS_OUTPUT,
-    IngestionWarningsOutput,
-    OVERFLOW_OUTPUT,
-    OverflowOutput,
-} from '../common/outputs'
+import { DlqOutput, EVENTS_OUTPUT, EventOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -54,10 +43,10 @@ export interface ErrorTrackingPipelineInput {
  */
 export type ErrorTrackingPipelineOutput = void
 
+export type ErrorTrackingOutputs = IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput>
+
 export interface ErrorTrackingPipelineConfig {
-    kafkaProducer: KafkaProducerWrapper
-    dlqTopic: string
-    outputTopic: string
+    outputs: ErrorTrackingOutputs
     groupId: string
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
@@ -67,9 +56,6 @@ export interface ErrorTrackingPipelineConfig {
     groupTypeManager: GroupTypeManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
-    overflowTopic: string
-    /** Producer for ingestion warnings. */
-    ingestionWarningProducer: KafkaProducerWrapper
     /** Service for rate limiting and redirecting to overflow (main lane only). */
     overflowRedirectService?: OverflowRedirectService
     /** Service for refreshing TTLs on overflow lane events. */
@@ -107,9 +93,7 @@ export function createErrorTrackingPipeline(
     OverflowOutput
 > {
     const {
-        kafkaProducer,
-        dlqTopic,
-        outputTopic,
+        outputs,
         groupId,
         promiseScheduler,
         teamManager,
@@ -119,34 +103,12 @@ export function createErrorTrackingPipeline(
         groupTypeManager,
         eventIngestionRestrictionManager,
         overflowEnabled,
-        overflowTopic,
-        ingestionWarningProducer,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
     } = config
 
     const topHogWrapper = createTopHogWrapper(topHog)
-
-    // Create outputs configuration for the emit step
-    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput>({
-        [EVENTS_OUTPUT]: {
-            topic: outputTopic,
-            producer: kafkaProducer,
-        },
-        [INGESTION_WARNINGS_OUTPUT]: {
-            topic: KAFKA_INGESTION_WARNINGS,
-            producer: ingestionWarningProducer,
-        },
-        [DLQ_OUTPUT]: {
-            topic: dlqTopic,
-            producer: kafkaProducer,
-        },
-        [OVERFLOW_OUTPUT]: {
-            topic: overflowTopic,
-            producer: kafkaProducer,
-        },
-    })
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
         outputs,
