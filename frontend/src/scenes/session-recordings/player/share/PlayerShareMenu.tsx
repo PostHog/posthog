@@ -45,7 +45,10 @@ export function PlayerShareMenu(): JSX.Element {
         if (!sessionRecordingId) {
             return
         }
-        const fullUrl = `${window.location.origin}${urls.replaySingle(sessionRecordingId)}`
+        const path = urls.replaySingle(sessionRecordingId)
+        const timestamp = getCurrentPlayerTime()
+        const separator = path.includes('?') ? '&' : '?'
+        const fullUrl = `${window.location.origin}${path}${timestamp ? `${separator}t=${timestamp}` : ''}`
         window.open(fullUrl, '_blank', 'noopener,noreferrer')
     }
 
