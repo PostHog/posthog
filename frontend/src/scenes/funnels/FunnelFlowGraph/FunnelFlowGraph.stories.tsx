@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -34,38 +34,46 @@ const meta: Meta = {
 }
 export default meta
 
-export const JourneyWithRequiredSteps: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/insights/1/': makeInsight() },
-        post: { 'api/environments/:team_id/query/': { result: allCompletedSteps() } },
-    })
-    return <App />
-}
-JourneyWithRequiredSteps.parameters = {
-    pageUrl: urls.customerAnalyticsJourneys(),
-    testOptions: { waitForSelector: '.react-flow__node' },
+type Story = StoryObj<{}>
+
+export const JourneyWithRequiredSteps: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight() },
+            post: { 'api/environments/:team_id/query/': { result: allCompletedSteps() } },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsJourneys(),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
 }
 
-export const JourneyWithEmptySteps: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/insights/1/': makeInsight() },
-        post: { 'api/environments/:team_id/query/': { result: someCompletedSteps() } },
-    })
-    return <App />
-}
-JourneyWithEmptySteps.parameters = {
-    pageUrl: urls.customerAnalyticsJourneys(),
-    testOptions: { waitForSelector: '.react-flow__node' },
+export const JourneyWithEmptySteps: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight() },
+            post: { 'api/environments/:team_id/query/': { result: someCompletedSteps() } },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsJourneys(),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
 }
 
-export const JourneyWithOptionalSteps: StoryFn = () => {
-    useStorybookMocks({
-        get: { 'api/environments/:team_id/insights/1/': makeInsight([1, 3]) },
-        post: { 'api/environments/:team_id/query/': { result: optionalStepResults() } },
-    })
-    return <App />
-}
-JourneyWithOptionalSteps.parameters = {
-    pageUrl: urls.customerAnalyticsJourneys(),
-    testOptions: { waitForSelector: '.react-flow__node' },
+export const JourneyWithOptionalSteps: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight([1, 3]) },
+            post: { 'api/environments/:team_id/query/': { result: optionalStepResults() } },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsJourneys(),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
 }
