@@ -37,6 +37,13 @@ export function validateInput(input: RasterizeRecordingInput): void {
     if (input.trim != null && input.trim <= 0) {
         throw new RasterizationError(`trim must be positive, got: ${input.trim}`, false, 'INVALID_INPUT')
     }
+    if (input.screenshot_quality != null && (input.screenshot_quality < 1 || input.screenshot_quality > 100)) {
+        throw new RasterizationError(
+            `screenshot_quality must be between 1 and 100, got: ${input.screenshot_quality}`,
+            false,
+            'INVALID_INPUT'
+        )
+    }
 }
 
 export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfig {

@@ -26,6 +26,9 @@ describe('config', () => {
             { field: 'recording_fps', value: -10, error: 'recording_fps must be positive' },
             { field: 'trim', value: 0, error: 'trim must be positive' },
             { field: 'trim', value: -5, error: 'trim must be positive' },
+            { field: 'screenshot_quality', value: 0, error: 'screenshot_quality must be between 1 and 100' },
+            { field: 'screenshot_quality', value: 101, error: 'screenshot_quality must be between 1 and 100' },
+            { field: 'screenshot_quality', value: -1, error: 'screenshot_quality must be between 1 and 100' },
         ])('rejects $field=$value', ({ field, value, error }) => {
             expect(() => validateInput(baseInput({ [field]: value }))).toThrow(error)
         })
