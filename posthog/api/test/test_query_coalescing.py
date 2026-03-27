@@ -234,7 +234,7 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         mock_coalescer.store_success_response.assert_called_once()
         mock_coalescer.cleanup.assert_called_once()
 
-    def test_leader_stores_error_response(self):
+    def test_leader_signals_error_on_4xx(self):
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = True
 
@@ -248,7 +248,10 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertGreaterEqual(response.status_code, 400)
-        mock_coalescer.store_error_response.assert_called_once()
+        self.assertLess(response.status_code, 500)
+        # 4xx should signal error without storing response
+        mock_coalescer.signal_error.assert_called_once()
+        mock_coalescer.store_success_response.assert_not_called()
         mock_coalescer.cleanup.assert_called_once()
 
     def test_dry_run_follower_executes_normally(self):
@@ -290,15 +293,14 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertIn("test_event", response.json()["results"][0][0])
 
-    def test_follower_gets_replayed_error_response(self):
+    def test_follower_falls_through_on_error_signal(self):
+        _create_event(team=self.team, event="test_event", distinct_id="user1")
+        flush_persons_and_events()
+
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = False
         mock_coalescer._dry_run = False
         mock_coalescer.wait_for_signal.return_value = CoalesceSignal.ERROR
-        mock_coalescer.get_error_response.return_value = {
-            "status": 400,
-            "body": '{"detail": "bad request"}',
-        }
 
         with (
             mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
@@ -306,8 +308,10 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "bad request")
+        # Follower executes independently on ERROR signal (leader had 4xx)
+        self.assertEqual(response.status_code, 200)
+        events = [row[0] for row in response.json()["results"]]
+        self.assertIn("test_event", events)
 
     def test_follower_falls_through_on_timeout(self):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
@@ -368,6 +372,26 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         with mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls:
             self.client.get(f"/api/environments/{self.team.id}/annotations/")
             mock_cls.assert_not_called()
+
+    def test_follower_gets_replayed_5xx_response(self):
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = False
+        mock_coalescer._dry_run = False
+        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
+        mock_coalescer.get_success_response.return_value = {
+            "status": 500,
+            "body": '{"type": "server_error", "detail": "Internal server error"}',
+            "content_type": "application/json",
+        }
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer),
+        ):
+            response = self.client.post(self._query_url(), self._query_payload())
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], "Internal server error")
 
     @parameterized.expand(
         [

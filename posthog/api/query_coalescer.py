@@ -6,6 +6,7 @@ import hashlib
 import threading
 from enum import StrEnum
 from typing import Optional
+from urllib.parse import parse_qs, urlencode
 
 from django.http import HttpRequest, HttpResponse
 
@@ -231,6 +232,17 @@ class QueryCoalescer:
         except RedisError:
             pass
 
+    def signal_error(self) -> None:
+        """Signal followers that the leader encountered a client error (4xx).
+
+        Publishes ERROR to the channel without storing a response body,
+        so followers stop waiting and execute independently.
+        """
+        try:
+            self._redis.publish(self._channel_key, CoalesceSignal.ERROR)
+        except RedisError:
+            pass
+
     def cleanup(self) -> None:
         """Stop heartbeat and release lock. Call in finally block."""
         if self._heartbeat:
@@ -299,14 +311,16 @@ class QueryCoalescingMiddleware:
             # Force render DRF responses so we can capture the body
             if hasattr(response, "render") and callable(response.render):
                 response.render()
-            if response.status_code >= 400:
-                coalescer.store_error_response(response.status_code, response.content)
-            else:
-                content_type = response.get("Content-Type", "application/json")
+            content_type = response.get("Content-Type", "application/json")
+            if response.status_code < 400 or response.status_code >= 500:
+                # Coalesce successes (2xx) and server errors (5xx).
+                # 4xx are user-specific (permissions, validation) and must not be shared.
                 coalescer.store_success_response(response.status_code, response.content, content_type)
+            else:
+                coalescer.signal_error()
             return response
         except Exception:
-            coalescer.store_error_response(500, b'{"type": "server_error", "detail": "Internal server error"}')
+            coalescer.signal_error()
             raise
         finally:
             coalescer.cleanup()
@@ -321,25 +335,14 @@ class QueryCoalescingMiddleware:
             data = coalescer.get_success_response()
             if data:
                 log.info("query_coalescing_middleware_follower_done")
-                return HttpResponse(
-                    data["body"],
-                    status=data["status"],
-                    content_type=data.get("content_type", "application/json"),
-                )
+                # Attach cached response for the view mixin to gate behind permissions
+                request.META["_coalesced_response"] = data
+                return self.get_response(request)
             log.warning("query_coalescing_middleware_follower_done_read_failed")
 
         if signal == CoalesceSignal.ERROR:
-            data = coalescer.get_error_response()
-            if data:
-                log.info("query_coalescing_middleware_follower_replaying_error", status=data["status"])
-                return HttpResponse(
-                    data["body"],
-                    status=data["status"],
-                    content_type="application/json",
-                )
-            log.warning("query_coalescing_middleware_follower_error_read_failed")
-
-        if signal == CoalesceSignal.TIMEOUT:
+            log.info("query_coalescing_middleware_follower_error")
+        elif signal == CoalesceSignal.TIMEOUT:
             log.warning("query_coalescing_middleware_follower_timeout")
         elif signal == CoalesceSignal.CRASHED:
             log.warning("query_coalescing_middleware_follower_crashed")
@@ -361,8 +364,6 @@ class QueryCoalescingMiddleware:
     @staticmethod
     def _compute_key(team_id: int, request: HttpRequest) -> str:
         if request.method == "GET":
-            from urllib.parse import parse_qs, urlencode
-
             params = parse_qs(request.META.get("QUERY_STRING", ""))
             for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
                 params.pop(field, None)
@@ -374,8 +375,43 @@ class QueryCoalescingMiddleware:
                     for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
                         data.pop(field, None)
                 normalized = orjson.dumps(data, option=orjson.OPT_SORT_KEYS)
-            except (orjson.JSONDecodeError, ValueError):
+            except ValueError:
                 normalized = request.body
 
         raw = f"{team_id}:{request.method}:{request.path}:{normalized.decode()}"
         return hashlib.sha256(raw.encode()).hexdigest()
+
+
+class QueryCoalescingMixin:
+    """DRF ViewSet mixin that gates coalesced responses behind permission checks.
+
+    The QueryCoalescingMiddleware attaches cached response data to
+    request.META["_coalesced_response"] for followers. This mixin runs DRF's
+    initial() (auth + permissions + throttling) before returning the
+    cached response, ensuring the request is authorized.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        coalesced = request.META.get("_coalesced_response")
+        if coalesced is None:
+            return super().dispatch(request, *args, **kwargs)
+
+        # Cached response exists — run auth/perms before returning it
+        request = self.initialize_request(request, *args, **kwargs)
+        self.request = request
+        self.args = args
+        self.kwargs = kwargs
+        self.headers = self.default_response_headers
+
+        try:
+            self.initial(request, *args, **kwargs)
+            response = HttpResponse(
+                coalesced["body"],
+                status=coalesced["status"],
+                content_type=coalesced.get("content_type", "application/json"),
+            )
+        except Exception as exc:
+            response = self.handle_exception(exc)
+
+        self.response = self.finalize_response(request, response, *args, **kwargs)
+        return self.response
