@@ -704,7 +704,10 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 def get_teams_with_recording_count_in_period(
     begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> list[tuple[int, int]]:
-    tag_queries(product=ProductKey.SESSION_REPLAY, feature=Feature.USAGE_REPORT)
+    tag_queries(
+        product=ProductKey.MOBILE_REPLAY if snapshot_source == "mobile" else ProductKey.SESSION_REPLAY,
+        feature=Feature.USAGE_REPORT,
+    )
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
@@ -1521,7 +1524,10 @@ def get_teams_with_cdp_billable_invocations_in_period(
 def get_teams_with_recording_bytes_in_period(
     begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> list[tuple[int, int]]:
-    tag_queries(product=ProductKey.SESSION_REPLAY, feature=Feature.USAGE_REPORT)
+    tag_queries(
+        product=ProductKey.MOBILE_REPLAY if snapshot_source == "mobile" else ProductKey.SESSION_REPLAY,
+        feature=Feature.USAGE_REPORT,
+    )
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
