@@ -469,7 +469,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         try {
                             // Stop loading and show error if encountered an error event
                             if (event === 'session-summary-error') {
-                                lemonToast.error(data)
+                                let errorMessage = data
+                                try {
+                                    const parsed = JSON.parse(data)
+                                    if (parsed?.message) {
+                                        errorMessage = parsed.message
+                                    }
+                                } catch {
+                                    // data is already a plain string, use as-is
+                                }
+                                lemonToast.error(errorMessage)
                                 actions.setSessionSummaryLoading(false)
                                 return
                             }
