@@ -105,7 +105,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         }
     }, [propsQuery]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const query = readOnly ? propsQuery : localQuery
+    const query = readOnly || propsSetQuery ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}

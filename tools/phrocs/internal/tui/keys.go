@@ -1,11 +1,44 @@
 package tui
 
 import (
+	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
+
+// procViewerCmd returns an exec.Cmd for the best available process viewer,
+// filtered to the given root PID where possible. Falls back to unfiltered
+// viewers when PID filtering isn't supported. Returns nil if none found.
+//
+// Priority: htop (PID-filtered) > btop (unfiltered) > top (PID-filtered).
+func procViewerCmd(pid int) *exec.Cmd {
+	pidStr := fmt.Sprintf("%d", pid)
+
+	// htop: tree view + PID filter on all platforms
+	if path, err := exec.LookPath("htop"); err == nil {
+		return exec.Command(path, "-t", "-p", pidStr)
+	}
+
+	// btop: no PID filter support
+	if path, err := exec.LookPath("btop"); err == nil {
+		return exec.Command(path)
+	}
+
+	// top: PID-filtered, syntax differs by OS
+	if path, err := exec.LookPath("top"); err == nil {
+		if runtime.GOOS == "darwin" {
+			return exec.Command(path, "-pid", pidStr)
+		}
+		// Linux top uses -p
+		return exec.Command(path, "-p", pidStr)
+	}
+
+	return nil
+}
 
 // Resets all search state and clears viewport highlighting.
 func (m *Model) clearSearch() {
@@ -235,13 +268,20 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
+	case msg.Code == tea.KeyEscape:
+		if !m.viewportAtBottom {
+			m.dbg("viewport: escape → goto bottom")
+			m.viewport.GotoBottom()
+			m.viewportAtBottom = true
+		}
+
 	case key.Matches(msg, m.keys.GotoTop):
-		m.dbg("viewport: goto top")
+		m.dbg("viewport: home → goto top")
 		m.viewport.GotoTop()
 		m.viewportAtBottom = false
 
 	case key.Matches(msg, m.keys.GotoBottom):
-		m.dbg("viewport: goto bottom")
+		m.dbg("viewport: end → goto bottom")
 		m.viewport.GotoBottom()
 		m.viewportAtBottom = true
 
@@ -271,6 +311,11 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.applyCopyStyle()
 		m.dbg("copy mode: enter at line %d", m.copyCursor)
 
+	case key.Matches(msg, m.keys.Sort):
+		m.sortMode = (m.sortMode + 1) % SortMode(sortModeCount)
+		m.sortServices()
+		m.dbg("sort: %s", m.sortMode)
+
 	case key.Matches(msg, m.keys.Info):
 		m.infoMode = true
 		m.refreshInfoContent()
@@ -285,6 +330,28 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.hedgehogDir = 1
 			m.hedgehogFrame = 0
 			cmds = append(cmds, hedgehogTick())
+		}
+
+	case key.Matches(msg, m.keys.ProcViewer):
+		if p := m.activeProc(); p != nil {
+			if pid := p.PID(); pid > 0 {
+				cmd := procViewerCmd(pid)
+				if cmd != nil {
+					m.dbg("proc viewer: %s %v", cmd.Path, cmd.Args)
+					return m, tea.ExecProcess(cmd, nil)
+				}
+			}
+		}
+
+	case key.Matches(msg, m.keys.LazyDocker):
+		if path, err := exec.LookPath("lazydocker"); err == nil {
+			args := []string{}
+			for _, f := range m.composeArgs.Files {
+				args = append(args, "-f", f)
+			}
+			m.dbg("lazydocker: %v", args)
+			c := exec.Command(path, args...)
+			return m, tea.ExecProcess(c, nil)
 		}
 
 	default:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 import shutil
+import signal
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -909,3 +911,555 @@ def _format_size(bytes_size: float) -> str:
             return f"{bytes_size:.1f} {unit}"
         bytes_size /= 1024.0
     return f"{bytes_size:.1f} EiB"
+
+
+# ---------------------------------------------------------------------------
+# doctor:zombies — find and kill orphaned PostHog dev processes
+# ---------------------------------------------------------------------------
+
+# Processes whose executable or args match these patterns are never shown.
+_EXCLUDED_PROCESS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(n?vim|emacs|code|codium)\b"),
+    re.compile(r"\bgit\b"),
+    re.compile(r"\b(ssh|tmux|screen|mosh)\b"),
+    re.compile(r"\bclaude\b"),
+    re.compile(r"\b(grep|rg|find|ls|cat|head|tail|sed|awk|ps|lsof)\b"),
+    re.compile(r"\bflox-activations\b"),
+    re.compile(r"\bwatchman\b"),
+    re.compile(r"\bhogli\b"),
+    re.compile(r"\bdocker(?:d| daemon)\b"),
+    re.compile(r"\bdirenv\b"),
+)
+
+
+@dataclass
+class DevProcess:
+    """A detected PostHog dev process."""
+
+    pid: int
+    ppid: int
+    name: str
+    cmdline: str
+    cpu_percent: float
+    memory_rss_kb: int
+    start_time: str
+    is_orphan: bool
+    category: str
+    manager: str = ""  # e.g. "phrocs (PID 1234)" for managed processes
+
+
+@cli.command(
+    name="doctor:zombies",
+    help="Find and kill orphaned PostHog dev processes",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be killed without killing")
+@click.option("--yes", "-y", is_flag=True, help="Auto-confirm kill of all orphaned processes")
+@click.option("--all", "include_all", is_flag=True, help="Include processes under an active phrocs, not just orphans")
+def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
+    """Find and kill orphaned PostHog dev processes left behind after an unclean shutdown."""
+
+    from hogli.core.manifest import REPO_ROOT
+
+    click.echo("Scanning for orphaned PostHog dev processes...\n")
+
+    processes = _scan_posthog_processes(REPO_ROOT)
+
+    if not processes:
+        click.echo("No PostHog dev processes found. Nothing to clean up.")
+        return
+
+    orphans = [p for p in processes if p.is_orphan]
+    managed = [p for p in processes if not p.is_orphan]
+    targets = processes if include_all else orphans
+
+    if not targets:
+        click.echo(f"No orphaned processes found ({len(managed)} process(es) under an active process manager).")
+        click.echo("Use --all to include managed processes.")
+        return
+
+    if include_all:
+        # Show orphans and managed groups separately
+        if orphans:
+            _display_process_table(orphans, "Orphaned processes", REPO_ROOT, number_offset=0)
+        if managed:
+            # Group managed processes by their manager
+            managers: dict[str, list[DevProcess]] = {}
+            for p in managed:
+                managers.setdefault(p.manager, []).append(p)
+            offset = len(orphans)
+            for mgr, procs in managers.items():
+                _display_process_table(procs, f"Managed by {mgr}", REPO_ROOT, number_offset=offset)
+                offset += len(procs)
+    else:
+        _display_process_table(orphans, "Orphaned processes", REPO_ROOT)
+
+    if managed and not include_all:
+        # Summarize managed groups
+        managed_groups: dict[str, list[DevProcess]] = {}
+        for p in managed:
+            managed_groups.setdefault(p.manager, []).append(p)
+        parts = [f"{len(procs)} under {mgr}" for mgr, procs in managed_groups.items()]
+        click.echo(f"   ({', '.join(parts)} — use --all to include)\n")
+
+    total_rss = sum(p.memory_rss_kb for p in targets)
+    click.echo(f"   Total: {len(targets)} process(es) using ~{_format_rss(total_rss)}\n")
+
+    if dry_run:
+        click.echo("[DRY-RUN] No processes were killed.")
+        return
+
+    if yes:
+        selected = targets
+    else:
+        selected = _prompt_process_selection(targets)
+
+    if not selected:
+        click.echo("No processes selected. Nothing to do.")
+        return
+
+    killed_pids, failed = _kill_processes(selected)
+    freed_rss = sum(p.memory_rss_kb for p in selected if p.pid in killed_pids)
+
+    click.echo(f"\nSummary: killed {len(killed_pids)} process(es)")
+    if freed_rss > 0:
+        click.echo(f"   Freed ~{_format_rss(freed_rss)} RSS")
+    if failed > 0:
+        click.echo(f"   {failed} process(es) could not be killed")
+
+
+def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
+    """Find all processes related to the PostHog repo."""
+
+    result = subprocess.run(
+        ["ps", "-eo", "pid=,ppid=,pcpu=,rss=,lstart=,args="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        click.echo("Failed to run ps command.")
+        return []
+
+    # Build a full PID→(PPID, args) map for ancestor lookups
+    all_procs: dict[int, tuple[int, str]] = {}
+    for line in result.stdout.strip().splitlines():
+        parsed = _parse_ps_line(line)
+        if parsed is not None:
+            pid, ppid, _, _, _, args = parsed
+            all_procs[pid] = (ppid, args)
+
+    own_tree = _get_own_process_tree()
+    repo_str = str(repo_root)
+    repo_prefix = repo_str + "/"
+    processes: list[DevProcess] = []
+
+    for line in result.stdout.strip().splitlines():
+        parsed = _parse_ps_line(line)
+        if parsed is None:
+            continue
+
+        pid, ppid, cpu, rss, start_time, args = parsed
+
+        if pid in own_tree:
+            continue
+
+        if _is_excluded(args):
+            continue
+
+        # Primary check: repo root appears in the command line as an exact path
+        if not _matches_repo_path(args, repo_str, repo_prefix):
+            # Secondary check: cwd is under repo root (for known executable types)
+            if not _has_known_executable(args):
+                continue
+            cwd = _get_process_cwd(pid)
+            if cwd is None or not (cwd == repo_str or cwd.startswith(repo_prefix)):
+                continue
+
+        name = _extract_process_name(args)
+        category = _categorize_process(args)
+        is_orphan, manager = _resolve_orphan_status(pid, all_procs)
+
+        processes.append(
+            DevProcess(
+                pid=pid,
+                ppid=ppid,
+                name=name,
+                cmdline=args,
+                cpu_percent=cpu,
+                memory_rss_kb=rss,
+                start_time=start_time,
+                is_orphan=is_orphan,
+                category=category,
+                manager=manager,
+            )
+        )
+
+    return processes
+
+
+def _resolve_orphan_status(pid: int, all_procs: dict[int, tuple[int, str]]) -> tuple[bool, str]:
+    """Walk the ancestor chain to determine if a process is orphaned or managed.
+
+    Returns (is_orphan, manager_description).
+    A process is orphaned if any ancestor has PPID=1 (reparented to launchd).
+    Otherwise, identifies the nearest recognizable manager.
+    """
+
+    visited: set[int] = {pid}
+    current = pid
+
+    while current in all_procs:
+        ppid, args = all_procs[current]
+
+        if ppid <= 1:
+            # Reached launchd — this process (or ancestor) is orphaned
+            return True, ""
+
+        # Check if the parent is a known process manager
+        manager_name = _identify_manager(args)
+        if manager_name:
+            return False, f"{manager_name} (PID {current})"
+
+        if ppid in visited:
+            break
+        visited.add(ppid)
+        current = ppid
+
+    # Could not determine — treat as managed by unknown parent
+    ppid_of_pid = all_procs[pid][0] if pid in all_procs else 0
+    return False, f"PID {ppid_of_pid}"
+
+
+_KNOWN_MANAGERS = (
+    ("phrocs", "phrocs"),
+    ("mprocs", "mprocs"),
+    ("overmind", "overmind"),
+    ("foreman", "foreman"),
+    ("honcho", "honcho"),
+    ("supervisord", "supervisord"),
+    ("zellij", "zellij"),
+    ("tmux", "tmux"),
+    ("screen", "screen"),
+    ("kitty", "kitty"),
+    ("alacritty", "alacritty"),
+    ("wezterm", "wezterm"),
+    ("Terminal", "Terminal.app"),
+    ("iTerm", "iTerm2"),
+)
+
+
+def _identify_manager(args: str) -> str | None:
+    """Check if a command line belongs to a known process manager or terminal."""
+
+    for keyword, display_name in _KNOWN_MANAGERS:
+        if keyword in args:
+            return display_name
+    return None
+
+
+def _parse_ps_line(line: str) -> tuple[int, int, float, int, str, str] | None:
+    """Parse a single ps output line into (pid, ppid, cpu%, rss_kb, start_time, args)."""
+
+    parts = line.split()
+    # Need at least: pid ppid cpu rss + 5 date tokens + 1 args token = 10
+    if len(parts) < 10:
+        return None
+
+    try:
+        pid = int(parts[0])
+        ppid = int(parts[1])
+        cpu = float(parts[2])
+        rss = int(parts[3])
+    except (ValueError, IndexError):
+        return None
+
+    # lstart is always 5 tokens: Day Mon DD HH:MM:SS YYYY
+    start_time = " ".join(parts[4:9])
+    args = " ".join(parts[9:])
+
+    return pid, ppid, cpu, rss, start_time, args
+
+
+def _get_own_process_tree() -> set[int]:
+    """Return PIDs of the current process and all its ancestors up to PID 1."""
+
+    pids: set[int] = set()
+    pid = os.getpid()
+
+    # Walk up the PPID chain
+    while pid > 1:
+        pids.add(pid)
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            break
+        try:
+            pid = int(result.stdout.strip())
+        except ValueError:
+            break
+
+    return pids
+
+
+def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
+    """Check if the command line references the exact repo path (not a prefix like posthog.com)."""
+
+    idx = 0
+    while True:
+        idx = args.find(repo_str, idx)
+        if idx == -1:
+            return False
+        end = idx + len(repo_str)
+        # The character after repo_str (if any) must be / or whitespace, not e.g. ".com"
+        if end >= len(args) or args[end] in ("/", " ", "\t"):
+            return True
+        idx = end
+
+
+def _is_excluded(args: str) -> bool:
+    """Check if a command line matches an excluded pattern."""
+
+    for pattern in _EXCLUDED_PROCESS_PATTERNS:
+        if pattern.search(args):
+            return True
+    return False
+
+
+def _has_known_executable(args: str) -> bool:
+    """Check if the command starts with a known PostHog dev executable."""
+
+    known = ("python", "node", "celery", "granian", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
+    first_word = args.split()[0].rsplit("/", 1)[-1] if args else ""
+    return first_word in known
+
+
+def _get_process_cwd(pid: int) -> str | None:
+    """Get the working directory of a process via lsof."""
+
+    try:
+        result = subprocess.run(
+            ["lsof", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+
+    for line in result.stdout.splitlines():
+        if line.startswith("n"):
+            return line[1:]
+    return None
+
+
+def _extract_process_name(args: str) -> str:
+    """Extract a short display name from a full command line."""
+
+    first = args.split()[0] if args else ""
+    return first.rsplit("/", 1)[-1]
+
+
+def _categorize_process(args: str) -> str:
+    """Return a category string based on the command line."""
+
+    lower = args.lower()
+    if any(kw in lower for kw in ("python", "celery", "granian", "uvicorn", "dagster", "gunicorn")):
+        return "python"
+    if any(kw in lower for kw in ("node", "tsx", "esbuild", "pnpm", "vite")):
+        return "node"
+    if any(
+        kw in lower
+        for kw in (
+            "cargo",
+            "capture",
+            "feature-flags",
+            "property-defs-rs",
+            "cymbal",
+            "cyclotron",
+            "personhog",
+            "batch-import",
+        )
+    ):
+        return "rust"
+    if any(kw in lower for kw in ("air", "livestream")):
+        return "go"
+    if "/bin/bash" in lower or "/bin/sh" in lower or "/bin/zsh" in lower:
+        return "shell"
+    return "other"
+
+
+def _display_process_table(processes: list[DevProcess], heading: str, repo_root: Path, number_offset: int = 0) -> None:
+    """Display a numbered table of processes."""
+
+    click.echo(f"   {heading}:\n")
+    click.echo(f"   {'#':>3}  {'PID':>7}  {'CPU%':>5}  {'MEM':>9}  COMMAND")
+
+    repo_str = str(repo_root)
+    max_cmd_width = 90
+    for i, proc in enumerate(processes, number_offset + 1):
+        summary = _summarize_cmdline(proc.cmdline, repo_str)
+        if len(summary) > max_cmd_width:
+            summary = summary[:max_cmd_width] + "..."
+        click.echo(
+            f"   {i:>3}  {proc.pid:>7}  {proc.cpu_percent:>4.1f}%  {_format_rss(proc.memory_rss_kb):>9}  {summary}"
+        )
+
+    click.echo()
+
+
+# Patterns for cleaning up command lines for display
+_NIX_STORE_BIN_RE = re.compile(r"/nix/store/[^/]+/bin/([^\s]+)")
+_FLOX_BIN_RE = re.compile(r"\S*\.flox/(?:cache/venv|run/[^/]+\.[^/]+)/bin/([^\s]+)")
+_NODE_MODULES_BIN_RE = re.compile(r"\S*node_modules/\.bin/(?:\.\./)?([^/]+)/dist/cli\.mjs")
+_NODE_MODULES_PKG_RE = re.compile(r"\S*node_modules/\.pnpm/[^/]+/node_modules/([^/]+)/dist/\S+")
+_TSX_LOADER_RE = re.compile(r"\s*--(?:require|import)\s+(?:file://)?\S*tsx/dist/\S+")
+_FILE_URL_RE = re.compile(r"file:///")
+
+
+def _summarize_cmdline(cmdline: str, repo_str: str) -> str:
+    """Produce a short, human-readable version of a process command line."""
+
+    s = cmdline
+
+    # Replace nix store binary paths with just the binary name
+    s = _NIX_STORE_BIN_RE.sub(r"\1", s)
+
+    # Replace .flox/cache/venv/bin/X and .flox/run/.../bin/X with just X
+    s = _FLOX_BIN_RE.sub(r"\1", s)
+
+    # Strip tsx --require/--import loader boilerplate
+    s = _TSX_LOADER_RE.sub("", s)
+
+    # Replace node_modules/.bin/../pkg/dist/cli.mjs with just pkg
+    s = _NODE_MODULES_BIN_RE.sub(r"\1", s)
+
+    # Replace deep node_modules/.pnpm paths with just the package name
+    s = _NODE_MODULES_PKG_RE.sub(r"\1", s)
+
+    # Strip file:// prefixes
+    s = _FILE_URL_RE.sub("", s)
+
+    # Strip the repo root prefix from remaining paths
+    s = s.replace(repo_str + "/", "")
+
+    # Use python3 → python for consistency
+    if s.startswith("python3 "):
+        s = "python " + s[8:]
+
+    # Collapse multiple spaces
+    s = re.sub(r"  +", " ", s).strip()
+
+    return s
+
+
+def _prompt_process_selection(processes: list[DevProcess]) -> list[DevProcess]:
+    """Prompt the user to select which processes to kill."""
+
+    response = click.prompt(
+        f"   Kill all {len(processes)} process(es)? [y/N]\n   Or enter specific numbers (e.g. 1,3,5)",
+        default="n",
+        show_default=False,
+    )
+
+    if response.lower() in ("y", "yes"):
+        return processes
+
+    if response.lower() in ("n", "no", "q", "quit"):
+        return []
+
+    # Parse comma-separated numbers, deduplicating
+    selected: list[DevProcess] = []
+    seen: set[int] = set()
+    for part in response.split(","):
+        part = part.strip()
+        try:
+            idx = int(part)
+            if 1 <= idx <= len(processes):
+                proc = processes[idx - 1]
+                if proc.pid not in seen:
+                    seen.add(proc.pid)
+                    selected.append(proc)
+            else:
+                click.echo(f"   Ignoring out-of-range number: {idx}")
+        except ValueError:
+            click.echo(f"   Ignoring invalid input: {part}")
+
+    return selected
+
+
+def _kill_processes(processes: list[DevProcess]) -> tuple[set[int], int]:
+    """Kill processes with SIGTERM, then SIGKILL for survivors. Returns (killed_pids, failed_count)."""
+
+    # Build kill order: leaf processes first (those with no children in our list)
+    parents = [p for p in processes if any(c.ppid == p.pid for c in processes)]
+    leaves = [p for p in processes if p not in parents]
+    ordered = leaves + parents
+
+    click.echo(f"Sending SIGTERM to {len(ordered)} process(es)...")
+
+    killed_pids: set[int] = set()
+    failed = 0
+    still_alive: list[DevProcess] = []
+
+    for proc in ordered:
+        try:
+            os.kill(proc.pid, signal.SIGTERM)
+            still_alive.append(proc)
+        except ProcessLookupError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) already exited")
+            killed_pids.add(proc.pid)
+        except PermissionError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) permission denied")
+            failed += 1
+
+    # Poll for up to 5 seconds
+    for _ in range(10):
+        if not still_alive:
+            break
+        time.sleep(0.5)
+        remaining: list[DevProcess] = []
+        for proc in still_alive:
+            try:
+                os.kill(proc.pid, 0)
+                remaining.append(proc)
+            except ProcessLookupError:
+                click.echo(f"   PID {proc.pid} ({proc.name}) terminated")
+                killed_pids.add(proc.pid)
+            except PermissionError:
+                # Still alive but we lost permission somehow
+                remaining.append(proc)
+        still_alive = remaining
+
+    # SIGKILL survivors
+    for proc in still_alive:
+        try:
+            click.echo(f"   PID {proc.pid} ({proc.name}) did not exit after 5s, sending SIGKILL...")
+            os.kill(proc.pid, signal.SIGKILL)
+            killed_pids.add(proc.pid)
+            click.echo(f"   PID {proc.pid} ({proc.name}) force-killed")
+        except ProcessLookupError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) exited during escalation")
+            killed_pids.add(proc.pid)
+        except PermissionError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) permission denied for SIGKILL")
+            failed += 1
+
+    return killed_pids, failed
+
+
+def _format_rss(rss_kb: int) -> str:
+    """Format RSS in KB as a human-readable size string."""
+
+    if rss_kb < 1024:
+        return f"{rss_kb} KB"
+    mb = rss_kb / 1024
+    if mb < 1024:
+        return f"{mb:.1f} MB"
+    gb = mb / 1024
+    return f"{gb:.1f} GB"

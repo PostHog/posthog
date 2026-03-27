@@ -11,6 +11,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
@@ -58,6 +59,12 @@ async def emit_signal(
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
+        return
+
+    is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
+        team.id, source_product, source_type
+    )
+    if not is_enabled:
         return
 
     token_count = len(_tiktoken_encoding.encode(description))

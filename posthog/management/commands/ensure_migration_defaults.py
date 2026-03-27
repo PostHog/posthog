@@ -6,8 +6,10 @@ from typing import Any
 from django.apps import apps
 from django.core.management.base import BaseCommand
 
-from posthog.models.dashboard_templates import DashboardTemplate
+from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.models.data_color_theme import DataColorTheme
+
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 # Import the actual migration functions - single source of truth
 # (using importlib because module names start with numbers)
@@ -37,6 +39,9 @@ class Command(BaseCommand):
         if not DashboardTemplate.objects.filter(template_name="Flagged Feature Usage", team__isnull=True).exists():
             create_feature_flag_template(apps, None)
             created_items.append("Dashboard template: Flagged Feature Usage")
+
+        for name in seed_dev_dashboard_templates():
+            created_items.append(f"Dashboard template: {name}")
 
         if created_items:
             self.stdout.write("Created defaults:\n- " + "\n- ".join(created_items))

@@ -117,6 +117,7 @@ import {
     ExportedAssetType,
     ExternalDataJob,
     ExternalDataSource,
+    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -202,6 +203,7 @@ import {
     UserInterviewType,
     UserType,
     WebAnalyticsFilterPresetType,
+    WebhookInfo,
 } from '~/types'
 
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -399,6 +401,10 @@ export class ApiConfig {
         return this._currentTeamId
     }
 
+    static hasCurrentTeamId(): boolean {
+        return !!this._currentTeamId
+    }
+
     static setCurrentTeamId(id: TeamType['id']): void {
         this._currentTeamId = id
     }
@@ -513,12 +519,6 @@ export class ApiRequest {
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
-    }
-
-    // # Onboarding
-
-    public onboardingRecommendProducts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('onboarding').addPathComponent('recommend_products')
     }
 
     // # LLM Analytics
@@ -1686,6 +1686,10 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
+        return this.externalDataSources(teamId).addPathComponent('connections')
+    }
+
     public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
     }
@@ -1983,22 +1987,6 @@ const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
-        },
-    },
-    onboarding: {
-        recommendProducts(
-            params: {
-                description?: string
-                browsingHistory?: string[]
-            },
-            teamId?: TeamType['id']
-        ): Promise<{ products: string[]; reasoning: string }> {
-            return new ApiRequest().onboardingRecommendProducts(teamId).create({
-                data: {
-                    description: params.description,
-                    browsing_history: params.browsingHistory,
-                },
-            })
         },
     },
     llmAnalytics: {
@@ -2310,8 +2298,16 @@ const api = {
     },
 
     fileSystemShortcuts: {
-        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystemShortcut().get()
+        async list(params?: {
+            limit?: number
+            offset?: number
+            ordering?: string
+        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            const request = new ApiRequest().fileSystemShortcut()
+            if (params) {
+                request.withQueryString(params)
+            }
+            return await request.get()
         },
         async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemShortcut().create({ data })
@@ -2578,14 +2574,25 @@ const api = {
     },
 
     tracing: {
-        async listSpans(): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().get()
+        async listSpans(query: {
+            dateRange?: { date_from?: string; date_to?: string }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            searchTerm?: string
+            orderBy?: 'latest' | 'earliest'
+            limit?: number
+            after?: string
+        }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
+            return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
-        async getTrace(traceId: string): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().withAction(`trace/${traceId}`).get()
-        },
-        async sparkline(): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().withAction('sparkline').get()
+        async getTrace(
+            traceId: string,
+            dateRange?: { date_from?: string; date_to?: string }
+        ): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction(`trace/${traceId}`)
+                .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
         },
     },
 
@@ -4807,6 +4814,9 @@ const api = {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
         },
+        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
+            return await new ApiRequest().externalDataSourceConnections().get(options)
+        },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()
         },
@@ -4818,6 +4828,9 @@ const api = {
         },
         async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+        async getWebhookInfo(sourceId: ExternalDataSource['id']): Promise<WebhookInfo> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('webhook_info').get()
         },
         async createWebhook(
             sourceId: ExternalDataSource['id']
@@ -4832,6 +4845,11 @@ const api = {
                 .externalDataSource(sourceId)
                 .withAction('update_webhook_inputs')
                 .create({ data: { inputs } })
+        },
+        async deleteWebhook(
+            sourceId: ExternalDataSource['id']
+        ): Promise<{ success: boolean; external_deleted: boolean; error?: string | null }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()

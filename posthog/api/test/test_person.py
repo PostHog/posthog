@@ -1324,6 +1324,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity_response = self._get_person_activity(person_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
         self.maxDiff = None
         self.assertCountEqual(activity, expected)
 

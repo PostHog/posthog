@@ -4,9 +4,10 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus, FeatureFlagType } from '~/types'
+import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
 import {
     experimentsLogic,
@@ -298,7 +299,7 @@ describe('experimentsLogic', () => {
             const initialExperiments = { results: [mockExperiment], count: 1 }
             logic.actions.loadExperimentsSuccess(initialExperiments)
 
-            api.update.mockResolvedValue({})
+            api.create.mockResolvedValue({})
 
             await expectLogic(logic, () => {
                 logic.actions.archiveExperiment(mockExperiment.id as number)
@@ -311,9 +312,9 @@ describe('experimentsLogic', () => {
                     }),
                 })
 
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${mockExperiment.id}`), {
-                archived: true,
-            })
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`)
+            )
         })
 
         it('duplicates experiment and navigates to it', async () => {
@@ -357,6 +358,24 @@ describe('experimentsLogic', () => {
                 results: [updatedExperiment],
                 count: 1,
             })
+        })
+    })
+
+    describe('activity deep-link', () => {
+        it('preserves the activity deep-link param when staying on the history tab', async () => {
+            router.actions.push(urls.experiments(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentsTab(ExperimentsTabs.History)
+            })
+            expect(router.values.searchParams['activity']).toEqual('some-uuid')
+        })
+
+        it('drops the activity deep-link param when switching away from the history tab', async () => {
+            router.actions.push(urls.experiments(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentsTab(ExperimentsTabs.All)
+            })
+            expect(router.values.searchParams['activity']).toBeUndefined()
         })
     })
 
