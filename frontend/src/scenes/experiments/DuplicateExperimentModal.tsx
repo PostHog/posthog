@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonBanner, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 

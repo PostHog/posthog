@@ -40,7 +40,6 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -316,8 +315,6 @@ export function PageHeaderCustom(): JSX.Element {
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [copyToProjectModalOpen, setCopyToProjectModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
-    const { currentOrganization } = useValues(organizationLogic)
-    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const { newTab } = useActions(sceneLogic)
     const { trigger, HogfettiComponent } = useHogfetti()
 
