@@ -467,8 +467,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to disconnect email')
                 return
             }
+            const wasLast = values.emailConfigs.length === 1
             actions.disconnectEmailDone(configId)
-            if (values.emailConfigs.length === 0) {
+            if (wasLast) {
                 actions.updateCurrentTeam({
                     conversations_settings: {
                         ...values.currentTeam?.conversations_settings,
