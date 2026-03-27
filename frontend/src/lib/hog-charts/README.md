@@ -7,16 +7,16 @@ Designed for performance (canvas rendering) with React overlays for text and int
 
 ```mermaid
 graph TD
-    Consumer["Consumer<br/><small>e.g. ActionsLineGraphD3</small>"]
+    Consumer["Consumer<br/><small>e.g. TrendsLineChartD3</small>"]
     Consumer --> LineChart
     Consumer -.-> BarChart
     Consumer -.-> YourChart
 
     subgraph ChartTypes ["Chart types (add new ones here)"]
         direction TB
-        LineChart["LineChart<br/><small>createScales &bull; draw<br/>DataLabels &bull; TrendLine</small>"]
-        BarChart["BarChart<br/><small>createScales &bull; draw<br/>BarLabels &bull; ...</small>"]
-        YourChart["YourChart<br/><small>createScales &bull; draw<br/>your overlays</small>"]
+        LineChart["LineChart<br/><small>createScales &bull; draw</small>"]
+        BarChart["BarChart<br/><small>createScales &bull; draw</small>"]
+        YourChart["YourChart<br/><small>createScales &bull; draw</small>"]
     end
 
     LineChart --> Chart
@@ -35,13 +35,12 @@ graph TD
             AxisLabels
             Crosshair
             GoalLines
-            ZoomBrush
             DefaultTooltip["Tooltip"]
         end
 
         subgraph Hooks["Hooks"]
             useChartCanvas["useChartCanvas<br/><small>canvas, DPR, resize</small>"]
-            useChartInteraction["useChartInteraction<br/><small>hover, brush, click</small>"]
+            useChartInteraction["useChartInteraction<br/><small>hover, click</small>"]
         end
 
         subgraph CoreModules["Core"]
@@ -74,15 +73,14 @@ graph TD
 ## Key concepts
 
 **Chart** is the reusable base.
-It handles canvas setup, hover/brush interaction, shared overlays (axes, crosshair, tooltip, goal lines, zoom brush),
+It handles canvas setup, hover interaction, shared overlays (axes, crosshair, tooltip, goal lines),
 and provides `ChartContext` to all descendants via `useChart()`.
 
 **Chart-type wrappers** (e.g. `LineChart`) are thin.
-They provide three things:
+They provide two things:
 
 1. `createScales` -- a factory that builds `ChartScales` from data + dimensions
 2. `draw` -- a canvas rendering function called each frame
-3. Chart-specific overlays as `children` (e.g. `<DataLabels/>`, `<TrendLine/>`)
 
 **Overlays** are React components rendered as DOM on top of the canvas.
 They access chart state via `useChart()` rather than prop drilling.
@@ -94,24 +92,14 @@ import { Chart } from '../core/Chart'
 import type { ChartDrawArgs, ChartScales, CreateScalesFn } from '../core/types'
 
 export function BarChart({ series, labels, config, ...props }: BarChartProps) {
-  const createScales: CreateScalesFn = useCallback(
-    (coloredSeries, scaleLabels, dimensions) => {
-      // Use d3.scaleBand for x-axis instead of scalePoint
-      return { x, y, yAxes, yRaw }
-    },
-    [
-      /* scale config deps */
-    ]
-  )
+  const createScales: CreateScalesFn = useCallback((coloredSeries, scaleLabels, dimensions) => {
+    // Use d3.scaleBand for x-axis instead of scalePoint
+    return { x, y, yRaw }
+  }, [])
 
-  const draw = useCallback(
-    ({ ctx, dimensions, scales, series, labels, hoverIndex }: ChartDrawArgs) => {
-      // Draw bars instead of lines
-    },
-    [
-      /* draw deps */
-    ]
-  )
+  const draw = useCallback(({ ctx, dimensions, scales, series, labels, hoverIndex }: ChartDrawArgs) => {
+    // Draw bars instead of lines
+  }, [])
 
   return (
     <Chart series={series} labels={labels} config={config} createScales={createScales} draw={draw} {...props}>
@@ -136,16 +124,13 @@ hog-charts/
     interaction.ts           Hit testing, tooltip/click data builders
     canvas-renderer.ts       Canvas drawing primitives (line, area, points, grid)
     use-chart-canvas.ts      Canvas + ResizeObserver hook
-    use-chart-interaction.ts Hover, brush, click state + handlers
+    use-chart-interaction.ts Hover, click state + handlers
   overlays/
     AxisLabels.tsx           X/Y axis tick labels
     Crosshair.tsx            Vertical hover line
     DefaultTooltip.tsx       Built-in tooltip content
     Tooltip.tsx              Tooltip positioning wrapper
     GoalLines.tsx            Horizontal reference lines
-    DataLabels.tsx           Inline value labels (line-chart-specific)
-    TrendLine.tsx            Linear regression overlay (line-chart-specific)
-    ZoomBrush.tsx            Drag-to-select range highlight
 ```
 
 ## Public API
