@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
@@ -1733,13 +1734,31 @@ class TestExperimentService(APIBaseTest):
 
     def test_ship_variant_preserves_payloads_and_aggregation(self):
         experiment = self._create_running_experiment(name="Ship Payloads", feature_flag_key="ship-payloads-flag")
+        # Update the flag via the serializer to match real API behavior.
+        # aggregation_group_type_index must be set on each group explicitly —
+        # the serializer validator only distributes the top-level value to
+        # groups that don't already have the key, and these groups already
+        # have it set to None from the initial creation.
         flag = experiment.feature_flag
-        flag.filters = {
+        updated_filters = {
             **flag.filters,
             "payloads": {"test": '{"color": "blue"}'},
             "aggregation_group_type_index": 1,
+            "groups": [{**g, "aggregation_group_type_index": 1} for g in flag.filters.get("groups", [])],
         }
-        flag.save()
+        flag_serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": updated_filters},
+            partial=True,
+            context={
+                "request": self._make_request(),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        flag_serializer.is_valid(raise_exception=True)
+        flag_serializer.save()
+        flag.refresh_from_db()
 
         shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
 
