@@ -5,6 +5,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -40,11 +41,46 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
+
+/** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
+function DashboardInsightRefreshHintOrLoading({
+    dashboardId,
+    dashboardItemId,
+    insightProps,
+    queryId,
+    context,
+    onRetry,
+}: {
+    dashboardId: number
+    dashboardItemId: InsightLogicProps['dashboardItemId']
+    insightProps: InsightLogicProps
+    queryId: string | null
+    context?: QueryContext<InsightVizNode>
+    onRetry: () => void
+}): JSX.Element {
+    const { itemsLoading, isRefreshingQueued, isRefreshing } = useValues(dashboardLogic({ id: dashboardId }))
+    const shortId =
+        dashboardItemId && typeof dashboardItemId === 'string' && !dashboardItemId.startsWith('new')
+            ? dashboardItemId
+            : null
+    const tilePending = shortId !== null && (isRefreshingQueued(shortId) || isRefreshing(shortId))
+    if (itemsLoading || tilePending) {
+        return (
+            <InsightLoadingState
+                queryId={queryId}
+                key={queryId}
+                insightProps={insightProps}
+                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+            />
+        )
+    }
+    return <InsightRefreshDataHint onRetry={onRetry} />
+}
 
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
 export function shouldShowDashboardInsightRefreshHint({
@@ -148,16 +184,6 @@ export function InsightVizDisplay({
             )
         }
 
-        if (activeView === InsightType.FUNNELS) {
-            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
-            if (!isFunnelWithEnoughSteps && !isFlowViz) {
-                return <FunnelSingleStepState actionable={!embedded && editMode} />
-            }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
-                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
-            }
-        }
-
         // Insight agnostic empty states
         if (erroredQueryId) {
             return (
@@ -186,11 +212,30 @@ export function InsightVizDisplay({
                 insightData,
             })
         ) {
-            return (
-                <InsightRefreshDataHint
-                    onRetry={() => loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
-                />
-            )
+            const onRetry = (): void => loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+            if (insightProps.dashboardId != null) {
+                return (
+                    <DashboardInsightRefreshHintOrLoading
+                        dashboardId={insightProps.dashboardId}
+                        dashboardItemId={insightProps.dashboardItemId}
+                        insightProps={insightProps}
+                        queryId={queryId}
+                        context={context}
+                        onRetry={onRetry}
+                    />
+                )
+            }
+            return <InsightRefreshDataHint onRetry={onRetry} />
+        }
+
+        if (activeView === InsightType.FUNNELS) {
+            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+            if (!isFunnelWithEnoughSteps && !isFlowViz) {
+                return <FunnelSingleStepState actionable={!embedded && editMode} />
+            }
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
+                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+            }
         }
 
         return null
