@@ -579,14 +579,36 @@ def _wait_for_replication(client: Client, source_table: str, target_log_index: i
 
     zk_path = zk_rows[0][0]
 
-    # Get list of replica names from ZK
+    # Get list of replica names from ZK, filtering to only active replicas.
+    # is_active is an ephemeral ZK node — it only exists while the replica is connected.
+    # Stale/removed replicas (e.g. old names like 'a', 'b') won't have it and must be skipped,
+    # otherwise the wait loop would block forever on replicas that will never catch up.
     replica_rows = client.execute(
         "SELECT name FROM system.zookeeper WHERE path = %(path)s",
         {"path": f"{zk_path}/replicas"},
     )
-    replica_names = [row[0] for row in replica_rows]
+    all_replica_names = [row[0] for row in replica_rows]
 
-    logger.info(f"Waiting for {len(replica_names)} replicas to reach log index {target_log_index}...")
+    active_replicas = []
+    inactive_replicas = []
+    for replica_name in all_replica_names:
+        is_active = client.execute(
+            "SELECT count() FROM system.zookeeper WHERE path = %(path)s AND name = 'is_active'",
+            {"path": f"{zk_path}/replicas/{replica_name}"},
+        )
+        if is_active and is_active[0][0] > 0:
+            active_replicas.append(replica_name)
+        else:
+            inactive_replicas.append(replica_name)
+
+    if inactive_replicas:
+        logger.info(f"Skipping {len(inactive_replicas)} inactive replica(s): {', '.join(inactive_replicas)}")
+
+    if not active_replicas:
+        raise dagster.Failure(description=f"No active replicas found for {source_table} — cannot verify replication")
+
+    replica_names = active_replicas
+    logger.info(f"Waiting for {len(replica_names)} active replica(s) to reach log index {target_log_index}...")
 
     behind_replicas: list[str] = []
     start = time.time()
