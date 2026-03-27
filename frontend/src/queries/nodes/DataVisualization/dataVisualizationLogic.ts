@@ -1073,7 +1073,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return sourceTabularColumns.map((column, columnIndex) => [
                     {
                         value: column.column.name,
-                        formattedValue: column.settings?.display?.label ?? column.column.name,
+                        formattedValue: null,
                         type: 'STRING',
                         sourceColumnName: column.column.name,
                         isTransposedHeader: true,
@@ -1123,7 +1123,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         isPinningEnabled: [
             (s) => [s.activeSceneId, s.isTransposed],
             (activeSceneId: Scene | null, isTransposed: boolean): boolean => {
-                // disable column pinning in sql editor
+                // disable column pinning in sql editor or when transposed
                 return activeSceneId !== Scene.SQLEditor && !isTransposed
             },
         ],

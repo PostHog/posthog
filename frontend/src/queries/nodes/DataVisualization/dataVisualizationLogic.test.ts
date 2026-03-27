@@ -366,7 +366,7 @@ describe('dataVisualizationLogic', () => {
                 [
                     {
                         value: 'region',
-                        formattedValue: 'region',
+                        formattedValue: null,
                         type: 'STRING',
                         sourceColumnName: 'region',
                         isTransposedHeader: true,
@@ -387,7 +387,7 @@ describe('dataVisualizationLogic', () => {
                 [
                     {
                         value: 'value',
-                        formattedValue: 'value',
+                        formattedValue: null,
                         type: 'STRING',
                         sourceColumnName: 'value',
                         isTransposedHeader: true,
