@@ -330,12 +330,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 copyExperimentToProject: async (payload: { id: number; targetProjectId: number }) => {
-                    const result = await api.create(
+                    await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/copy_to_project`,
                         { target_project_id: payload.targetProjectId }
                     )
                     lemonToast.success('Experiment copied to project successfully')
-                    window.open(urls.project(payload.targetProjectId, urls.experiment(result.id)), '_blank')
                     return values.experiments
                 },
                 addToExperiments: (experiment: Experiment) => {
