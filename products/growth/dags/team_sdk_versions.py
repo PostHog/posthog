@@ -51,7 +51,7 @@ def run_query(team: Team) -> HogQLQueryResponse:
     query_type = "sdk_versions_for_team"
     with tags_context(
         product=Product.SDK_DOCTOR,
-        feature=Feature.CACHE_WARMUP,
+        feature=Feature.HEALTH_CHECK,
         team_id=team.pk,
         org_id=team.organization_id,
         query_type=query_type,
