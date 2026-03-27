@@ -443,6 +443,14 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 		// Close the write end so readLoop sees EOF
 		_ = pw.Close()
 
+		// Close the stdin pipe, no more input to send
+		p.mu.Lock()
+		if p.stdinPipe != nil {
+			_ = p.stdinPipe.Close()
+			p.stdinPipe = nil
+		}
+		p.mu.Unlock()
+
 		<-readDone
 		_ = pr.Close()
 
@@ -525,7 +533,12 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 				if idx == -1 {
 					break
 				}
-				p.bufferLine(string(data[:idx]), send)
+				line := data[:idx]
+				// PTY mode uses \r\n (ONLCR); strip trailing \r
+				if len(line) > 0 && line[len(line)-1] == '\r' {
+					line = line[:len(line)-1]
+				}
+				p.bufferLine(string(line), send)
 				data = data[idx+1:]
 			}
 
