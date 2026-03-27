@@ -1171,8 +1171,8 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             ),
         ]
     )
-    @patch("posthog.tasks.alerts.checks.emit_slo_completed")
-    @patch("posthog.tasks.alerts.checks.emit_slo_started")
+    @patch("posthog.slo.context.emit_slo_completed")
+    @patch("posthog.slo.context.emit_slo_started")
     @patch("posthog.tasks.alerts.checks.check_alert")
     def test_slo_emits_correct_events(
         self,
