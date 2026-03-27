@@ -19,7 +19,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { discoverDefinitions } from './lib/definitions.mjs'
+import { discoverDefinitions, isToolsConfig } from './lib/definitions.mjs'
 import {
     type CategoryConfig,
     CategoryConfigSchema,
@@ -277,6 +277,12 @@ function main(): void {
     for (const def of definitionSources) {
         const content = fs.readFileSync(def.filePath, 'utf-8')
         const parsed = parseYaml(content)
+
+        // Only continue if we detect this is a tool config file
+        if (!isToolsConfig(parsed)) {
+            continue
+        }
+
         const result = CategoryConfigSchema.safeParse(parsed)
         if (!result.success) {
             console.error(`Invalid YAML config in ${def.filePath}:`)
@@ -357,6 +363,12 @@ function main(): void {
     for (const def of definitionSources) {
         const content = fs.readFileSync(def.filePath, 'utf-8')
         const parsed = parseYaml(content)
+
+        // Only continue if we detect this is a tool config file
+        if (!isToolsConfig(parsed)) {
+            continue
+        }
+
         const config = CategoryConfigSchema.parse(parsed)
         for (const [toolName, toolConfig] of Object.entries(config.tools)) {
             if (toolConfig.ui_app && !allUiAppKeys.has(toolConfig.ui_app)) {

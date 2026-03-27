@@ -1961,9 +1961,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     "stats": serializers.DictField(
                         help_text="Event counts keyed by event name (survey shown, survey dismissed, survey sent)."
                     ),
-                    "rates": serializers.DictField(
-                        help_text="Calculated response and dismissal rates."
-                    ),
+                    "rates": serializers.DictField(help_text="Calculated response and dismissal rates."),
                 },
             )
         },
@@ -2101,9 +2099,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     "stats": serializers.DictField(
                         help_text="Event counts keyed by event name (survey shown, survey dismissed, survey sent)."
                     ),
-                    "rates": serializers.DictField(
-                        help_text="Calculated response and dismissal rates."
-                    ),
+                    "rates": serializers.DictField(help_text="Calculated response and dismissal rates."),
                 },
             )
         },

@@ -21,7 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { discoverDefinitions } from './lib/definitions.mjs'
+import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -895,14 +895,6 @@ function loadQuerySchema(): JsonSchemaRoot {
         process.exit(1)
     }
     return JSON.parse(fs.readFileSync(SCHEMA_JSON_PATH, 'utf-8')) as JsonSchemaRoot
-}
-
-/**
- * Returns true if the parsed YAML has the shape of a query wrapper config
- * (has `wrappers` key instead of `tools`).
- */
-function isQueryWrappersConfig(parsed: unknown): boolean {
-    return typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)
 }
 
 function generateQueryWrapperFile(
