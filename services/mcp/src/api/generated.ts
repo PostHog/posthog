@@ -4972,7 +4972,8 @@ export namespace Schemas {
     }
 
     export interface ApproveRunRequestInput {
-      snapshots: ApproveSnapshotInput[];
+      snapshots?: ApproveSnapshotInput[];
+      approve_all?: boolean;
       commit_to_github?: boolean;
     }
 
@@ -7031,6 +7032,14 @@ export namespace Schemas {
     export interface CompareItem {
       label: string;
       value: string;
+    }
+
+    export type CompleteRunInputBaselineHashes = {[key: string]: string};
+
+    export interface CompleteRunInput {
+      removed_identifiers?: string[];
+      unchanged_count?: number;
+      baseline_hashes?: CompleteRunInputBaselineHashes;
     }
 
     export interface ConditionalFormattingRule {

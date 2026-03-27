@@ -128,31 +128,28 @@ export interface CreateRunResultApi {
     uploads: UploadTargetApi[]
 }
 
-export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
-
-export interface AddSnapshotsInputApi {
-    snapshots: SnapshotManifestItemApi[]
-    baseline_hashes?: AddSnapshotsInputApiBaselineHashes
-}
-
-export interface AddSnapshotsResultApi {
-    added: number
-    uploads: UploadTargetApi[]
-}
-
 export interface ApproveSnapshotInputApi {
     identifier: string
     new_hash: string
 }
 
 export interface ApproveRunRequestInputApi {
-    snapshots: ApproveSnapshotInputApi[]
+    snapshots?: ApproveSnapshotInputApi[]
+    approve_all?: boolean
     commit_to_github?: boolean
 }
 
 export interface AutoApproveResultApi {
     run: RunApi
     baseline_content: string
+}
+
+export type CompleteRunInputApiBaselineHashes = { [key: string]: string }
+
+export interface CompleteRunInputApi {
+    removed_identifiers?: string[]
+    unchanged_count?: number
+    baseline_hashes?: CompleteRunInputApiBaselineHashes
 }
 
 export interface SnapshotHistoryEntryApi {
@@ -210,6 +207,18 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+}
+
+export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
+
+export interface AddSnapshotsInputApi {
+    snapshots: SnapshotManifestItemApi[]
+    baseline_hashes?: AddSnapshotsInputApiBaselineHashes
+}
+
+export interface AddSnapshotsResultApi {
+    added: number
+    uploads: UploadTargetApi[]
 }
 
 export interface ReviewStateCountsApi {
