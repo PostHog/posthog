@@ -81,7 +81,17 @@ Create a `tasks` feature flag at 100% rollout:
 
 This is the feature flag used on the endpoints and in the temporal worker.
 
-## 5. Temporal worker
+## 5. Skills
+
+In order to populate the skills folder for the sandbox, run the following command in the flox activated environment:
+
+```shell
+hogli build:skills
+```
+
+This performs the same skill build as the CI/CD system and correctly creates and populates the `dist/skills` directory.
+
+## 6. Temporal worker
 
 Temporal and the temporal-django-worker start automatically via phrocs when you run `./bin/start`.
 
@@ -95,7 +105,7 @@ The `process-task` workflow defined in `products/tasks/backend/temporal/process_
 
 The activities live in `products/tasks/backend/temporal/process_task/activities/`.
 
-## 6. Running via the UI
+## 7. Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what is happening with a background cloud run.
 
@@ -104,7 +114,7 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## 7. Testing with local agent packages
+## 8. Testing with local agent packages
 
 To test changes to `@posthog/agent` before publishing:
 
