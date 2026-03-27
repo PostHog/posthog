@@ -581,8 +581,6 @@ def _wait_for_replication(client: Client, source_table: str, target_log_index: i
 
     # Get list of replica names from ZK, filtering to only active replicas.
     # is_active is an ephemeral ZK node — it only exists while the replica is connected.
-    # Stale/removed replicas (e.g. old names like 'a', 'b') won't have it and must be skipped,
-    # otherwise the wait loop would block forever on replicas that will never catch up.
     replica_rows = client.execute(
         "SELECT name FROM system.zookeeper WHERE path = %(path)s",
         {"path": f"{zk_path}/replicas"},
