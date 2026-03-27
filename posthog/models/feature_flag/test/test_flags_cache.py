@@ -731,7 +731,12 @@ class TestExtractSchema:
             ("str_vs_null", "str", "null", ["Fixture expects non-null at `root` (str) but serializer returned null"]),
             ("int_vs_float", "int", "float", ["Type mismatch at `root`: fixture=int, serializer=float"]),
             ("empty_list_compat_rhs", ["int"], ["empty_list"], []),
-            ("empty_list_compat_lhs", ["empty_list"], ["str"], ["Type mismatch at `root[]`: fixture=empty_list, serializer=str"]),
+            (
+                "empty_list_compat_lhs",
+                ["empty_list"],
+                ["str"],
+                ["Type mismatch at `root[]`: fixture=empty_list, serializer=str"],
+            ),
             (
                 "extra_key",
                 {"a": "int"},
