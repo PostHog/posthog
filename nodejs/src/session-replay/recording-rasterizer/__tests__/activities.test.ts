@@ -59,7 +59,7 @@ function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeR
 
 describe('toActivityError classification', () => {
     const mockPool = { stats: { usageCount: 0, activePages: 0 } } as unknown as BrowserPool
-    const activities = createActivities(mockPool)
+    const activities = createActivities(mockPool, '<html>player</html>')
     const rasterizeRecordingActivity = activities['rasterize-recording']
 
     beforeEach(() => {

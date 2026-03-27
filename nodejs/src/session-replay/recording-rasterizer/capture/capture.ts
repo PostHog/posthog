@@ -1,110 +1,14 @@
 import * as fs from 'fs/promises'
-import { CDPSession, Page } from 'puppeteer'
 import { PuppeteerCaptureFormat, capture as captureVideo } from 'puppeteer-capture'
 
-import { config } from '../config'
 import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
-import { InactivityPeriod, RasterizeRecordingInput, RecordingResult } from '../types'
+import { CaptureConfig, InactivityPeriod, RecordingResult } from '../types'
 import { elapsed } from '../utils'
-import { AssetProxy } from './asset-proxy'
 import { PlayerController } from './player'
 
-const DEFAULT_PLAYBACK_SPEED = 4
-const DEFAULT_FPS = 24
-
-export interface CaptureConfig {
-    captureFps: number // recordingFps * playbackSpeed — internal capture rate
-    outputFps: number // recordingFps — what the viewer sees after setpts
-    playbackSpeed: number
-    trim?: number // max output seconds
-    trimFrameLimit: number // trim * outputFps — for early loop stop
-    captureTimeoutMs: number // virtual-time timeout for the capture loop
-    ffmpegOutputOpts: string[]
-    ffmpegVideoFilters: string[]
-}
-
-export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfig {
-    const playbackSpeed = input.playback_speed || DEFAULT_PLAYBACK_SPEED
-    const outputFps = input.recording_fps || DEFAULT_FPS
-    // e.g. 3fps output × 8x speed = 24fps capture → setpts stretches 8x → 3fps
-    const captureFps = outputFps * playbackSpeed
-
-    const ffmpegOutputOpts = ['-crf 23', '-pix_fmt yuv420p', '-movflags +faststart']
-    if (input.trim) {
-        ffmpegOutputOpts.push(`-t ${input.trim}`)
-    }
-
-    const ffmpegVideoFilters: string[] = []
-    // Stretch timestamps so capture at Nx speed outputs real-time video.
-    // This eliminates the need for a separate post-processing encode pass.
-    if (playbackSpeed > 1) {
-        ffmpegVideoFilters.push(`setpts=${playbackSpeed}*PTS`)
-        ffmpegVideoFilters.push(`fps=${outputFps}`)
-    }
-
-    return {
-        captureFps,
-        outputFps,
-        playbackSpeed,
-        trim: input.trim,
-        trimFrameLimit: input.trim ? input.trim * outputFps : Infinity,
-        captureTimeoutMs: input.capture_timeout ? input.capture_timeout * 1000 : Infinity,
-        ffmpegOutputOpts,
-        ffmpegVideoFilters,
-    }
-}
-
-/**
- * Hide grandchild frames from puppeteer-capture so it doesn't call
- * evaluate() on third-party widget iframes whose execution contexts
- * can be destroyed at any time.
- */
-function hideGrandchildFrames(page: Page): void {
-    const mainFrame = page.mainFrame()
-    const originalFrames = page.frames.bind(page)
-    ;(page as any).frames = (): ReturnType<Page['frames']> =>
-        originalFrames().filter((f) => f === mainFrame || f.parentFrame() === mainFrame)
-}
-
-/**
- * Wrap CDP session to override screenshot format and gate beginFrame
- * on pending stylesheet requests. Must be called before captureVideo().
- */
-function installCDPGuards(
-    page: Page,
-    screenshotFormat: 'jpeg' | 'png',
-    screenshotQuality: number | undefined,
-    waitForRequestsSettled: () => Promise<void>
-): void {
-    const originalCreateCDPSession = page.createCDPSession.bind(page)
-    ;(page as any).createCDPSession = async (): Promise<CDPSession> => {
-        const session = await originalCreateCDPSession()
-        const originalSend = session.send.bind(session)
-        ;(session as any).send = async (method: string, ...args: any[]): Promise<any> => {
-            if (method === 'HeadlessExperimental.beginFrame') {
-                const params = args[0] ?? {}
-                if (screenshotFormat !== 'png') {
-                    params.screenshot = { format: screenshotFormat }
-                    if (screenshotFormat === 'jpeg' && screenshotQuality != null) {
-                        params.screenshot.quality = screenshotQuality
-                    }
-                }
-
-                await waitForRequestsSettled()
-
-                return originalSend(method as any, params)
-            }
-            return originalSend(method as any, ...args)
-        }
-        return session
-    }
-}
-
 export async function capturePlayback(
-    page: Page,
     player: PlayerController,
-    assetProxy: AssetProxy,
     captureConfig: CaptureConfig,
     outputPath: string,
     log: Logger = createLogger(),
@@ -115,10 +19,13 @@ export async function capturePlayback(
     const captureStart = process.hrtime()
     let frameCount = 0
 
-    hideGrandchildFrames(page)
-    installCDPGuards(page, config.screenshotFormat, config.screenshotJpegQuality, () => assetProxy.waitForSettled())
+    // Install CDP guards before captureVideo — it wraps createCDPSession
+    // to inject screenshot format and gate beginFrame on pending stylesheets.
+    player.prepareBrowserForCapture(captureConfig.screenshotFormat, captureConfig.screenshotQuality)
 
-    // Start capture first — installs virtual time shims before playback.
+    const page = player.page
+
+    // Start capture — installs virtual time shims before playback.
     const recorder = await captureVideo(page, {
         fps: captureConfig.captureFps,
         format: PuppeteerCaptureFormat.MP4('veryfast', 'libx264'),

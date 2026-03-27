@@ -1,6 +1,8 @@
 import { Frame, HTTPRequest, Page } from 'puppeteer'
 
-import { AssetProxy } from '../capture/asset-proxy'
+import { BlockProxy } from '../capture/block-proxy'
+import { CapturePage } from '../capture/capture-page'
+import { RequestInterceptor } from '../capture/request-interceptor'
 
 const mockFetch = jest.fn()
 jest.mock('../../../utils/request', () => ({
@@ -11,6 +13,9 @@ type PageEventHandler = (req: HTTPRequest) => void
 
 const mainFrame = { name: 'mainFrame' } as unknown as Frame
 const subFrame = { name: 'subFrame' } as unknown as Frame
+
+const playerUrl = 'http://localhost:8000/player'
+const playerHtml = '<html>player</html>'
 
 function mockPage(): {
     page: Page
@@ -24,6 +29,7 @@ function mockPage(): {
             handlers[event] = handlers[event] || []
             handlers[event].push(handler)
         }),
+        setRequestInterception: jest.fn().mockResolvedValue(undefined),
     } as unknown as Page
 
     return {
@@ -31,6 +37,11 @@ function mockPage(): {
         emitRequestFinished: (req) => handlers['requestfinished']?.forEach((h) => h(req)),
         emitRequestFailed: (req) => handlers['requestfailed']?.forEach((h) => h(req)),
     }
+}
+
+function mockCapturePage(page?: Page): CapturePage {
+    const p = page || mockPage().page
+    return { page: p, playerUrl, playerHtml } as unknown as CapturePage
 }
 
 function mockRequest(type: string, frame: Frame = subFrame, url = 'https://example.com/style.css'): HTTPRequest {
@@ -58,18 +69,80 @@ const mockLog = {
     child: jest.fn().mockReturnThis(),
 } as any
 
-describe('AssetProxy', () => {
+function mockBlockProxy(): BlockProxy {
+    return {
+        handleRequest: jest.fn().mockResolvedValue(undefined),
+        fetchBlocks: jest.fn().mockResolvedValue(0),
+        blockCount: 0,
+    } as unknown as BlockProxy
+}
+
+async function createInterceptor(
+    page?: Page,
+    blockProxy?: BlockProxy
+): Promise<{ interceptor: RequestInterceptor; page: ReturnType<typeof mockPage>; blockProxy: BlockProxy }> {
+    const mp = page ? { page, emitRequestFinished: () => {}, emitRequestFailed: () => {} } : mockPage()
+    const bp = blockProxy || mockBlockProxy()
+    const cp = mockCapturePage(mp.page)
+    const interceptor = new RequestInterceptor(cp, bp, mockLog)
+    await interceptor.install()
+    return { interceptor, page: mp as ReturnType<typeof mockPage>, blockProxy: bp }
+}
+
+/** Get the 'request' event handler installed by interceptor.install() */
+function getRequestHandler(page: Page): (req: HTTPRequest) => void {
+    const calls = (page.on as jest.Mock).mock.calls
+    const requestCall = calls.find(([event]: [string]) => event === 'request')
+    return requestCall[1]
+}
+
+describe('RequestInterceptor', () => {
     beforeEach(() => {
         jest.clearAllMocks()
     })
 
-    describe('request routing', () => {
-        it('continues main-frame requests without proxying', () => {
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
-            const req = mockRequest('stylesheet', mainFrame)
+    describe('install', () => {
+        it('enables request interception and registers event handlers', async () => {
+            const { page } = await createInterceptor()
+            expect(page.page.setRequestInterception).toHaveBeenCalledWith(true)
+            expect(page.page.on).toHaveBeenCalledWith('request', expect.any(Function))
+            expect(page.page.on).toHaveBeenCalledWith('requestfinished', expect.any(Function))
+            expect(page.page.on).toHaveBeenCalledWith('requestfailed', expect.any(Function))
+        })
+    })
 
-            proxy.handleRequest(req)
+    describe('request routing', () => {
+        it('serves player HTML for the player URL', async () => {
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('document', mainFrame, playerUrl)
+
+            handler(req)
+
+            expect(req.respond).toHaveBeenCalledWith({
+                status: 200,
+                contentType: 'text/html',
+                body: playerHtml,
+            })
+        })
+
+        it('forwards block requests to BlockProxy', async () => {
+            const bp = mockBlockProxy()
+            const { page } = await createInterceptor(undefined, bp)
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('xhr', mainFrame, 'http://localhost:8000/__blocks/0')
+
+            handler(req)
+
+            expect(bp.handleRequest).toHaveBeenCalledWith(req, '/__blocks/0')
+        })
+
+        it('continues main-frame requests without proxying', async () => {
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('stylesheet', mainFrame, 'https://cdn.example.com/style.css')
+
+            handler(req)
 
             expect(req.continue).toHaveBeenCalled()
             expect(req.respond).not.toHaveBeenCalled()
@@ -84,11 +157,11 @@ describe('AssetProxy', () => {
                 text: jest.fn().mockResolvedValue('body { color: red }'),
             })
 
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
             const req = mockRequest('stylesheet')
 
-            proxy.handleRequest(req)
+            handler(req)
             await new Promise(process.nextTick)
 
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/style.css', {
@@ -102,12 +175,12 @@ describe('AssetProxy', () => {
             })
         })
 
-        it('aborts sub-frame media requests immediately', () => {
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+        it('aborts sub-frame media requests immediately', async () => {
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
             const req = mockRequest('media')
 
-            proxy.handleRequest(req)
+            handler(req)
             expect(req.abort).toHaveBeenCalled()
             expect(req.respond).not.toHaveBeenCalled()
             expect(req.continue).not.toHaveBeenCalled()
@@ -115,12 +188,12 @@ describe('AssetProxy', () => {
 
         it.each(['image', 'font', 'script', 'xhr', 'fetch', 'document'])(
             'continues sub-frame %s requests normally',
-            (type) => {
-                const { page } = mockPage()
-                const proxy = new AssetProxy(page, mockLog)
+            async (type) => {
+                const { page } = await createInterceptor()
+                const handler = getRequestHandler(page.page)
                 const req = mockRequest(type)
 
-                proxy.handleRequest(req)
+                handler(req)
                 expect(req.continue).toHaveBeenCalled()
                 expect(req.abort).not.toHaveBeenCalled()
                 expect(req.respond).not.toHaveBeenCalled()
@@ -136,11 +209,11 @@ describe('AssetProxy', () => {
                 text: jest.fn().mockResolvedValue(''),
             })
 
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
             const req = mockRequest('stylesheet')
 
-            proxy.handleRequest(req)
+            handler(req)
             await new Promise(process.nextTick)
 
             const fetchHeaders = mockFetch.mock.calls[0][1].headers
@@ -157,11 +230,11 @@ describe('AssetProxy', () => {
                 text: jest.fn().mockResolvedValue('h1 {}'),
             })
 
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
             const req = mockRequest('stylesheet')
 
-            proxy.handleRequest(req)
+            handler(req)
             await new Promise(process.nextTick)
 
             expect(req.respond).toHaveBeenCalledWith(expect.objectContaining({ contentType: 'text/css' }))
@@ -170,11 +243,11 @@ describe('AssetProxy', () => {
         it('responds with empty CSS on fetch failure', async () => {
             mockFetch.mockRejectedValue(new Error('ETIMEDOUT'))
 
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
             const req = mockRequest('stylesheet')
 
-            proxy.handleRequest(req)
+            handler(req)
             await new Promise(process.nextTick)
 
             expect(req.respond).toHaveBeenCalledWith({
@@ -191,25 +264,28 @@ describe('AssetProxy', () => {
         it('removes request from tracked when fallback respond also fails', async () => {
             mockFetch.mockRejectedValue(new Error('ETIMEDOUT'))
 
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+            const mp = mockPage()
+            const bp = mockBlockProxy()
+            const cp = mockCapturePage(mp.page)
+            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            await interceptor.install()
+
+            const handler = getRequestHandler(mp.page)
             const req = mockRequest('stylesheet')
             ;(req.respond as jest.Mock).mockRejectedValue(new Error('Target closed'))
 
-            proxy.handleRequest(req)
+            handler(req)
             await new Promise(process.nextTick)
 
             // waitForSettled should resolve immediately — request was removed from tracked
-            await expect(proxy.waitForSettled()).resolves.toBeUndefined()
+            await expect(interceptor.waitForSettled()).resolves.toBeUndefined()
         })
     })
 
     describe('waitForSettled', () => {
         it('resolves immediately when no requests are pending', async () => {
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
-
-            await expect(proxy.waitForSettled()).resolves.toBeUndefined()
+            const { interceptor } = await createInterceptor()
+            await expect(interceptor.waitForSettled()).resolves.toBeUndefined()
         })
 
         it('waits for tracked stylesheet requests to complete', async () => {
@@ -220,20 +296,24 @@ describe('AssetProxy', () => {
                     )
             )
 
-            const { page, emitRequestFinished } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
-            const req = mockRequest('stylesheet')
+            const mp = mockPage()
+            const bp = mockBlockProxy()
+            const cp = mockCapturePage(mp.page)
+            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            await interceptor.install()
 
-            proxy.handleRequest(req)
+            const handler = getRequestHandler(mp.page)
+            const req = mockRequest('stylesheet')
+            handler(req)
 
             let settled = false
-            const settledPromise = proxy.waitForSettled().then(() => {
+            const settledPromise = interceptor.waitForSettled().then(() => {
                 settled = true
             })
 
             expect(settled).toBe(false)
 
-            emitRequestFinished(req)
+            mp.emitRequestFinished(req)
 
             await settledPromise
             expect(settled).toBe(true)
@@ -246,24 +326,29 @@ describe('AssetProxy', () => {
                 text: jest.fn().mockResolvedValue(''),
             })
 
-            const { page, emitRequestFinished } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+            const mp = mockPage()
+            const bp = mockBlockProxy()
+            const cp = mockCapturePage(mp.page)
+            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            await interceptor.install()
+
+            const handler = getRequestHandler(mp.page)
             const req1 = mockRequest('stylesheet', subFrame, 'https://example.com/a.css')
             const req2 = mockRequest('stylesheet', subFrame, 'https://example.com/b.css')
 
-            proxy.handleRequest(req1)
-            proxy.handleRequest(req2)
+            handler(req1)
+            handler(req2)
 
             let settled = false
-            const settledPromise = proxy.waitForSettled().then(() => {
+            const settledPromise = interceptor.waitForSettled().then(() => {
                 settled = true
             })
 
-            emitRequestFinished(req1)
+            mp.emitRequestFinished(req1)
             await new Promise(process.nextTick)
             expect(settled).toBe(false)
 
-            emitRequestFinished(req2)
+            mp.emitRequestFinished(req2)
             await settledPromise
             expect(settled).toBe(true)
         })
@@ -275,32 +360,36 @@ describe('AssetProxy', () => {
                 text: jest.fn().mockResolvedValue(''),
             })
 
-            const { page, emitRequestFailed } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
-            const req = mockRequest('stylesheet')
+            const mp = mockPage()
+            const bp = mockBlockProxy()
+            const cp = mockCapturePage(mp.page)
+            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            await interceptor.install()
 
-            proxy.handleRequest(req)
+            const handler = getRequestHandler(mp.page)
+            const req = mockRequest('stylesheet')
+            handler(req)
 
             let settled = false
-            const settledPromise = proxy.waitForSettled().then(() => {
+            const settledPromise = interceptor.waitForSettled().then(() => {
                 settled = true
             })
 
-            emitRequestFailed(req)
+            mp.emitRequestFailed(req)
 
             await settledPromise
             expect(settled).toBe(true)
         })
 
         it('does not track non-stylesheet requests', async () => {
-            const { page } = mockPage()
-            const proxy = new AssetProxy(page, mockLog)
+            const { interceptor, page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
 
-            proxy.handleRequest(mockRequest('image'))
-            proxy.handleRequest(mockRequest('font'))
-            proxy.handleRequest(mockRequest('media'))
+            handler(mockRequest('image'))
+            handler(mockRequest('font'))
+            handler(mockRequest('media'))
 
-            await expect(proxy.waitForSettled()).resolves.toBeUndefined()
+            await expect(interceptor.waitForSettled()).resolves.toBeUndefined()
         })
     })
 })
