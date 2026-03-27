@@ -5,12 +5,11 @@ from typing import Optional
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from django.http import HttpResponse
 from django.utils.timezone import now
 
-import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
@@ -22,8 +21,6 @@ from posthog.hogql.errors import QueryError
 
 from posthog.api.insight import InsightSerializer
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
@@ -39,6 +36,9 @@ from posthog.settings import (
 from posthog.tasks import exporter
 from posthog.tasks.exports.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from posthog.tasks.exports.image_exporter import export_image
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -94,7 +94,7 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         # add filter to dashboard
         self.dashboard.filters = {"properties": [{"key": "$browser_version", "value": "1.0"}]}
@@ -124,9 +124,10 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z"),
         }
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
         one_week_from_now = datetime.now() + timedelta(weeks=1)
         response = self.client.post(
@@ -162,13 +163,12 @@ class TestExports(APIBaseTest):
             "expires_after": expected_expiry,
         }
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
         # regression test see https://github.com/PostHog/posthog/issues/11204
-
-        mock_exporter_task.get.side_effect = requests.exceptions.MissingSchema("why is this raised?")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -185,10 +185,11 @@ class TestExports(APIBaseTest):
             msg=f"was not HTTP 201 😱 - {response.json()}",
         )
         data = response.json()
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
     @patch("posthog.tasks.exports.image_exporter._export_to_png")
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
@@ -248,7 +249,8 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
@@ -292,18 +294,8 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.api.exports.exporter")
-    def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_asset.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "insight": self.insight.id},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/jpeg", "insight": self.insight.id},
@@ -401,8 +393,9 @@ class TestExports(APIBaseTest):
             },
         )
 
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
-    def test_can_download_a_csv(self, patched_request) -> None:
+    def test_can_download_a_csv(self, patched_request, _mock_workflow) -> None:
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             _create_event(
                 event="event_name",
@@ -504,6 +497,8 @@ class TestExports(APIBaseTest):
         activity_response = self._get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
@@ -760,9 +755,8 @@ class TestExports(APIBaseTest):
     )
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    @patch("posthog.api.exports.exporter")
     def test_export_expiry_varies_by_format(
-        self, export_format, expected_delta, mock_exporter_task, mock_async_connect, mock_async_to_sync
+        self, export_format, expected_delta, mock_async_connect, mock_async_to_sync
     ) -> None:
         is_video_format = export_format in ("video/mp4", "video/webm", "image/gif")
 
@@ -791,9 +785,6 @@ class TestExports(APIBaseTest):
         )
 
         self.assertEqual(data["expires_after"], expected_expiry)
-
-        if not is_video_format:
-            mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
@@ -988,26 +979,44 @@ class TestExports(APIBaseTest):
         self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
-        """Test that synchronous exports record failure info when a QueryError occurs."""
+    def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:
+        """Test that export_asset records failure info on the asset when a QueryError occurs.
+
+        The actual export now runs inside a Temporal workflow (tested in
+        test_export_workflow.py). This test verifies the underlying exporter
+        still records structured failure metadata on the ExportedAsset model.
+        """
         from posthog.hogql.errors import QueryError
 
         mock_export_direct.side_effect = QueryError("Unknown table 'nonexistent_table'")
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "insight": self.insight.id},
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/png",
+            insight=self.insight,
+            created_by=self.user,
         )
+        exporter.export_asset(asset.id)
 
-        # Should return 201 even though the export failed internally
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-
-        # Reload the asset and verify failure info was recorded
-        asset = ExportedAsset.objects.get(pk=data["id"])
+        asset.refresh_from_db()
         self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
+
+    @patch("posthog.api.exports.emit_slo_started")
+    @patch("posthog.api.exports.async_connect")
+    def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect, _mock_slo) -> None:
+        mock_client = AsyncMock()
+        mock_client.execute_workflow.side_effect = Exception("workflow failed")
+        mock_async_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_content"])
 
 
 class TestExportHeatmapSSRFValidation(APIBaseTest):
@@ -1034,7 +1043,7 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("posthog.security.url_validation.resolve_host_ips")
     def test_accepts_valid_external_heatmap_url(self, mock_resolve, mock_exporter_task) -> None:
         import ipaddress
@@ -1058,7 +1067,10 @@ class TestExportMixin(APIBaseTest):
         Use this function to test the CSV output of exports in other tests
         """
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
-            with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            with (
+                patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request,
+                patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow"),
+            ):
 
                 def requests_side_effect(*args, **kwargs):
                     response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
@@ -1081,6 +1093,10 @@ class TestExportMixin(APIBaseTest):
                         "export_format": "text/csv",
                     },
                 )
+                # Workflow is mocked so the export content isn't generated during
+                # the POST. Run the exporter directly to produce CSV content.
+                exporter.export_asset(response.json()["id"])
+
                 download_response = self.client.get(
                     f"/api/projects/{self.team.id}/exports/{response.json()['id']}/content?download=true"
                 )

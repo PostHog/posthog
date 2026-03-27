@@ -8,6 +8,7 @@ members = [
     "capture-logs",
     "common/alloc",
     "common/assignment-coordination",
+    "common/k8s-awareness",
     "common/cache",
     "common/cookieless",
     "common/database",
@@ -157,4 +158,4 @@ clickhouse = { version = "0.13.2", features = [
 fernet = "0.2"
 tiktoken-rs = "0.7.0"
 sha2 = "0.10"
-testcontainers = "0.23"
+testcontainers = "0.27"

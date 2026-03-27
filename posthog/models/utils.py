@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import string
+import hashlib
 import secrets
 import datetime
 from collections import defaultdict, namedtuple
@@ -9,9 +10,10 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
 from time import time, time_ns
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.ddl_references import Statement
@@ -31,6 +33,8 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
+EncryptionModeType = Literal["sha256", "pbkdf2"]
+SHA256_HASH_PREFIX = "sha256$"
 
 
 class UUIDT(uuid.UUID):
@@ -296,6 +300,26 @@ def mask_key_value(value: str) -> str:
         # This should never happen, but want to be safe.
         return "********"
     return f"{value[:4]}...{value[-4:]}"
+
+
+def hash_key_value(
+    value: str, mode: EncryptionModeType = "sha256", legacy_salt: Optional[str] = None, iterations: Optional[int] = None
+) -> str:
+    if mode == "pbkdf2":
+        if not iterations:
+            raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")
+        if not legacy_salt:
+            raise ValueError("Salt must be provided when using legacy PBKDF2 mode")
+        hasher = PBKDF2PasswordHasher()
+        return hasher.encode(value, legacy_salt, iterations=iterations)
+
+    if iterations:
+        raise ValueError("Iterations must not be provided when using simple hashing mode")
+
+    # Inspiration on why no salt:
+    # https://github.com/jazzband/django-rest-knox/issues/188
+    value = hashlib.sha256(value.encode()).hexdigest()
+    return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
 def int_to_base(number: int, base: int) -> str:

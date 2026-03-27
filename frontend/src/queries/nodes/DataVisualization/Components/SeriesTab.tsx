@@ -24,10 +24,10 @@ import { ChartDisplayType } from '~/types'
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
+import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const {
         columns,
         numericalColumns,
@@ -35,17 +35,26 @@ export const SeriesTab = (): JSX.Element => {
         yData,
         responseLoading,
         showTableSettings,
-        tabularColumns,
+        sourceTabularColumns,
+        isTransposed,
         selectedXAxis,
+        selectedYAxis,
         dataVisualizationProps,
+        effectiveVisualizationType,
     } = useValues(dataVisualizationLogic)
-    const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
+    const { updateXSeries, addYSeries, setTransposeResults } = useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
-    const { showSeriesBreakdown } = useValues(breakdownLogic)
+    const { selectedSeriesBreakdownColumn, showSeriesBreakdown } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
 
+    const availableBreakdownColumns = getAvailableSeriesBreakdownColumns(columns, selectedXAxis, selectedYAxis)
     const hideAddYSeries = yData.length >= numericalColumns.length
-    const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
+    const hideAddSeriesBreakdown =
+        showSeriesBreakdown || selectedXAxis === null || availableBreakdownColumns.length === 0
+    const showSeriesBreakdownSelector =
+        selectedXAxis !== null &&
+        showSeriesBreakdown &&
+        (selectedSeriesBreakdownColumn !== null || availableBreakdownColumns.length > 0)
 
     if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         return <HeatmapSeriesTab />
@@ -53,11 +62,22 @@ export const SeriesTab = (): JSX.Element => {
 
     if (showTableSettings) {
         return (
-            <div className="flex flex-col w-full p-3">
-                <LemonLabel>Columns</LemonLabel>
-                {tabularColumns.map((series, index) => (
-                    <YSeries series={series} index={index} key={`${series.column.name}-${index}`} />
-                ))}
+            <div className="flex flex-col w-full p-3 gap-4">
+                {effectiveVisualizationType === ChartDisplayType.ActionsTable && (
+                    <LemonSwitch
+                        className="flex-1 w-full"
+                        label="Transpose results"
+                        checked={isTransposed}
+                        onChange={setTransposeResults}
+                        tooltip="Rotate the table so rows become columns and columns become rows."
+                    />
+                )}
+                <div>
+                    <LemonLabel>Columns</LemonLabel>
+                    {sourceTabularColumns.map((series, index) => (
+                        <YSeries series={series} index={index} key={`${series.column.name}-${index}`} />
+                    ))}
+                </div>
             </div>
         )
     }
@@ -100,7 +120,7 @@ export const SeriesTab = (): JSX.Element => {
                     Add series breakdown
                 </LemonButton>
             )}
-            {showSeriesBreakdown && <SeriesBreakdownSelector />}
+            {showSeriesBreakdownSelector && <SeriesBreakdownSelector />}
 
             <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
             {yData.map((series, index) => (
@@ -424,24 +444,29 @@ const Y_SERIES_SETTINGS_TABS = {
 }
 
 export const SeriesBreakdownSelector = (): JSX.Element => {
-    const { columns, responseLoading, selectedXAxis, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { columns, responseLoading, selectedXAxis, selectedYAxis, dataVisualizationProps } =
+        useValues(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
     const { selectedSeriesBreakdownColumn, seriesBreakdownData } = useValues(breakdownLogic)
     const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(breakdownLogic)
 
-    const seriesBreakdownOptions = columns
-        .map(({ name, type }) => ({
-            value: name,
-            label: (
-                <div className="items-center flex-1">
-                    {name}
-                    <LemonTag className="ml-2" type="default">
-                        {type.name}
-                    </LemonTag>
-                </div>
-            ),
-        }))
-        .filter((column) => column.value !== selectedXAxis)
+    const availableBreakdownColumns = getAvailableSeriesBreakdownColumns(columns, selectedXAxis, selectedYAxis)
+
+    if (selectedXAxis === null || (selectedSeriesBreakdownColumn === null && availableBreakdownColumns.length === 0)) {
+        return <></>
+    }
+
+    const seriesBreakdownOptions = availableBreakdownColumns.map(({ name, type }) => ({
+        value: name,
+        label: (
+            <div className="items-center flex-1">
+                {name}
+                <LemonTag className="ml-2" type="default">
+                    {type.name}
+                </LemonTag>
+            </div>
+        ),
+    }))
 
     return (
         <>

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from parameterized import parameterized
@@ -32,8 +34,9 @@ class TestSubstituteParams:
             assert expected in result
 
     def test_substitute_params_raises_error_for_non_dict(self):
+        invalid_params: Any = [1, 2, 3]
         with pytest.raises(ValueError, match="Parameters are expected in dict form"):
-            substitute_params("SELECT 1", [1, 2, 3])
+            substitute_params("SELECT 1", invalid_params)
 
 
 class TestSubstituteParamsForDisplay:
@@ -104,8 +107,9 @@ class TestSubstituteParamsForDisplay:
         assert result.count("[HIDDEN]") == hidden_count, f"Expected {hidden_count} [HIDDEN] occurrences"
 
     def test_substitute_params_for_display_raises_error_for_non_dict(self):
+        invalid_params: Any = [1, 2, 3]
         with pytest.raises(ValueError, match="Parameters are expected in dict form"):
-            substitute_params_for_display("SELECT 1", [1, 2, 3])  # type: ignore
+            substitute_params_for_display("SELECT 1", invalid_params)
 
     def test_substitute_params_for_display_empty_params(self):
         query = "SELECT * FROM table"
