@@ -94,6 +94,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
         syncNow: true,
         setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
@@ -210,6 +211,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
             },
         ],
+        schemaNameFilter: [
+            '' as string,
+            {
+                setSchemaNameFilter: (_, { schemaNameFilter }) => schemaNameFilter,
+            },
+        ],
         syncingNow: [
             false as boolean,
             {
@@ -245,15 +252,20 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
         filteredSchemas: [
-            (s) => [s.source, s.showEnabledSchemasOnly],
-            (source, showEnabledSchemasOnly): ExternalDataSourceSchema[] => {
+            (s) => [s.source, s.showEnabledSchemasOnly, s.schemaNameFilter],
+            (source, showEnabledSchemasOnly, schemaNameFilter): ExternalDataSourceSchema[] => {
                 if (!source?.schemas) {
                     return []
                 }
+                let schemas = source.schemas
                 if (showEnabledSchemasOnly) {
-                    return source.schemas.filter((schema) => schema.should_sync)
+                    schemas = schemas.filter((schema) => schema.should_sync)
                 }
-                return source.schemas
+                if (schemaNameFilter) {
+                    const filter = schemaNameFilter.toLowerCase()
+                    schemas = schemas.filter((schema) => (schema.label ?? schema.name).toLowerCase().includes(filter))
+                }
+                return schemas
             },
         ],
     }),

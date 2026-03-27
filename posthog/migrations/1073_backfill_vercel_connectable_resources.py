@@ -9,7 +9,7 @@ def trigger_backfill(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1070_add_unique_cohort_kind_per_team"),
+        ("posthog", "1072_backfill_condition_aggregation"),
     ]
 
     operations = [

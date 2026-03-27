@@ -213,7 +213,11 @@ depends_on = [
     "ee",
     "posthog",
 ]
-layer = "non_isolated"
+layer = "products"
+interfaces = [
+    "products.experiments.backend.facade",
+    "products.experiments.backend.presentation.views",
+]
 
 [[modules]]
 path = "products.feature_flags"
