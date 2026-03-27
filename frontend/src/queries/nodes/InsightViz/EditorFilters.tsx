@@ -1,6 +1,4 @@
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { CSSTransition } from 'react-transition-group'
+import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
@@ -24,38 +22,20 @@ import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/Samplin
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import MaxTool from 'scenes/max/MaxTool'
-import { castAssistantQuery } from 'scenes/max/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from '~/queries/schema/schema-assistant-queries'
-import {
-    DataVisualizationNode,
-    InsightQueryNode,
-    InsightVizNode,
-    NodeKind,
-    QuerySchema,
-    WebOverviewQuery,
-    WebStatsTableQuery,
-} from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode, isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
+import { isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { AvailableFeature, ChartDisplayType, EditorFilterProps, InsightEditorFilterGroup, PathType } from '~/types'
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
+import { EditorFiltersShell } from './EditorFiltersShell'
 import { filterFalsy } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
-import { SessionAnalysisWarning } from './SessionAnalysisWarning'
-import { SuggestionBanner } from './SuggestionBanner'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
@@ -81,14 +61,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         display,
         pathsFilter,
         querySource,
-        shouldShowSessionAnalysisWarning,
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
 
-    const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
-    const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
-    const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
     if (!querySource) {
         return null
@@ -104,9 +80,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             />
         )
     }
-
-    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
-    const maxToolActive = !embedded
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -402,91 +375,23 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             : null,
     ].filter((group): group is InsightEditorFilterGroup => group !== null)
 
-    const filterGroupsGroups = [
-        { title: 'left', editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0) },
-        {
-            title: 'right',
-            editorFilterGroups: rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
-        },
-    ]
-
-    const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
+    const leftEditorFilterGroupsFiltered = leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0)
+    const rightEditorFilterGroupsFiltered = rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0)
 
     return (
-        <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-            <div className="EditorFiltersWrapper">
-                {shouldShowSessionAnalysisWarning ? <SessionAnalysisWarning /> : null}
-
-                <div>
-                    <MaxTool
-                        identifier="create_insight"
-                        context={{
-                            current_query: querySource,
-                        }}
-                        contextDescription={{
-                            text: 'Current query',
-                            icon: <QueryTypeIcon />,
-                        }}
-                        callback={(
-                            toolOutput:
-                                | AssistantTrendsQuery
-                                | AssistantFunnelsQuery
-                                | AssistantRetentionQuery
-                                | AssistantHogQLQuery
-                        ) => {
-                            const source = castAssistantQuery(toolOutput)
-                            if (!source) {
-                                return
-                            }
-
-                            let node: QuerySchema
-                            if (isHogQLQuery(source)) {
-                                node = {
-                                    kind: NodeKind.DataVisualizationNode,
-                                    source,
-                                } satisfies DataVisualizationNode
-                            } else if (isInsightQueryNode(source)) {
-                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                            } else {
-                                node = source
-                            }
-
-                            handleInsightSuggested(node)
-                            setQuery(node)
-                        }}
-                        initialMaxPrompt="Show me users who "
-                        className="EditorFiltersWrapper__max-tool"
-                        active={maxToolActive}
-                    >
-                        <div
-                            className={clsx('@container/editor flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                                'p-4 rounded border': !embedded,
-                            })}
-                        >
-                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
-                                    {editorFilterGroups.map((editorFilterGroup) => (
-                                        <EditorFilterGroup
-                                            key={editorFilterGroup.title}
-                                            editorFilterGroup={editorFilterGroup}
-                                            insightProps={insightProps}
-                                            query={query}
-                                        />
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    </MaxTool>
-
-                    {previousQuery && (
-                        <SuggestionBanner
-                            previousQuery={previousQuery}
-                            suggestedQuery={suggestedQuery}
-                            onReject={onRejectSuggestedInsight}
+        <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
+            {[leftEditorFilterGroupsFiltered, rightEditorFilterGroupsFiltered].map((editorFilterGroups, i) => (
+                <div key={i} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
+                    {editorFilterGroups.map((editorFilterGroup) => (
+                        <EditorFilterGroup
+                            key={editorFilterGroup.title}
+                            editorFilterGroup={editorFilterGroup}
+                            insightProps={insightProps}
+                            query={query}
                         />
-                    )}
+                    ))}
                 </div>
-            </div>
-        </CSSTransition>
+            ))}
+        </EditorFiltersShell>
     )
 }
