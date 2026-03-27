@@ -19906,7 +19906,7 @@ export namespace Schemas {
     * `weekly` - weekly
     * `monthly` - monthly
     * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
       /**
        * @maxLength 100
        * @nullable
@@ -23630,7 +23630,7 @@ export namespace Schemas {
     * `weekly` - weekly
     * `monthly` - monthly
     * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
       /**
        * @maxLength 100
        * @nullable
