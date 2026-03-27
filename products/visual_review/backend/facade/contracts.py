@@ -64,7 +64,8 @@ class ApproveSnapshotInput:
 class ApproveRunRequestInput:
     """Request body for approving a run. run_id and user_id come from URL and auth."""
 
-    snapshots: list[ApproveSnapshotInput]
+    snapshots: list[ApproveSnapshotInput] = field(default_factory=list)
+    approve_all: bool = False
     commit_to_github: bool = True
 
 

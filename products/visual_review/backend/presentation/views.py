@@ -22,7 +22,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from ..facade import api
+from ..facade import api, contracts
 from ..facade.contracts import (
     AddSnapshotsInput,
     ApproveRunInput,
@@ -127,8 +127,14 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve"]
+    scope_object_read_actions = ["list", "retrieve", "counts"]
+
+    def dangerously_get_required_scopes(self, request, view):
+        # snapshots: GET = read, POST = write
+        if view.action == "snapshots":
+            return ["visual_review:write"] if request.method == "POST" else ["visual_review:read"]
+        return None  # fall through to default behavior
 
     @extend_schema(
         parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
@@ -168,10 +174,14 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)
 
-    @extend_schema(responses={200: SnapshotSerializer(many=True)})
-    @action(detail=True, methods=["get"])
+    @extend_schema(methods=["GET"], responses={200: SnapshotSerializer(many=True)})
+    @extend_schema(methods=["POST"], request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
+    @action(detail=True, methods=["get", "post"])
     def snapshots(self, request: Request, pk: str, **kwargs) -> Response:
-        """Get all snapshots for a run with diff results."""
+        """GET: list snapshots. POST: add a batch of snapshots (shard-based flow)."""
+        if request.method == "POST":
+            return self._add_snapshots(request, pk)
+
         try:
             snapshots = api.get_run_snapshots(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
@@ -182,11 +192,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
 
-    @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
-    @action(detail=True, methods=["post"], url_path="add-snapshots")
     @validated_request(AddSnapshotsInputSerializer)
-    def add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str, **kwargs) -> Response:
-        """Add a batch of snapshots to a pending run (shard-based flow)."""
+    def _add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str) -> Response:
         try:
             result = api.add_snapshots(
                 input=request.validated_data,
@@ -240,28 +247,39 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=ApproveRunInputSerializer,
-        responses={200: OpenApiResponse(response=RunSerializer)},
+        responses={200: OpenApiResponse(response=AutoApproveResultSerializer)},
     )
     @action(detail=True, methods=["post"])
     def approve(self, request: TypedRequest[ApproveRunRequestInput], pk: str, **kwargs) -> Response:
-        """Approve visual changes for snapshots in this run."""
+        """Approve visual changes for snapshots in this run.
+
+        With approve_all=true, approves all changed+new snapshots and returns
+        signed baseline YAML. With specific snapshots, approves only those.
+        """
         body = request.validated_data
-        input_dto = ApproveRunInput(
-            run_id=UUID(pk),
-            user_id=cast(int, request.user.id),
-            snapshots=body.snapshots,
-            commit_to_github=body.commit_to_github,
-        )
+        run_id = UUID(pk)
+        user_id = cast(int, request.user.id)
 
         try:
+            if body.approve_all:
+                result = api.auto_approve_run(run_id=run_id, user_id=user_id, team_id=self.team_id)
+                return Response(AutoApproveResultSerializer(instance=result).data)
+
+            input_dto = ApproveRunInput(
+                run_id=run_id,
+                user_id=user_id,
+                snapshots=body.snapshots,
+                commit_to_github=body.commit_to_github,
+            )
             run = api.approve_run(input_dto, team_id=self.team_id)
+            return Response(
+                AutoApproveResultSerializer(instance=contracts.AutoApproveResult(run=run, baseline_content="")).data
+            )
+
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.StaleRunError as e:
-            return Response(
-                {"detail": str(e), "code": "stale_run"},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
         except api.ArtifactNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except api.GitHubIntegrationNotFoundError:
@@ -270,27 +288,18 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except api.PRSHAMismatchError as e:
-            return Response(
-                {"detail": str(e), "code": "sha_mismatch"},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"detail": str(e), "code": "sha_mismatch"}, status=status.HTTP_409_CONFLICT)
         except api.GitHubCommitError as e:
-            return Response(
-                {"detail": f"GitHub commit failed: {e}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            return Response({"detail": f"GitHub commit failed: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
         except api.BaselineFilePathNotConfiguredError as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(RunSerializer(instance=run).data)
-
-    @extend_schema(responses={200: AutoApproveResultSerializer})
+    @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")
     def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
-        """Auto-approve all changes and return signed baseline YAML."""
+        """Deprecated: use POST /approve/ with approve_all=true instead."""
         try:
             result = api.auto_approve_run(
                 run_id=UUID(pk),
@@ -300,10 +309,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.StaleRunError as e:
-            return Response(
-                {"detail": str(e), "code": "stale_run"},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
         except api.ArtifactNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError:
