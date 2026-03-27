@@ -119,11 +119,13 @@ class TestFirstRunNotice:
 
     def test_shown_once(self, telemetry_config: Path, capsys):
         telemetry.show_first_run_notice_if_needed()
+        captured_first = capsys.readouterr()
+        assert "hogli collects anonymous usage data" in captured_first.err
+
         # Second call should produce no output
         telemetry.show_first_run_notice_if_needed()
-        captured = capsys.readouterr()
-        # The notice goes to stderr; second call should not have written anything
-        assert captured.out == ""
+        captured_second = capsys.readouterr()
+        assert captured_second.err == ""
 
 
 class TestTelemetryCommands:
