@@ -863,6 +863,150 @@ class ExperimentService:
         )
 
     # ------------------------------------------------------------------
+    # Ship variant
+    # ------------------------------------------------------------------
+
+    # Note that this action is not @transaction.atomic. This is because we go through
+    # the FeatureFlagSerializer approval workflow, which conflicts with atomic. Since
+    # this action were two separate calls from the frontend, having both calls coming
+    # from the backend is already more robust (while not ideal).
+    def ship_variant(
+        self,
+        experiment: Experiment,
+        variant_key: str,
+        *,
+        conclusion: str | None = None,
+        conclusion_comment: str | None = None,
+        request: Any,
+    ) -> Experiment:
+        """Ship a variant to 100% of users, optionally ending the experiment.
+
+        Rewrites the feature flag so the selected variant is served to everyone.
+        Existing release conditions (flag groups) are preserved so the change can
+        be rolled back by deleting the auto-added release condition in the flag UI.
+
+        Can be called on both running and stopped experiments — supports the
+        workflow where a user ends an experiment first, then ships the winner
+        later. If the experiment is still running it will be ended atomically.
+
+        The flag update goes through FeatureFlagSerializer so that the approval
+        workflow (@approval_gate) is honoured. If change-request approval is
+        required the serializer raises ApprovalRequired, the experiment is NOT
+        ended, and a 409 is returned to the caller.
+
+        ``request`` is required because the FeatureFlagSerializer needs a real
+        request with authentication and session context for approval policy
+        evaluation.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+
+        flag = experiment.feature_flag
+        if not flag:
+            raise ValidationError("Experiment does not have a linked feature flag.")
+
+        # Validate variant_key exists on the flag
+        variants = flag.filters.get("multivariate", {}).get("variants", [])
+        if not any(v["key"] == variant_key for v in variants):
+            raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
+
+        new_filters = self._transform_filters_for_winning_variant(flag.filters, variant_key)
+
+        # Update the flag through the serializer to preserve the approval
+        # workflow. If change-request approval is required, this raises
+        # ApprovalRequired which surfaces as a 409 to the caller. The
+        # experiment is NOT ended until the change request is approved and
+        # the user retries.
+        flag_serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": new_filters},
+            partial=True,
+            context={
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        flag_serializer.is_valid(raise_exception=True)
+        flag_serializer.save()
+
+        # Refresh the flag instance so the experiment's nested flag reflects
+        # the updated filters when serialized in the response.
+        flag.refresh_from_db()
+
+        # End the experiment only if it's still running
+        was_running = experiment.is_running
+        if was_running:
+            experiment.end_date = timezone.now()
+        if conclusion is not None:
+            experiment.conclusion = conclusion
+        if conclusion_comment is not None:
+            experiment.conclusion_comment = conclusion_comment
+        experiment.save()
+
+        self._report_experiment_variant_shipped(experiment, variant_key=variant_key, request=request)
+        if was_running:
+            self._report_experiment_ended(experiment, request=request)
+
+        return experiment
+
+    @staticmethod
+    def _transform_filters_for_winning_variant(
+        current_filters: dict,
+        variant_key: str,
+    ) -> dict:
+        """Port of frontend transformFiltersForWinningVariant().
+
+        Rewrites flag filters so that the selected variant gets 100% rollout
+        and all others get 0%. Prepends a catch-all release condition and
+        preserves existing release conditions (flag groups) for rollback.
+        """
+        return {
+            "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
+            "payloads": current_filters.get("payloads", {}),
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": v["key"],
+                        "rollout_percentage": 100 if v["key"] == variant_key else 0,
+                        **({"name": v["name"]} if v.get("name") else {}),
+                    }
+                    for v in current_filters.get("multivariate", {}).get("variants", [])
+                ],
+            },
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100,
+                    "description": "Added automatically when the experiment was ended to keep only one variant.",
+                },
+                *(current_filters.get("groups", [])),
+            ],
+        }
+
+    def _report_experiment_variant_shipped(
+        self,
+        experiment: Experiment,
+        *,
+        variant_key: str,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        metadata = experiment.get_analytics_metadata()
+        metadata["variant_key"] = variant_key
+        metadata["parameters"] = experiment.parameters
+
+        report_user_action(
+            self.user,
+            "experiment variant shipped",
+            metadata,
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
     # Update
     # ------------------------------------------------------------------
 
