@@ -75,6 +75,8 @@ function DashboardEmptyActions({
     onOpenAiWithPrompt: (prompt: string) => void
 }): JSX.Element {
     const { reportDashboardEmptyAiPromptClicked } = useActions(eventUsageLogic)
+    const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
+
     const addInsightButton = (
         <LemonButton
             data-attr="dashboard-add-graph-header"
@@ -131,7 +133,7 @@ function DashboardEmptyActions({
                             type="secondary"
                             size="small"
                             className="max-w-full whitespace-normal text-left [&_.LemonButton__chrome]:h-auto [&_.LemonButton__chrome]:py-1.5"
-                            disabledReason={aiDisabledReason || undefined}
+                            disabledReason={chipDisabledReason}
                             data-attr={`dashboard-empty-ai-prompt-${chip.id}`}
                             onClick={() => {
                                 reportDashboardEmptyAiPromptClicked(chip.label, dashboard?.id)
@@ -142,7 +144,7 @@ function DashboardEmptyActions({
                         </LemonButton>
                     )
                     return (
-                        <Tooltip key={chip.id} title={aiDisabledReason ? aiDisabledReason : chip.prompt}>
+                        <Tooltip key={chip.id} title={chipDisabledReason ? chipDisabledReason : chip.prompt}>
                             {button}
                         </Tooltip>
                     )
