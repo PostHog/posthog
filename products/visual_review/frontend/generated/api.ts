@@ -189,6 +189,27 @@ export const visualReviewRunsRetrieve = async (
 }
 
 /**
+ * Add a batch of snapshots to a pending run (shard-based flow).
+ */
+export const getVisualReviewRunsAddSnapshotsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/add-snapshots/`
+}
+
+export const visualReviewRunsAddSnapshotsCreate = async (
+    projectId: string,
+    id: string,
+    addSnapshotsInputApi: AddSnapshotsInputApi,
+    options?: RequestInit
+): Promise<AddSnapshotsResultApi> => {
+    return apiMutator<AddSnapshotsResultApi>(getVisualReviewRunsAddSnapshotsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSnapshotsInputApi),
+    })
+}
+
+/**
  * Approve visual changes for snapshots in this run.
 
 With approve_all=true, approves all changed+new snapshots and returns
@@ -275,7 +296,7 @@ export const visualReviewRunsSnapshotHistoryList = async (
 }
 
 /**
- * GET: list snapshots. POST: add a batch of snapshots (shard-based flow).
+ * Get all snapshots for a run with diff results.
  */
 export const getVisualReviewRunsSnapshotsListUrl = (
     projectId: string,
@@ -306,27 +327,6 @@ export const visualReviewRunsSnapshotsList = async (
     return apiMutator<PaginatedSnapshotListApi>(getVisualReviewRunsSnapshotsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-/**
- * GET: list snapshots. POST: add a batch of snapshots (shard-based flow).
- */
-export const getVisualReviewRunsSnapshotsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/visual_review/runs/${id}/snapshots/`
-}
-
-export const visualReviewRunsSnapshotsCreate = async (
-    projectId: string,
-    id: string,
-    addSnapshotsInputApi: AddSnapshotsInputApi,
-    options?: RequestInit
-): Promise<AddSnapshotsResultApi> => {
-    return apiMutator<AddSnapshotsResultApi>(getVisualReviewRunsSnapshotsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addSnapshotsInputApi),
     })
 }
 

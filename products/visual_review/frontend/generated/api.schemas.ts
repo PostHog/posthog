@@ -128,6 +128,18 @@ export interface CreateRunResultApi {
     uploads: UploadTargetApi[]
 }
 
+export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
+
+export interface AddSnapshotsInputApi {
+    snapshots: SnapshotManifestItemApi[]
+    baseline_hashes?: AddSnapshotsInputApiBaselineHashes
+}
+
+export interface AddSnapshotsResultApi {
+    added: number
+    uploads: UploadTargetApi[]
+}
+
 export interface ApproveSnapshotInputApi {
     identifier: string
     new_hash: string
@@ -207,18 +219,6 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
-}
-
-export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
-
-export interface AddSnapshotsInputApi {
-    snapshots: SnapshotManifestItemApi[]
-    baseline_hashes?: AddSnapshotsInputApiBaselineHashes
-}
-
-export interface AddSnapshotsResultApi {
-    added: number
-    uploads: UploadTargetApi[]
 }
 
 export interface ReviewStateCountsApi {
