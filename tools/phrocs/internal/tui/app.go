@@ -177,19 +177,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
-		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
+		if p := m.activeProc(); m.ready && p != nil && p.Name == msg.Name {
 			// In docker mode the viewport shows the status table or container logs,
 			// not the process's combined output
 			if m.isDockerMode() || m.infoMode {
 				break
 			}
-			m.viewport.SetContent(m.buildContent())
+			lines := p.Lines()
+			m.viewport.SetContent(strings.Join(lines, "\n"))
 			// Don't auto-scroll while the user is selecting text in copy mode
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
 			}
 			if m.searchQuery != "" {
-				m.recomputeSearch()
+				m.recomputeSearchWith(lines)
 			}
 		}
 

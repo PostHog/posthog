@@ -187,6 +187,7 @@ func (p *Process) AppendLine(line string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if len(p.lines) >= p.maxLines {
+		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
 	}
 	p.lines = append(p.lines, line)
@@ -583,6 +584,7 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 func (p *Process) bufferLine(line string, send func(tea.Msg)) {
 	p.mu.Lock()
 	if len(p.lines) >= p.maxLines {
+		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
 	}
 	p.lines = append(p.lines, line)
