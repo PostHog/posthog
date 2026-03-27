@@ -10,7 +10,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { IngestionWarningsOutput } from '../common/outputs'
+import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
@@ -18,11 +18,11 @@ import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-ste
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
-import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
+import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import { AiEventOutput, EventOutput, HeatmapsOutput } from './outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, HeatmapsOutput } from './outputs'
 import {
     PerDistinctIdPipelineConfig,
     PerDistinctIdPipelineInput,
@@ -38,13 +38,19 @@ import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-
 export interface JoinedIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
     overflowEnabled: boolean
-    overflowTopic: string
-    dlqTopic: string
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
     groupId: string
-    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput>
+    outputs: IngestionOutputs<
+        | EventOutput
+        | AiEventOutput
+        | HeatmapsOutput
+        | IngestionWarningsOutput
+        | DlqOutput
+        | OverflowOutput
+        | AsyncOutput
+    >
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
 }
@@ -119,8 +125,6 @@ export function createJoinedIngestionPipeline<
     const {
         eventSchemaEnforcementEnabled,
         overflowEnabled,
-        overflowTopic,
-        dlqTopic,
         preservePartitionLocality,
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
@@ -148,9 +152,8 @@ export function createJoinedIngestionPipeline<
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+    const pipelineConfig: PipelineConfig<OverflowOutput | AsyncOutput> = {
+        outputs,
         promiseScheduler,
     }
 
@@ -159,7 +162,6 @@ export function createJoinedIngestionPipeline<
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        overflowTopic,
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
@@ -191,7 +193,6 @@ export function createJoinedIngestionPipeline<
                         teamManager,
                         eventIngestionRestrictionManager,
                         overflowEnabled,
-                        overflowTopic,
                         preservePartitionLocality,
                     })
                 )

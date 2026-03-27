@@ -12,7 +12,7 @@ export function EmptyMessage_(): JSX.Element {
     return (
         <EmptyMessage
             title="The data is not here"
-            description="It really could be anywhere. Nobody knows where it is."
+            description="It really could be anywhere. Nobody knows where it went."
             buttonText="Check the map"
             buttonTo="https://www.google.com/maps"
         />

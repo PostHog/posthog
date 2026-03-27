@@ -36,6 +36,13 @@ import type {
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+    name_singular: string | null
+    name_plural: string | null
+}
+
 // Global search types
 export const SearchableEntitySchema = z.enum([
     'insight',
@@ -1053,5 +1060,13 @@ export class ApiClient {
                 return this.fetchJson<SearchResponse>(url)
             },
         }
+    }
+
+    async getGroupTypes(projectId: string): Promise<GroupType[]> {
+        const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data
     }
 }

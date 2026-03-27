@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -41,7 +41,12 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
     connect(() => ({
-        actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
+        actions: [
+            sidePanelDiscussionLogic,
+            ['incrementCommentCount', 'scrollToLastComment'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+        ],
         values: [
             userLogic,
             ['user'],
@@ -369,4 +374,8 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.ensureAllMembersLoaded()
+    }),
 ])

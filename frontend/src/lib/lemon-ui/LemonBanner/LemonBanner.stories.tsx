@@ -52,7 +52,7 @@ const wideParameters = {
 
 export const Info: Story = {
     render: renderWide,
-    args: { type: 'info', children: 'PSA: Every dish can be improved by adding more garlic.' },
+    args: { type: 'info', children: 'PSA: Every dish can be improved by adding more butter.' },
     parameters: wideParameters,
 }
 

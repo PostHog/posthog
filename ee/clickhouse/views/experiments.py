@@ -17,6 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -256,9 +257,21 @@ class EndExperimentSerializer(serializers.Serializer):
     )
 
 
+class ShipVariantSerializer(EndExperimentSerializer):
+    variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
+
+
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
-    ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+    # ApprovalHandlingMixin converts ApprovalRequired exceptions (raised by
+    # FeatureFlagSerializer in ship_variant) into 409 HTTP responses. The
+    # approval check itself lives in the service layer — this mixin is only
+    # responsible for exception-to-response formatting.
+    ApprovalHandlingMixin,
+    ForbidDestroyModel,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
@@ -378,6 +391,44 @@ class EnterpriseExperimentsViewSet(
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=ShipVariantSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
+    def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Ship a variant to 100% of users and (optionally) end the experiment.
+
+        Rewrites the feature flag so that the selected variant is served to everyone.
+        Existing release conditions (flag groups) are preserved so the change can be
+        rolled back by deleting the auto-added release condition in the feature flag UI.
+
+        Can be called on both running and stopped experiments. If the experiment is
+        still running, it will also be ended (end_date set and status marked as stopped).
+        If the experiment has already ended, only the flag is rewritten - this supports
+        the "end first, ship later" workflow.
+
+        If an approval policy requires review before changes on the flag take effect,
+        the API returns 409 with a change_request_id. The experiment is NOT ended until
+        the change request is approved and the user retries.
+
+        Returns 400 if the experiment is in draft state, the variant_key is not found
+        on the flag, or the experiment has no linked feature flag.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = ShipVariantSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        shipped_experiment = service.ship_variant(
+            experiment,
+            variant_key=request_serializer.validated_data["variant_key"],
+            conclusion=request_serializer.validated_data.get("conclusion"),
+            conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            request=request,
+        )
+        return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=None,

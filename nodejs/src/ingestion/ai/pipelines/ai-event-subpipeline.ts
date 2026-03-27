@@ -10,7 +10,7 @@ import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../../worker/ingestion/persons/persons-store'
-import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
+import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
@@ -52,7 +52,7 @@ export interface AiEventSubpipelineConfig {
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext> {
+): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
     const {
         options,
         outputs,
