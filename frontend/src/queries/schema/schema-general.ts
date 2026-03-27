@@ -1126,6 +1126,7 @@ export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
     pinnedColumns?: string[]
+    transpose?: boolean
 }
 
 export interface SharingConfigurationSettings {

@@ -343,4 +343,72 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
+
+    it('transposes table results without changing the query source', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['region', 'value'],
+            types: [
+                ['region', 'String'],
+                ['value', 'Int64'],
+            ],
+            results: [
+                ['US', 10],
+                ['EU', 20],
+            ],
+        })
+
+        logic.actions.setTransposeResults(true)
+
+        await expectLogic(logic).toMatchValues({
+            isTransposed: true,
+            isPinningEnabled: false,
+            tabularData: [
+                [
+                    {
+                        value: 'region',
+                        formattedValue: 'region',
+                        type: 'STRING',
+                        sourceColumnName: 'region',
+                        isTransposedHeader: true,
+                    },
+                    {
+                        value: 'US',
+                        formattedValue: 'US',
+                        type: 'STRING',
+                        sourceColumnName: 'region',
+                    },
+                    {
+                        value: 'EU',
+                        formattedValue: 'EU',
+                        type: 'STRING',
+                        sourceColumnName: 'region',
+                    },
+                ],
+                [
+                    {
+                        value: 'value',
+                        formattedValue: 'value',
+                        type: 'STRING',
+                        sourceColumnName: 'value',
+                        isTransposedHeader: true,
+                    },
+                    {
+                        value: 10,
+                        formattedValue: '10',
+                        type: 'INTEGER',
+                        sourceColumnName: 'value',
+                    },
+                    {
+                        value: 20,
+                        formattedValue: '20',
+                        type: 'INTEGER',
+                        sourceColumnName: 'value',
+                    },
+                ],
+            ],
+        })
+
+        expect(logic.values.query.source).toEqual(defaultQuery.source)
+        expect(logic.values.query.tableSettings?.transpose).toEqual(true)
+    })
 })
