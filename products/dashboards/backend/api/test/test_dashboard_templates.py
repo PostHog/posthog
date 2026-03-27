@@ -6,9 +6,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import User
-from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
 def assert_template_equals(received, expected):

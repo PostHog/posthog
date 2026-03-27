@@ -3,25 +3,28 @@ from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
 from django.utils import timezone
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.insight import generate_insight_filters_hash
 from posthog.models.utils import UUIDModel, build_unique_relationship_check
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class Text(models.Model):
     body = models.CharField(max_length=4000, null=True, blank=True)
 
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
-        "User",
+        "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="modified_text_tiles",
     )
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    class Meta:
+        db_table = "posthog_text"
 
 
 class ButtonTile(UUIDModel):
@@ -32,17 +35,20 @@ class ButtonTile(UUIDModel):
         max_length=10, choices=[("primary", "Primary"), ("secondary", "Secondary")], default="primary"
     )
 
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
-        "User",
+        "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="modified_button_tiles",
     )
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    class Meta:
+        db_table = "posthog_buttontile"
 
 
 class DashboardTileManager(models.Manager):
@@ -52,7 +58,7 @@ class DashboardTileManager(models.Manager):
 
 class DashboardTile(models.Model):
     # Relations
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey(
         "posthog.Insight",
         on_delete=models.CASCADE,
@@ -60,13 +66,13 @@ class DashboardTile(models.Model):
         null=True,
     )
     text = models.ForeignKey(
-        "posthog.Text",
+        "dashboards.Text",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
     )
     button_tile = models.ForeignKey(
-        "posthog.ButtonTile",
+        "dashboards.ButtonTile",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
@@ -114,11 +120,14 @@ class DashboardTile(models.Model):
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
+        db_table = "posthog_dashboardtile"
 
     def save(self, *args, **kwargs) -> None:
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
+                from posthog.models.insight import generate_insight_filters_hash
+
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
                 if "update_fields" in kwargs:

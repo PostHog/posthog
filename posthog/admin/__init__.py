@@ -51,8 +51,6 @@ def register_all_admin():
         BatchImport,
         Cohort,
         ColumnConfiguration,
-        Dashboard,
-        DashboardTemplate,
         DataColorTheme,
         DataDeletionRequest,
         DataWarehouseTable,
@@ -76,12 +74,14 @@ def register_all_admin():
         PluginConfig,
         Project,
         Team,
-        Text,
         User,
     )
     from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
 
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+    from products.dashboards.backend.models.dashboard_tile import Text
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
     from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin

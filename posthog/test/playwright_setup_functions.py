@@ -12,9 +12,12 @@ from pydantic import BaseModel
 
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import Dashboard, DashboardTile, Insight, PersonalAPIKey, Team, User
+from posthog.models import Insight, PersonalAPIKey, Team, User
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import hash_key_value, mask_key_value
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
 class PlaywrightSetupVariableType(StrEnum):
