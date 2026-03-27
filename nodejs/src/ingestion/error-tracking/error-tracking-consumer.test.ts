@@ -11,6 +11,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 /** Creates a mock KafkaConsumer for tests that don't need actual Kafka connections */
@@ -157,7 +158,12 @@ describe('ErrorTrackingConsumer', () => {
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
         const deps = {
-            kafkaProducer: hub.kafkaProducer,
+            outputs: new IngestionOutputs({
+                events: { topic: config.outputTopic, producer: hub.kafkaProducer },
+                ingestion_warnings: { topic: 'clickhouse_ingestion_warnings_test', producer: hub.kafkaProducer },
+                dlq: { topic: config.dlqTopic, producer: hub.kafkaProducer },
+                overflow: { topic: config.overflowTopic || '', producer: hub.kafkaProducer },
+            }),
             kafkaMetricsProducer: hub.kafkaProducer,
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,
