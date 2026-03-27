@@ -55,6 +55,7 @@ export const alertsCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsCreateBodyCalculationIntervalDefault = `daily`
 
 export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -926,7 +927,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     calculation_interval: zod
         .enum(['hourly', 'daily', 'weekly', 'monthly'])
         .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
-        .optional()
+        .default(alertsCreateBodyCalculationIntervalDefault)
         .describe(
             'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
@@ -1002,6 +1003,7 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsPartialUpdateBodyCalculationIntervalDefault = `daily`
 
 export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -1878,7 +1880,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     calculation_interval: zod
         .enum(['hourly', 'daily', 'weekly', 'monthly'])
         .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
-        .optional()
+        .default(alertsPartialUpdateBodyCalculationIntervalDefault)
         .describe(
             'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
