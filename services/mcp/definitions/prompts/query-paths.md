@@ -159,7 +159,7 @@ Use `excludeEvents` to remove specific path items that clutter the visualization
   "kind": "PathsQuery",
   "pathsFilter": {
     "includeEventTypes": ["custom_event"],
-    "excludeEvents": ["$pageleave", "heartbeat"],
+    "excludeEvents": ["heartbeat"],
     "stepLimit": 5
   },
   "dateRange": { "date_from": "-14d" },
