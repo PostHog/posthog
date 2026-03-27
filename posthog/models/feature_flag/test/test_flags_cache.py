@@ -8,6 +8,9 @@ Tests cover:
 - Data format compatibility with service
 """
 
+import json
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -20,6 +23,7 @@ from parameterized import parameterized
 
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag.flags_cache import (
     _compute_flag_dependencies,
     _extract_cohort_ids_from_flag_filters,
@@ -612,6 +616,90 @@ class TestServiceFlagsCeleryTasks(BaseTest):
         update_team_service_flags_cache(999999)
 
 
+# Path from this test file up to the repo root (4 levels: test/ -> feature_flag/ -> models/ -> posthog/ -> repo)
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _extract_schema(obj: Any) -> Any:
+    """Extract a type skeleton from a JSON-like object for structural comparison.
+
+    Returns a nested structure of dicts, lists, and leaf type names.
+    Dicts with all-numeric keys (e.g. transitive_deps keyed by flag ID) are
+    treated as maps — represented as {"<map>": value_schema} so the comparison
+    checks value structure, not specific keys.
+    """
+    if obj is None:
+        return "null"
+    if isinstance(obj, bool):
+        return "bool"
+    if isinstance(obj, (int, float)):
+        return "number"
+    if isinstance(obj, str):
+        return "str"
+    if isinstance(obj, list):
+        if not obj:
+            return ["empty_list"]
+        return [_extract_schema(obj[0])]
+    if isinstance(obj, dict):
+        if not obj:
+            return {}
+        # Dicts with all-numeric keys are ID-keyed maps, not fixed schemas.
+        # Derive the map value schema from the first informative (non-empty-list) value
+        # so that a breaking type change in non-empty entries isn't masked by leading
+        # empty lists (e.g. transitive_deps: {"1": [], "4": [2]}).
+        if all(k.isdigit() for k in obj.keys()):
+            map_schema = None
+            fallback_schema = None
+            for val in obj.values():
+                candidate = _extract_schema(val)
+                if fallback_schema is None:
+                    fallback_schema = candidate
+                if isinstance(candidate, list) and candidate and candidate[0] == "empty_list":
+                    continue
+                map_schema = candidate
+                break
+            return {"<map>": map_schema if map_schema is not None else fallback_schema}
+        return {k: _extract_schema(v) for k, v in sorted(obj.items())}
+    return type(obj).__name__
+
+
+def _compare_schemas(fixture_schema: Any, result_schema: Any, path: str = "") -> list[str]:
+    """Compare two type skeletons and return human-readable diffs."""
+    diffs: list[str] = []
+    # If the fixture declares a field as null, the serializer must also return null.
+    # This prevents null in the fixture from acting as a wildcard that accepts any
+    # non-null type, which would allow breaking type changes on nullable fields to
+    # slip through undetected (e.g. changing an Option<i32> field to emit a string).
+    if fixture_schema == "null":
+        if result_schema != "null":
+            diffs.append(f"Fixture expects null at `{path}` but serializer returned {result_schema}")
+        return diffs
+    if result_schema == "null":
+        diffs.append(f"Fixture expects non-null at `{path}` ({fixture_schema}) but serializer returned null")
+        return diffs
+    if type(fixture_schema) is not type(result_schema):
+        diffs.append(f"Type mismatch at `{path}`: fixture={fixture_schema}, serializer={result_schema}")
+        return diffs
+    if isinstance(fixture_schema, dict):
+        all_keys = set(fixture_schema.keys()) | set(result_schema.keys())
+        for key in sorted(all_keys):
+            child_path = f"{path}.{key}" if path else key
+            if key not in result_schema:
+                diffs.append(f"Key `{child_path}` in fixture but not in serializer output")
+            elif key not in fixture_schema:
+                diffs.append(f"Key `{child_path}` in serializer output but not in fixture")
+            else:
+                diffs.extend(_compare_schemas(fixture_schema[key], result_schema[key], child_path))
+    elif isinstance(fixture_schema, list) and fixture_schema and result_schema:
+        # empty_list is compatible with any element type
+        if fixture_schema[0] == "empty_list" or result_schema[0] == "empty_list":
+            return diffs
+        diffs.extend(_compare_schemas(fixture_schema[0], result_schema[0], f"{path}[]"))
+    elif fixture_schema != result_schema:
+        diffs.append(f"Type mismatch at `{path}`: fixture={fixture_schema}, serializer={result_schema}")
+    return diffs
+
+
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsDataFormat(BaseTest):
     """Test that cached data format matches service expectations."""
@@ -620,18 +708,58 @@ class TestServiceFlagsDataFormat(BaseTest):
         super().setUp()
         clear_flags_cache(self.team, kinds=["redis", "s3"])
 
-    def test_flag_data_contains_required_rust_fields(self):
-        """Test that flag data includes all fields expected by Rust."""
-        FeatureFlag.objects.create(
+    def test_serializer_output_matches_fixture_schema(self):
+        """Golden fixture validation: Python serializer output must match the fixture schema.
+
+        Recursively compares the type skeleton (keys + value types at every nesting
+        level) of the fixture against actual serializer output. If this test fails,
+        update the golden fixture and verify Rust tests pass.
+        """
+        fixture_path = _REPO_ROOT / "rust" / "feature-flags" / "tests" / "fixtures" / "hypercache_contract.json"
+        fixture = json.loads(fixture_path.read_text())
+
+        # --- Create test data mirroring the 4 fixture flag variants ---
+
+        cohort = Cohort.objects.create(
             team=self.team,
-            key="rust-compatible-flag",
-            name="Rust Compatible Flag",
+            name="Test Cohort",
             created_by=self.user,
+            version=1,
+            count=42,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "value": "test@example.com", "type": "person", "operator": "exact"}
+                            ],
+                        }
+                    ],
+                }
+            },
+            last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # 1) full-flag: exercises all optional nested structures
+        full_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="full-flag",
+            name="Full feature flag",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+            version=3,
+            evaluation_runtime="all",
+            bucketing_identifier="device_id",
             filters={
                 "groups": [
                     {
-                        "properties": [{"key": "email", "value": "test@example.com", "type": "person"}],
+                        "properties": [
+                            {"key": "email", "value": "test@example.com", "type": "person", "operator": "exact"}
+                        ],
                         "rollout_percentage": 50,
+                        "variant": None,
                     }
                 ],
                 "multivariate": {
@@ -640,39 +768,165 @@ class TestServiceFlagsDataFormat(BaseTest):
                         {"key": "test", "name": "Test", "rollout_percentage": 50},
                     ]
                 },
+                "payloads": {"control": "payload-value"},
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/full-flag",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact",
+                            }
+                        ],
+                        "rollout_percentage": None,
+                        "variant": None,
+                    }
+                ],
+                "feature_enrollment": True,
+                "holdout": {"id": 42, "exclusion_percentage": 10.0},
+                "aggregation_group_type_index": None,
             },
-            ensure_experience_continuity=True,
+        )
+
+        # Attach evaluation contexts to full-flag
+        for ctx_name in ["docs-page", "marketing-site"]:
+            ctx, _ = EvaluationContext.objects.get_or_create(team=self.team, name=ctx_name)
+            FeatureFlagEvaluationContext.objects.create(feature_flag=full_flag, evaluation_context=ctx)
+
+        # 2) minimal-flag: only required fields, empty/null optionals
+        minimal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="minimal-flag",
+            name="",
+            created_by=self.user,
+            version=1,
+            evaluation_runtime="all",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100, "variant": None}],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        # 3) cohort-flag: cohort-type property
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="cohort-flag",
+            name="Cohort flag",
+            created_by=self.user,
+            version=1,
+            evaluation_runtime="all",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort", "operator": "in"}],
+                        "rollout_percentage": 100,
+                        "variant": None,
+                    }
+                ],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        # 4) dependent-flag: flag-type property with label
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dependent-flag",
+            name="Flag with dependency",
+            created_by=self.user,
+            version=2,
+            evaluation_runtime="all",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(minimal_flag.id),
+                                "label": "minimal-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": True,
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": None,
+                    }
+                ],
+                "multivariate": None,
+                "payloads": {},
+            },
         )
 
         result = _get_feature_flags_for_service(self.team)
-        flags = result["flags"]
-        flag_data = flags[0]
 
-        # Required fields for service FeatureFlag struct
-        required_fields = [
-            "id",
-            "team_id",
-            "name",
-            "key",
-            "filters",
-            "deleted",
-            "active",
-            "ensure_experience_continuity",
-            "version",
-        ]
+        # --- Deep recursive schema comparison ---
 
-        for field in required_fields:
-            assert field in flag_data, f"Missing required field: {field}"
+        all_diffs: list[str] = []
 
-        # Verify filters structure
-        assert "groups" in flag_data["filters"]
-        assert len(flag_data["filters"]["groups"]) == 1
-        assert "multivariate" in flag_data["filters"]
+        # Top-level keys
+        fixture_top = set(fixture.keys())
+        result_top = set(result.keys())
+        if fixture_top != result_top:
+            if fixture_top - result_top:
+                all_diffs.append(f"Top-level keys in fixture but not in serializer: {sorted(fixture_top - result_top)}")
+            if result_top - fixture_top:
+                all_diffs.append(f"Top-level keys in serializer but not in fixture: {sorted(result_top - fixture_top)}")
+
+        # Per-flag comparison by key — guard against KeyError when "flags" is missing
+        # (missing-key diffs are already recorded above; we continue to collect other diffs)
+        if "flags" in fixture and "flags" in result:
+            fixture_flags_by_key = {f["key"]: f for f in fixture["flags"]}
+            result_flags_by_key = {f["key"]: f for f in result["flags"]}
+
+            fixture_keys = set(fixture_flags_by_key.keys())
+            result_keys = set(result_flags_by_key.keys())
+            missing = fixture_keys - result_keys
+            extra = result_keys - fixture_keys
+            if missing:
+                all_diffs.append(f"Fixture flag keys not in serializer output: {sorted(missing)}")
+            if extra:
+                all_diffs.append(f"Serializer flag keys not in fixture: {sorted(extra)}")
+            for key in sorted(fixture_keys & result_keys):
+                all_diffs.extend(
+                    _compare_schemas(
+                        _extract_schema(fixture_flags_by_key[key]),
+                        _extract_schema(result_flags_by_key[key]),
+                        f"flags[key={key}]",
+                    )
+                )
+
+        # evaluation_metadata
+        if "evaluation_metadata" in fixture and "evaluation_metadata" in result:
+            all_diffs.extend(
+                _compare_schemas(
+                    _extract_schema(fixture["evaluation_metadata"]),
+                    _extract_schema(result["evaluation_metadata"]),
+                    "evaluation_metadata",
+                )
+            )
+
+        # cohorts
+        assert result.get("cohorts"), "Expected cohorts in serializer output (flags reference a cohort)"
+        if "cohorts" in fixture and "cohorts" in result:
+            all_diffs.extend(
+                _compare_schemas(
+                    _extract_schema(fixture["cohorts"][0]),
+                    _extract_schema(result["cohorts"][0]),
+                    "cohorts[0]",
+                )
+            )
+
+        assert not all_diffs, (
+            f"Fixture schema mismatch ({len(all_diffs)} differences):\n"
+            + "\n".join(f"  - {d}" for d in all_diffs)
+            + "\n\nUpdate the golden fixture at rust/feature-flags/tests/fixtures/hypercache_contract.json"
+            + "\nand verify Rust tests pass: cargo test -p feature-flags test_hypercache_contract"
+        )
 
     def test_flag_data_serializes_to_json(self):
         """Test that flag data can be serialized to JSON (for Redis/S3 storage)."""
-        import json
-
         FeatureFlag.objects.create(
             team=self.team,
             key="json-test-flag",
@@ -2758,7 +3012,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # All 16 fields required by the Rust Cohort struct must be present
+        # All 17 fields required by the Rust Cohort struct must be present
         expected_fields = {
             "id",
             "name",
@@ -2776,6 +3030,7 @@ class TestSerializeCohort(BaseTest):
             "groups",
             "created_by_id",
             "cohort_type",
+            "last_backfill_person_properties_at",
         }
         assert set(result.keys()) == expected_fields
         assert result["id"] == cohort.id

@@ -1155,6 +1155,117 @@ mod tests {
         ));
     }
 
+    /// Golden fixture contract test: verifies that Rust can deserialize the hypercache
+    /// format that Python produces. If this test fails, you've changed the cache schema
+    /// in a way that breaks deserialization.
+    ///
+    /// See the expand-and-contract process in the HYPERCACHE CONTRACT comments at:
+    ///   - posthog/api/feature_flag.py (MinimalFeatureFlagSerializer)
+    ///   - rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
+    #[test]
+    fn test_hypercache_contract() {
+        let fixture = include_str!("../../tests/fixtures/hypercache_contract.json");
+        let data: serde_json::Value = serde_json::from_str(fixture).expect(
+            "Failed to parse hypercache_contract.json as JSON. \
+             The fixture file must be valid JSON.",
+        );
+
+        let result = FeatureFlagList::parse_hypercache_value(data, 99);
+        let (flags, metadata, cohorts) = result.expect(
+            "HYPERCACHE CONTRACT VIOLATION: Rust failed to deserialize the golden fixture.\n\n\
+             This means a schema change has broken the cache format that Python writes \
+             and Rust reads. Schema changes must follow the expand-and-contract pattern:\n\
+             1. Add #[serde(default)] or #[serde(alias = ...)] in Rust, deploy\n\
+             2. Change Python serializer, deploy, run warm_flags_cache\n\
+             3. Remove compatibility shim in follow-up PR\n\n\
+             See: rust/feature-flags/tests/fixtures/hypercache_contract.json",
+        );
+
+        // Verify flags parsed correctly
+        assert_eq!(flags.len(), 4, "Expected 4 flags in contract fixture");
+
+        // Full flag with all optional fields
+        let full_flag = &flags[0];
+        assert_eq!(full_flag.key, "full-flag");
+        assert_eq!(full_flag.id, 1);
+        assert!(full_flag.active);
+        assert!(!full_flag.deleted);
+        assert_eq!(full_flag.ensure_experience_continuity, Some(true));
+        assert_eq!(full_flag.version, Some(3));
+        assert_eq!(full_flag.evaluation_runtime, Some("all".to_string()));
+        assert_eq!(
+            full_flag.bucketing_identifier,
+            Some("device_id".to_string())
+        );
+        // evaluation_contexts is aliased to evaluation_tags in Rust
+        let tags = full_flag
+            .evaluation_tags
+            .as_ref()
+            .expect("evaluation_tags (aliased from evaluation_contexts) should be present");
+        assert_eq!(
+            tags,
+            &vec!["docs-page".to_string(), "marketing-site".to_string()]
+        );
+        // Filter structure
+        assert_eq!(full_flag.filters.groups.len(), 1);
+        assert!(full_flag.filters.multivariate.is_some());
+        assert!(full_flag.filters.super_groups.is_some());
+        assert_eq!(full_flag.filters.feature_enrollment, Some(true));
+        assert!(full_flag.filters.holdout.is_some());
+        let holdout = full_flag.filters.holdout.as_ref().unwrap();
+        assert_eq!(holdout.id, 42);
+        assert!((holdout.exclusion_percentage - 10.0).abs() < f64::EPSILON);
+
+        // Minimal flag: verify defaults for absent optional fields
+        let minimal_flag = &flags[1];
+        assert_eq!(minimal_flag.key, "minimal-flag");
+        assert_eq!(minimal_flag.ensure_experience_continuity, Some(false));
+        assert!(minimal_flag.bucketing_identifier.is_none());
+        assert!(minimal_flag.filters.multivariate.is_none());
+
+        // Cohort flag: verify cohort property type parsed
+        let cohort_flag = &flags[2];
+        assert_eq!(cohort_flag.key, "cohort-flag");
+        assert_eq!(cohort_flag.filters.groups.len(), 1);
+
+        // Flag with dependency: verify dependency property type parsed
+        let dep_flag = &flags[3];
+        assert_eq!(dep_flag.key, "dependent-flag");
+        assert_eq!(dep_flag.filters.groups.len(), 1);
+        assert_eq!(dep_flag.version, Some(2));
+
+        // Verify evaluation_metadata parsed correctly
+        let meta = metadata;
+        assert_eq!(meta.dependency_stages.len(), 2);
+        assert_eq!(meta.dependency_stages[0], vec![1, 2, 3]);
+        assert_eq!(meta.dependency_stages[1], vec![4]);
+        assert!(meta.flags_with_missing_deps.is_empty());
+        assert_eq!(meta.transitive_deps.len(), 4);
+        assert!(meta.transitive_deps[&4].contains(&2));
+
+        // Verify cohorts parsed correctly
+        let cohorts = cohorts.expect("cohorts should be present in contract fixture");
+        assert_eq!(cohorts.len(), 1);
+        assert_eq!(cohorts[0].id, 100);
+        assert_eq!(cohorts[0].name, Some("Test Cohort".to_string()));
+        assert_eq!(cohorts[0].team_id, 99);
+        assert!(!cohorts[0].deleted);
+
+        assert!(
+            cohorts[0].last_backfill_person_properties_at.is_some(),
+            "last_backfill_person_properties_at should deserialize from ISO 8601 timestamp"
+        );
+
+        // Verify cohort filters can parse into the expected CohortProperty structure
+        let filters_value = cohorts[0]
+            .filters
+            .as_ref()
+            .expect("cohort should have filters");
+        let _parsed: crate::cohorts::cohort_models::CohortProperty =
+            serde_json::from_value(filters_value.clone())
+                .expect("Cohort filters should parse as CohortProperty");
+    }
+
     #[test]
     fn test_prepare_regexes_compiles_regex_filters_only() {
         let mut flag_list = FeatureFlagList::new(vec![FeatureFlag {
