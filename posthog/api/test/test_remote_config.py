@@ -14,6 +14,10 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         self.client.logout()
 
+        # Mock get_disk_js_hash to avoid reading frontend/dist/array.js (absent in CI)
+        self._disk_hash_patcher = patch("posthog.models.remote_config.get_disk_js_hash", return_value="mocked_hash")
+        self._disk_hash_patcher.start()
+
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
         self.team.surveys_opt_in = True
@@ -31,6 +35,10 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         # Clear the HyperCache (both Redis and S3) to properly test cache miss behavior
         RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
+
+    def tearDown(self):
+        self._disk_hash_patcher.stop()
+        super().tearDown()
 
     def test_missing_tokens(self):
         with self.assertNumQueries(FuzzyInt(1, 3)):
@@ -111,7 +119,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.headers["Content-Type"] == "application/javascript"
         assert response.content == self.snapshot
 
-    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_js(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(
@@ -129,7 +137,81 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         # NOT actually testing the content here as it will change dynamically
 
-    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_array_js_includes_cache_headers(self, mock_get_array_js_content):
+        response = self.client.get(f"/array/{self.team.api_token}/array.js")
+        assert response.status_code == status.HTTP_200_OK
+        assert "ETag" in response.headers
+        assert response.headers["ETag"].startswith('"') and response.headers["ETag"].endswith('"')
+        assert (
+            response.headers["Cache-Control"]
+            == "public, max-age=3600, stale-while-revalidate=86400, stale-if-error=86400"
+        )
+        assert f"token:{self.team.api_token}" in response.headers["Cache-Tag"]
+        assert "posthog-js-" in response.headers["Cache-Tag"]
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_array_js_returns_304_on_etag_match(self, mock_get_array_js_content):
+        response = self.client.get(f"/array/{self.team.api_token}/array.js")
+        etag = response.headers["ETag"]
+
+        response = self.client.get(
+            f"/array/{self.team.api_token}/array.js",
+            HTTP_IF_NONE_MATCH=etag,
+        )
+        assert response.status_code == status.HTTP_304_NOT_MODIFIED
+        assert response.headers["ETag"] == etag
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_array_js_returns_200_on_etag_mismatch(self, mock_get_array_js_content):
+        response = self.client.get(
+            f"/array/{self.team.api_token}/array.js",
+            HTTP_IF_NONE_MATCH='"stale-etag"',
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT_V1]")
+    def test_array_js_etag_changes_when_config_changes(self, mock_get_array_js_content):
+        response1 = self.client.get(f"/array/{self.team.api_token}/array.js")
+        etag1 = response1.headers["ETag"]
+
+        # Change a team setting to force a different config hash
+        from posthog.models.remote_config import RemoteConfig
+
+        self.team.capture_dead_clicks = True
+        self.team.save()
+        remote_config = RemoteConfig.objects.get(team=self.team)
+        remote_config.sync(force=True)
+        RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
+
+        response2 = self.client.get(f"/array/{self.team.api_token}/array.js")
+        etag2 = response2.headers["ETag"]
+
+        assert etag1 != etag2
+
+        # Old ETag should no longer produce a 304
+        response3 = self.client.get(
+            f"/array/{self.team.api_token}/array.js",
+            HTTP_IF_NONE_MATCH=etag1,
+        )
+        assert response3.status_code == status.HTTP_200_OK
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_array_js_304_includes_cache_control(self, mock_get_array_js_content):
+        response = self.client.get(f"/array/{self.team.api_token}/array.js")
+        etag = response.headers["ETag"]
+
+        response = self.client.get(
+            f"/array/{self.team.api_token}/array.js",
+            HTTP_IF_NONE_MATCH=etag,
+        )
+        assert response.status_code == status.HTTP_304_NOT_MODIFIED
+        assert (
+            response.headers["Cache-Control"]
+            == "public, max-age=3600, stale-while-revalidate=86400, stale-if-error=86400"
+        )
+
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_uses_config_js_cache(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(

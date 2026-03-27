@@ -4,6 +4,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
+from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
@@ -1197,6 +1198,8 @@ projects_router.register(
     "project_flag_value",
     ["project_id"],
 )
+
+projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"datasets",

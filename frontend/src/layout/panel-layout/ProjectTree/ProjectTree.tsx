@@ -320,6 +320,14 @@ export function ProjectTree({
                     return
                 }
 
+                if (item?.id.startsWith('project://-load-more/')) {
+                    const path = item.id.substring('project://-load-more/'.length)
+                    if (path) {
+                        loadFolder(path)
+                    }
+                    return
+                }
+
                 // Track when Data pipelines button is clicked
                 if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
                     setDataPipelinesClicked(true)
@@ -333,12 +341,6 @@ export function ProjectTree({
 
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
-                }
-                if (item?.id.startsWith('project://-load-more/')) {
-                    const path = item.id.substring('project://-load-more/'.length)
-                    if (path) {
-                        loadFolder(path)
-                    }
                 }
 
                 if (item?.id.startsWith('shortcuts')) {
