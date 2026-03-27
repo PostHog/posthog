@@ -17,13 +17,12 @@ import {
     TestingJoinedIngestionPipelineInput,
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
-import { INGESTION_WARNINGS_OUTPUT } from './common/outputs'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from './common/outputs'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createContext } from './pipelines/helpers'
-import { ok } from './pipelines/results'
+import { createOkContext } from './pipelines/helpers'
 
 export type IngestionTestingConsumerFullConfig = Pick<
     PluginsServerConfig,
@@ -106,15 +105,17 @@ export class IngestionTestingConsumer {
                 topic: KAFKA_INGESTION_WARNINGS,
                 producer: this.kafkaProducer!,
             },
+            [DLQ_OUTPUT]: {
+                topic: this.dlqTopic,
+                producer: this.kafkaProducer!,
+            },
         })
 
         const joinedPipelineConfig: TestingJoinedIngestionPipelineConfig = {
-            dlqTopic: this.dlqTopic,
             groupId: this.groupId,
             outputs,
         }
         const joinedPipelineDeps: TestingJoinedIngestionPipelineDeps = {
-            kafkaProducer: this.kafkaProducer!,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
         }
@@ -204,7 +205,7 @@ export class IngestionTestingConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message }), { message }))
+        const batch = messages.map((message) => createOkContext({ message }, { message }))
 
         this.joinedPipeline.feed(batch)
 

@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from conftest import DjangoAPI, TestDB, TestEnv, evaluate_flags
+from conftest import DjangoAPI, TestDB, TestEnv, evaluate_flags  # type: ignore[attr-defined,unused-ignore]
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("SKIP_RUST_INTEGRATION_TESTS", "1") == "1",

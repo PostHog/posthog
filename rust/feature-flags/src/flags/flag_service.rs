@@ -344,6 +344,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             }]),
                             rollout_percentage: Some(50.0),
                             variant: None,
@@ -353,6 +354,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -375,6 +377,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -400,6 +403,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             }]),
                             rollout_percentage: Some(100.0),
                             variant: None,
@@ -409,6 +413,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },
@@ -526,6 +531,7 @@ mod tests {
                                 prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
+                                compiled_regex: None,
                             }]),
                             rollout_percentage: Some(50.0 + i as f64),
                             variant: None,
@@ -535,6 +541,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
+                        feature_enrollment: None,
 
                         holdout: None,
                     },

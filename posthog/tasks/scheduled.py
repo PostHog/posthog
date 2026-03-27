@@ -31,6 +31,7 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
 from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
@@ -548,6 +549,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/5"),
+        sync_js_snippet_manifest.s(),
+        name="sync posthog-js snippet manifest",
     )
 
     sender.add_periodic_task(

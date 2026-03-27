@@ -63,7 +63,7 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     This job just prevents expiration-related cache misses.
 
     For initial cache build or schema migrations, use the management command:
-        python manage.py warm_team_metadata_cache [--invalidate-first]
+        python manage.py warm_team_metadata_cache
     """
 
     if not settings.FLAGS_REDIS_URL:

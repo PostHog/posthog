@@ -64,16 +64,15 @@ interface SyncMethodFormProps {
 }
 
 const getSaveDisabledReason = (
-    syncType: 'full_refresh' | 'incremental' | 'append' | undefined,
+    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | undefined,
     incrementalField: string | null,
-    appendField: string | null,
-    supportsWebhooks: boolean
+    appendField: string | null
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
     }
 
-    if (syncType === 'incremental' && !incrementalField && !supportsWebhooks) {
+    if (syncType === 'incremental' && !incrementalField) {
         return 'You must select an incremental field'
     }
 
@@ -86,9 +85,12 @@ const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
     appendSyncSupported: boolean
-): 'full_refresh' | 'incremental' | 'append' => {
+): 'full_refresh' | 'incremental' | 'append' | 'webhook' => {
     if (schema.sync_type) {
         return schema.sync_type
+    }
+    if (schema.supports_webhooks) {
+        return 'webhook'
     }
     if (incrementalSyncSupported) {
         return 'incremental'
@@ -116,145 +118,168 @@ export const SyncMethodForm = ({
     const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
 
     useEffect(() => {
-        setRadioValue(schema.sync_type ?? (incrementalSyncSupported.disabled ? 'append' : 'incremental'))
+        setRadioValue(
+            schema.sync_type ??
+                (schema.supports_webhooks ? 'webhook' : incrementalSyncSupported.disabled ? 'append' : 'incremental')
+        )
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const radioOptions: {
+        value: 'webhook' | 'incremental' | 'append' | 'full_refresh'
+        disabledReason?: string
+        label: JSX.Element
+    }[] = []
+
+    if (schema.supports_webhooks) {
+        radioOptions.push({
+            value: 'webhook',
+            label: (
+                <div className="mb-4 font-normal">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">Webhook</h4>
+                        <LemonTag type="success">Recommended</LemonTag>
+                    </div>
+                    <p className="mb-2">
+                        When using webhook sync, we'll receive updates from your source via webhooks. This provides the
+                        fastest data freshness with minimal sync overhead.
+                    </p>
+                    {isNewSource && (
+                        <LemonBanner type="info" className="mt-2">
+                            The webhook will be configured in the next step.
+                        </LemonBanner>
+                    )}
+                </div>
+            ),
+        })
+    }
+
+    radioOptions.push(
+        {
+            value: 'incremental',
+            disabledReason: (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
+            label: (
+                <div className="mb-4 font-normal">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
+                        {!incrementalSyncSupported.disabled && !schema.supports_webhooks && (
+                            <LemonTag type="success">Recommended</LemonTag>
+                        )}
+                    </div>
+                    <p className="mb-2">
+                        When using incremental replication, we'll store the max value of the below field on each sync
+                        and only sync rows with greater or equal value on the next run.
+                    </p>
+                    <p className="mb-2">
+                        You should pick a field that increments or updates each time the row is updated, such as a{' '}
+                        <code>updated_at</code> timestamp.
+                    </p>
+                    {!incrementalSyncSupported.disabled && (
+                        <>
+                            <LemonSelect
+                                value={incrementalFieldValue}
+                                onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                options={
+                                    schema.incremental_fields.map((n) => ({
+                                        value: n.field,
+                                        label: (
+                                            <>
+                                                <span className="leading-5">{n.label}</span>
+                                                <LemonTag className="ml-2" type="success">
+                                                    {n.type}
+                                                </LemonTag>
+                                            </>
+                                        ),
+                                    })) ?? []
+                                }
+                            />
+                            {radioValue === 'incremental' &&
+                                incrementalFieldValue &&
+                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.nullable && (
+                                    <LemonBanner type="warning" className="mt-2">
+                                        This field is nullable. Any rows where <code>{incrementalFieldValue}</code> is
+                                        null will not be synced.
+                                    </LemonBanner>
+                                )}
+                        </>
+                    )}
+                </div>
+            ),
+        },
+        {
+            value: 'append',
+            disabledReason: (appendSyncSupported.disabled && appendSyncSupported.disabledReason) || undefined,
+            label: (
+                <div className="mb-4 font-normal">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">Append only replication</h4>
+                    </div>
+                    <p className="mb-2">
+                        When using append only replication, similar to incremental above, we'll store the max value of
+                        the below field on each sync and only sync rows with greater or equal value on the next run. But
+                        unlike incremental replication, we'll append the rows as opposed to merge them into the existing
+                        table, meaning you can have duplicate data if the value for the below field changes on a row.
+                        You should only use append only replication for sources that don't support incremental.
+                    </p>
+                    <p className="mb-2">
+                        You should pick a field that doesn't change each time the row is updated, such as a{' '}
+                        <code>created_at</code> timestamp.
+                    </p>
+                    {!appendSyncSupported.disabled && (
+                        <>
+                            <LemonSelect
+                                value={appendFieldValue}
+                                onChange={(newValue) => setAppendFieldValue(newValue)}
+                                options={
+                                    schema.incremental_fields.map((n) => ({
+                                        value: n.field,
+                                        label: (
+                                            <>
+                                                <span className="leading-5">{n.label}</span>
+                                                <LemonTag className="ml-2" type="success">
+                                                    {n.type}
+                                                </LemonTag>
+                                            </>
+                                        ),
+                                    })) ?? []
+                                }
+                            />
+                            {radioValue === 'append' &&
+                                appendFieldValue &&
+                                schema.incremental_fields.find((n) => n.field === appendFieldValue)?.nullable && (
+                                    <LemonBanner type="warning" className="mt-2">
+                                        This field is nullable. Any rows where <code>{appendFieldValue}</code> is null
+                                        will not be synced.
+                                    </LemonBanner>
+                                )}
+                        </>
+                    )}
+                </div>
+            ),
+        },
+        {
+            value: 'full_refresh',
+            label: (
+                <div className="mb-6 font-normal">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
+                    </div>
+                    <p className="m-0">
+                        We'll replicate the whole table on every sync. This can take longer to sync and increase your
+                        monthly billing.
+                    </p>
+                </div>
+            ),
+        }
+    )
 
     return (
         <>
             <LemonRadio
                 radioPosition="top"
                 value={radioValue}
-                options={[
-                    {
-                        value: 'incremental',
-                        disabledReason:
-                            (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
-                        label: (
-                            <div className="mb-4 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
-                                    <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
-                                    {!incrementalSyncSupported.disabled && (
-                                        <LemonTag type="success">Recommended</LemonTag>
-                                    )}
-                                </div>
-                                <p className="mb-2">
-                                    When using incremental replication, we'll store the max value of the below field on
-                                    each sync and only sync rows with greater or equal value on the next run.
-                                </p>
-                                <p className="mb-2">
-                                    You should pick a field that increments or updates each time the row is updated,
-                                    such as a <code>updated_at</code> timestamp.
-                                </p>
-                                {!incrementalSyncSupported.disabled &&
-                                    (schema.supports_webhooks ? (
-                                        <LemonBanner type="info" className="mt-2">
-                                            This table uses webhooks for incremental sync.
-                                            {isNewSource && ' The webhook will be configured in the next step.'}
-                                        </LemonBanner>
-                                    ) : (
-                                        <>
-                                            <LemonSelect
-                                                value={incrementalFieldValue}
-                                                onChange={(newValue) => setIncrementalFieldValue(newValue)}
-                                                options={
-                                                    schema.incremental_fields.map((n) => ({
-                                                        value: n.field,
-                                                        label: (
-                                                            <>
-                                                                <span className="leading-5">{n.label}</span>
-                                                                <LemonTag className="ml-2" type="success">
-                                                                    {n.type}
-                                                                </LemonTag>
-                                                            </>
-                                                        ),
-                                                    })) ?? []
-                                                }
-                                            />
-                                            {radioValue === 'incremental' &&
-                                                incrementalFieldValue &&
-                                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
-                                                    ?.nullable && (
-                                                    <LemonBanner type="warning" className="mt-2">
-                                                        This field is nullable. Any rows where{' '}
-                                                        <code>{incrementalFieldValue}</code> is null will not be synced.
-                                                    </LemonBanner>
-                                                )}
-                                        </>
-                                    ))}
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 'append',
-                        disabledReason:
-                            (appendSyncSupported.disabled && appendSyncSupported.disabledReason) || undefined,
-                        label: (
-                            <div className="mb-4 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
-                                    <h4 className="mb-0 mr-2 text-base font-semibold">Append only replication</h4>
-                                </div>
-                                <p className="mb-2">
-                                    When using append only replication, similar to incremental above, we'll store the
-                                    max value of the below field on each sync and only sync rows with greater or equal
-                                    value on the next run. But unlike incremental replication, we'll append the rows as
-                                    opposed to merge them into the existing table, meaning you can have duplicate data
-                                    if the value for the below field changes on a row. You should only use append only
-                                    replication for sources that don't support incremental.
-                                </p>
-                                <p className="mb-2">
-                                    You should pick a field that doesn't change each time the row is updated, such as a{' '}
-                                    <code>created_at</code> timestamp.
-                                </p>
-                                {!appendSyncSupported.disabled && (
-                                    <>
-                                        <LemonSelect
-                                            value={appendFieldValue}
-                                            onChange={(newValue) => setAppendFieldValue(newValue)}
-                                            options={
-                                                schema.incremental_fields.map((n) => ({
-                                                    value: n.field,
-                                                    label: (
-                                                        <>
-                                                            <span className="leading-5">{n.label}</span>
-                                                            <LemonTag className="ml-2" type="success">
-                                                                {n.type}
-                                                            </LemonTag>
-                                                        </>
-                                                    ),
-                                                })) ?? []
-                                            }
-                                        />
-                                        {radioValue === 'append' &&
-                                            appendFieldValue &&
-                                            schema.incremental_fields.find((n) => n.field === appendFieldValue)
-                                                ?.nullable && (
-                                                <LemonBanner type="warning" className="mt-2">
-                                                    This field is nullable. Any rows where{' '}
-                                                    <code>{appendFieldValue}</code> is null will not be synced.
-                                                </LemonBanner>
-                                            )}
-                                    </>
-                                )}
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 'full_refresh',
-                        label: (
-                            <div className="mb-6 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
-                                    <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
-                                </div>
-                                <p className="m-0">
-                                    We'll replicate the whole table on every sync. This can take longer to sync and
-                                    increase your monthly billing.
-                                </p>
-                            </div>
-                        ),
-                    },
-                ]}
+                options={radioOptions}
                 onChange={(newValue) => setRadioValue(newValue)}
             />
             <div className="flex flex-row justify-end w-full">
@@ -264,19 +289,11 @@ export const SyncMethodForm = ({
                 <LemonButton
                     type="primary"
                     loading={saveButtonIsLoading}
-                    disabledReason={getSaveDisabledReason(
-                        radioValue,
-                        incrementalFieldValue,
-                        appendFieldValue,
-                        !!schema.supports_webhooks
-                    )}
+                    disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)}
                     onClick={() => {
-                        if (radioValue === 'incremental') {
-                            if (schema.supports_webhooks) {
-                                onSave('incremental', null, null)
-                                return
-                            }
-
+                        if (radioValue === 'webhook') {
+                            onSave('webhook', null, null)
+                        } else if (radioValue === 'incremental') {
                             const fieldSelected = schema.incremental_fields.find(
                                 (n) => n.field === incrementalFieldValue
                             )

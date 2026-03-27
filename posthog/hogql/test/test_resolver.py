@@ -127,6 +127,43 @@ class TestResolver(BaseTest):
 
     @parameterized.expand(
         [
+            ("current_date",),
+            ("current_time",),
+            ("current_timestamp",),
+            ("localtime",),
+            ("localtimestamp",),
+        ]
+    )
+    def test_postgres_current_date_keyword_resolves_to_keyword(self, keyword: str):
+        expr = self._select(f"SELECT {keyword}")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert len(resolved.select) == 1
+        select_expr = resolved.select[0]
+        assert isinstance(select_expr, ast.Keyword)
+        assert select_expr.name == keyword
+
+    def test_postgres_current_date_alias_not_treated_as_keyword(self):
+        expr = self._select(
+            """
+            SELECT
+                distinct_id as current_date
+            FROM
+                events
+            WHERE
+                current_date is not null
+            """
+        )
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert isinstance(resolved.where, ast.CompareOperation)
+        left = resolved.where.left
+        if isinstance(left, ast.Alias):
+            left = left.expr
+        assert isinstance(left, ast.Field)
+
+    @parameterized.expand(
+        [
             ("events.created_at", None),
             ("created_at", None),
             ("e.created_at", "e"),
@@ -1203,6 +1240,30 @@ class TestResolver(BaseTest):
         [selected] = node.select
         assert isinstance(selected.type, ast.CallType)
         assert selected.type.return_type == ast.DateTimeType(nullable=False)
+
+    def test_assume_not_null_with_unknown_arg_type(self):
+        # When the inner function has no signatures (returns UnknownType), assumeNotNull should still force nullable=False
+        node = self._select("SELECT assumeNotNull(base64Encode(unhex('DEADBEEF')))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is False
+
+    @parameterized.expand(
+        [
+            ("toNullable('hello')", ""),
+            ("toNullable(event)", "FROM events"),
+            ("nullIf(event, '')", "FROM events"),
+        ],
+    )
+    def test_nullable_functions_force_nullable_true(self, expr, from_clause):
+        node = self._select(f"SELECT {expr} {from_clause}".strip())
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
 
     def test_interval_type_arithmetic(self):
         operators = ["+", "-"]

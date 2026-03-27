@@ -1200,6 +1200,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination,transformation")
         assert len(response.json()["results"]) == 2
 
+    def test_warehouse_source_webhook_excluded(self, *args):
+        destination = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL},
+        )
+        assert destination.status_code == status.HTTP_201_CREATED
+
+        webhook_func = HogFunction.objects.create(
+            team=self.team,
+            name="Webhook Source",
+            type="warehouse_source_webhook",
+            hog="return event",
+        )
+
+        # List should not include warehouse_source_webhook functions
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        ids = [r["id"] for r in response.json()["results"]]
+        assert str(webhook_func.id) not in ids
+        assert len(response.json()["results"]) == 1
+
+        # Detail should return 404
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{webhook_func.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_list_with_enabled_filter(self, *args):
         response_destination = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -2237,3 +2261,24 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_feature_enabled.assert_called_once()
         call_args = mock_feature_enabled.call_args
         assert call_args[0][0] == "backfill-workflows-destination"
+
+    def test_enable_backfills_blocked_for_non_event_source(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "name": "Person Updates Function",
+                "filters": {
+                    "source": "person-updates",
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "Backfills are only supported for event-sourced destinations."

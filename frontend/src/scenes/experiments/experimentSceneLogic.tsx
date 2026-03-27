@@ -263,6 +263,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
                 actions.setSceneState(parsedId, formMode)
 
+                if (query.activity) {
+                    actions.setActiveTabKey('history')
+                }
+
                 if (parsedId === 'new') {
                     // Only reset if we're not already viewing a new experiment (tab switch scenario)
                     const shouldReset = currentLocation.initial || values.experimentId !== 'new'
@@ -283,7 +287,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }
             }
         },
-        '/experiments/:id/:formMode': ({ id, formMode }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id/:formMode': ({ id, formMode }, query, __, currentLocation, previousLocation) => {
             // Ignore routes where id is not a valid experiment identifier (number or 'new')
             // This prevents matching routes like /experiments/shared-metrics/new
             if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
@@ -312,6 +316,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }
 
                 actions.setSceneState(parsedId, parsedFormMode)
+
+                if (query.activity) {
+                    actions.setActiveTabKey('history')
+                }
             }
         },
     })),
