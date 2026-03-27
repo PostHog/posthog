@@ -16,6 +16,7 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
+from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import send_error_tracking_weekly_digest, send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -261,6 +262,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache (with cohorts)",
         expires_seconds=60 * 60,
+    )
+
+    # Auth token cache verification - every 6 hours at minute 40
+    # Verifies per-token auth cache entries against the database,
+    # deleting stale entries that signal-based invalidation may have missed.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*/6", minute="40"),
+        verify_and_fix_auth_token_cache_task.s(),
+        name="verify and fix auth token cache",
+        # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
+        # task survives moderate worker downtime without being dropped.
     )
 
     # Update events table partitions twice a week

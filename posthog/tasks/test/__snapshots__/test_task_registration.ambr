@@ -15,6 +15,7 @@
     'posthog.tasks.alerts.checks.checks_cleanup_task',
     'posthog.tasks.alerts.checks.reset_stuck_alerts_task',
     'posthog.tasks.async_migrations.run_async_migration',
+    'posthog.tasks.auth_token_cache_verification.verify_and_fix_auth_token_cache_task',
     'posthog.tasks.calculate_cohort.calculate_cohort_ch',
     'posthog.tasks.calculate_cohort.calculate_cohort_from_list',
     'posthog.tasks.calculate_cohort.collect_cohort_query_stats',
