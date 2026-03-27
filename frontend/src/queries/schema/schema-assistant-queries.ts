@@ -1,4 +1,4 @@
-import { BreakdownType, FunnelMathType, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
+import { BreakdownType, FunnelMathType, IntervalType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     ActionsNode,
@@ -759,6 +759,108 @@ export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter: AssistantRetentionFilter
+}
+
+/**
+ * Defines a regex-based path cleaning rule to normalize dynamic path components.
+ * Path cleaning rules replace matching URL patterns with a readable alias,
+ * which helps group similar paths together (e.g., `/user/123/profile` and `/user/456/profile` become `/user/:id/profile`).
+ */
+export interface AssistantPathCleaningFilter {
+    /**
+     * A human-readable alias that replaces matched path patterns in the visualization.
+     * For example, `/user/:id/profile` to replace `/user/123/profile`.
+     * Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\1` for capture group back-references.
+     */
+    alias: string
+    /**
+     * A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias.
+     * For example, `\/user\/\d+\/profile` to match any user profile URL.
+     */
+    regex: string
+}
+
+export interface AssistantPathsFilter {
+    /**
+     * Which event types to include in the path analysis. Available values:
+     * `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped.
+     * `$screen` - mobile screen views. Path values are screen names (from `$screen_name`).
+     * `custom_event` - custom events (any event not starting with `$`). Path values are event names.
+     * `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression.
+     * You can combine multiple types. If not specified, all events are included without type filtering.
+     */
+    includeEventTypes?: PathType[]
+    /**
+     * A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`.
+     * For example, `properties.$current_url` to use the current URL as the path item.
+     */
+    pathsHogQLExpression?: string
+    /**
+     * Filter to only show paths that start from this specific step.
+     * The value format depends on the included event types:
+     * For `$pageview` paths, use page URLs like `/login` or `/dashboard`.
+     * For `$screen` paths, use screen names.
+     * For `custom_event` paths, use event names.
+     */
+    startPoint?: string
+    /**
+     * Filter to only show paths that end at this specific step.
+     * Same format as `startPoint`.
+     */
+    endPoint?: string
+    /**
+     * Event names or URLs to exclude from the path analysis entirely.
+     * Excluded events are filtered out before building the path visualization.
+     * Useful for removing noise from common but uninteresting events.
+     * @default []
+     */
+    excludeEvents?: string[]
+    /**
+     * Glob-like patterns to group multiple path items into a single step.
+     * Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning.
+     * For example, `/product/*` to group all product pages into one node.
+     * @default []
+     */
+    pathGroupings?: string[]
+    /**
+     * Maximum number of steps (path depth) to show in the visualization.
+     * Controls how deep the path analysis goes from the start.
+     * @default 5
+     */
+    stepLimit?: integer
+    /**
+     * Maximum number of path edges (connections between steps) to return.
+     * Higher values show more detail but can make the visualization harder to read.
+     * @default 50
+     */
+    edgeLimit?: integer
+    /**
+     * ClickHouse regex-based rules to clean and normalize path values at the query level.
+     * Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence.
+     * Useful for removing dynamic IDs or parameters from URLs.
+     * @default []
+     */
+    localPathCleaningFilters?: AssistantPathCleaningFilter[]
+    /**
+     * Minimum number of users who traversed an edge for it to be displayed.
+     * Filters out low-traffic paths to reduce visual noise.
+     */
+    minEdgeWeight?: integer
+    /**
+     * Maximum number of users who traversed an edge for it to be displayed.
+     * Filters out high-traffic paths to focus on less common journeys.
+     */
+    maxEdgeWeight?: integer
+}
+
+export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.PathsQuery
+    /**
+     * Properties specific to the paths insight.
+     * Paths show the most common sequences of events or pages that users navigate through,
+     * helping identify popular user flows and drop-off points.
+     */
+    pathsFilter: AssistantPathsFilter
 }
 
 export interface AssistantHogQLQuery {

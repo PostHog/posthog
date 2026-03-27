@@ -74,8 +74,8 @@ def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
 
 
 def _extract_config_id(payload: dict[str, Any]) -> str | None:
-    # Ref: https://vercel.com/docs/observability/webhooks-overview/webhooks-api
-    return payload.get("installationId")
+    # Billing events use "installationId". Deauthorization events use "configuration.id".
+    return payload.get("installationId") or payload.get("configuration", {}).get("id")
 
 
 def _is_billing_event(event_type: str | None) -> bool:

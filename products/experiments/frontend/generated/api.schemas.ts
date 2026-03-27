@@ -400,10 +400,9 @@ export interface PatchedExperimentApi {
  * `stopped_early` - stopped_early
  * `invalid` - invalid
  */
-export type EndExperimentConclusionEnumApi =
-    (typeof EndExperimentConclusionEnumApi)[keyof typeof EndExperimentConclusionEnumApi]
+export type ConclusionF33EnumApi = (typeof ConclusionF33EnumApi)[keyof typeof ConclusionF33EnumApi]
 
-export const EndExperimentConclusionEnumApi = {
+export const ConclusionF33EnumApi = {
     Won: 'won',
     Lost: 'lost',
     Inconclusive: 'inconclusive',
@@ -419,12 +418,30 @@ export interface EndExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: EndExperimentConclusionEnumApi | NullEnumApi | null
+    conclusion?: ConclusionF33EnumApi | NullEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
      * @nullable
      */
     conclusion_comment?: string | null
+}
+
+export interface ShipVariantApi {
+    /** The conclusion of the experiment.
+
+* `won` - won
+* `lost` - lost
+* `inconclusive` - inconclusive
+* `stopped_early` - stopped_early
+* `invalid` - invalid */
+    conclusion?: ConclusionF33EnumApi | NullEnumApi | null
+    /**
+     * Optional comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
+    /** The key of the variant to ship to 100% of users. */
+    variant_key: string
 }
 
 export type ExperimentHoldoutsListParams = {

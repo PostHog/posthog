@@ -1783,7 +1783,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 200
 
     def test_user_can_update_scene_personalisation_without_recent_authentication(self):
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
         now = datetime.now()

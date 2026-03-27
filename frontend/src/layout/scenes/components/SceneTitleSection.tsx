@@ -501,9 +501,7 @@ export function SceneName({
                             }}
                         />
                         {onGenerateMetadata && (
-                            <Tooltip
-                                title={isGeneratingMetadata ? 'Thinking...' : 'Auto-generate name and description'}
-                            >
+                            <Tooltip title={isGeneratingMetadata ? 'Thinking...' : 'Generate name and description'}>
                                 <button
                                     type="button"
                                     onClick={() => {

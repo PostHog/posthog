@@ -9,7 +9,14 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
+import {
+    DLQ_OUTPUT,
+    DlqOutput,
+    INGESTION_WARNINGS_OUTPUT,
+    IngestionWarningsOutput,
+    OVERFLOW_OUTPUT,
+    OverflowOutput,
+} from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -61,7 +68,12 @@ export interface SessionReplayPipelineConfig {
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }> {
+): BatchPipelineUnwrapper<
+    SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
+    { message: Message },
+    OverflowOutput
+> {
     const {
         kafkaProducer,
         eventIngestionRestrictionManager,
@@ -76,16 +88,23 @@ export function createSessionReplayPipeline(
         isDebugLoggingEnabled,
     } = config
 
-    const outputs = new IngestionOutputs<IngestionWarningsOutput>({
+    const outputs = new IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>({
         [INGESTION_WARNINGS_OUTPUT]: {
             topic: KAFKA_INGESTION_WARNINGS,
             producer: ingestionWarningProducer,
         },
+        [DLQ_OUTPUT]: {
+            topic: dlqTopic,
+            producer: kafkaProducer,
+        },
+        [OVERFLOW_OUTPUT]: {
+            topic: overflowTopic,
+            producer: kafkaProducer,
+        },
     })
 
-    const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+    const pipelineConfig: PipelineConfig<OverflowOutput> = {
+        outputs,
         promiseScheduler,
     }
 
@@ -101,7 +120,6 @@ export function createSessionReplayPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                overflowTopic,
                                 preservePartitionLocality: true, // Sessions must stay on the same partition
                             })
                         )
@@ -178,7 +196,12 @@ export function createSessionReplayPipeline(
  * In future commits, the pipeline will handle all processing internally.
  */
 export async function runSessionReplayPipeline(
-    pipeline: BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }>,
+    pipeline: BatchPipelineUnwrapper<
+        SessionReplayPipelineInput,
+        SessionReplayPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >,
     messages: Message[]
 ): Promise<SessionReplayPipelineOutput[]> {
     if (messages.length === 0) {
