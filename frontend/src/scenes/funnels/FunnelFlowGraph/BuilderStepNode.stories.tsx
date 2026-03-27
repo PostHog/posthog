@@ -65,7 +65,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 export const WithEventAndData: Story = {
     render: () => <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />,

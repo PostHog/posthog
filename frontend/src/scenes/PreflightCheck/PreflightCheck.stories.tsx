@@ -11,7 +11,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 export const Preflight: Story = {
     render: () => <PreflightCheck />,

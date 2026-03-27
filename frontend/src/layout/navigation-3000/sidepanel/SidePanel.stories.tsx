@@ -50,7 +50,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)

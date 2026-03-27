@@ -24,7 +24,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const activeIssue: ErrorIssueData = {
     id: 'issue-1',

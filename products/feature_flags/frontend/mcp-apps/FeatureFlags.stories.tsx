@@ -15,7 +15,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const sampleBooleanFlag: FeatureFlagData = {
     id: 1,

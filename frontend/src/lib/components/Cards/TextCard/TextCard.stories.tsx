@@ -10,7 +10,7 @@ const meta: Meta = {
     parameters: {},
 }
 export default meta
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile<QueryBasedInsightModel> => {
     return {

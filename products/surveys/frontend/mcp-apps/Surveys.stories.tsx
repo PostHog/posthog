@@ -22,7 +22,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const activePopover: SurveyData = {
     id: 'survey-1',

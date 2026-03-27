@@ -29,7 +29,7 @@ const imageHeight = '300'
 
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 // Mock data for different scenarios
 const mockElementsNoImage: ElementType[] = [

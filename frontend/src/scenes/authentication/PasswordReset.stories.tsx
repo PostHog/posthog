@@ -20,7 +20,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 // export more stories with different state
 export const NoSMTP: Story = {

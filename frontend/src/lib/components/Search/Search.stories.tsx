@@ -91,7 +91,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const SearchContainer = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <div className="grow w-[600px] border rounded-lg overflow-hidden bg-bg-light">{children}</div>

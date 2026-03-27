@@ -22,7 +22,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const runningExperiment: ExperimentData = {
     id: 1,

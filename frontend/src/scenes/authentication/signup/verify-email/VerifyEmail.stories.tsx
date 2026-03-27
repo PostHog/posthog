@@ -13,7 +13,7 @@ const meta: Meta = {
     },
 }
 export default meta
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 export const VerifyEmailPending: Story = {
     render: () => {

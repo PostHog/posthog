@@ -17,7 +17,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const mockPersons = [
     { id: '017cf78e-a849-0000-0000-01fe9b8d7233', display_name: 'Jane Doe' },

@@ -47,7 +47,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 export const FirstStep: Story = {
     render: () => <JourneyNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />,

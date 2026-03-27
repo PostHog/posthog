@@ -80,7 +80,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const Template = ({ className, ...props }: Omit<MaxInstanceProps, 'tabId'> & { className?: string }): JSX.Element => {
     return (

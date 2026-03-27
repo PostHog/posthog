@@ -15,7 +15,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj
+type Story = StoryObj<{}>
 
 const activeWorkflow: WorkflowData = {
     id: 'wf-1',
@@ -53,17 +53,17 @@ const archivedWorkflow: WorkflowData = {
 
 export const Active: Story = {
     render: () => <WorkflowView workflow={activeWorkflow} />,
-    name: 'Active workflow',
+    storyName: 'Active workflow',
 }
 
 export const DraftState: Story = {
     render: () => <WorkflowView workflow={draftWorkflow} />,
-    name: 'Draft workflow',
+    storyName: 'Draft workflow',
 }
 
 export const Archived: Story = {
     render: () => <WorkflowView workflow={archivedWorkflow} />,
-    name: 'Archived workflow',
+    storyName: 'Archived workflow',
 }
 
 const sampleListData: WorkflowListData = {
@@ -74,5 +74,5 @@ const sampleListData: WorkflowListData = {
 
 export const List: Story = {
     render: () => <WorkflowListView data={sampleListData} />,
-    name: 'Workflow list',
+    storyName: 'Workflow list',
 }
