@@ -12,7 +12,6 @@ import { timeoutGuard } from './utils'
 
 /** Config that PostgresRouter needs to create its connection pools. */
 export type PostgresRouterConfig = {
-    PLUGIN_SERVER_MODE: string | null
     DATABASE_URL: string
     POSTGRES_CONNECTION_POOL_SIZE: number
     DATABASE_READONLY_URL?: string
@@ -79,10 +78,10 @@ export class TransactionClient {
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
 
-    constructor(serverConfig: PostgresRouterConfig) {
+    constructor(serverConfig: PostgresRouterConfig, appName?: string) {
         installPostgresTypeParsers()
 
-        const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+        const app_name = appName ?? 'unknown'
         logger.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(
             serverConfig.DATABASE_URL,
