@@ -543,17 +543,23 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should handle database errors gracefully during flush', async () => {
+        const originalUpdatePersonsBatch = mockRepo.updatePersonsBatch
         // Mock batch update to throw an error - all persons will fail
         mockRepo.updatePersonsBatch = jest.fn().mockImplementation(() => {
             throw new Error('Database connection failed')
         })
 
-        await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
+        try {
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
 
-        await expect(personStore.flush()).rejects.toThrow('Database connection failed')
+            await expect(personStore.flush()).rejects.toThrow('Database connection failed')
+        } finally {
+            mockRepo.updatePersonsBatch = originalUpdatePersonsBatch
+        }
     })
 
     it('should handle partial failures in batch flush', async () => {
+        const originalUpdatePersonsBatch = mockRepo.updatePersonsBatch
         // Set up multiple updates
         const person2 = { ...person, id: '2', uuid: '2' }
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { test: 'value1' }, [], {}, 'test1')
@@ -582,7 +588,11 @@ describe('BatchWritingPersonStore', () => {
         // Mock fallback to also fail
         mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
 
-        await expect(personStore.flush()).rejects.toThrow('Database error')
+        try {
+            await expect(personStore.flush()).rejects.toThrow('Database error')
+        } finally {
+            mockRepo.updatePersonsBatch = originalUpdatePersonsBatch
+        }
     })
 
     it('should handle clearing cache for different team IDs', async () => {
