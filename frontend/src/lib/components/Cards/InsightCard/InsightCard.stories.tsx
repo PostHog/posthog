@@ -18,6 +18,7 @@ import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_i
 import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 import { InsightCard as InsightCardComponent } from './index'
+import type { InsightCardProps } from './InsightCard'
 
 const defaultTile = {
     id: 1,
@@ -49,18 +50,16 @@ const examples = [
     EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY,
 ] as unknown as QueryBasedInsightModel[]
 
-const meta: Meta = {
+const meta: Meta<InsightCardProps> = {
     title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
     parameters: {
         mockDate: '2023-07-01',
     },
     argTypes: {
-        insightName: {
-            control: { type: 'text' },
-        },
-        insightDescription: {
-            control: { type: 'text' },
+        insight: {
+            name: 'Insight',
+            control: { type: 'object' },
         },
         loading: {
             control: { type: 'boolean' },
@@ -78,7 +77,7 @@ const meta: Meta = {
     },
 }
 export default meta
-type Story = StoryObj
+type Story = StoryObj<InsightCardProps>
 
 export const InsightCard: Story = {
     render: (args) => {
@@ -93,8 +92,8 @@ export const InsightCard: Story = {
                         insight={
                             {
                                 ...EXAMPLE_TRENDS,
-                                name: args.insightName,
-                                description: args.insightDescription,
+                                name: args.insight.name,
+                                description: args.insight.description,
                             } as unknown as QueryBasedInsightModel
                         }
                         ribbonColor={insightColor}
@@ -102,7 +101,7 @@ export const InsightCard: Story = {
                         apiErrored={args.apiErrored}
                         highlighted={args.highlighted}
                         timedOut={args.timedOut}
-                        showResizeHandles={args.resizable}
+                        showResizeHandles={args.showResizeHandles}
                         updateColor={setInsightColor}
                         removeFromDashboard={() => setWasItemRemoved(true)}
                         rename={() => {}}
@@ -128,7 +127,7 @@ export const InsightCard: Story = {
                     apiErrored={args.apiErrored}
                     highlighted={args.highlighted}
                     timedOut={args.timedOut}
-                    showResizeHandles={args.resizable}
+                    showResizeHandles={args.showResizeHandles}
                 />
                 <InsightCardComponent
                     tile={args.tile}
@@ -147,7 +146,7 @@ export const InsightCard: Story = {
                     apiErrored={args.apiErrored}
                     highlighted={args.highlighted}
                     timedOut={args.timedOut}
-                    showResizeHandles={args.resizable}
+                    showResizeHandles={args.showResizeHandles}
                 />
                 <InsightCardComponent
                     tile={args.tile}
@@ -172,7 +171,7 @@ export const InsightCard: Story = {
                     apiErrored={args.apiErrored}
                     highlighted={args.highlighted}
                     timedOut={args.timedOut}
-                    showResizeHandles={args.resizable}
+                    showResizeHandles={args.showResizeHandles}
                 />
                 <InsightCardComponent
                     tile={args.tile}
@@ -189,7 +188,7 @@ export const InsightCard: Story = {
                     apiErrored={args.apiErrored}
                     highlighted={args.highlighted}
                     timedOut={args.timedOut}
-                    showResizeHandles={args.resizable}
+                    showResizeHandles={args.showResizeHandles}
                 />
                 {examples.map((e) => (
                     <InsightCardComponent
@@ -203,7 +202,7 @@ export const InsightCard: Story = {
                         apiErrored={args.apiErrored}
                         highlighted={args.highlighted}
                         timedOut={args.timedOut}
-                        showResizeHandles={args.resizable}
+                        showResizeHandles={args.showResizeHandles}
                     />
                 ))}
             </div>

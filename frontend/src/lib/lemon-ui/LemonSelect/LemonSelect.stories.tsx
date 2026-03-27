@@ -139,7 +139,7 @@ export const CustomElement: Story = {
 }
 
 export const FullWidth: Story = {
-    render: (props) => {
+    render: (props: LemonSelectProps<any>) => {
         return (
             <div className="items-center w-full border p-4 gap-2">
                 <LemonSelect {...props} fullWidth={true} allowClear={true} value="poodle" />
