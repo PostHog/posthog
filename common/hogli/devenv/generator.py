@@ -36,26 +36,10 @@ class DevenvConfig(BaseModel):
 
 # Docker compose command building
 
-# All native Rust/Go processes — excluded from mprocs in codespace mode
-# (they'd fail without toolchains and run as Docker containers instead).
-NATIVE_SERVICES: set[str] = {
-    "capture",
-    "capture-replay",
-    "capture-ai",
-    "feature-flags",
-    "property-defs-rs",
-    "cyclotron-janitor",
-    "cymbal",
-    "embedding-worker",
-    "batch-import-worker",
-    "personhog-replica",
-    "personhog-router",
-    "livestream",
-}
-
-# Subset with Docker container definitions in docker-compose.codespace.yml.
-# Maps process name to the docker compose profile that starts it (None = always starts).
-NATIVE_SERVICE_PROFILES: dict[str, str | None] = {
+# Native services that codespaces run as Docker containers instead of local
+# Rust/Go binaries. The profile is None when the service is part of the base
+# compose stack and starts without an explicit profile.
+CODESPACE_SERVICE_PROFILES: dict[str, str | None] = {
     "capture": "capture",  # profile-gated in docker-compose.dev.yml
     "feature-flags": None,  # always starts from dev.yml
     "property-defs-rs": None,  # always starts from codespace overlay
@@ -74,6 +58,23 @@ def _get_docker_compose_base() -> str:
     if _is_codespace():
         return "docker compose -f docker-compose.dev.yml -f docker-compose.codespace.yml -f docker-compose.profiles.yml"
     return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+
+def get_effective_docker_profiles(profiles: list[str], resolved_units: set[str] | None = None) -> list[str]:
+    """Return docker compose profiles after codespace-specific translation."""
+    effective_profiles = set(profiles)
+
+    if _is_codespace() and resolved_units:
+        for service_name, profile in CODESPACE_SERVICE_PROFILES.items():
+            if service_name in resolved_units and profile:
+                effective_profiles.add(profile)
+
+    return sorted(effective_profiles)
+
+
+def should_skip_native_process(name: str, resolved_units: set[str] | None = None) -> bool:
+    """Return whether a process should be omitted from mprocs in codespace mode."""
+    return _is_codespace() and name in CODESPACE_SERVICE_PROFILES and (resolved_units is None or name in resolved_units)
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -167,7 +168,7 @@ class MprocsGenerator(ConfigGenerator):
 
             # In codespace mode, native Rust/Go services run as Docker
             # containers — skip them from the mprocs process list.
-            if _is_codespace() and name in NATIVE_SERVICES:
+            if should_skip_native_process(name, resolved.units):
                 continue
 
             # Include if: in resolved units, or autostart: false (manual start)
@@ -308,14 +309,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         Returns:
             Process configuration dict with modified shell command
         """
-        # In codespace mode, inject profiles for native services that are
-        # in the resolved set so their Docker containers start.
-        if _is_codespace() and resolved_units:
-            profiles = list(profiles)  # avoid mutating caller's list
-            for svc_name, profile in NATIVE_SERVICE_PROFILES.items():
-                if svc_name in resolved_units and profile and profile not in profiles:
-                    profiles.append(profile)
-            profiles.sort()
+        profiles = get_effective_docker_profiles(profiles, resolved_units)
 
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
