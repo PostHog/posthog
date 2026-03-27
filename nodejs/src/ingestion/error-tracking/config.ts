@@ -30,8 +30,6 @@ export type ErrorTrackingConsumerConfig = {
     INGESTION_PIPELINE: string | null
     /** Lane identifier (main, overflow) for metrics labeling */
     INGESTION_LANE: IngestionLane | null
-    /** Whether to calculate person properties size during updates */
-    PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
 }
 
 export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerConfig {
@@ -50,6 +48,5 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
-        PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,
     }
 }

@@ -11,6 +11,12 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig } from '../config/config'
 import { createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import {
+    DatabaseConnectionConfig,
+    KafkaBrokerConfig,
+    KafkaConsumerBaseConfig,
+    RedisConnectionsConfig,
+} from '../ingestion/config'
 import { ErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -27,63 +33,30 @@ import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
+/**
+ * Complete config type for an error tracking ingestion deployment.
+ *
+ * This is the union of:
+ * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
+ * - ErrorTrackingConsumerConfig: error tracking pipeline, cymbal, overflow
+ * - HogTransformerServiceConfig: CDP keys needed by the hog transformer running in-process
+ * - Infrastructure configs: Kafka broker, Postgres, Redis, consumer tuning
+ * - Remaining CommonConfig picks: server mode, services, observability
+ */
 export type ErrorTrackingServerConfig = BaseServerConfig &
     ErrorTrackingConsumerConfig &
     HogTransformerServiceConfig &
+    KafkaBrokerConfig &
+    DatabaseConnectionConfig &
+    RedisConnectionsConfig &
+    KafkaConsumerBaseConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
-        // Kafka
-        | 'KAFKA_HOSTS'
-        | 'KAFKA_CLIENT_RACK'
-        | 'KAFKA_SECURITY_PROTOCOL'
-        | 'KAFKA_CLIENT_CERT_B64'
-        | 'KAFKA_CLIENT_CERT_KEY_B64'
-        | 'KAFKA_TRUSTED_CERT_B64'
-        | 'KAFKA_SASL_MECHANISM'
-        | 'KAFKA_SASL_USER'
-        | 'KAFKA_SASL_PASSWORD'
-        // Postgres
-        | 'DATABASE_URL'
-        | 'DATABASE_READONLY_URL'
-        | 'PERSONS_DATABASE_URL'
-        | 'PERSONS_READONLY_DATABASE_URL'
-        | 'BEHAVIORAL_COHORTS_DATABASE_URL'
-        | 'PLUGIN_STORAGE_DATABASE_URL'
-        | 'POSTGRES_CONNECTION_POOL_SIZE'
-        | 'POSTHOG_DB_NAME'
-        | 'POSTHOG_DB_USER'
-        | 'POSTHOG_DB_PASSWORD'
-        | 'POSTHOG_POSTGRES_HOST'
-        | 'POSTHOG_POSTGRES_PORT'
-        // Redis
-        | 'REDIS_URL'
-        | 'REDIS_POOL_MIN_SIZE'
-        | 'REDIS_POOL_MAX_SIZE'
-        | 'INGESTION_REDIS_HOST'
-        | 'INGESTION_REDIS_PORT'
-        | 'POSTHOG_REDIS_HOST'
-        | 'POSTHOG_REDIS_PORT'
-        | 'POSTHOG_REDIS_PASSWORD'
-        // Services
-        | 'MMDB_FILE_LOCATION'
-        | 'ENCRYPTION_SALT_KEYS'
-        | 'CAPTURE_INTERNAL_URL'
-        | 'SITE_URL'
         | 'CLOUD_DEPLOYMENT'
-        // Shared between ingestion and CDP
-        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
-        // Consumer
-        | 'CONSUMER_BATCH_SIZE'
-        | 'CONSUMER_MAX_HEARTBEAT_INTERVAL_MS'
-        | 'CONSUMER_LOOP_STALL_THRESHOLD_MS'
-        | 'CONSUMER_LOG_STATS_LEVEL'
-        | 'CONSUMER_LOOP_BASED_HEALTH_CHECK'
-        | 'CONSUMER_MAX_BACKGROUND_TASKS'
-        | 'CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE'
-        | 'CONSUMER_AUTO_CREATE_TOPICS'
-        // Misc
+        | 'MMDB_FILE_LOCATION'
+        | 'CAPTURE_INTERNAL_URL'
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
         | 'KAFKA_HEALTHCHECK_SECONDS'
     >
@@ -148,9 +121,7 @@ export class ErrorTrackingServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres, {
-            calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-        })
+        const personRepository = new PostgresPersonRepository(this.postgres)
         const groupRepository = new PostgresGroupRepository(this.postgres)
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
