@@ -243,8 +243,7 @@ impl PropertyContext<'_> {
                 gti.and_then(|idx| self.group_properties.get(&idx))
                     .unwrap_or(&*EMPTY_PROPERTY_MAP)
             }
-            // Flag and Cohort filters are handled before reaching this point
-            _ => match self.aggregation {
+            PropertyType::Cohort | PropertyType::Flag => match self.aggregation {
                 Some(gti) => self
                     .group_properties
                     .get(&gti)
@@ -1360,7 +1359,7 @@ impl FeatureFlagMatcher {
             // Properties are cached per type so conditions sharing a property source reuse them.
             if Self::condition_needs_properties(condition) {
                 let (needs_person, needed_group_types) =
-                    Self::condition_property_type_needs(condition);
+                    Self::condition_property_type_needs(condition, aggregation);
 
                 if needs_person && cached_person_properties.is_none() {
                     cached_person_properties =
@@ -1376,25 +1375,6 @@ impl FeatureFlagMatcher {
                         let group_props = self.get_group_properties(gti, group_overrides)?;
                         e.insert(group_props);
                     }
-                }
-
-                // Always ensure properties for the aggregation index are loaded.
-                // Untyped/legacy filters fall back to the aggregation index in
-                // resolve_for_filter, so its properties must be available even when
-                // some filters are explicitly typed.
-                if let Some(group_type_index) = aggregation {
-                    if let std::collections::hash_map::Entry::Vacant(e) =
-                        cached_group_properties.entry(group_type_index)
-                    {
-                        let group_overrides = self
-                            .resolve_group_overrides(group_type_index, group_property_overrides);
-                        let group_props =
-                            self.get_group_properties(group_type_index, group_overrides)?;
-                        e.insert(group_props);
-                    }
-                } else if cached_person_properties.is_none() {
-                    cached_person_properties =
-                        Some(self.get_person_properties(person_property_overrides)?);
                 }
             }
 
@@ -1585,12 +1565,12 @@ impl FeatureFlagMatcher {
 
     /// Determines which property sources a condition's filters reference.
     /// Returns (needs_person_properties, set_of_group_type_indexes_needed).
-    fn condition_property_type_needs(condition: &FlagPropertyGroup) -> (bool, HashSet<i32>) {
+    fn condition_property_type_needs(
+        condition: &FlagPropertyGroup,
+        effective_aggregation: Option<GroupTypeIndex>,
+    ) -> (bool, HashSet<i32>) {
         let mut needs_person = false;
         let mut group_types = HashSet::new();
-        let condition_aggregation = condition
-            .aggregation_group_type_index
-            .and_then(|inner| inner);
 
         if let Some(props) = &condition.properties {
             for prop in props {
@@ -1606,12 +1586,27 @@ impl FeatureFlagMatcher {
                 match prop.prop_type {
                     PropertyType::Person => needs_person = true,
                     PropertyType::Group => {
-                        if let Some(gti) = prop.group_type_index.or(condition_aggregation) {
+                        if let Some(gti) = prop.group_type_index.or(effective_aggregation) {
                             group_types.insert(gti);
                         }
                     }
-                    _ => {}
+                    // Cohort and Flag filters are handled by the guard above, but
+                    // listing them explicitly ensures a compile error if a new
+                    // PropertyType variant is added.
+                    PropertyType::Cohort | PropertyType::Flag => {}
                 }
+            }
+        }
+
+        // For legacy flags where all filters lack explicit types but the condition
+        // is group-aggregated, ensure the aggregation index is included. Similarly,
+        // person-aggregated legacy conditions need person properties loaded.
+        if group_types.is_empty() && !needs_person {
+            match effective_aggregation {
+                Some(gti) => {
+                    group_types.insert(gti);
+                }
+                None => needs_person = true,
             }
         }
 

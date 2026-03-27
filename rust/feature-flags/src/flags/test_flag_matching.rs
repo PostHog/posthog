@@ -10540,5 +10540,141 @@ mod tests {
             result.matches,
             "Both filters should match: typed filter against index 0, untyped filter against aggregation index 1"
         );
+
+        // Verify routing: when the aggregation index's data doesn't match,
+        // the untyped filter should fail (proving it resolves against index 1, not index 0).
+        let group_overrides_mismatch = HashMap::from([
+            (
+                "company".to_string(),
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            ),
+            (
+                "project".to_string(),
+                HashMap::from([("tier".to_string(), json!("basic"))]),
+            ),
+        ]);
+
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(HashMap::from([
+                ("company".to_string(), json!("acme")),
+                ("project".to_string(), json!("proj-1")),
+            ])),
+        );
+        matcher2
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher2
+            .get_match(&flag, None, Some(&group_overrides_mismatch), None, &None)
+            .unwrap();
+
+        assert!(
+            !result.matches,
+            "Untyped filter should fail when aggregation index data doesn't match"
+        );
+    }
+
+    mod property_context_tests {
+        use super::*;
+        use crate::flags::flag_matching::PropertyContext;
+
+        fn person_filter(key: &str) -> PropertyFilter {
+            PropertyFilter {
+                key: key.to_string(),
+                value: Some(json!("v")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+            }
+        }
+
+        fn group_filter(key: &str, gti: Option<i32>) -> PropertyFilter {
+            PropertyFilter {
+                key: key.to_string(),
+                value: Some(json!("v")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Group,
+                group_type_index: gti,
+                negation: None,
+                compiled_regex: None,
+            }
+        }
+
+        #[test]
+        fn test_person_filter_uses_person_properties() {
+            let person_props = HashMap::from([("plan".into(), json!("pro"))]);
+            let group_props = HashMap::new();
+            let ctx = PropertyContext {
+                person_properties: Some(&person_props),
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&person_filter("plan"));
+            assert_eq!(result.get("plan"), Some(&json!("pro")));
+        }
+
+        #[test]
+        fn test_person_filter_returns_empty_when_no_person_properties() {
+            let group_props = HashMap::new();
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&person_filter("plan"));
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_group_filter_with_explicit_index() {
+            let person_props = HashMap::new();
+            let group_props = HashMap::from([(
+                0,
+                HashMap::from([("size".to_string(), json!("enterprise"))]),
+            )]);
+            let ctx = PropertyContext {
+                person_properties: Some(&person_props),
+                group_properties: &group_props,
+                aggregation: Some(1),
+            };
+            // Explicit group_type_index takes precedence over aggregation
+            let result = ctx.resolve_for_filter(&group_filter("size", Some(0)));
+            assert_eq!(result.get("size"), Some(&json!("enterprise")));
+        }
+
+        #[test]
+        fn test_group_filter_without_index_falls_back_to_aggregation() {
+            let group_props =
+                HashMap::from([(1, HashMap::from([("tier".to_string(), json!("premium"))]))]);
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: Some(1),
+            };
+            let result = ctx.resolve_for_filter(&group_filter("tier", None));
+            assert_eq!(result.get("tier"), Some(&json!("premium")));
+        }
+
+        #[test]
+        fn test_group_filter_with_no_index_and_no_aggregation_returns_empty() {
+            let group_props =
+                HashMap::from([(0, HashMap::from([("size".to_string(), json!("big"))]))]);
+            let ctx = PropertyContext {
+                person_properties: None,
+                group_properties: &group_props,
+                aggregation: None,
+            };
+            let result = ctx.resolve_for_filter(&group_filter("size", None));
+            assert!(result.is_empty());
+        }
     }
 }
