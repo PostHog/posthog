@@ -354,17 +354,27 @@ class QueryCoalescingMiddleware:
             return None
         return int(match.group(1))
 
+    # Fields that are unique per request and should not affect coalescing
+    _IGNORED_KEY_FIELDS = {"client_query_id", "session_id"}
+
     @staticmethod
     def _compute_key(team_id: int, request: HttpRequest) -> str:
         if request.method == "GET":
-            payload = request.META.get("QUERY_STRING", "").encode()
-        else:
-            payload = request.body
+            from urllib.parse import parse_qs, urlencode
 
-        try:
-            normalized = orjson.dumps(orjson.loads(payload), option=orjson.OPT_SORT_KEYS)
-        except (orjson.JSONDecodeError, ValueError):
-            normalized = payload
+            params = parse_qs(request.META.get("QUERY_STRING", ""))
+            for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
+                params.pop(field, None)
+            normalized = urlencode(sorted(params.items()), doseq=True).encode()
+        else:
+            try:
+                data = orjson.loads(request.body)
+                if isinstance(data, dict):
+                    for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
+                        data.pop(field, None)
+                normalized = orjson.dumps(data, option=orjson.OPT_SORT_KEYS)
+            except (orjson.JSONDecodeError, ValueError):
+                normalized = request.body
 
         raw = f"{team_id}:{request.path}:{normalized.decode()}"
         return hashlib.sha256(raw.encode()).hexdigest()
