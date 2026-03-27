@@ -2374,18 +2374,8 @@
                     "type": "boolean"
                 },
                 "stickinessCriteria": {
-                    "additionalProperties": false,
-                    "description": "Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times.",
-                    "properties": {
-                        "operator": {
-                            "$ref": "#/definitions/StickinessOperator"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/integer"
-                        }
-                    },
-                    "required": ["operator", "value"],
-                    "type": "object"
+                    "$ref": "#/definitions/StickinessCriteria",
+                    "description": "Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times."
                 }
             },
             "type": "object"
@@ -33313,6 +33303,19 @@
             "enum": ["non_cumulative", "cumulative"],
             "type": "string"
         },
+        "StickinessCriteria": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/StickinessOperator"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
@@ -33363,17 +33366,7 @@
                     "type": "boolean"
                 },
                 "stickinessCriteria": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "operator": {
-                            "$ref": "#/definitions/StickinessOperator"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/integer"
-                        }
-                    },
-                    "required": ["operator", "value"],
-                    "type": "object"
+                    "$ref": "#/definitions/StickinessCriteria"
                 }
             },
             "type": "object"

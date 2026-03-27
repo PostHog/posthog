@@ -19,7 +19,7 @@ import {
     RetentionFilterLegacy,
     StickinessComputationMode,
     StickinessFilterLegacy,
-    StickinessOperator,
+    StickinessCriteria,
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
@@ -879,10 +879,7 @@ export interface AssistantStickinessFilter {
      * Filter which intervals count based on event frequency within each interval.
      * For example, only count intervals where the user performed the event >= 3 times.
      */
-    stickinessCriteria?: {
-        operator: StickinessOperator
-        value: integer
-    }
+    stickinessCriteria?: StickinessCriteria
 
     /**
      * Computation mode. `non_cumulative` (default) shows users active on exactly N intervals.
