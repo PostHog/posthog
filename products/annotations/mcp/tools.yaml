@@ -11,7 +11,7 @@ tools:
     annotations-list:
         operation: annotations_list
         enabled: true
-        mcp_version: 1
+
         scopes:
             - annotation:read
         annotations:
@@ -44,7 +44,7 @@ tools:
     annotation-retrieve:
         operation: annotations_retrieve
         enabled: true
-        mcp_version: 1
+
         scopes:
             - annotation:read
         annotations:

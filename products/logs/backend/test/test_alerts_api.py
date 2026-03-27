@@ -37,7 +37,8 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    def test_create(self):
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "High error rate"
         assert data["threshold_count"] == 10
@@ -45,6 +46,11 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["enabled"] is True
         assert data["created_by"]["id"] == self.user.pk
         assert data["filters"] == {"severityLevels": ["error"]}
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert created"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
+        assert mock_report.call_args[0][2]["threshold_count"] == 10
 
     def test_list(self):
         self._create_via_api(name="Alert 1")
@@ -75,8 +81,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Renamed"
 
-    def test_partial_update(self):
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_partial_update(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.patch(
             f"{self.base_url}{created['id']}/",
@@ -86,12 +94,22 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Patched"
 
-    def test_delete(self):
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert updated"
+        assert mock_report.call_args[0][2]["name"] == "Patched"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_delete(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.delete(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(pk=created["id"]).exists()
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert deleted"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
 
     # --- Team isolation ---
 

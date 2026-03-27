@@ -13,12 +13,12 @@
     "dependencies": {
         "@napi-rs/blake-hash": "^1.3.6",
         "commander": "^12.0.0",
-        "pngjs": "^7.0.0",
+        "sharp": "^0.34.5",
         "yaml": "^2.3.0"
     },
     "devDependencies": {
         "@types/node": "^20.0.0",
-        "@types/pngjs": "^6.0.1",
+        "@types/sharp": "^0.31.1",
         "tsx": "^4.0.0",
         "typescript": "5.5.4"
     }

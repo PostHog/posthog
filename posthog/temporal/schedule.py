@@ -14,6 +14,8 @@ from temporalio.client import (
     ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
     ScheduleIntervalSpec,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleRange,
     ScheduleSpec,
 )
@@ -46,7 +48,7 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQ
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -106,6 +108,10 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
+        # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
+        # Safe because child workflows use deterministic IDs (process-subscription-{id})
+        # and Temporal guarantees no two open workflows can share the same ID.
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
     if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):

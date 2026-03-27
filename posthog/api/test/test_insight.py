@@ -49,6 +49,7 @@ from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
@@ -344,8 +345,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(len(response.json()["results"]), 2)
         self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
+
+    def test_dashboard_template_insights_default_to_saved(self) -> None:
+        from posthog.helpers.dashboard_templates import create_dashboard_from_template
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test")
+        create_dashboard_from_template("DEFAULT_APP", dashboard)
+
+        insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
+        self.assertGreater(insights.count(), 0)
+        for insight in insights:
+            self.assertTrue(insight.saved, f"Insight '{insight.name}' should have saved=True")
 
     def test_get_favorited_insight_items(self) -> None:
         filter_dict = {
@@ -2809,26 +2821,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-    @patch("posthog.decorators.get_safe_cache")
-    def test_including_query_id_does_not_affect_cache_key(self, patched_get_safe_cache) -> None:
+    def test_including_query_id_does_not_affect_cache_key(self) -> None:
         """
         regression test, by introducing a query_id we were changing the cache key
         so, if you made the same query twice, the second one would not be cached, only because the query id had changed
         """
         self._get_insight_with_client_query_id("b3ef3987-b8e7-4339-b9b8-fa2b65606692")
-        self._get_insight_with_client_query_id("00000000-b8e7-4339-b9b8-fa2b65606692")
+        response = self._get_insight_with_client_query_id("00000000-b8e7-4339-b9b8-fa2b65606692")
 
-        assert patched_get_safe_cache.call_count == 2
-        assert patched_get_safe_cache.call_args_list[0] == patched_get_safe_cache.call_args_list[1]
+        # Second call should hit cache since client_query_id is not part of the cache key
+        assert response.get("is_cached") is True
 
-    def _get_insight_with_client_query_id(self, client_query_id: str) -> None:
+    def _get_insight_with_client_query_id(self, client_query_id: str) -> dict:
         query_params = f"?events={json.dumps([{'id': '$pageview'}])}&client_query_id={client_query_id}"
-        self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
+        return self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
     def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         assert activity == expected
@@ -3600,6 +3613,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
 
+    def test_insight_activity_respects_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Hidden Insight",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(resource="insight", resource_id=insight.id, team=self.team, access_level="none")
+
+        self.client.force_login(user2)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        activity_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/activity/")
+        self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_create_insight_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
@@ -4028,10 +4065,9 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("posthog.api.insight.InsightViewSet.calculate_trends_hogql")
-    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    @patch("posthog.api.insight.process_query_dict")
     def test_trend_returns_400_for_exposed_errors(
-        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+        self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
@@ -4044,7 +4080,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             "ExposedHogQLError": ExposedHogQLError,
             "HogVMException": HogVMException,
         }
-        mock_calculate.side_effect = error_classes[error_type](error_message)
+        mock_process.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/trend/",
@@ -4061,10 +4097,9 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("posthog.api.insight.InsightViewSet.calculate_funnel_hogql")
-    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    @patch("posthog.api.insight.process_query_dict")
     def test_funnel_returns_400_for_exposed_errors(
-        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+        self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
@@ -4077,7 +4112,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             "ExposedHogQLError": ExposedHogQLError,
             "HogVMException": HogVMException,
         }
-        mock_calculate.side_effect = error_classes[error_type](error_message)
+        mock_process.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/funnel/",

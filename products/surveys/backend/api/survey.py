@@ -48,6 +48,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
@@ -1621,6 +1622,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             GROUP BY survey_id
         """
 
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         data = sync_execute(query, params)
 
         counts = {}
@@ -1854,6 +1856,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             "dismissed": SurveyEventName.DISMISSED.value,
             "sent": SurveyEventName.SENT.value,
         }
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         results_base = sync_execute(base_stats_query, query_params)
 
         # Query 2: Count of unique persons who both dismissed AND sent
@@ -2102,15 +2105,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        item_id = kwargs["pk"]
-
-        if not Survey.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="Survey",
             team_id=self.team_id,
-            item_ids=[item_id],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )

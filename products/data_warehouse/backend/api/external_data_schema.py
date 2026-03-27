@@ -65,6 +65,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "label",
             "table",
             "should_sync",
             "last_synced_at",
@@ -82,6 +83,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "name",
+            "label",
             "table",
             "last_synced_at",
             "latest_error",
@@ -140,6 +142,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             and sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
             and sync_type != ExternalDataSchema.SyncType.INCREMENTAL
             and sync_type != ExternalDataSchema.SyncType.APPEND
+            and sync_type != ExternalDataSchema.SyncType.WEBHOOK
         ):
             raise ValidationError("Invalid sync type")
 
@@ -149,7 +152,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         trigger_refresh = False
         # Update the validated_data with incremental fields
-        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL or sync_type == ExternalDataSchema.SyncType.APPEND:
+        if sync_type in (
+            ExternalDataSchema.SyncType.INCREMENTAL,
+            ExternalDataSchema.SyncType.APPEND,
+            ExternalDataSchema.SyncType.WEBHOOK,
+        ):
             incremental_field_changed = (
                 instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
                 or instance.sync_type_config.get("incremental_field_last_value") is None
@@ -247,7 +254,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         updated_instance = super().update(instance, validated_data)
 
-        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
 
         return updated_instance
@@ -283,20 +290,32 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             )
 
             if hog_fn_result.error or not hog_fn_result.hog_function:
-                logger.warning("Failed to create webhook hog function", error=hog_fn_result.error)
-                return
+                raise ValidationError(
+                    f"Failed to set up webhook: {hog_fn_result.error or 'Unknown error'}. "
+                    "You can set up the webhook manually from the Webhook tab."
+                )
 
             if hog_fn_result.hog_function_created:
                 # Only register the webhook if we're creating the hog function when it didn't exist previously
-                create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+                result = create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+                if not result.success:
+                    raise ValidationError(
+                        f"Failed to register webhook on your source: {result.error or 'Unknown error'}. "
+                        "You can set up the webhook manually from the Webhook tab."
+                    )
+        except ValidationError:
+            raise
         except Exception as e:
             logger.exception("Failed to create webhook during schema update", error=str(e))
+            raise ValidationError(
+                "Failed to create webhook. You can set up the webhook manually from the Webhook tab."
+            ) from e
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
-        fields = ["id", "name", "should_sync", "last_synced_at"]
+        fields = ["id", "name", "label", "should_sync", "last_synced_at"]
 
 
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

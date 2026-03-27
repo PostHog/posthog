@@ -193,7 +193,7 @@ class _KafkaProducer:
         enable_idempotence=False,
     ):
         hostname = os.environ.get("HOSTNAME", "")
-        if "temporal-worker-data-warehouse" in hostname or "warehouse-sources-load" in hostname:
+        if "temporal-worker-data-warehouse" in hostname:
             import traceback
 
             logger.info(f"KafkaProducer stack: {traceback.format_stack()}")
