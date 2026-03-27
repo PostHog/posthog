@@ -91,6 +91,15 @@ class UploadTarget:
 
 
 @dataclass(frozen=True)
+class CompleteRunInput:
+    """Optional body for completing a run. Supports shard flow reconciliation."""
+
+    removed_identifiers: list[str] = field(default_factory=list)
+    unchanged_count: int = 0
+    baseline_hashes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class AddSnapshotsInput:
     """Batch of snapshots to add to an existing run (shard-based flow)."""
 
