@@ -1281,7 +1281,7 @@ class ExperimentService:
             feature_flag_key = source_experiment.feature_flag.key
 
         parameters = deepcopy(source_experiment.parameters) or {}
-        # If using a different flag key, check the target team for an existing flag with matching variants
+        # Check the target project for an existing flag with this key and reuse its variants if present
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target_team.id).first()
         if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
             parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
