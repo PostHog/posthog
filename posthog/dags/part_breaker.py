@@ -587,17 +587,15 @@ def _wait_for_replication(client: Client, source_table: str, target_log_index: i
     )
     all_replica_names = [row[0] for row in replica_rows]
 
-    active_replicas = []
-    inactive_replicas = []
-    for replica_name in all_replica_names:
-        is_active = client.execute(
-            "SELECT count() FROM system.zookeeper WHERE path = %(path)s AND name = 'is_active'",
-            {"path": f"{zk_path}/replicas/{replica_name}"},
-        )
-        if is_active and is_active[0][0] > 0:
-            active_replicas.append(replica_name)
-        else:
-            inactive_replicas.append(replica_name)
+    # Single query to find which replicas have an is_active ephemeral node
+    replica_paths = [f"{zk_path}/replicas/{r}" for r in all_replica_names]
+    active_rows = client.execute(
+        "SELECT path FROM system.zookeeper WHERE path IN %(paths)s AND name = 'is_active'",
+        {"paths": replica_paths},
+    )
+    active_paths = {row[0] for row in active_rows}
+    active_replicas = [r for r in all_replica_names if f"{zk_path}/replicas/{r}" in active_paths]
+    inactive_replicas = [r for r in all_replica_names if r not in active_replicas]
 
     if inactive_replicas:
         logger.info(f"Skipping {len(inactive_replicas)} inactive replica(s): {', '.join(inactive_replicas)}")
