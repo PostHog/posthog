@@ -68,9 +68,8 @@ class TestGitHubPRWebhook(TestCase):
         )
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_webhook(self, mock_capture, mock_get_secret):
-        """Test that a PR merged webhook creates a log entry and analytics event."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -85,7 +84,6 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Verify analytics was called
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_merged")
@@ -94,9 +92,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_closed_without_merge_webhook(self, mock_capture, mock_get_secret):
-        """Test that a PR closed (not merged) webhook creates correct events."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -111,15 +108,13 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Verify analytics was called with pr_closed event
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_closed")
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_opened_webhook(self, mock_capture, mock_get_secret):
-        """Test that a PR opened webhook creates correct events."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -134,7 +129,6 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Verify analytics was called with pr_created event
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_created")
@@ -174,9 +168,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 403)
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_unknown_pr_url_returns_200(self, mock_capture, mock_get_secret):
-        """Test that webhooks for unknown PR URLs return 200 but don't emit events."""
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {

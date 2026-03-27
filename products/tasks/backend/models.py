@@ -472,7 +472,6 @@ class TaskRun(models.Model):
         self.capture_event(
             "task_run_failed",
             {
-                "error_type": type(error).__name__,
                 "error_message": error[:500],
                 "duration_seconds": self._duration_seconds(),
             },
