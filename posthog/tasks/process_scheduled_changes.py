@@ -9,7 +9,7 @@ from django.utils import timezone
 
 import structlog
 from celery import current_task
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 
@@ -162,28 +162,27 @@ def process_scheduled_changes() -> None:
                     )
                     if is_recurring_schedule:
                         # Compute next run time, handling delayed execution
-                        if scheduled_change.cron_expression:
-                            next_run = compute_next_run_cron(
-                                scheduled_change.cron_expression,
-                                scheduled_change.scheduled_at,
-                            )
+                        cron_expr = scheduled_change.cron_expression
+                        interval = scheduled_change.recurrence_interval
+
+                        if cron_expr:
+                            next_run = compute_next_run_cron(cron_expr, scheduled_change.scheduled_at)
                             interval_label = "cron"
                         else:
-                            next_run = compute_next_run(
-                                scheduled_change.scheduled_at,
-                                scheduled_change.recurrence_interval,
-                            )
-                            interval_label = scheduled_change.recurrence_interval
+                            assert interval is not None
+                            next_run = compute_next_run(scheduled_change.scheduled_at, interval)
+                            interval_label = interval
 
                         # If task execution was delayed and next_run is still in the past, skip ahead
                         # to avoid immediate re-trigger or missed executions piling up
                         now = timezone.now()
                         skipped_count = 0
                         while next_run <= now and skipped_count < MAX_CATCHUP_ITERATIONS:
-                            if scheduled_change.cron_expression:
-                                next_run = compute_next_run_cron(scheduled_change.cron_expression, next_run)
+                            if cron_expr:
+                                next_run = compute_next_run_cron(cron_expr, next_run)
                             else:
-                                next_run = compute_next_run(next_run, scheduled_change.recurrence_interval)
+                                assert interval is not None
+                                next_run = compute_next_run(next_run, interval)
                             skipped_count += 1
 
                         # If we hit the cap and next_run is still in the past, jump directly
@@ -195,10 +194,11 @@ def process_scheduled_changes() -> None:
                                 skipped_count=skipped_count,
                                 interval=interval_label,
                             )
-                            if scheduled_change.cron_expression:
-                                next_run = compute_next_run_cron(scheduled_change.cron_expression, now)
+                            if cron_expr:
+                                next_run = compute_next_run_cron(cron_expr, now)
                             else:
-                                next_run = compute_next_run(now, scheduled_change.recurrence_interval)
+                                assert interval is not None
+                                next_run = compute_next_run(now, interval)
 
                         # Log and track if we skipped executions due to delayed processing
                         # (skipped_count > 1 means we skipped more than just advancing to the next run)

@@ -1,6 +1,6 @@
 from typing import Any
 
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 
