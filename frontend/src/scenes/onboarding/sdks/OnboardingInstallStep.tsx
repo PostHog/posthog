@@ -188,10 +188,7 @@ function WizardCommandBlock(): JSX.Element {
                     >
                         <IconTerminal className="size-4 text-muted" />
                         <span className="relative">
-                            <code
-                                style={WIZARD_GRADIENT_STYLE}
-                                className="!bg-transparent !p-0 !border-0 select-all"
-                            >
+                            <code style={WIZARD_GRADIENT_STYLE} className="!bg-transparent !p-0 !border-0 select-all">
                                 {wizardCommand}
                             </code>
                             {copyKey > 0 && (
