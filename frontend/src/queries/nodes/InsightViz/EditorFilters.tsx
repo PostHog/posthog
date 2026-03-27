@@ -333,12 +333,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
     ]
 
-    const leftFiltered = leftEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
-    const rightFiltered = rightEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
+    const leftFilterGroups = leftEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
+    const rightFilterGroups = rightEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
 
     return (
         <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
-            {[leftFiltered, rightFiltered].map((editorFilterGroups, i) => (
+            {[leftFilterGroups, rightFilterGroups].map((editorFilterGroups, i) => (
                 <div key={i} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
                     {editorFilterGroups.map((editorFilterGroup) => (
                         <EditorFilterGroup
