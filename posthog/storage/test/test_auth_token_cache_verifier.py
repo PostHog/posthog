@@ -437,6 +437,56 @@ class TestAuthTokenCacheVerifier(TestCase):
 
         assert not self.redis.exists(key)
 
+    # --- Project secret token missing mandatory fields ---
+
+    def test_project_secret_token_missing_team_id_is_removed(self):
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="test-psak-no-team-id",
+            secure_value=hash_key_value("phx_psak_no_team_id", mode="sha256"),
+            scopes=["feature_flag:read"],
+            mask_value="phx_...ntid",
+        )
+
+        key = self._set_cache(
+            psak.secure_value,
+            {
+                "type": "project_secret",
+                # intentionally omitting "team_id" — Rust always writes this
+                "key_id": str(psak.id),
+                "scopes": ["feature_flag:read"],
+            },
+        )
+
+        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
+
+        assert not self.redis.exists(key)
+        assert result.stale_found > 0
+
+    def test_project_secret_token_missing_key_id_is_removed(self):
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="test-psak-no-key-id",
+            secure_value=hash_key_value("phx_psak_no_key_id", mode="sha256"),
+            scopes=["feature_flag:read"],
+            mask_value="phx_...nkid",
+        )
+
+        key = self._set_cache(
+            psak.secure_value,
+            {
+                "type": "project_secret",
+                "team_id": self.team.id,
+                # intentionally omitting "key_id" — Rust always writes this
+                "scopes": ["feature_flag:read"],
+            },
+        )
+
+        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
+
+        assert not self.redis.exists(key)
+        assert result.stale_found > 0
+
     # --- Edge cases ---
 
     def test_unknown_token_type_is_removed(self):

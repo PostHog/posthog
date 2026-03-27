@@ -404,23 +404,26 @@ def _verify_project_secret_entries(
             _record_stale("project_secret", result)
             continue
 
-        # Verify team_id matches (cache may carry stale metadata)
+        # Verify team_id is present and matches (Rust always writes this field)
         cached_team_id = data.get("team_id")
-        if cached_team_id is not None:
-            try:
-                if int(cached_team_id) != psak.team_id:
-                    stale_keys.append(key)
-                    _record_stale("project_secret", result)
-                    continue
-            except (ValueError, TypeError):
-                result.parse_errors += 1
+        if cached_team_id is None:
+            stale_keys.append(key)
+            _record_stale("project_secret", result)
+            continue
+        try:
+            if int(cached_team_id) != psak.team_id:
                 stale_keys.append(key)
                 _record_stale("project_secret", result)
                 continue
+        except (ValueError, TypeError):
+            result.parse_errors += 1
+            stale_keys.append(key)
+            _record_stale("project_secret", result)
+            continue
 
-        # Verify key_id matches (cache may carry stale metadata)
+        # Verify key_id is present and matches (Rust always writes this field)
         cached_key_id = data.get("key_id")
-        if cached_key_id is not None and str(cached_key_id) != str(psak.id):
+        if cached_key_id is None or str(cached_key_id) != str(psak.id):
             stale_keys.append(key)
             _record_stale("project_secret", result)
             continue
