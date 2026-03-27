@@ -559,7 +559,7 @@ class EnterpriseExperimentsViewSet(
         feature_flag_key = request.data.get("feature_flag_key")
 
         service = ExperimentService(team=self.team, user=request.user)
-        new_experiment = service.duplicate_experiment_to_project(
+        new_experiment = service.copy_experiment_to_project(
             source_experiment,
             target_team,
             feature_flag_key=feature_flag_key,

@@ -1268,7 +1268,7 @@ class ExperimentService:
             serializer_context=serializer_context,
         )
 
-    def duplicate_experiment_to_project(
+    def copy_experiment_to_project(
         self,
         source_experiment: Experiment,
         target_team: Team,
