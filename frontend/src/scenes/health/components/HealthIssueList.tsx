@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from
 
 import { urls } from 'scenes/urls'
 
+import { CATEGORY_DETAIL_CONFIG } from '../categoryDetail/categoryDetailConfig'
 import { CATEGORY_ORDER, HEALTH_CATEGORY_CONFIG, categoryForKind } from '../healthCategories'
 import type { HealthIssueCategory } from '../healthCategories'
 import { healthSceneLogic } from '../healthSceneLogic'
@@ -78,7 +79,10 @@ export const HealthIssueList = (): JSX.Element => {
                                             <LemonButton
                                                 type="tertiary"
                                                 size="xsmall"
-                                                to={urls.healthCategory(category)}
+                                                to={
+                                                    CATEGORY_DETAIL_CONFIG[category]?.redirectUrl ??
+                                                    urls.healthCategory(category)
+                                                }
                                                 onClick={(e) => e.stopPropagation()}
                                             >
                                                 View details
@@ -87,15 +91,13 @@ export const HealthIssueList = (): JSX.Element => {
                                     </div>
                                 ),
                                 content: (
-                                    <div className="divide-y divide-border -m-4">
-                                        {categoryIssues.map((issue) => (
-                                            <HealthIssueCard
-                                                key={issue.id}
-                                                issue={issue}
-                                                onDismiss={dismissIssue}
-                                                onUndismiss={undismissIssue}
-                                            />
-                                        ))}
+                                    <div className="-m-4">
+                                        <CategoryContent
+                                            category={category}
+                                            issues={categoryIssues}
+                                            onDismiss={dismissIssue}
+                                            onUndismiss={undismissIssue}
+                                        />
                                     </div>
                                 ),
                             },
@@ -103,6 +105,30 @@ export const HealthIssueList = (): JSX.Element => {
                     />
                 )
             })}
+        </div>
+    )
+}
+
+function CategoryContent({
+    category,
+    issues,
+    onDismiss,
+    onUndismiss,
+}: {
+    category: HealthIssueCategory
+    issues: HealthIssue[]
+    onDismiss: (id: string) => void
+    onUndismiss: (id: string) => void
+}): JSX.Element {
+    const TableComponent = CATEGORY_DETAIL_CONFIG[category]?.tableComponent
+    if (TableComponent) {
+        return <TableComponent issues={issues} onDismiss={onDismiss} onUndismiss={onUndismiss} />
+    }
+    return (
+        <div className="divide-y divide-border">
+            {issues.map((issue) => (
+                <HealthIssueCard key={issue.id} issue={issue} onDismiss={onDismiss} onUndismiss={onUndismiss} />
+            ))}
         </div>
     )
 }

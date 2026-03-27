@@ -55,16 +55,11 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
         ],
     }),
 
-    loaders(({ values, props: logicProps }) => ({
+    loaders(({ values }) => ({
         healthIssues: [
             null as HealthIssuesResponse | null,
             {
                 loadHealthIssues: async (): Promise<HealthIssuesResponse | null> => {
-                    if (!(logicProps.category in HEALTH_CATEGORY_CONFIG)) {
-                        router.actions.replace(urls.health())
-                        return null
-                    }
-
                     const params: Record<string, string> = { status: 'active' }
                     if (!values.showDismissed) {
                         params.dismissed = 'false'
@@ -187,7 +182,16 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props: logicProps }) => {
+        if (!(logicProps.category in HEALTH_CATEGORY_CONFIG)) {
+            router.actions.replace(urls.health())
+            return
+        }
+        const redirectUrl = CATEGORY_DETAIL_CONFIG[logicProps.category as HealthIssueCategory]?.redirectUrl
+        if (redirectUrl) {
+            router.actions.replace(redirectUrl)
+            return
+        }
         actions.loadHealthIssues()
     }),
 ])

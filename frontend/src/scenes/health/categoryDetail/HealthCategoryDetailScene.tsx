@@ -11,6 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { HealthIssueCard } from '../components/HealthIssueCard'
 import { severityColor, severityToTagType } from '../healthUtils'
 import type { HealthIssueSeverity } from '../types'
+import type { CategoryDetailConfig } from './categoryDetailConfig'
 import type { HealthCategoryDetailLogicProps, KindGroup } from './healthCategoryDetailLogic'
 import { healthCategoryDetailLogic } from './healthCategoryDetailLogic'
 
@@ -26,6 +27,7 @@ function HealthCategoryDetailScene(): JSX.Element {
         detailConfig,
         statusSummary,
         issuesByKind,
+        categoryIssues,
         healthIssuesLoading,
         healthIssues,
         showDismissed,
@@ -37,6 +39,8 @@ function HealthCategoryDetailScene(): JSX.Element {
         return <></>
     }
 
+    const ContentComponent = detailConfig?.contentComponent
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -45,89 +49,136 @@ function HealthCategoryDetailScene(): JSX.Element {
                 resourceType={{ type: 'health' }}
             />
 
-            <div className="flex flex-col gap-4 max-w-3xl">
-                {healthIssuesLoading && !healthIssues ? (
-                    <div className="flex flex-col gap-3">
-                        <LemonSkeleton className="h-16 rounded" />
-                        <LemonSkeleton className="h-16 rounded" />
-                        <LemonSkeleton className="h-16 rounded" />
-                    </div>
-                ) : (
-                    <>
-                        <StatusBanner
-                            isHealthy={statusSummary.isHealthy}
-                            count={statusSummary.count}
-                            worstSeverity={statusSummary.worstSeverity}
-                            healthyDescription={categoryConfig?.healthyDescription}
-                        />
-
-                        {detailConfig?.guidance && (
-                            <p className="text-sm text-secondary mb-0">{detailConfig.guidance}</p>
-                        )}
-
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                {detailConfig?.deepDiveUrl && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconExternal />}
-                                        to={detailConfig.deepDiveUrl}
-                                    >
-                                        {detailConfig.deepDiveLabel ?? 'View details'}
-                                    </LemonButton>
-                                )}
-                                {detailConfig?.docsUrl && (
-                                    <Link to={detailConfig.docsUrl} className="text-xs text-muted">
-                                        Docs
-                                    </Link>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-1">
-                                <LemonButton
-                                    icon={<IconRefresh />}
-                                    type="tertiary"
-                                    size="small"
-                                    tooltip="Refresh"
-                                    loading={healthIssuesLoading}
-                                    onClick={() => refreshHealthData()}
-                                />
-                                <LemonMenu
-                                    items={[
-                                        {
-                                            label: 'Show dismissed',
-                                            icon: showDismissed ? <IconCheck /> : undefined,
-                                            onClick: () => setShowDismissed(!showDismissed),
-                                        },
-                                    ]}
-                                    placement="bottom-end"
-                                >
-                                    <LemonButton icon={<IconEllipsis />} type="tertiary" size="small" />
-                                </LemonMenu>
-                            </div>
-                        </div>
-
-                        {issuesByKind.length === 0 ? (
-                            <LemonBanner type="success">
-                                <p className="font-semibold mb-0">All healthy</p>
-                                <p className="text-sm mt-1 mb-0">No active issues found in this category.</p>
-                            </LemonBanner>
-                        ) : (
-                            <div className="flex flex-col gap-4">
-                                {issuesByKind.map((group: KindGroup) => (
-                                    <KindSection
-                                        key={group.kind}
-                                        group={group}
-                                        onDismiss={dismissIssue}
-                                        onUndismiss={undismissIssue}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </>
-                )}
-            </div>
+            {healthIssuesLoading && !healthIssues ? (
+                <LoadingSkeleton />
+            ) : ContentComponent ? (
+                <ContentComponent
+                    issues={categoryIssues}
+                    statusSummary={statusSummary}
+                    isLoading={healthIssuesLoading}
+                    onDismiss={dismissIssue}
+                    onUndismiss={undismissIssue}
+                    onRefresh={refreshHealthData}
+                    showDismissed={showDismissed}
+                    onSetShowDismissed={setShowDismissed}
+                />
+            ) : (
+                <GenericCategoryContent
+                    statusSummary={statusSummary}
+                    issuesByKind={issuesByKind}
+                    healthyDescription={categoryConfig?.healthyDescription}
+                    detailConfig={detailConfig}
+                    showDismissed={showDismissed}
+                    healthIssuesLoading={healthIssuesLoading}
+                    onRefresh={refreshHealthData}
+                    onSetShowDismissed={setShowDismissed}
+                    onDismiss={dismissIssue}
+                    onUndismiss={undismissIssue}
+                />
+            )}
         </SceneContent>
+    )
+}
+
+function LoadingSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3 max-w-3xl">
+            <LemonSkeleton className="h-16 rounded" />
+            <LemonSkeleton className="h-16 rounded" />
+            <LemonSkeleton className="h-16 rounded" />
+        </div>
+    )
+}
+
+function GenericCategoryContent({
+    statusSummary,
+    issuesByKind,
+    healthyDescription,
+    detailConfig,
+    showDismissed,
+    healthIssuesLoading,
+    onRefresh,
+    onSetShowDismissed,
+    onDismiss,
+    onUndismiss,
+}: {
+    statusSummary: { count: number; worstSeverity: HealthIssueSeverity | null; isHealthy: boolean }
+    issuesByKind: KindGroup[]
+    healthyDescription?: string
+    detailConfig?: CategoryDetailConfig
+    showDismissed: boolean
+    healthIssuesLoading: boolean
+    onRefresh: () => void
+    onSetShowDismissed: (show: boolean) => void
+    onDismiss: (id: string) => void
+    onUndismiss: (id: string) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-4 max-w-3xl">
+            <StatusBanner
+                isHealthy={statusSummary.isHealthy}
+                count={statusSummary.count}
+                worstSeverity={statusSummary.worstSeverity}
+                healthyDescription={healthyDescription}
+            />
+
+            {detailConfig?.guidance && <p className="text-sm text-secondary mb-0">{detailConfig.guidance}</p>}
+
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    {detailConfig?.deepDiveUrl && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconExternal />}
+                            to={detailConfig.deepDiveUrl}
+                        >
+                            {detailConfig.deepDiveLabel ?? 'View details'}
+                        </LemonButton>
+                    )}
+                    {detailConfig?.docsUrl && (
+                        <Link to={detailConfig.docsUrl} className="text-xs text-muted">
+                            Docs
+                        </Link>
+                    )}
+                </div>
+                <div className="flex items-center gap-1">
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        type="tertiary"
+                        size="small"
+                        tooltip="Refresh"
+                        loading={healthIssuesLoading}
+                        onClick={() => onRefresh()}
+                    />
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Show dismissed',
+                                icon: showDismissed ? <IconCheck /> : undefined,
+                                onClick: () => onSetShowDismissed(!showDismissed),
+                            },
+                        ]}
+                        placement="bottom-end"
+                    >
+                        <LemonButton icon={<IconEllipsis />} type="tertiary" size="small" />
+                    </LemonMenu>
+                </div>
+            </div>
+
+            {issuesByKind.length === 0 ? (
+                <LemonBanner type="success">
+                    <p className="font-semibold mb-0">All healthy</p>
+                    <p className="text-sm mt-1 mb-0">No active issues found in this category.</p>
+                </LemonBanner>
+            ) : (
+                <div className="flex flex-col gap-4">
+                    {issuesByKind.map((group: KindGroup) => (
+                        <KindSection key={group.kind} group={group} onDismiss={onDismiss} onUndismiss={onUndismiss} />
+                    ))}
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -152,7 +203,7 @@ function StatusBanner({
     }
 
     return (
-        <div className={`flex items-center gap-2 text-sm ${severityColor(worstSeverity!)}`}>
+        <div className={`flex items-center gap-2 text-sm ${worstSeverity ? severityColor(worstSeverity) : ''}`}>
             <IconWarning className="size-4" />
             <span>
                 {count} {count === 1 ? 'issue' : 'issues'}

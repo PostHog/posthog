@@ -5,6 +5,7 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { CATEGORY_DETAIL_CONFIG } from '../categoryDetail/categoryDetailConfig'
 import { HEALTH_CATEGORY_CONFIG } from '../healthCategories'
 import type { HealthIssueCategory } from '../healthCategories'
 import { healthSceneLogic } from '../healthSceneLogic'
@@ -41,9 +42,12 @@ const CategoryCard = ({ summary }: { summary: CategoryHealthSummary }): JSX.Elem
     const config = HEALTH_CATEGORY_CONFIG[summary.category as HealthIssueCategory]
     const isHealthy = summary.issueCount === 0
 
+    const detailConfig = CATEGORY_DETAIL_CONFIG[summary.category as HealthIssueCategory]
+    const linkUrl = detailConfig?.redirectUrl ?? urls.healthCategory(summary.category)
+
     return (
         <Link
-            to={urls.healthCategory(summary.category)}
+            to={linkUrl}
             className="relative flex flex-col gap-2 justify-between border border-primary bg-surface-primary rounded p-4 h-full shadow transition-colors cursor-pointer hover:border-accent"
         >
             {!isHealthy && (

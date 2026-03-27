@@ -13,8 +13,8 @@ export const HealthIssueCard = ({
     onUndismiss,
 }: {
     issue: HealthIssue
-    onDismiss?: (id: string) => void
-    onUndismiss?: (id: string) => void
+    onDismiss: (id: string) => void
+    onUndismiss: (id: string) => void
 }): JSX.Element => {
     const Renderer = getIssueRenderer(issue.kind)
 
@@ -30,15 +30,13 @@ export const HealthIssueCard = ({
                         <TZLabel time={issue.created_at} />
                     </span>
                 </div>
-                {(onDismiss || onUndismiss) && (
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        icon={issue.dismissed ? <IconRevert /> : <IconX />}
-                        tooltip={issue.dismissed ? 'Undismiss' : 'Dismiss'}
-                        onClick={() => (issue.dismissed ? onUndismiss?.(issue.id) : onDismiss?.(issue.id))}
-                    />
-                )}
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    icon={issue.dismissed ? <IconRevert /> : <IconX />}
+                    tooltip={issue.dismissed ? 'Undismiss' : 'Dismiss'}
+                    onClick={() => (issue.dismissed ? onUndismiss(issue.id) : onDismiss(issue.id))}
+                />
             </div>
             <Renderer issue={issue} />
         </div>
