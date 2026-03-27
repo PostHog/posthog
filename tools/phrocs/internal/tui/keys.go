@@ -242,10 +242,12 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			}
 		}
 
-		if err := p.WriteInput(input); err != nil {
-			m.dbg("pty write error: %v", err)
-		} else {
-			m.dbg("pty send: %q", input)
+		if input != nil {
+			if err := p.WriteInput(input); err != nil {
+				m.dbg("pty write error: %v", err)
+			} else {
+				m.dbg("pty send: %q", input)
+			}
 		}
 		return m, tea.Batch(cmds...)
 	}

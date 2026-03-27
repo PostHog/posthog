@@ -496,10 +496,15 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	}()
 
 	var partial []byte
+	dirty := false
+
 	partialTimer := time.NewTimer(0)
 	if !partialTimer.Stop() {
 		<-partialTimer.C
 	}
+
+	flushTicker := time.NewTicker(flushInterval)
+	defer flushTicker.Stop()
 
 	for {
 		select {
@@ -538,15 +543,22 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 					default:
 					}
 				}
-				partialTimer.Reset(50 * time.Millisecond)
+				partialTimer.Reset(flushInterval * 3)
 			}
 
-			send(OutputMsg{Name: p.Name})
+			dirty = true
+
+		case <-flushTicker.C:
+			if dirty {
+				dirty = false
+				send(OutputMsg{Name: p.Name})
+			}
 
 		case <-partialTimer.C:
 			if len(partial) > 0 {
 				p.bufferLine(string(partial), send)
 				partial = nil
+				dirty = false
 				send(OutputMsg{Name: p.Name})
 			}
 		}
