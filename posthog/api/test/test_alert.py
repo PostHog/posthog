@@ -490,6 +490,13 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "weekly",
                 "renamed alert",
             ),
+            (
+                "updated_interval_applied",
+                {"calculation_interval": "hourly"},
+                status.HTTP_200_OK,
+                "hourly",
+                "alert name",
+            ),
         ]
     )
     def test_patch_calculation_interval(self, _name, patch_payload, expected_status, expected_interval, expected_name):
