@@ -10,6 +10,7 @@ use crate::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
+    metrics::consts::FLAG_SENT_AT_DELTA_MS,
     router,
     utils::user_agent::UserAgentInfo,
 };
@@ -261,6 +262,20 @@ pub async fn flags(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let ua_info = UserAgentInfo::parse(user_agent);
 
+    // Compute client-to-server transit time from sent_at query param.
+    // Deltas outside [0, 5min) are filtered: negative means client clock ahead,
+    // very large means stale/garbage timestamp.
+    const MAX_PLAUSIBLE_TRANSIT_MS: i64 = 300_000; // 5 minutes
+    let sent_at_delta_ms: Option<i64> = query_params.sent_at.and_then(|sent_at| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let delta = now_ms - sent_at;
+        if (0..MAX_PLAUSIBLE_TRANSIT_MS).contains(&delta) {
+            Some(delta)
+        } else {
+            None
+        }
+    });
+
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
     let canonical_log = FlagsCanonicalLogLine {
@@ -271,6 +286,7 @@ pub async fn flags(
         // Browser SDK sends ver= query param, server SDKs send version in User-Agent
         lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
         api_version: query_params.version.clone(),
+        sent_at_delta_ms,
         ..Default::default()
     };
 
@@ -367,6 +383,11 @@ pub async fn flags(
 
     // Emit DB operations metrics before the canonical log
     log.emit_db_operations_metrics();
+
+    // Emit sent_at delta histogram for transit time dashboards
+    if let Some(delta) = log.sent_at_delta_ms {
+        common_metrics::histogram(FLAG_SENT_AT_DELTA_MS, &[], delta as f64);
+    }
 
     match result {
         Ok(response) => {
