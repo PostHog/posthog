@@ -3004,6 +3004,7 @@ export type InsightEditorFilterGroup = {
     title: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
+    show?: boolean
 }
 
 export interface SystemStatusSubrows {
