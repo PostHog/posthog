@@ -1519,6 +1519,7 @@ class Resolver(CloningVisitor):
         node = map_virtual_properties(node)
 
         node = super().visit_field(node)
+        name = str(node.chain[0])
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
