@@ -938,8 +938,10 @@ class ExperimentService:
         was_running = experiment.is_running
         if was_running:
             experiment.end_date = timezone.now()
-        experiment.conclusion = conclusion
-        experiment.conclusion_comment = conclusion_comment
+        if conclusion is not None:
+            experiment.conclusion = conclusion
+        if conclusion_comment is not None:
+            experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
         self._report_experiment_variant_shipped(experiment, variant_key=variant_key, request=request)

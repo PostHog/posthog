@@ -1732,6 +1732,26 @@ class TestExperimentService(APIBaseTest):
         variants = shipped.feature_flag.filters["multivariate"]["variants"]
         assert any(v["key"] == "test" and v["rollout_percentage"] == 100 for v in variants)
 
+    def test_ship_variant_preserves_existing_conclusion_when_not_provided(self):
+        experiment = self._create_ended_experiment(
+            name="Ship No Conclusion", feature_flag_key="ship-no-conclusion-flag"
+        )
+        # Set an existing conclusion on the stopped experiment
+        experiment.conclusion = "won"
+        experiment.conclusion_comment = "Test variant is the clear winner"
+        experiment.save()
+
+        shipped = self._service().ship_variant(
+            experiment,
+            variant_key="test",
+            # Deliberately not providing conclusion or conclusion_comment
+            request=self._make_request(),
+        )
+
+        shipped.refresh_from_db()
+        assert shipped.conclusion == "won"
+        assert shipped.conclusion_comment == "Test variant is the clear winner"
+
     def test_ship_variant_preserves_payloads_and_aggregation(self):
         experiment = self._create_running_experiment(name="Ship Payloads", feature_flag_key="ship-payloads-flag")
         # Update the flag via the serializer to match real API behavior.
