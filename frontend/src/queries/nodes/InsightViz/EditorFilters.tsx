@@ -1,13 +1,11 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
-import { IconInfo, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
@@ -26,7 +24,6 @@ import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/Samplin
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -49,20 +46,16 @@ import {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode, isWebAnalyticsInsightQuery } from '~/queries/utils'
-import {
-    AvailableFeature,
-    ChartDisplayType,
-    EditorFilterProps,
-    InsightEditorFilter,
-    InsightEditorFilterGroup,
-    PathType,
-} from '~/types'
+import { AvailableFeature, ChartDisplayType, EditorFilterProps, InsightEditorFilterGroup, PathType } from '~/types'
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
+import { filterFalsy } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
+import { SessionAnalysisWarning } from './SessionAnalysisWarning'
+import { SuggestionBanner } from './SuggestionBanner'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
@@ -96,14 +89,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
-
-    const maxSuggestionActionsBanner = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (previousQuery && maxSuggestionActionsBanner.current) {
-            maxSuggestionActionsBanner.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-    }, [previousQuery])
 
     if (!querySource) {
         return null
@@ -430,13 +415,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div className="EditorFiltersWrapper">
-                {shouldShowSessionAnalysisWarning ? (
-                    <LemonBanner type="info" className="mb-4">
-                        When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.{' '}
-                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
-                    </LemonBanner>
-                ) : null}
+                {shouldShowSessionAnalysisWarning ? <SessionAnalysisWarning /> : null}
 
                 <div>
                     <MaxTool
@@ -500,55 +479,14 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     </MaxTool>
 
                     {previousQuery && (
-                        <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
-                            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
-                                <div className="text-sm text-muted flex items-center gap-2 no-wrap">
-                                    <span className="size-2 bg-accent-active rounded-full" />
-                                    {(() => {
-                                        const changedLabels = compareInsightTopLevelSections(
-                                            previousQuery,
-                                            suggestedQuery
-                                        )
-                                        const diffString = `🔍 ${pluralize(
-                                            changedLabels.length,
-                                            'section'
-                                        )} changed: \n${changedLabels.join('\n')}`
-
-                                        return (
-                                            <div className="flex items-center gap-1">
-                                                <span>{pluralize(changedLabels.length, 'change')}</span>
-                                                {diffString && (
-                                                    <Tooltip
-                                                        title={<div className="whitespace-pre-line">{diffString}</div>}
-                                                    >
-                                                        <IconInfo className="text-sm text-muted cursor-help" />
-                                                    </Tooltip>
-                                                )}
-                                            </div>
-                                        )
-                                    })()}
-                                </div>
-
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        onRejectSuggestedInsight()
-                                    }}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                    icon={<IconX />}
-                                >
-                                    Reject changes
-                                </LemonButton>
-                            </div>
-                        </div>
+                        <SuggestionBanner
+                            previousQuery={previousQuery}
+                            suggestedQuery={suggestedQuery}
+                            onReject={onRejectSuggestedInsight}
+                        />
                     )}
                 </div>
             </div>
         </CSSTransition>
     )
-}
-
-function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
-    return a.filter((e): e is InsightEditorFilter => !!e)
 }

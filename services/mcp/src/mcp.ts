@@ -4,7 +4,7 @@ import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
-import { ApiClient } from '@/api/client'
+import { ApiClient, type GroupType } from '@/api/client'
 import { AnalyticsEvent, generateId, getPostHogClient } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
@@ -15,10 +15,11 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
+import { buildInstructionsV2 } from '@/lib/instructions'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
+import { sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -27,9 +28,9 @@ import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-const INSTRUCTIONS_V2 = formatPrompt(INSTRUCTIONS_TEMPLATE_V2, {
-    guidelines: guidelines.trim(),
-})
+function buildInstructions(groupTypes?: GroupType[]): string {
+    return buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes)
+}
 
 export type RequestProperties = {
     userHash: string
@@ -413,16 +414,21 @@ export class MCP extends McpAgent<Env> {
 
     async init(): Promise<void> {
         const { features, version, organizationId, projectId, readOnly } = this.requestProperties
-        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
-        // Pre-seed cache with org/project IDs from headers/query params
+        // Pre-seed cache and fetch group types in parallel
+        const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
         if (projectId) {
             await this.cache.set('projectId', projectId)
         }
+
+        // Resolve group types (started above in parallel with cache seeding)
+        const groupTypes = await groupTypesPromise
+        const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
+
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
@@ -460,5 +466,49 @@ export class MCP extends McpAgent<Env> {
             const typedTool = tool as Tool<z.ZodObject>
             this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
         }
+    }
+
+    private async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
+        const GROUP_TYPES_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+        try {
+            const cached = await this.cache.get(`groupTypes:${projectId}`)
+            const fetchedAt = await this.cache.get(`groupTypesFetchedAt:${projectId}`)
+            const isStale = !fetchedAt || Date.now() - fetchedAt > GROUP_TYPES_TTL_MS
+
+            if (cached !== undefined && !isStale) {
+                return cached
+            }
+
+            if (cached !== undefined) {
+                // Stale — revalidate in background, return cached immediately
+                this.ctx.waitUntil(
+                    this.fetchAndCacheGroupTypes(projectId).catch((error) => {
+                        getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+                            tag: 'max_ai',
+                            context: 'group_types_background_revalidation',
+                        })
+                    })
+                )
+                return cached
+            }
+
+            // No cache — fetch synchronously
+            return await this.fetchAndCacheGroupTypes(projectId)
+        } catch (error) {
+            getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+                tag: 'max_ai',
+                context: 'get_or_fetch_group_types',
+            })
+            return undefined
+        }
+    }
+
+    private async fetchAndCacheGroupTypes(projectId: string): Promise<GroupType[]> {
+        const api = await this.api()
+        const groupTypes = await api.getGroupTypes(projectId)
+        await this.cache.set(`groupTypes:${projectId}`, groupTypes)
+        await this.cache.set(`groupTypesFetchedAt:${projectId}`, Date.now())
+        return groupTypes
     }
 }
