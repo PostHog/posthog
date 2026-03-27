@@ -22,13 +22,13 @@ from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.schema import AIEventType
+from posthog.schema import AIEventType, ProductKey
 
 from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
@@ -512,6 +512,7 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT)
     # count only unique events
     # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
     # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
@@ -550,6 +551,7 @@ def get_teams_with_billable_event_count_in_period(
 def get_teams_with_billable_enhanced_persons_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT)
     # count only unique events
     # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
     # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
@@ -586,6 +588,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT)
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
@@ -604,6 +607,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT)
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
@@ -700,6 +704,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 def get_teams_with_recording_count_in_period(
     begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.SESSION_REPLAY, feature=Feature.USAGE_REPORT)
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
@@ -742,6 +747,7 @@ def get_teams_with_recording_count_in_period(
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.SESSION_REPLAY, feature=Feature.USAGE_REPORT)
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
@@ -779,6 +785,7 @@ def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end:
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.MOBILE_REPLAY, feature=Feature.USAGE_REPORT)
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
@@ -832,7 +839,11 @@ def get_teams_with_api_queries_metrics(
         AND JSONExtractBool(log_comment, 'chargeable')
         GROUP BY team_id
     """
-    with tags_context(usage_report="get_teams_with_api_queries_metrics"):
+    with tags_context(
+        product=ProductKey.PLATFORM_AND_SUPPORT,
+        feature=Feature.USAGE_REPORT,
+        usage_report="get_teams_with_api_queries_metrics",
+    ):
         results = sync_execute(
             query,
             {
@@ -859,6 +870,7 @@ def get_teams_with_query_metric(
     access_method: str = "",
     metric: Literal["read_bytes", "read_rows", "query_duration_ms"] = "read_bytes",
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.PLATFORM_AND_SUPPORT, feature=Feature.USAGE_REPORT)
     if metric not in ["read_bytes", "read_rows", "query_duration_ms"]:
         # :TRICKY: Inlined into the query below.
         raise ValueError(f"Invalid metric {metric}")
@@ -897,6 +909,7 @@ def get_teams_with_query_metric(
 def get_teams_with_feature_flag_requests_count_in_period(
     begin: datetime, end: datetime, request_type: FlagRequestType
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.FEATURE_FLAGS, feature=Feature.USAGE_REPORT)
     # depending on the region, events are stored in different teams
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
@@ -934,6 +947,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     Get per-SDK breakdown of feature flag requests for each team.
     Returns list of (team_id, sdk_name, count) tuples.
     """
+    tag_queries(product=ProductKey.FEATURE_FLAGS, feature=Feature.USAGE_REPORT)
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
@@ -973,6 +987,7 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.SURVEYS, feature=Feature.USAGE_REPORT)
     # Get survey IDs that are linked to product tours (these are free and shouldn't be billed)
     product_tour_survey_ids = list(
         Survey.objects.filter(product_tour__isnull=False).values_list("id", flat=True).distinct()
@@ -1027,6 +1042,7 @@ def get_teams_with_ai_event_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.LLM_ANALYTICS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
@@ -1098,7 +1114,9 @@ def get_teams_with_ai_credits_used_in_period(
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
-    with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
+    with tags_context(
+        product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report="ai_credits", kind="usage_report"
+    ):
         results = sync_execute(
             """
             WITH trace_analysis AS (
@@ -1373,6 +1391,7 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> tuple[dict[str, list[list[int]]], list[list[int]]]:
+    tag_queries(product=ProductKey.ERROR_TRACKING, feature=Feature.USAGE_REPORT)
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
@@ -1437,6 +1456,7 @@ def get_teams_with_hog_function_calls_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1458,6 +1478,7 @@ def get_teams_with_hog_function_fetch_calls_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1479,6 +1500,7 @@ def get_teams_with_cdp_billable_invocations_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1499,6 +1521,7 @@ def get_teams_with_cdp_billable_invocations_in_period(
 def get_teams_with_recording_bytes_in_period(
     begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.SESSION_REPLAY, feature=Feature.USAGE_REPORT)
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
@@ -1572,6 +1595,7 @@ def get_teams_with_workflow_emails_sent_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1593,6 +1617,7 @@ def get_teams_with_workflow_push_sent_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1614,6 +1639,7 @@ def get_teams_with_workflow_sms_sent_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1635,6 +1661,7 @@ def get_teams_with_workflow_billable_invocations_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1656,6 +1683,7 @@ def get_teams_with_logs_bytes_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.LOGS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
@@ -1677,6 +1705,7 @@ def get_teams_with_logs_records_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    tag_queries(product=ProductKey.LOGS, feature=Feature.USAGE_REPORT)
     results = sync_execute(
         """
         SELECT team_id, SUM(count) as count
