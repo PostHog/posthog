@@ -531,12 +531,16 @@ function FeatureFlagScheduleV2(): JSX.Element {
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
                         <div className="rounded border p-4 flex flex-col gap-2">
                             <p className="text-muted text-sm m-0">
-                                The flag will be switched to the status you select on the scheduled date.
+                                The flag will be <strong>{schedulePayload.active ? 'enabled' : 'disabled'}</strong>
+                                {scheduleDateMarker
+                                    ? ` on ${scheduleDateMarker.format(DAYJS_FORMAT)}`
+                                    : ' on the scheduled date'}
+                                .
                             </p>
                             <LemonSwitch
                                 checked={!!schedulePayload.active}
                                 onChange={(checked) => setSchedulePayload(null, checked)}
-                                label="Enable feature flag"
+                                label={schedulePayload.active ? 'Flag will be enabled' : 'Flag will be disabled'}
                                 bordered
                             />
                         </div>
@@ -622,6 +626,14 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </LemonBanner>
                     )}
 
+                    {/* Hint when creating a recurring schedule on a flag with no other active schedules */}
+                    {isRecurring && activeSchedules.length === 0 && (
+                        <LemonBanner type="info">
+                            Recurring schedules work best when paired with a complementary schedule. For example, enable
+                            the flag on weekday mornings and disable it on Friday evenings.
+                        </LemonBanner>
+                    )}
+
                     <div className="flex items-center justify-end">
                         <LemonButton
                             type="primary"
@@ -635,8 +647,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                         ? 'Enter a cron expression'
                                         : hasFormErrors(schedulePayloadErrors)
                                           ? 'Fix release condition errors'
-                                          : scheduledChangeOperation ===
-                                                ScheduledChangeOperationType.UpdateVariants &&
+                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
                                               variantErrors.some((error) => error.key != null)
                                             ? 'Fix schedule variant changes errors'
                                             : undefined
@@ -1059,7 +1070,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                             <div className="border rounded p-4">
                                 <LemonCheckbox
                                     id="flag-enabled-checkbox"
-                                    label="Enable feature flag"
+                                    label={schedulePayload.active ? 'Flag will be enabled' : 'Flag will be disabled'}
                                     onChange={(value) => {
                                         setSchedulePayload(null, value)
                                     }}

@@ -1763,7 +1763,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         setScheduledChangeOperation: ({ changeType }) => {
-            // reset filters when operation changes
+            // Reset payload when operation changes, defaulting to sensible values per operation type
             if (changeType === ScheduledChangeOperationType.UpdateVariants && values.featureFlag?.id) {
                 const flagWithKeyBasedPayloads = indexToVariantKeyFeatureFlagPayloads(values.featureFlag)
                 const flagWithIndexBasedPayloads = variantKeyToIndexFeatureFlagPayloads(
@@ -1783,14 +1783,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     currentVariants,
                     indexBasedPayloads
                 )
+            } else if (changeType === ScheduledChangeOperationType.UpdateStatus) {
+                // Default to the opposite of the current flag state since the user
+                // most likely wants to toggle it
+                const oppositeActive = !values.featureFlag.active
+                actions.setSchedulePayload(NEW_FLAG.filters, oppositeActive, {}, null, null)
             } else {
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
             }
         },
         setActiveTab: ({ tab }) => {
-            // reset filters when opening schedule tab, and load scheduled changes
+            // Reset payload when opening schedule tab. The default operation is UpdateStatus,
+            // so default active to the opposite of the current flag state.
             if (tab === FeatureFlagsTab.SCHEDULE) {
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+                const oppositeActive = !values.featureFlag.active
+                actions.setSchedulePayload(NEW_FLAG.filters, oppositeActive, {}, null, null)
                 actions.loadScheduledChanges()
             }
         },
