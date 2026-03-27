@@ -17,7 +17,9 @@ import { SidePanelTab } from '~/types'
 import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-const meta: Meta = {
+type StoryArgs = { panel: SidePanelTab }
+
+const meta: Meta<StoryArgs> = {
     component: App,
     title: 'Scenes-App/SidePanels',
     parameters: {
@@ -28,6 +30,11 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
         },
+    },
+    render: ({ panel }) => {
+        const { openSidePanel } = useActions(sidePanelStateLogic)
+        useOnMountEffect(() => openSidePanel(panel))
+        return <App />
     },
     decorators: [
         mswDecorator({
@@ -50,25 +57,21 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<{}>
-
-const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    useOnMountEffect(() => openSidePanel(props.panel))
-
-    return <App />
-}
+type Story = StoryObj<StoryArgs>
 
 export const SidePanelDocs: Story = {
-    render: () => {
+    args: { panel: SidePanelTab.Docs },
+    render: ({ panel }) => {
+        const { openSidePanel } = useActions(sidePanelStateLogic)
         const { setIframeReady } = useActions(sidePanelDocsLogic({ iframeRef: { current: null } }))
 
         // Directly set iframeReady to skip waiting for external iframe to load
         useOnMountEffect(() => {
+            openSidePanel(panel)
             setIframeReady(true)
         })
 
-        return <BaseTemplate panel={SidePanelTab.Docs} />
+        return <App />
     },
     parameters: {
         testOptions: {
@@ -79,27 +82,19 @@ export const SidePanelDocs: Story = {
 }
 
 export const SidePanelSettings: Story = {
-    render: () => {
-        return <BaseTemplate panel={SidePanelTab.Settings} />
-    },
+    args: { panel: SidePanelTab.Settings },
 }
 
 export const SidePanelNotebooks: Story = {
-    render: () => {
-        return <BaseTemplate panel={SidePanelTab.Notebooks} />
-    },
+    args: { panel: SidePanelTab.Notebooks },
 }
 
 export const SidePanelMax: Story = {
-    render: () => {
-        return <BaseTemplate panel={SidePanelTab.Max} />
-    },
+    args: { panel: SidePanelTab.Max },
 }
 
 export const SidePanelActivity: Story = {
-    render: () => {
-        return <BaseTemplate panel={SidePanelTab.Activity} />
-    },
+    args: { panel: SidePanelTab.Activity },
     parameters: {
         pageUrl: urls.dashboard('1'),
         featureFlags: [FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS, FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
@@ -107,13 +102,13 @@ export const SidePanelActivity: Story = {
 }
 
 export const SidePanelSupportNoEmail: Story = {
-    render: () => {
-        return <BaseTemplate panel={SidePanelTab.Support} />
-    },
+    args: { panel: SidePanelTab.Support },
 }
 
 export const SidePanelSupportWithEmail: Story = {
-    render: () => {
+    args: { panel: SidePanelTab.Support },
+    render: ({ panel }) => {
+        const { openSidePanel } = useActions(sidePanelStateLogic)
         const { openEmailForm, closeEmailForm } = useActions(supportLogic)
 
         useStorybookMocks({
@@ -139,11 +134,12 @@ export const SidePanelSupportWithEmail: Story = {
         })
 
         useOnMountEffect(() => {
+            openSidePanel(panel)
             openEmailForm()
             return () => closeEmailForm()
         })
 
-        return <BaseTemplate panel={SidePanelTab.Support} />
+        return <App />
     },
 }
 
