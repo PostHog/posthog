@@ -3015,7 +3015,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # All 17 fields required by the Rust Cohort struct must be present
+        # Hypercache/service cohort schema: these 17 fields must always be present in the serialized payload
         expected_fields = {
             "id",
             "name",
