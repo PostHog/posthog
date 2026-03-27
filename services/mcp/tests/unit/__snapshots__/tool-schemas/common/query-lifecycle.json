@@ -85,9 +85,9 @@
                     "type": "boolean"
                 },
                 "toggledLifecycles": {
-                    "description": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`. - `new` - users who performed the event for the first time during the period. - `returning` - users who were active in the previous period and are active in the current period. - `resurrecting` - users who were inactive for one or more periods and became active again. - `dormant` - users who were active in the previous period but are inactive in the current period.",
+                    "description": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
                     "items": {
-                        "enum": ["new", "returning", "resurrecting", "dormant"],
+                        "enum": ["new", "resurrecting", "returning", "dormant"],
                         "type": "string"
                     },
                     "type": "array"
@@ -598,6 +598,7 @@
                             "kind": {
                                 "const": "EventsNode",
                                 "default": "EventsNode",
+                                "description": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
                                 "type": "string"
                             },
                             "name": {
@@ -1130,6 +1131,7 @@
                             "kind": {
                                 "const": "ActionsNode",
                                 "default": "ActionsNode",
+                                "description": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
                                 "type": "string"
                             },
                             "name": {
@@ -1653,7 +1655,6 @@
                     }
                 ]
             },
-            "maxItems": 1,
             "type": "array"
         }
     },
