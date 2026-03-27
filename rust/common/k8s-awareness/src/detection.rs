@@ -42,6 +42,7 @@ pub fn classify_departure(intent: &ClusterIntent, member_generation: &str) -> De
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn intent(
         desired: u32,
@@ -59,71 +60,103 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rollout_old_gen_member() {
-        let i = intent(3, None, true, "abc123", Some("def456"));
-        assert_eq!(classify_departure(&i, "abc123"), DepartureReason::Rollout);
-    }
-
-    #[test]
-    fn rollout_new_gen_member_is_crash() {
-        let i = intent(3, None, true, "abc123", Some("def456"));
-        assert_eq!(classify_departure(&i, "def456"), DepartureReason::Crash);
-    }
-
-    #[test]
-    fn downscale() {
-        let i = intent(2, Some(3), false, "abc123", None);
-        assert_eq!(classify_departure(&i, "abc123"), DepartureReason::Downscale);
-    }
-
-    #[test]
-    fn downscale_during_rollout_prefers_rollout_for_old_gen() {
-        let i = intent(2, Some(3), true, "abc123", Some("def456"));
-        assert_eq!(classify_departure(&i, "abc123"), DepartureReason::Rollout);
-    }
-
-    #[test]
-    fn downscale_during_rollout_new_gen_member() {
-        let i = intent(2, Some(3), true, "abc123", Some("def456"));
-        assert_eq!(classify_departure(&i, "def456"), DepartureReason::Downscale);
-    }
-
-    #[test]
-    fn crash_steady_state() {
-        let i = intent(3, Some(3), false, "abc123", None);
-        assert_eq!(classify_departure(&i, "abc123"), DepartureReason::Crash);
-    }
-
-    #[test]
-    fn crash_no_previous_replicas() {
-        let i = intent(3, None, false, "abc123", None);
-        assert_eq!(classify_departure(&i, "abc123"), DepartureReason::Crash);
-    }
-
-    #[test]
-    fn scale_up_is_crash() {
-        let i = intent(5, Some(3), false, "abc123", None);
-        assert_eq!(classify_departure(&i, "abc123"), DepartureReason::Crash);
-    }
-
-    #[test]
-    fn rollout_without_target_gen_is_crash() {
-        let i = intent(3, None, true, "abc123", None);
-        assert_eq!(classify_departure(&i, "abc123"), DepartureReason::Crash);
-    }
-
-    #[test]
-    fn completed_rollout_old_gen_member() {
-        // Rollout finished (rollout_in_progress=false), but old-gen pod still exists
-        let i = intent(3, Some(3), false, "new_hash", None);
-        assert_eq!(classify_departure(&i, "old_hash"), DepartureReason::Rollout);
-    }
-
-    #[test]
-    fn completed_rollout_current_gen_member_is_crash() {
-        // Rollout finished, pod is on the current generation
-        let i = intent(3, Some(3), false, "new_hash", None);
-        assert_eq!(classify_departure(&i, "new_hash"), DepartureReason::Crash);
+    #[rstest]
+    // Rollout scenarios
+    #[case::rollout_old_gen_member(
+        3,
+        None,
+        true,
+        "abc123",
+        Some("def456"),
+        "abc123",
+        DepartureReason::Rollout
+    )]
+    #[case::rollout_new_gen_member_is_crash(
+        3,
+        None,
+        true,
+        "abc123",
+        Some("def456"),
+        "def456",
+        DepartureReason::Crash
+    )]
+    #[case::rollout_without_target_gen_is_crash(
+        3,
+        None,
+        true,
+        "abc123",
+        None,
+        "abc123",
+        DepartureReason::Crash
+    )]
+    #[case::completed_rollout_old_gen_member(
+        3,
+        Some(3),
+        false,
+        "new_hash",
+        None,
+        "old_hash",
+        DepartureReason::Rollout
+    )]
+    #[case::completed_rollout_current_gen_is_crash(
+        3,
+        Some(3),
+        false,
+        "new_hash",
+        None,
+        "new_hash",
+        DepartureReason::Crash
+    )]
+    // Downscale scenarios
+    #[case::downscale(
+        2,
+        Some(3),
+        false,
+        "abc123",
+        None,
+        "abc123",
+        DepartureReason::Downscale
+    )]
+    #[case::downscale_during_rollout_prefers_rollout_for_old_gen(
+        2,
+        Some(3),
+        true,
+        "abc123",
+        Some("def456"),
+        "abc123",
+        DepartureReason::Rollout
+    )]
+    #[case::downscale_during_rollout_new_gen_member(
+        2,
+        Some(3),
+        true,
+        "abc123",
+        Some("def456"),
+        "def456",
+        DepartureReason::Downscale
+    )]
+    // Crash scenarios
+    #[case::crash_steady_state(3, Some(3), false, "abc123", None, "abc123", DepartureReason::Crash)]
+    #[case::crash_no_previous_replicas(
+        3,
+        None,
+        false,
+        "abc123",
+        None,
+        "abc123",
+        DepartureReason::Crash
+    )]
+    #[case::scale_up_is_crash(5, Some(3), false, "abc123", None, "abc123", DepartureReason::Crash)]
+    fn classify(
+        #[case] desired: u32,
+        #[case] previous: Option<u32>,
+        #[case] rollout: bool,
+        #[case] current_gen: &str,
+        #[case] target_gen: Option<&str>,
+        #[case] member_gen: &str,
+        #[case] expected: DepartureReason,
+    ) {
+        let i = intent(desired, previous, rollout, current_gen, target_gen);
+        assert_eq!(classify_departure(&i, member_gen), expected);
     }
 }

@@ -4965,6 +4965,7 @@ dependencies = [
  "http 1.4.0",
  "k8s-openapi",
  "kube",
+ "rstest",
  "serde",
  "serde_json",
  "tempfile",

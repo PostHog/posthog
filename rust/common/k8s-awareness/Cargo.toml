@@ -16,6 +16,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 http = "1"
+rstest = "0.26"
 serde_json = { workspace = true }
 tempfile = "3"
 testcontainers = { workspace = true }

@@ -92,6 +92,7 @@ impl K8sAwareness {
         drop(watching);
 
         let controllers = Arc::clone(&self.controllers);
+        let watching = Arc::clone(&self.watching);
         let client = self.client.clone();
         let namespace = self.namespace.clone();
         let controller_ref = controller.clone();
@@ -106,6 +107,7 @@ impl K8sAwareness {
                         &namespace,
                         &controller_ref,
                         &controllers,
+                        &watching,
                         child_cancel,
                     )
                     .await;
@@ -116,6 +118,7 @@ impl K8sAwareness {
                         &namespace,
                         &controller_ref,
                         &controllers,
+                        &watching,
                         child_cancel,
                     )
                     .await;
@@ -127,12 +130,23 @@ impl K8sAwareness {
     }
 }
 
+/// Remove a controller from the `watching` map so `ensure_watching` can restart it.
+async fn unregister_watcher(
+    controller: &ControllerRef,
+    watching: &Arc<RwLock<HashMap<ControllerRef, CancellationToken>>>,
+) {
+    let mut map = watching.write().await;
+    map.remove(controller);
+    info!(controller = %controller, "unregistered watcher");
+}
+
 /// Watch a Deployment and update its ClusterIntent on changes.
 async fn run_deployment_watcher(
     client: &Client,
     namespace: &str,
     controller: &ControllerRef,
     controllers: &Arc<RwLock<HashMap<ControllerRef, ClusterIntent>>>,
+    watching: &Arc<RwLock<HashMap<ControllerRef, CancellationToken>>>,
     cancel: CancellationToken,
 ) {
     let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
@@ -152,6 +166,7 @@ async fn run_deployment_watcher(
                             namespace,
                             controller,
                             controllers,
+                            watching,
                             event,
                         ).await;
                     }
@@ -170,6 +185,8 @@ async fn run_deployment_watcher(
             }
         }
     }
+
+    unregister_watcher(controller, watching).await;
 }
 
 async fn handle_deployment_event(
@@ -177,6 +194,7 @@ async fn handle_deployment_event(
     namespace: &str,
     controller: &ControllerRef,
     controllers: &Arc<RwLock<HashMap<ControllerRef, ClusterIntent>>>,
+    watching: &Arc<RwLock<HashMap<ControllerRef, CancellationToken>>>,
     event: Event<Deployment>,
 ) {
     let deploy = match event {
@@ -185,6 +203,7 @@ async fn handle_deployment_event(
             info!(controller = %controller, "deployment deleted");
             let mut map = controllers.write().await;
             map.remove(controller);
+            unregister_watcher(controller, watching).await;
             return;
         }
         Event::Init | Event::InitDone => return,
@@ -201,30 +220,60 @@ async fn handle_deployment_event(
     let observed_generation = status.and_then(|s| s.observed_generation).unwrap_or(0);
     let rollout_in_progress = generation != observed_generation;
 
+    // Build a label selector from the Deployment's matchLabels to scope RS queries
+    let label_selector = spec
+        .selector
+        .match_labels
+        .as_ref()
+        .map(|labels| {
+            labels
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+
     // Determine generations by inspecting owned ReplicaSets
-    let (current_gen, target_gen) = if rollout_in_progress {
-        match find_deployment_generations(client, namespace, &controller.name).await {
-            Ok((current, target)) => (current, Some(target)),
-            Err(e) => {
+    let owned_rses =
+        list_owned_replicasets(client, namespace, &controller.name, &label_selector).await;
+    let (current_gen, target_gen) = match owned_rses {
+        Ok(rses) => {
+            if rollout_in_progress {
+                let target = rses
+                    .first()
+                    .map(|(_, hash, _)| hash.clone())
+                    .unwrap_or_default();
+                let current = rses
+                    .iter()
+                    .skip(1)
+                    .find(|(_, _, replicas)| *replicas > 0)
+                    .map(|(_, hash, _)| hash.clone())
+                    .unwrap_or_default();
+                (current, Some(target))
+            } else {
+                let gen = rses
+                    .first()
+                    .map(|(_, hash, _)| hash.clone())
+                    .unwrap_or_default();
+                (gen, None)
+            }
+        }
+        Err(e) => {
+            if rollout_in_progress {
                 warn!(
                     controller = %controller,
                     error = %e,
                     "failed to discover deployment generations during rollout"
                 );
-                (String::new(), None)
-            }
-        }
-    } else {
-        match find_active_generation(client, namespace, &controller.name).await {
-            Ok(gen) => (gen, None),
-            Err(e) => {
+            } else {
                 debug!(
                     controller = %controller,
                     error = %e,
                     "failed to discover active generation"
                 );
-                (String::new(), None)
             }
+            (String::new(), None)
         }
     };
 
@@ -260,20 +309,25 @@ async fn handle_deployment_event(
     map.insert(controller.clone(), intent);
 }
 
-/// Find the current and target pod-template-hash during a Deployment rollout.
+/// List ReplicaSets owned by a Deployment, sorted by revision descending.
 ///
-/// Lists ReplicaSets owned by the Deployment and identifies:
-/// - target: the RS with the highest revision (the new one being scaled up)
-/// - current: the RS with the second-highest revision that has replicas
-async fn find_deployment_generations(
+/// Returns `(revision, pod-template-hash, replica_count)` tuples.
+/// Uses the Deployment's pod-selector labels to scope the query instead of
+/// listing all RSes in the namespace.
+async fn list_owned_replicasets(
     client: &Client,
     namespace: &str,
     deployment_name: &str,
-) -> Result<(String, String), kube::Error> {
+    label_selector: &str,
+) -> Result<Vec<(u64, String, i32)>, kube::Error> {
     let rs_api: Api<ReplicaSet> = Api::namespaced(client.clone(), namespace);
-    let rs_list = rs_api.list(&ListParams::default()).await?;
+    let params = if label_selector.is_empty() {
+        ListParams::default()
+    } else {
+        ListParams::default().labels(label_selector)
+    };
+    let rs_list = rs_api.list(&params).await?;
 
-    // Collect (revision, pod-template-hash, replica_count) for owned RSes
     let mut owned: Vec<(u64, String, i32)> = Vec::new();
 
     for rs in &rs_list.items {
@@ -309,63 +363,7 @@ async fn find_deployment_generations(
     // Sort by revision descending: newest first
     owned.sort_by(|a, b| b.0.cmp(&a.0));
 
-    let target = owned
-        .first()
-        .map(|(_, hash, _)| hash.clone())
-        .unwrap_or_default();
-
-    let current = owned
-        .iter()
-        .skip(1)
-        .find(|(_, _, replicas)| *replicas > 0)
-        .map(|(_, hash, _)| hash.clone())
-        .unwrap_or_default();
-
-    Ok((current, target))
-}
-
-/// Find the active pod-template-hash for a Deployment not in rollout.
-async fn find_active_generation(
-    client: &Client,
-    namespace: &str,
-    deployment_name: &str,
-) -> Result<String, kube::Error> {
-    let rs_api: Api<ReplicaSet> = Api::namespaced(client.clone(), namespace);
-    let rs_list = rs_api.list(&ListParams::default()).await?;
-
-    let mut best_revision = 0u64;
-    let mut best_hash = String::new();
-
-    for rs in &rs_list.items {
-        let owners = rs.metadata.owner_references.as_deref().unwrap_or_default();
-        if !owners
-            .iter()
-            .any(|o| o.kind == "Deployment" && o.name == deployment_name)
-        {
-            continue;
-        }
-
-        let revision = rs
-            .metadata
-            .annotations
-            .as_ref()
-            .and_then(|a| a.get("deployment.kubernetes.io/revision"))
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(0);
-
-        if revision > best_revision {
-            best_revision = revision;
-            best_hash = rs
-                .metadata
-                .labels
-                .as_ref()
-                .and_then(|l| l.get("pod-template-hash"))
-                .cloned()
-                .unwrap_or_default();
-        }
-    }
-
-    Ok(best_hash)
+    Ok(owned)
 }
 
 /// Watch a StatefulSet and update its ClusterIntent on changes.
@@ -374,6 +372,7 @@ async fn run_statefulset_watcher(
     namespace: &str,
     controller: &ControllerRef,
     controllers: &Arc<RwLock<HashMap<ControllerRef, ClusterIntent>>>,
+    watching: &Arc<RwLock<HashMap<ControllerRef, CancellationToken>>>,
     cancel: CancellationToken,
 ) {
     let api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
@@ -388,7 +387,7 @@ async fn run_statefulset_watcher(
             item = stream.next() => {
                 match item {
                     Some(Ok(event)) => {
-                        handle_statefulset_event(controller, controllers, event).await;
+                        handle_statefulset_event(controller, controllers, watching, event).await;
                     }
                     Some(Err(e)) => {
                         warn!(
@@ -405,11 +404,14 @@ async fn run_statefulset_watcher(
             }
         }
     }
+
+    unregister_watcher(controller, watching).await;
 }
 
 async fn handle_statefulset_event(
     controller: &ControllerRef,
     controllers: &Arc<RwLock<HashMap<ControllerRef, ClusterIntent>>>,
+    watching: &Arc<RwLock<HashMap<ControllerRef, CancellationToken>>>,
     event: Event<StatefulSet>,
 ) {
     let ss = match event {
@@ -418,6 +420,7 @@ async fn handle_statefulset_event(
             info!(controller = %controller, "statefulset deleted");
             let mut map = controllers.write().await;
             map.remove(controller);
+            unregister_watcher(controller, watching).await;
             return;
         }
         Event::Init | Event::InitDone => return,
