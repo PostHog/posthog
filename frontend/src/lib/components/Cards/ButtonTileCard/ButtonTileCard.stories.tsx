@@ -38,34 +38,30 @@ const makeButtonTile = (
 export const Template: Story = () => {
     return (
         <div className="flex flex-wrap gap-4">
-            <div>
+            <div className="relative w-fit">
                 <h5>Primary button (left)</h5>
                 <ButtonTileCard
-                    className="react-grid-item react-draggable cssTransforms react-resizable min-w-[15rem]"
                     buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog')}
                     placement={DashboardPlacement.Dashboard}
                 />
             </div>
-            <div>
+            <div className="relative w-fit">
                 <h5>Secondary button (left)</h5>
                 <ButtonTileCard
-                    className="react-grid-item react-draggable cssTransforms react-resizable min-w-[15rem]"
                     buttonTile={makeButtonTile('https://posthog.com', 'Learn more', { style: 'secondary' })}
                     placement={DashboardPlacement.Dashboard}
                 />
             </div>
-            <div>
+            <div className="relative w-fit">
                 <h5>Primary button (right)</h5>
                 <ButtonTileCard
-                    className="react-grid-item react-draggable cssTransforms react-resizable min-w-[15rem]"
                     buttonTile={makeButtonTile('https://posthog.com', 'Get started', { placement: 'right' })}
                     placement={DashboardPlacement.Dashboard}
                 />
             </div>
-            <div>
+            <div className="relative w-fit">
                 <h5>With resize handles</h5>
                 <ButtonTileCard
-                    className="react-grid-item react-draggable cssTransforms react-resizable min-w-[15rem]"
                     showResizeHandles={true}
                     buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog')}
                     placement={DashboardPlacement.Dashboard}
@@ -78,20 +74,18 @@ export const Template: Story = () => {
 export const TransparentBackground: Story = () => {
     return (
         <div className="flex flex-wrap gap-4 bg-surface-secondary p-4">
-            <div>
+            <div className="relative w-fit">
                 <h5>Transparent background (view mode)</h5>
                 <ButtonTileCard
-                    className="react-grid-item react-draggable cssTransforms react-resizable min-w-[15rem]"
                     buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog', {
                         transparentBackground: true,
                     })}
                     placement={DashboardPlacement.Dashboard}
                 />
             </div>
-            <div>
+            <div className="relative w-fit">
                 <h5>Transparent background (edit mode — dashed border)</h5>
                 <ButtonTileCard
-                    className="react-grid-item react-draggable cssTransforms react-resizable min-w-[15rem]"
                     showResizeHandles={true}
                     buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog', {
                         transparentBackground: true,
@@ -105,7 +99,7 @@ export const TransparentBackground: Story = () => {
 
 export const WithMoreButton: Story = () => {
     return (
-        <div>
+        <div className="relative w-fit">
             <ButtonTileCard
                 buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog')}
                 moreButtonOverlay={<div>more button</div>}
@@ -117,7 +111,7 @@ export const WithMoreButton: Story = () => {
 
 export const WithMoreButtonPlacedInPublic: Story = () => {
     return (
-        <div>
+        <div className="relative w-fit">
             <ButtonTileCard
                 buttonTile={makeButtonTile('https://posthog.com', 'Visit PostHog (more button hidden)')}
                 moreButtonOverlay={<div>more button</div>}

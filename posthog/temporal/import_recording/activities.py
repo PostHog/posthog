@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from temporalio import activity
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -150,7 +150,7 @@ FORMAT JSONEachRow
 
 @activity.defn
 async def import_replay_clickhouse_rows(input: ImportContext) -> None:
-    tag_queries(product=Product.REPLAY, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info(f"Importing replay ClickHouse rows for session {input.session_id}")
 
@@ -203,7 +203,7 @@ async def import_replay_clickhouse_rows(input: ImportContext) -> None:
 
 @activity.defn
 async def import_event_clickhouse_rows(input: ImportContext) -> None:
-    tag_queries(product=Product.REPLAY, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info(f"Importing event ClickHouse rows for session {input.session_id}")
 

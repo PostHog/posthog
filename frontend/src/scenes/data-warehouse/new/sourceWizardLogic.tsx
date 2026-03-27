@@ -487,7 +487,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         hasWebhookSchemas: [
             (s) => [s.databaseSchema],
             (databaseSchema: ExternalDataSourceSyncSchema[]): boolean =>
-                databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'incremental' && s.should_sync),
+                databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync),
         ],
         webhookStepComplete: [
             (s) => [s.webhookResult, s.selectedConnector],
@@ -737,6 +737,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
                 )
+                const webhookTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'webhook'
+                )
                 const appendOnlyTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'append'
                 )
@@ -749,6 +752,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 const confirmation = (
                     <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 mt-2">
+                        {/* Webhook - Best */}
+                        {webhookTables.length > 0 && (
+                            <>
+                                <div className="font-bold text-success">Webhook</div>
+                                <div>
+                                    <span className="text-muted">{tableCountFormatter(webhookTables.length)}</span> —
+                                    Real-time updates via webhooks.
+                                </div>
+                            </>
+                        )}
+
                         {/* Incremental - Good */}
                         <div className="font-bold text-success">Incremental</div>
                         <div>
@@ -962,8 +976,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         showToast = true
                         schema.should_sync = schema.should_sync_default ?? true
 
-                        // Use incremental if available
-                        if (schema.incremental_available || schema.append_available) {
+                        if (schema.supports_webhooks) {
+                            schema.sync_type = 'webhook'
+                        } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const resolvedField = resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method

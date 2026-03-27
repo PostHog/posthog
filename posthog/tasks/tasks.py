@@ -19,7 +19,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
@@ -322,7 +322,7 @@ def replay_count_metrics() -> None:
         --group by team_id
         """
 
-        tag_queries(product=Product.REPLAY, name="replay_count_metrics")
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, name="replay_count_metrics")
 
         results = sync_execute(
             query,
