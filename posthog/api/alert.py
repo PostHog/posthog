@@ -183,7 +183,6 @@ class AlertSerializer(serializers.ModelSerializer):
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        default=AlertCalculationInterval.DAILY,
         help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
@@ -437,7 +436,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
         calculation_interval = attrs.get(
             "calculation_interval",
-            self.instance.calculation_interval if self.instance else attrs["calculation_interval"],
+            self.instance.calculation_interval if self.instance else AlertCalculationInterval.DAILY,
         )
 
         try:
