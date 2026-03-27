@@ -38,8 +38,8 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
 CACHED_RESULTS_TTL_DAYS = 7
 CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
-# Per-team cache size limit (default 800MiB, can be overridden per-team via Team.extra_settings)
-TEAM_CACHE_SIZE_LIMIT_BYTES = get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 800 * 1024 * 1024, type_cast=int)
+# Per-team cache size limit (default 1GB, can be overridden per-team via Team.extra_settings)
+TEAM_CACHE_SIZE_LIMIT_BYTES = get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 1_000_000_000, type_cast=int)
 
 # Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this

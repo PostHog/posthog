@@ -44,8 +44,9 @@ import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'runs', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
@@ -78,6 +79,16 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
+        supportsBackfills: [
+            (s) => [s.type, s.configuration],
+            (type: HogFunctionTypeType, configuration: HogFunctionType | null): boolean => {
+                if (type !== 'destination') {
+                    return false
+                }
+                const source = configuration?.filters?.source ?? 'events'
+                return source === 'events'
+            },
+        ],
         alertId: [
             (s) => [s.configuration],
             (configuration: HogFunctionType | null): string | undefined => {
@@ -356,7 +367,7 @@ function HogFunctionHeader(): JSX.Element {
 }
 
 export function HogFunctionScene(): JSX.Element {
-    const { currentTab, loading, loaded, logicProps, type, teamHasCohortFilters, currentProjectId } =
+    const { currentTab, loading, loaded, logicProps, type, teamHasCohortFilters, currentProjectId, supportsBackfills } =
         useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -415,11 +426,19 @@ export function HogFunctionScene(): JSX.Element {
                   content: <HogFunctionTesting />,
               },
 
-        type === 'destination' && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+        supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
             ? {
                   label: 'Backfills',
                   key: 'backfills',
                   content: <HogFunctionBackfills id={id} />,
+              }
+            : null,
+
+        supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+            ? {
+                  label: 'Backfill Runs',
+                  key: 'runs',
+                  content: <HogFunctionRuns id={id} />,
               }
             : null,
 

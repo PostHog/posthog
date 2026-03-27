@@ -2506,7 +2506,10 @@ class TestSurvey(APIBaseTest):
 
     def _assert_survey_activity(self, expected):
         activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
-        self.assertEqual(activity["results"], expected)
+        results = activity["results"]
+        for item in results:
+            item.pop("id", None)
+        self.assertEqual(results, expected)
 
     def test_validate_schedule_on_create(self):
         response = self.client.post(
@@ -5757,7 +5760,10 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
 
     def _assert_survey_activity(self, expected):
         activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
-        self.assertEqual(activity["results"], expected)
+        results = activity["results"]
+        for item in results:
+            item.pop("id", None)
+        self.assertEqual(results, expected)
 
     @freeze_time("2024-05-01 12:00:00")
     def test_archive_response(self):

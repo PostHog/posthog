@@ -20,18 +20,6 @@ import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
 /**
- * Unlayer exports bare `&` in `<link>` href attributes (e.g. Google Fonts URLs).
- * This is invalid in XHTML (which Unlayer uses) and can cause email clients to ignore the `<link>` tag,
- * preventing web fonts from loading. This function encodes bare `&` as `&amp;`.
- */
-function fixUnlayerHtmlForEmailClients(html: string): string {
-    return html.replace(/(<link\b[^>]*\bhref\s*=\s*")([^"]*?)(")/gi, (_match, before, url, after) => {
-        const fixedUrl = url.replace(/&(?!amp;)/g, '&amp;')
-        return before + fixedUrl + after
-    })
-}
-
-/**
  * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
  * native_email: advanced editor with email integration dropdown, and additional email metafields
  * native_email_template: editor for creating reusable templates, with only subject and preheader, and email content fields
@@ -324,13 +312,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
 
-                const sanitizedHtml = fixUnlayerHtmlForEmailClients(htmlData.html)
-
                 const finalValues: EmailTemplate = {
                     ...formValues,
                     html: ['native_email', 'native_email_template'].includes(props.type)
-                        ? sanitizedHtml
-                        : escapeHTMLStringCurlies(sanitizedHtml),
+                        ? htmlData.html
+                        : escapeHTMLStringCurlies(htmlData.html),
                     text: textData.text,
                     design: htmlData.design,
                 }
@@ -435,13 +421,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                             new Promise<any>((res) => editor.exportPlainText(res)),
                         ])
 
-                    const sanitizedHtml = fixUnlayerHtmlForEmailClients(htmlData.html)
-
                     emailContent = {
                         ...currentValues,
                         html: ['native_email', 'native_email_template'].includes(props.type)
-                            ? sanitizedHtml
-                            : escapeHTMLStringCurlies(sanitizedHtml),
+                            ? htmlData.html
+                            : escapeHTMLStringCurlies(htmlData.html),
                         text: textData.text,
                         design: htmlData.design,
                     }

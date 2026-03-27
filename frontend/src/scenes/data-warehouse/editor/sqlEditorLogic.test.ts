@@ -299,7 +299,7 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_view behavior', () => {
-        it('switches to the materialization tab when opening a view from the URL', async () => {
+        it('respects the requested output tab when opening a view from the URL', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -307,15 +307,15 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id, output_tab: OutputTab.Results })
+            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }, { output_tab: OutputTab.Results })
 
             await expectLogic(logic)
-                .toDispatchActions(['setActiveTab', 'setViewLoading', 'editView', 'createTab', 'updateTab'])
+                .toDispatchActions(['setViewLoading', 'createTab', 'updateTab'])
                 .toMatchValues({
                     editingView: partial({
                         id: MOCK_VIEW.id,
                     }),
-                    outputActiveTab: OutputTab.Materialization,
+                    outputActiveTab: OutputTab.Results,
                 })
         })
 
@@ -337,6 +337,50 @@ describe('sqlEditorLogic', () => {
                     }),
                     outputActiveTab: OutputTab.Materialization,
                 })
+        })
+    })
+
+    describe('output tab hash parameter', () => {
+        it('restores the selected output tab from the hash', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT 1',
+                output_tab: OutputTab.Visualization,
+            })
+
+            await expectLogic(logic).toDispatchActions(['setActiveTab', 'createTab', 'updateTab']).toMatchValues({
+                outputActiveTab: OutputTab.Visualization,
+            })
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
+        })
+
+        it('replaces the hash output tab when the selected tab changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setActiveTab(OutputTab.Materialization)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 1')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Materialization)
         })
     })
 
