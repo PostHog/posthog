@@ -187,7 +187,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                 <div className="flex-1">
                     <LemonField.Pure label="Variants">
                         <div className="border border-primary rounded p-4">
-                            {!isEvenlyDistributed(variants) && (
+                            {!disabled && !isEvenlyDistributed(variants) && (
                                 <LemonBanner type="warning" className="mb-3">
                                     In most cases, experiments work best with an equal split. If you want to limit
                                     exposure to the test variant, adjust the rollout percentage instead.
