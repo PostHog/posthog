@@ -122,7 +122,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
@@ -169,7 +169,7 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.web_preaggregated.sql import (
     DROP_WEB_BOUNCES_SQL,
     DROP_WEB_BOUNCES_STAGING_SQL,

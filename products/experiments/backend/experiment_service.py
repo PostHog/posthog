@@ -1065,6 +1065,7 @@ class ExperimentService:
         source_experiment: Experiment,
         *,
         feature_flag_key: str | None = None,
+        name: str | None = None,
         serializer_context: dict | None = None,
     ) -> Experiment:
         """Duplicate an experiment as a new draft."""
@@ -1082,12 +1083,15 @@ class ExperimentService:
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
-        base_name = f"{source_experiment.name} (Copy)"
-        duplicate_name = base_name
-        counter = 1
-        while Experiment.objects.filter(team_id=self.team.id, name=duplicate_name, deleted=False).exists():
-            duplicate_name = f"{base_name} {counter}"
-            counter += 1
+        if name:
+            duplicate_name = name
+        else:
+            base_name = f"{source_experiment.name} (Copy)"
+            duplicate_name = base_name
+            counter = 1
+            while Experiment.objects.filter(team_id=self.team.id, name=duplicate_name, deleted=False).exists():
+                duplicate_name = f"{base_name} {counter}"
+                counter += 1
 
         saved_metrics_data = []
         for link in source_experiment.experimenttosavedmetric_set.all():

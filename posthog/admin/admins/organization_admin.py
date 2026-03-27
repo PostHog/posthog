@@ -56,6 +56,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
     for model_path, filter_field, display_name in BULK_DELETE_MODEL_REGISTRY:
         try:
             model_class = import_string(model_path)
+            # nosemgrep: orm-field-injection -- filter_field from hardcoded BULK_DELETE_MODEL_REGISTRY, not user input
             count = model_class.objects.filter(**{f"{filter_field}__in": team_ids}).count()
             results.append(
                 {

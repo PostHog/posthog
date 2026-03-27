@@ -79,7 +79,7 @@ export const funnelPathsExpansionLogic = kea<funnelPathsExpansionLogicType>([
             }
 
             const { querySource } = values
-            if (!querySource || querySource.aggregation_group_type_index != undefined) {
+            if (!querySource || querySource.aggregation_group_type_index != null) {
                 actions.collapsePath()
                 lemonToast.info('Cannot expand paths for group aggregation')
                 return

@@ -1379,6 +1379,7 @@ export namespace Schemas {
     }
 
     export interface ActivityLogEntry {
+      readonly id: string;
       /** @nullable */
       readonly user: ActivityLogEntryUser;
       readonly activity: string;
@@ -4142,6 +4143,11 @@ export namespace Schemas {
       name?: string | null;
       query: string;
       response?: HogQLQueryResponse | null;
+      /**
+       * Run the selected connection query directly without translating it through HogQL first
+       * @nullable
+       */
+      sendRawQuery?: boolean | null;
       tags?: QueryLogTags | null;
       /**
        * Constant values that can be referenced with the {placeholder} syntax in the query
@@ -14244,6 +14250,7 @@ export namespace Schemas {
       FullRefresh: 'full_refresh',
       Incremental: 'incremental',
       Append: 'append',
+      Webhook: 'webhook',
     } as const;
 
     export interface ExternalDataSchema {

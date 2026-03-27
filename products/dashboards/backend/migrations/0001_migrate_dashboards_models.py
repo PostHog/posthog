@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1069_datadeletionrequest"),
+        ("posthog", "1072_backfill_condition_aggregation"),
     ]
 
     operations = [

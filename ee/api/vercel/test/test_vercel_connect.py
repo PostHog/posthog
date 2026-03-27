@@ -170,12 +170,13 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         assert data["organizations"][0]["name"] == self.organization.name
         assert data["organizations"][0]["already_linked"] is False
 
-    def test_marks_already_linked_orgs(self):
+    @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=False)
+    def test_marks_already_linked_orgs(self, _mock_orphaned):
         OrganizationIntegration.objects.create(
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_existing",
-            config={},
+            config={"credentials": {"access_token": "tok"}},
             created_by=self.user,
         )
         session_token = _seed_session()
@@ -184,6 +185,23 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["organizations"][0]["already_linked"] is True
+
+    @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
+    def test_orphaned_integration_cleaned_up_in_session(self, _mock_orphaned):
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_orphaned",
+            config={"credentials": {"access_token": "tok_dead"}},
+            created_by=self.user,
+        )
+        session_token = _seed_session()
+
+        response = self.client.get(self.url, {"session": session_token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["organizations"][0]["already_linked"] is False
+        assert not OrganizationIntegration.objects.filter(integration_id="icfg_orphaned").exists()
 
     def test_excludes_orgs_where_user_is_member_not_admin(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -243,7 +261,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         )
         assert integration.config["type"] == "connectable"
-        assert integration.config["credentials"]["access_token"] == "vercel_token_123"
+        assert integration.sensitive_config["credentials"]["access_token"] == "vercel_token_123"
         assert integration.integration_id == "icfg_connect_test"
 
     def test_non_member_returns_403(self):
@@ -293,12 +311,13 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already used" in response.json()["detail"]
 
-    def test_already_linked_org_returns_400(self):
+    @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=False)
+    def test_already_linked_org_returns_400(self, _mock_orphaned):
         OrganizationIntegration.objects.create(
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_existing",
-            config={},
+            config={"credentials": {"access_token": "tok_old"}},
             created_by=self.user,
         )
         session_token = _seed_session()
@@ -311,6 +330,33 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has a Vercel integration" in response.json()["detail"]
+        assert OrganizationIntegration.objects.filter(integration_id="icfg_existing").exists()
+
+    @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
+    def test_stale_integration_deleted_and_new_one_created(self, _mock_orphaned):
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_stale",
+            config={"credentials": {"access_token": "tok_stale"}},
+            created_by=self.user,
+        )
+        session_token = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {"session": session_token, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["status"] == "linked"
+        assert not OrganizationIntegration.objects.filter(integration_id="icfg_stale").exists()
+        new_integration = OrganizationIntegration.objects.get(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        )
+        assert new_integration.integration_id == "icfg_connect_test"
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()

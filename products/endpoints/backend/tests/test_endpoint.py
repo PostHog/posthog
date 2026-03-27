@@ -13,10 +13,10 @@ from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -43,6 +43,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "name": None,
             "query": "SELECT count(1) FROM query_log",
             "response": None,
+            "sendRawQuery": None,
             "tags": None,
             "values": None,
             "variables": None,
@@ -339,6 +340,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "name": None,
             "query": "SELECT 1",
             "response": None,
+            "sendRawQuery": None,
             "tags": None,
             "values": None,
             "variables": None,
@@ -369,6 +371,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         changed_fields = {c.get("field") for c in changes}
         # description is now stored on EndpointVersion, not tracked in Endpoint activity log
         self.assertIn("is_active", changed_fields)
+        self.assertNotIn("description", changed_fields)
 
     def test_delete_endpoint(self):
         endpoint = create_endpoint_with_version(

@@ -827,15 +827,11 @@ class FeatureFlagSerializer(
             )
 
         # Normalize: distribute the flag-level aggregation_group_type_index to each
-        # condition set that doesn't already have one. Only set the field when the
-        # value is non-null to avoid adding new keys to persisted JSON that would
-        # change behavior for frontend code using `!== undefined` checks.
-        # TODO #52024: once frontend null checks are fixed, always set this field
-        # (including None) so every condition set explicitly carries its aggregation mode.
-        if flag_level_aggregation is not None:
-            for condition in filters["groups"]:
-                if condition.get("aggregation_group_type_index") is None:
-                    condition["aggregation_group_type_index"] = flag_level_aggregation
+        # condition set that doesn't already have one, so every condition set
+        # explicitly carries its aggregation mode (including None for person-aggregated).
+        for condition in filters["groups"]:
+            if "aggregation_group_type_index" not in condition:
+                condition["aggregation_group_type_index"] = flag_level_aggregation
 
         # Derive the flag-level field from condition sets for backward compatibility.
         # If all condition sets share the same value, use that; otherwise reject.
@@ -848,12 +844,7 @@ class FeatureFlagSerializer(
                     "Mixed aggregation types across condition sets are not yet supported. "
                     "All condition sets must use the same aggregation type."
                 )
-            # Only set the flag-level field if the resolved value is non-null.
-            # Leaving it absent for person-aggregated flags preserves backward
-            # compatibility with frontend code that uses `!== undefined` checks.
-            # TODO #52024: once frontend null checks are fixed, always set this field.
-            if condition_aggregations[0] is not None:
-                filters["aggregation_group_type_index"] = condition_aggregations[0]
+            filters["aggregation_group_type_index"] = condition_aggregations[0]
 
         # Check Early Access Feature constraint: no condition set can use group
         # aggregation if the flag is linked to an Early Access Feature.
