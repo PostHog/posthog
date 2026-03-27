@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
-from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Consumer
+from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
 
 
 def _make_config(**kwargs) -> WebhookConsumerConfig:
@@ -24,14 +24,14 @@ def _make_config(**kwargs) -> WebhookConsumerConfig:
     return WebhookConsumerConfig(**defaults)
 
 
-def _make_consumer(**kwargs) -> WebhookS3Consumer:
+def _make_consumer(**kwargs) -> WebhookS3Sink:
     defaults: dict = {
         "config": _make_config(),
         "kafka_hosts": ["localhost:9092"],
         "kafka_security_protocol": "PLAINTEXT",
     }
     defaults.update(kwargs)
-    return WebhookS3Consumer(**defaults)
+    return WebhookS3Sink(**defaults)
 
 
 def _make_kafka_message(value: dict | bytes | None = None, error=None) -> MagicMock:
@@ -46,7 +46,7 @@ def _make_kafka_message(value: dict | bytes | None = None, error=None) -> MagicM
     return msg
 
 
-class TestWebhookS3ConsumerConfig:
+class TestWebhookS3SinkConfig:
     def test_consumer_uses_latest_offset_reset(self):
         consumer = _make_consumer()
 
@@ -92,7 +92,7 @@ class TestWebhookS3ConsumerConfig:
             assert config["bootstrap.servers"] == "host1:9092,host2:9092"
 
 
-class TestWebhookS3ConsumerMessageProcessing:
+class TestWebhookS3SinkMessageProcessing:
     def test_valid_message_gets_buffered(self):
         consumer = _make_consumer()
         raw = json.dumps({"team_id": 1, "schema_id": "schema-a", "payload": '{"event": "test"}'}).encode("utf-8")
@@ -144,7 +144,7 @@ class TestWebhookS3ConsumerMessageProcessing:
         consumer._dlq_producer.produce.assert_called_once()
 
 
-class TestWebhookS3ConsumerFlush:
+class TestWebhookS3SinkFlush:
     @patch("products.data_warehouse.backend.webhook_consumer.consumer.WebhookParquetWriter")
     def test_flush_writes_parquet_per_schema(self, mock_writer_cls):
         mock_writer = MagicMock()
@@ -259,7 +259,7 @@ class TestWebhookS3ConsumerFlush:
         consumer._consumer.commit.assert_not_called()
 
 
-class TestWebhookS3ConsumerCallbacks:
+class TestWebhookS3SinkCallbacks:
     @patch("products.data_warehouse.backend.webhook_consumer.consumer.WebhookParquetWriter")
     def test_on_revoke_flushes_buffer(self, mock_writer_cls):
         mock_writer = MagicMock()
@@ -294,7 +294,7 @@ class TestWebhookS3ConsumerCallbacks:
         consumer._consumer.commit.assert_not_called()
 
 
-class TestWebhookS3ConsumerRunLoop:
+class TestWebhookS3SinkRunLoop:
     @patch("products.data_warehouse.backend.webhook_consumer.consumer.WebhookParquetWriter")
     @patch("products.data_warehouse.backend.webhook_consumer.consumer.ConfluentConsumer")
     def test_run_processes_messages_and_flushes(self, mock_consumer_cls, mock_writer_cls):
@@ -318,7 +318,7 @@ class TestWebhookS3ConsumerRunLoop:
         mock_kafka.consume.side_effect = consume_side_effect
 
         config = _make_config(flush_interval_seconds=0.0, poll_timeout_seconds=0.01)
-        consumer = WebhookS3Consumer(
+        consumer = WebhookS3Sink(
             config=config,
             kafka_hosts=["localhost:9092"],
             kafka_security_protocol="PLAINTEXT",
@@ -362,7 +362,7 @@ class TestWebhookS3ConsumerRunLoop:
 
         # High flush interval so it won't trigger during the loop
         config = _make_config(flush_interval_seconds=9999, poll_timeout_seconds=0.01)
-        consumer = WebhookS3Consumer(
+        consumer = WebhookS3Sink(
             config=config,
             kafka_hosts=["localhost:9092"],
             kafka_security_protocol="PLAINTEXT",
@@ -430,7 +430,7 @@ class TestWebhookS3ConsumerRunLoop:
         mock_kafka.close.assert_called_once()
 
 
-class TestWebhookS3ConsumerDLQ:
+class TestWebhookS3SinkDLQ:
     def test_dlq_message_format(self):
         consumer = _make_consumer()
         consumer._dlq_producer = MagicMock()

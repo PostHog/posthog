@@ -35,7 +35,7 @@ class WebhookParquetWriter:
         path_without_protocol = strip_s3_protocol(s3_path)
 
         with self._s3.open(path_without_protocol, "wb") as f:
-            pq.write_table(table, f, compression=self._compression)
+            pq.write_table(table.cast(PARQUET_SCHEMA), f, compression=self._compression)
 
         logger.debug(
             "webhook_parquet_written",

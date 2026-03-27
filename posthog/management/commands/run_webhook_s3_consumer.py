@@ -6,13 +6,13 @@ from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCE_WEBHOOKS, KAFKA_W
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState, start_health_server
 
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
-from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Consumer
+from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
 
 logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Run the webhook-to-S3 Kafka consumer service"
+    help = "Run the webhook S3 sink (consumes from Kafka, writes parquet to S3)"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -69,7 +69,7 @@ class Command(BaseCommand):
         health_timeout = options["health_timeout"]
 
         logger.info(
-            "webhook_s3_consumer_starting",
+            "webhook_s3_sink_starting",
             health_port=health_port,
             input_topic=options["input_topic"],
             consumer_group=options["consumer_group"],
@@ -93,5 +93,5 @@ class Command(BaseCommand):
             health_timeout_seconds=health_timeout,
         )
 
-        consumer = WebhookS3Consumer(config=config)
+        consumer = WebhookS3Sink(config=config)
         consumer.run(health_reporter=health_state.report_healthy)

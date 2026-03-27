@@ -94,7 +94,7 @@ from products.data_warehouse.backend.models.external_data_job import get_latest_
 from products.data_warehouse.backend.models.external_table_definitions import external_tables
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
-from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Consumer
+from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -3643,7 +3643,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
         dlq_topic="test-dlq",
     )
 
-    consumer = WebhookS3Consumer(
+    consumer = WebhookS3Sink(
         config=config,
         kafka_hosts=["localhost:9092"],
         kafka_security_protocol="PLAINTEXT",

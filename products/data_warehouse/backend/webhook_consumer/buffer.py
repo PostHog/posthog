@@ -34,6 +34,10 @@ class SchemaBuffer:
         self._payloads.clear()
         self.total_size_bytes = 0
 
+    @property
+    def payloads(self) -> list[str]:
+        return self._payloads
+
     def __len__(self) -> int:
         return len(self._payloads)
 

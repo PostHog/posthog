@@ -3,7 +3,7 @@ from prometheus_client import Counter, Gauge, Histogram
 WEBHOOK_MESSAGES_BUFFERED_TOTAL = Counter(
     "warehouse_sources_webhook_s3_consumer_messages_buffered_total",
     "Total messages buffered by the webhook S3 consumer",
-    labelnames=["team_id", "schema_id"],
+    labelnames=["team_id"],
 )
 
 WEBHOOK_FLUSH_TOTAL = Counter(
@@ -15,7 +15,7 @@ WEBHOOK_FLUSH_TOTAL = Counter(
 WEBHOOK_PARQUET_WRITES_TOTAL = Counter(
     "warehouse_sources_webhook_s3_consumer_parquet_writes_total",
     "Total parquet files written to S3",
-    labelnames=["team_id", "schema_id", "status"],
+    labelnames=["team_id", "status"],
 )
 
 WEBHOOK_PARQUET_WRITE_DURATION_SECONDS = Histogram(

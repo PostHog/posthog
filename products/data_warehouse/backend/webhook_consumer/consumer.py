@@ -41,7 +41,7 @@ S3_TRANSIENT_ERRORS = (
 )
 
 
-class WebhookS3Consumer:
+class WebhookS3Sink:
     """Kafka consumer that batches webhook messages by schema_id and writes parquet files to S3."""
 
     def __init__(
@@ -160,10 +160,11 @@ class WebhookS3Consumer:
         except Exception as dlq_error:
             logger.exception("dlq_send_failed", original_error_type=type(error).__name__)
             capture_exception(dlq_error)
+            raise
 
     def _send_buffer_to_dlq(self, schema_buffer: SchemaBuffer, error: Exception) -> None:
         """Send all messages in a schema buffer to the DLQ after S3 write retries are exhausted."""
-        for payload_json in schema_buffer._payloads:
+        for payload_json in schema_buffer.payloads:
             message = {
                 "team_id": schema_buffer.team_id,
                 "schema_id": schema_buffer.schema_id,
@@ -251,7 +252,7 @@ class WebhookS3Consumer:
             return
 
         self._buffer.add(team_id, schema_id, payload)
-        WEBHOOK_MESSAGES_BUFFERED_TOTAL.labels(team_id=str(team_id), schema_id=schema_id).inc()
+        WEBHOOK_MESSAGES_BUFFERED_TOTAL.labels(team_id=str(team_id)).inc()
 
     def _write_buffer_with_retry(self, schema_buffer: SchemaBuffer) -> Optional[Exception]:
         """Write a single schema buffer to S3 with retry logic. Returns None on success, or the final error."""
@@ -265,7 +266,6 @@ class WebhookS3Consumer:
 
                 WEBHOOK_PARQUET_WRITES_TOTAL.labels(
                     team_id=str(schema_buffer.team_id),
-                    schema_id=schema_buffer.schema_id,
                     status="success",
                 ).inc()
 
@@ -294,7 +294,6 @@ class WebhookS3Consumer:
                 else:
                     WEBHOOK_PARQUET_WRITES_TOTAL.labels(
                         team_id=str(schema_buffer.team_id),
-                        schema_id=schema_buffer.schema_id,
                         status="failure",
                     ).inc()
                     logger.exception(
@@ -309,7 +308,6 @@ class WebhookS3Consumer:
             except Exception as e:
                 WEBHOOK_PARQUET_WRITES_TOTAL.labels(
                     team_id=str(schema_buffer.team_id),
-                    schema_id=schema_buffer.schema_id,
                     status="failure",
                 ).inc()
                 logger.exception(
@@ -370,6 +368,13 @@ class WebhookS3Consumer:
 
     def _cleanup(self) -> None:
         logger.info("consumer_shutting_down")
+
+        if self._dlq_producer:
+            try:
+                self._dlq_producer.flush(timeout=10.0)
+            except Exception as e:
+                logger.exception("dlq_producer_flush_failed")
+                capture_exception(e)
 
         if self._consumer:
             try:
