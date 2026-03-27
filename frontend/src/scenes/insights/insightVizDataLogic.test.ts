@@ -247,6 +247,51 @@ describe('insightVizDataLogic', () => {
                 },
             })
         })
+
+        it('disables filterTestAccounts when adding a data warehouse series to trends', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                filterTestAccounts: true,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+            } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ filterTestAccounts: true })
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.DataWarehouseNode,
+                            id: 'warehouse_orders',
+                            table_name: 'warehouse_orders',
+                            name: 'Orders',
+                            timestamp_field: 'created_at',
+                            id_field: 'order_id',
+                            distinct_id_field: 'customer_id',
+                        },
+                    ],
+                } as TrendsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: expect.objectContaining({
+                        kind: NodeKind.TrendsQuery,
+                        filterTestAccounts: undefined,
+                        series: [
+                            expect.objectContaining({
+                                kind: NodeKind.DataWarehouseNode,
+                                table_name: 'warehouse_orders',
+                            }),
+                        ],
+                    }),
+                },
+            })
+        })
     })
 
     describe('updateDateRange', () => {

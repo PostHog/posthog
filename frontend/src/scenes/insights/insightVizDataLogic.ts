@@ -840,6 +840,12 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
     }
 
+    // Trends
+    // We do not support filtering test account for DWH nodes, disable it if there are any
+    if (isTrendsQuery(currentState) && maybeChangedSeries?.some(isAnyDataWarehouseNode)) {
+        ;(mergedUpdate as TrendsQuery).filterTestAccounts = undefined
+    }
+
     /*
      * Date range change side effects.
      */
