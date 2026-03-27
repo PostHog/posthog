@@ -66,7 +66,7 @@ GITHUB_APP_CLIENT_ID=your_app_id
 GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 
-# Optional: for local agent development (see step 7)
+# Optional: for local agent development (see step 8)
 # LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 ```
 
