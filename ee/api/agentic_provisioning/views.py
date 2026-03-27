@@ -29,9 +29,15 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
+from posthog.models.utils import (
+    generate_random_oauth_access_token,
+    generate_random_oauth_refresh_token,
+    generate_random_token_personal,
+    mask_key_value,
+)
 from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
@@ -54,6 +60,7 @@ DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
 STRIPE_APP_NAME = "PostHog Stripe App"
+STRIPE_PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
 
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
@@ -614,6 +621,25 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
+def _create_provisioned_pat(user: User, team: Team) -> str:
+    """Create a Personal API Key for a Stripe-provisioned user and return the raw key value."""
+    api_key_value = generate_random_token_personal()
+
+    timestamp = timezone.now().strftime("%Y-%m-%d %H:%M")
+    max_team_name_len = 40 - len(f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - ") - len(f" - {timestamp}")
+    team_name = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
+    label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team_name} - {timestamp}"
+
+    PersonalAPIKey.objects.create(
+        user=user,
+        label=label,
+        secure_value=hash_key_value(api_key_value),
+        mask_value=mask_key_value(api_key_value),
+    )
+
+    return api_key_value
+
+
 # ---------------------------------------------------------------------------
 # POST /provisioning/resources
 # ---------------------------------------------------------------------------
@@ -659,6 +685,8 @@ def provisioning_resources_create(request: Request) -> Response:
 
     _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team_id)
 
+    personal_api_key = _create_provisioned_pat(user, team)
+
     return Response(
         {
             "status": "complete",
@@ -667,6 +695,7 @@ def provisioning_resources_create(request: Request) -> Response:
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
+                    "personal_api_key": personal_api_key,
                     "host": host,
                 },
             },
@@ -733,6 +762,8 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
     _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
 
+    personal_api_key = _create_provisioned_pat(user, team)
+
     service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
@@ -745,6 +776,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
+                    "personal_api_key": personal_api_key,
                     "host": host,
                 },
             },

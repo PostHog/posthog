@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from posthog.models.oauth import OAuthAccessToken
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
@@ -83,6 +84,35 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
         )
         assert res.status_code == 200
         assert res.json()["service_id"] == "analytics"
+
+    def test_rotate_includes_new_personal_api_key(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            token=token,
+        )
+        assert res.status_code == 200
+        personal_api_key = res.json()["complete"]["access_configuration"]["personal_api_key"]
+        assert personal_api_key.startswith("phx_")
+
+    def test_rotate_deletes_old_stripe_pat_and_creates_new(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        initial_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        assert initial_pat is not None
+
+        self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            token=token,
+        )
+        assert not PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
+        new_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        assert new_pat is not None
+        assert new_pat.id != initial_pat.id
 
     @patch("posthog.models.team.team.Team.reset_token_and_save", side_effect=Exception("db error"))
     def test_rotate_returns_500_when_reset_token_fails(self, _mock_reset):
