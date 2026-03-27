@@ -1,5 +1,6 @@
-import { IconRefresh } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconRefresh } from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -134,13 +135,15 @@ export function ScimLogsModal(): JSX.Element {
                         size="small"
                     />
                     <LemonButton
+                        className="ml-auto"
                         type="secondary"
                         size="small"
                         icon={<IconRefresh />}
                         onClick={reloadScimLogs}
                         loading={scimLogsLoading}
-                        tooltip="Reload logs"
-                    />
+                    >
+                        Refresh
+                    </LemonButton>
                 </div>
 
                 <LemonTable
