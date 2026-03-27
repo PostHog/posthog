@@ -20,7 +20,7 @@ type Story = StoryObj<{}>
 const sampleBooleanFlag: FeatureFlagData = {
     id: 1,
     key: 'enable-new-dashboard',
-    name: 'New dashboard experience',
+    storyName: 'New dashboard experience',
     description: 'Enables the redesigned dashboard for selected users.',
     active: true,
     filters: {
@@ -43,7 +43,7 @@ const sampleBooleanFlag: FeatureFlagData = {
 const sampleMultivariateFlag: FeatureFlagData = {
     id: 2,
     key: 'checkout-flow-variant',
-    name: 'Checkout flow experiment',
+    storyName: 'Checkout flow experiment',
     description: 'A/B/C test for the checkout experience.',
     active: true,
     filters: {
@@ -74,7 +74,7 @@ const sampleMultivariateFlag: FeatureFlagData = {
 const sampleInactiveFlag: FeatureFlagData = {
     id: 3,
     key: 'deprecated-feature',
-    name: 'Old feature toggle',
+    storyName: 'Old feature toggle',
     active: false,
     filters: {
         groups: [
@@ -89,17 +89,17 @@ const sampleInactiveFlag: FeatureFlagData = {
 
 export const BooleanFlag: Story = {
     render: () => <FeatureFlagView flag={sampleBooleanFlag} />,
-    name: 'Boolean flag',
+    storyName: 'Boolean flag',
 }
 
 export const MultivariateFlag: Story = {
     render: () => <FeatureFlagView flag={sampleMultivariateFlag} />,
-    name: 'Multivariate flag with variant override',
+    storyName: 'Multivariate flag with variant override',
 }
 
 export const InactiveFlag: Story = {
     render: () => <FeatureFlagView flag={sampleInactiveFlag} />,
-    name: 'Inactive flag',
+    storyName: 'Inactive flag',
 }
 
 const sampleListData: FeatureFlagListData = {
@@ -112,5 +112,5 @@ const sampleListData: FeatureFlagListData = {
 
 export const FlagList: Story = {
     render: () => <FeatureFlagListView data={sampleListData} />,
-    name: 'Flag list',
+    storyName: 'Flag list',
 }

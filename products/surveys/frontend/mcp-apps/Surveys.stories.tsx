@@ -26,7 +26,7 @@ type Story = StoryObj<{}>
 
 const activePopover: SurveyData = {
     id: 'survey-1',
-    name: 'NPS survey Q4',
+    storyName: 'NPS survey Q4',
     description: 'Quarterly NPS measurement for all active users.',
     type: 'popover',
     status: 'active',
@@ -49,7 +49,7 @@ const activePopover: SurveyData = {
 
 const draftMultiQuestion: SurveyData = {
     id: 'survey-2',
-    name: 'Feature satisfaction',
+    storyName: 'Feature satisfaction',
     type: 'api',
     status: 'draft',
     created_at: '2025-12-01T09:00:00Z',
@@ -76,7 +76,7 @@ const draftMultiQuestion: SurveyData = {
 
 const completedSurvey: SurveyData = {
     id: 'survey-3',
-    name: 'Beta feedback form',
+    storyName: 'Beta feedback form',
     type: 'widget',
     status: 'completed',
     start_date: '2025-08-01T00:00:00Z',
@@ -94,17 +94,17 @@ const completedSurvey: SurveyData = {
 
 export const ActivePopover: Story = {
     render: () => <SurveyView survey={activePopover} />,
-    name: 'Active popover survey',
+    storyName: 'Active popover survey',
 }
 
 export const DraftMultiQuestion: Story = {
     render: () => <SurveyView survey={draftMultiQuestion} />,
-    name: 'Draft with multiple question types',
+    storyName: 'Draft with multiple question types',
 }
 
 export const Completed: Story = {
     render: () => <SurveyView survey={completedSurvey} />,
-    name: 'Completed survey',
+    storyName: 'Completed survey',
 }
 
 const sampleListData: SurveyListData = {
@@ -114,7 +114,7 @@ const sampleListData: SurveyListData = {
 
 export const List: Story = {
     render: () => <SurveyListView data={sampleListData} />,
-    name: 'Survey list',
+    storyName: 'Survey list',
 }
 
 const sampleStats: SurveyStatsData = {
@@ -133,5 +133,5 @@ const sampleStats: SurveyStatsData = {
 
 export const Stats: Story = {
     render: () => <SurveyStatsView data={sampleStats} />,
-    name: 'Survey stats',
+    storyName: 'Survey stats',
 }

@@ -24,7 +24,7 @@ import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
-    name: 'basic survey',
+    storyName: 'basic survey',
     description: 'basic survey description',
     type: SurveyType.Popover,
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -54,7 +54,7 @@ const MOCK_BASIC_SURVEY: Survey = {
 
 const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     id: '998FE805-F9EF-4F25-A5D1-B9549C4E2143',
-    name: 'survey with multiple options',
+    storyName: 'survey with multiple options',
     description: 'survey with multiple options description',
     type: SurveyType.Popover,
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -96,7 +96,7 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f006',
-    name: 'survey with release conditions',
+    storyName: 'survey with release conditions',
     description: 'survey with release conditions description',
     type: SurveyType.Popover,
     created_at: '2023-04-28T10:04:37.977401Z',

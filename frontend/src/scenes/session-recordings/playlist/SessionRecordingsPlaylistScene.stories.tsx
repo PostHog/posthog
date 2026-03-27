@@ -18,7 +18,7 @@ import { recordings } from '../__mocks__/recordings'
 const playlistWithRecordings: SessionRecordingPlaylistType = {
     id: 99,
     short_id: 'playlist-test-123',
-    name: 'Test Playlist for Storybook',
+    storyName: 'Test Playlist for Storybook',
     derived_name: 'Test Playlist',
     description: 'A test playlist with recordings',
     pinned: true,

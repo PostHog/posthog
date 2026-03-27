@@ -77,9 +77,16 @@ const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const logicProps = { id, availableSources: {} }
     const logic = dataWarehouseSourceSettingsLogic(logicProps)
-    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly, syncingNow, refreshingSchemas } =
-        useValues(logic)
-    const { setShowEnabledSchemasOnly, syncNow, refreshSchemas } = useActions(logic)
+    const {
+        source,
+        sourceLoading,
+        filteredSchemas,
+        showEnabledSchemasOnly,
+        schemaNameFilter,
+        syncingNow,
+        refreshingSchemas,
+    } = useValues(logic)
+    const { setShowEnabledSchemasOnly, setSchemaNameFilter, syncNow, refreshSchemas } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -94,6 +101,13 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                         checked={showEnabledSchemasOnly}
                         onChange={setShowEnabledSchemasOnly}
                         label={isDirectQuerySource ? 'Show queryable only' : 'Show enabled only'}
+                    />
+                    <LemonInput
+                        type="search"
+                        placeholder="Filter schemas"
+                        size="small"
+                        value={schemaNameFilter}
+                        onChange={setSchemaNameFilter}
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>

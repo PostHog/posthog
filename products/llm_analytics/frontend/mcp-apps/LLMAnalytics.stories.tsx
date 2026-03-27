@@ -72,15 +72,15 @@ const emptyData: LLMCostsData = {
 
 export const MultiModel: Story = {
     render: () => <LLMCostsView data={multiModelData} />,
-    name: 'Multiple models',
+    storyName: 'Multiple models',
 }
 
 export const SingleModel: Story = {
     render: () => <LLMCostsView data={singleModelData} />,
-    name: 'Single model',
+    storyName: 'Single model',
 }
 
 export const Empty: Story = {
     render: () => <LLMCostsView data={emptyData} />,
-    name: 'No data',
+    storyName: 'No data',
 }

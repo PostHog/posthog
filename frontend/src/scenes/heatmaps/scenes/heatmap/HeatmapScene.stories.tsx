@@ -8,7 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 const generatingSaved = {
     id: 100,
     short_id: 'hm_gen',
-    name: 'Generating…',
+    storyName: 'Generating…',
     url: 'https://example.com',
     data_url: 'https://example.com',
     target_widths: [768, 1024],
@@ -59,7 +59,7 @@ export const Generating: Story = {
 const makeIframeSaved = (): Record<string, unknown> => ({
     id: 101,
     short_id: 'hm_iframe',
-    name: 'Iframe example.com',
+    storyName: 'Iframe example.com',
     url: `${window.location.origin}/mock-page.html`,
     data_url: `${window.location.origin}/mock-page.html`,
     target_widths: [],

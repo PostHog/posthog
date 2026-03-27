@@ -14,7 +14,7 @@ const MOCK_HOG_FUNCTION = {
     id: MOCK_HOG_FUNCTION_ID,
     type: 'destination',
     kind: null,
-    name: 'HTTP Webhook',
+    storyName: 'HTTP Webhook',
     description: 'Sends a webhook templated by the incoming event data',
     enabled: true,
     deleted: false,
@@ -50,7 +50,7 @@ const MOCK_HOG_FUNCTION = {
 const MOCK_BATCH_EXPORT = {
     id: MOCK_BATCH_EXPORT_ID,
     team_id: 1,
-    name: 'HTTP Webhook',
+    storyName: 'HTTP Webhook',
     destination: {
         type: 'Workflows',
         config: { hog_function_id: MOCK_HOG_FUNCTION_ID },

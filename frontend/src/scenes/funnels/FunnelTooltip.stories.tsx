@@ -6,7 +6,7 @@ import { FunnelTooltip, FunnelTooltipProps } from './FunnelTooltip'
 
 const step: FunnelStepWithConversionMetrics = {
     action_id: '$pageview',
-    name: '$pageview',
+    storyName: '$pageview',
     custom_name: null,
     order: 0,
     people: [],

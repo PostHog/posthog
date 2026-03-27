@@ -19,7 +19,7 @@ type Story = StoryObj<{}>
 
 const activeWorkflow: WorkflowData = {
     id: 'wf-1',
-    name: 'Onboarding email sequence',
+    storyName: 'Onboarding email sequence',
     description: 'Sends a series of onboarding emails to new signups over 7 days.',
     status: 'active',
     version: 3,
@@ -32,7 +32,7 @@ const activeWorkflow: WorkflowData = {
 
 const draftWorkflow: WorkflowData = {
     id: 'wf-2',
-    name: 'Re-engagement campaign',
+    storyName: 'Re-engagement campaign',
     description: 'Trigger push notifications for users inactive for 14 days.',
     status: 'draft',
     version: 1,
@@ -42,7 +42,7 @@ const draftWorkflow: WorkflowData = {
 
 const archivedWorkflow: WorkflowData = {
     id: 'wf-3',
-    name: 'Legacy welcome flow',
+    storyName: 'Legacy welcome flow',
     status: 'archived',
     version: 5,
     exit_condition: 'first_event_sent',

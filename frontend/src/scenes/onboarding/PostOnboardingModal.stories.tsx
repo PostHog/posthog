@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
+import { PRODUCTS_WITH_SETUP } from 'lib/components/ProductSetup/productSetupRegistry'
+
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { PostOnboardingModal } from './PostOnboardingModal'
@@ -27,6 +29,12 @@ const meta: Meta<PostOnboardingModalProps> = {
         }, [productKey, openPostOnboardingModal])
 
         return <PostOnboardingModal />
+    },
+    argTypes: {
+        productKey: {
+            control: 'select',
+            options: PRODUCTS_WITH_SETUP,
+        },
     },
 }
 export default meta

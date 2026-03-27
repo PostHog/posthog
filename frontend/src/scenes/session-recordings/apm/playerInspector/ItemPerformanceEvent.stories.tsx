@@ -96,7 +96,7 @@ const exampleWithPerformanceObserverValues = mapRRWebNetworkRequest(
 const exampleWithoutPerformanceObserverValues = {
     end_time: 859613,
     method: 'GET',
-    name: 'https://api.company.com/v1/counts',
+    storyName: 'https://api.company.com/v1/counts',
     request_body: null,
     request_headers: {
         Accept: 'application/json',

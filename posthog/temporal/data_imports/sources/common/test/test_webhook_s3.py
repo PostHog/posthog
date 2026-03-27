@@ -119,7 +119,7 @@ class TestWebhookSourceManager:
     @parameterized.expand(
         [
             ("no_hog_function", False, True, True, False, False),
-            ("not_incremental", True, False, True, False, False),
+            ("not_webhook", True, False, True, False, False),
             ("initial_sync_not_complete", True, True, False, False, False),
             ("reset_pipeline_true", True, True, True, True, False),
             ("all_conditions_met", True, True, True, False, True),
@@ -129,7 +129,7 @@ class TestWebhookSourceManager:
         self,
         _name,
         has_webhook_function,
-        is_incremental,
+        is_webhook,
         initial_sync_complete,
         reset_pipeline,
         expected,
@@ -137,7 +137,7 @@ class TestWebhookSourceManager:
         manager = _make_manager(reset_pipeline=reset_pipeline)
 
         mock_schema = MagicMock()
-        mock_schema.is_incremental = is_incremental
+        mock_schema.is_webhook = is_webhook
         mock_schema.initial_sync_complete = initial_sync_complete
 
         call_count = 0

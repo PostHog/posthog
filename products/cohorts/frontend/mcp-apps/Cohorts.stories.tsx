@@ -19,7 +19,7 @@ type Story = StoryObj<{}>
 
 const dynamicCohort: CohortData = {
     id: 1,
-    name: 'Power users',
+    storyName: 'Power users',
     description: 'Users who performed 10+ events in the last 30 days.',
     is_static: false,
     is_calculating: false,
@@ -31,7 +31,7 @@ const dynamicCohort: CohortData = {
 
 const staticCohort: CohortData = {
     id: 2,
-    name: 'Beta testers batch 3',
+    storyName: 'Beta testers batch 3',
     description: 'Manually uploaded list of beta program participants.',
     is_static: true,
     is_calculating: false,
@@ -43,7 +43,7 @@ const staticCohort: CohortData = {
 
 const calculatingCohort: CohortData = {
     id: 3,
-    name: 'Churned users',
+    storyName: 'Churned users',
     description: 'Users who have not logged in for 60+ days.',
     is_static: false,
     is_calculating: true,
@@ -53,17 +53,17 @@ const calculatingCohort: CohortData = {
 
 export const Dynamic: Story = {
     render: () => <CohortView cohort={dynamicCohort} />,
-    name: 'Dynamic cohort',
+    storyName: 'Dynamic cohort',
 }
 
 export const Static: Story = {
     render: () => <CohortView cohort={staticCohort} />,
-    name: 'Static cohort',
+    storyName: 'Static cohort',
 }
 
 export const Calculating: Story = {
     render: () => <CohortView cohort={calculatingCohort} />,
-    name: 'Calculating cohort',
+    storyName: 'Calculating cohort',
 }
 
 const sampleListData: CohortListData = {
@@ -73,5 +73,5 @@ const sampleListData: CohortListData = {
 
 export const List: Story = {
     render: () => <CohortListView data={sampleListData} />,
-    name: 'Cohort list',
+    storyName: 'Cohort list',
 }

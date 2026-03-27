@@ -28,7 +28,7 @@ type Story = StoryObj<{}>
 
 const activeIssue: ErrorIssueData = {
     id: 'issue-1',
-    name: 'TypeError: Cannot read properties of undefined (reading "map")',
+    storyName: 'TypeError: Cannot read properties of undefined (reading "map")',
     description: 'Occurs in DashboardGrid.tsx when dashboard items are null.',
     status: 'active',
     first_seen: '2025-12-10T08:30:00Z',
@@ -37,7 +37,7 @@ const activeIssue: ErrorIssueData = {
 
 const resolvedIssue: ErrorIssueData = {
     id: 'issue-2',
-    name: 'RangeError: Maximum call stack size exceeded',
+    storyName: 'RangeError: Maximum call stack size exceeded',
     description: 'Infinite recursion in recursive property filter rendering.',
     status: 'resolved',
     first_seen: '2025-11-15T14:00:00Z',
@@ -45,7 +45,7 @@ const resolvedIssue: ErrorIssueData = {
 
 const issueWithLinks: ErrorIssueData = {
     id: 'issue-3',
-    name: 'NetworkError: Failed to fetch /api/projects/1/insights',
+    storyName: 'NetworkError: Failed to fetch /api/projects/1/insights',
     status: 'pending_release',
     first_seen: '2025-12-18T09:00:00Z',
     external_issues: [
@@ -62,24 +62,24 @@ const issueWithLinks: ErrorIssueData = {
 
 const suppressedIssue: ErrorIssueData = {
     id: 'issue-4',
-    name: 'Warning: Each child in a list should have a unique "key" prop',
+    storyName: 'Warning: Each child in a list should have a unique "key" prop',
     status: 'suppressed',
     first_seen: '2025-10-01T12:00:00Z',
 }
 
 export const Active: Story = {
     render: () => <ErrorIssueView issue={activeIssue} />,
-    name: 'Active issue',
+    storyName: 'Active issue',
 }
 
 export const Resolved: Story = {
     render: () => <ErrorIssueView issue={resolvedIssue} />,
-    name: 'Resolved issue',
+    storyName: 'Resolved issue',
 }
 
 export const WithExternalLinks: Story = {
     render: () => <ErrorIssueView issue={issueWithLinks} />,
-    name: 'Issue with external links',
+    storyName: 'Issue with external links',
 }
 
 const sampleListData: ErrorIssueListData = {
@@ -90,7 +90,7 @@ const sampleListData: ErrorIssueListData = {
 
 export const List: Story = {
     render: () => <ErrorIssueListView data={sampleListData} />,
-    name: 'Issue list',
+    storyName: 'Issue list',
 }
 
 // -- Stack Trace stories --
@@ -206,17 +206,17 @@ const pythonException: ExceptionData = {
 
 export const StackTrace: Story = {
     render: () => <StackTraceView exceptions={[jsException]} />,
-    name: 'Stack trace (JavaScript)',
+    storyName: 'Stack trace (JavaScript)',
 }
 
 export const PythonStackTrace: Story = {
     render: () => <StackTraceView exceptions={[pythonException]} />,
-    name: 'Stack trace (Python)',
+    storyName: 'Stack trace (Python)',
 }
 
 export const ChainedExceptions: Story = {
     render: () => <StackTraceView exceptions={[jsException, pythonException]} />,
-    name: 'Chained exceptions',
+    storyName: 'Chained exceptions',
 }
 
 const sampleErrorDetails: ErrorDetailsData = {
@@ -243,5 +243,5 @@ const sampleErrorDetails: ErrorDetailsData = {
 
 export const ErrorDetails: Story = {
     render: () => <ErrorDetailsView data={sampleErrorDetails} />,
-    name: 'Error details with stack trace',
+    storyName: 'Error details with stack trace',
 }

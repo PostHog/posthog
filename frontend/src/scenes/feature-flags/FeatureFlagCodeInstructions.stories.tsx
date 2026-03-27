@@ -16,7 +16,7 @@ import { CodeInstructions, CodeInstructionsProps } from './FeatureFlagInstructio
 
 const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     id: 1,
-    name: 'test',
+    storyName: 'test',
     key: 'test',
     filters: {
         groups: [{ properties: [], rollout_percentage: undefined, variant: null }],

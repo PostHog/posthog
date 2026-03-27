@@ -26,7 +26,7 @@ type Story = StoryObj<{}>
 
 const runningExperiment: ExperimentData = {
     id: 1,
-    name: 'Onboarding flow v2',
+    storyName: 'Onboarding flow v2',
     type: 'product',
     description: 'Test whether a simplified onboarding increases activation rates.',
     feature_flag_key: 'onboarding-v2-experiment',
@@ -44,7 +44,7 @@ const runningExperiment: ExperimentData = {
 
 const completedExperiment: ExperimentData = {
     id: 2,
-    name: 'Pricing page CTA',
+    storyName: 'Pricing page CTA',
     type: 'web',
     description: 'Which CTA copy drives more upgrades?',
     feature_flag_key: 'pricing-cta-test',
@@ -65,7 +65,7 @@ const completedExperiment: ExperimentData = {
 
 const draftExperiment: ExperimentData = {
     id: 3,
-    name: 'Dark mode default',
+    storyName: 'Dark mode default',
     description: 'Should new users default to dark mode?',
     feature_flag_key: 'dark-mode-default',
     created_at: '2025-12-01T09:00:00Z',
@@ -79,17 +79,17 @@ const draftExperiment: ExperimentData = {
 
 export const Running: Story = {
     render: () => <ExperimentView experiment={runningExperiment} />,
-    name: 'Running experiment',
+    storyName: 'Running experiment',
 }
 
 export const Completed: Story = {
     render: () => <ExperimentView experiment={completedExperiment} />,
-    name: 'Completed with winner',
+    storyName: 'Completed with winner',
 }
 
 export const Draft: Story = {
     render: () => <ExperimentView experiment={draftExperiment} />,
-    name: 'Draft experiment',
+    storyName: 'Draft experiment',
 }
 
 const sampleListData: ExperimentListData = {
@@ -100,7 +100,7 @@ const sampleListData: ExperimentListData = {
 
 export const List: Story = {
     render: () => <ExperimentListView data={sampleListData} />,
-    name: 'Experiment list',
+    storyName: 'Experiment list',
 }
 
 const sampleResults: ExperimentResultsData = {
@@ -124,5 +124,5 @@ const sampleResults: ExperimentResultsData = {
 
 export const Results: Story = {
     render: () => <ExperimentResultsView data={sampleResults} />,
-    name: 'Experiment results',
+    storyName: 'Experiment results',
 }

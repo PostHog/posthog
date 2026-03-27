@@ -9,7 +9,7 @@ type Story = StoryObj<TablePreviewProps>
 const mockTable: DatabaseSchemaTable = {
     type: 'data_warehouse',
     id: 'dw-events',
-    name: 'events',
+    storyName: 'events',
     format: 'Parquet',
     url_pattern: 's3://posthog/events/*.parquet',
     fields: {
