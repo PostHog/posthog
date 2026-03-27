@@ -357,6 +357,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         # Create insight context
         context = InsightContext(
             team=self._team,
+            user=self._user,
             query=result.content.query,
             name=insight_name,
             description=result.content.description,
