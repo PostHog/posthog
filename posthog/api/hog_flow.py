@@ -1,5 +1,6 @@
 import json
 import uuid as uuid_mod
+from datetime import timedelta
 from typing import Optional, cast
 
 from django.db.models import QuerySet
@@ -8,7 +9,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -39,6 +40,8 @@ from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
 
@@ -190,6 +193,55 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
+
+
+class HogFlowScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HogFlowSchedule
+        fields = [
+            "id",
+            "rrule",
+            "starts_at",
+            "timezone",
+            "variables",
+            "status",
+            "next_run_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "status", "next_run_at", "created_at", "updated_at"]
+
+    def validate(self, data):
+        # For partial updates, fall back to instance values
+        instance = self.instance
+        rrule_str = data.get("rrule", getattr(instance, "rrule", None))
+        starts_at = data.get("starts_at", getattr(instance, "starts_at", None))
+        timezone_str = data.get("timezone", getattr(instance, "timezone", "UTC"))
+
+        if not rrule_str:
+            raise serializers.ValidationError({"rrule": "RRULE string is required."})
+
+        if "rrule" in data:
+            try:
+                validate_rrule(rrule_str)
+            except (ValueError, TypeError) as e:
+                logger.warning("Invalid RRULE encountered during validation", rrule=rrule_str, error=str(e))
+                raise serializers.ValidationError({"rrule": "Invalid RRULE."})
+
+        if not starts_at:
+            raise serializers.ValidationError({"starts_at": "Start date is required."})
+
+        try:
+            sample = compute_next_occurrences(rrule_str, starts_at, timezone_str=timezone_str, count=2)
+        except (KeyError, ValueError):
+            raise serializers.ValidationError({"timezone": "Invalid or unknown timezone."})
+
+        if len(sample) == 0:
+            raise serializers.ValidationError({"rrule": "Schedule produces no future occurrences."})
+        if len(sample) == 2 and (sample[1] - sample[0]) < timedelta(hours=1):
+            raise serializers.ValidationError({"rrule": "Schedules must run at most once per hour."})
+
+        return data
 
 
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
@@ -510,6 +562,41 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+    @extend_schema(responses=HogFlowScheduleSerializer(many=True))
+    @action(detail=True, methods=["GET", "POST"])
+    def schedules(self, request: Request, *args, **kwargs):
+        hog_flow = self.get_object()
+
+        if request.method == "POST":
+            serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
+            serializer.is_valid(raise_exception=True)
+            serializer.save(team=self.team, hog_flow=hog_flow)
+            return Response(serializer.data, status=201)
+
+        schedules = HogFlowSchedule.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+        serializer = HogFlowScheduleSerializer(schedules, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)])
+    @action(detail=True, methods=["PATCH", "DELETE"], url_path="schedules/(?P<schedule_id>[^/.]+)")
+    def schedule_detail(self, request: Request, schedule_id=None, *args, **kwargs):
+        hog_flow = self.get_object()
+        try:
+            schedule = HogFlowSchedule.objects.get(id=schedule_id, hog_flow=hog_flow, team=self.team)
+        except HogFlowSchedule.DoesNotExist:
+            raise exceptions.NotFound("Schedule not found")
+
+        if request.method == "DELETE":
+            schedule.delete()
+            return Response(status=204)
+
+        serializer = HogFlowScheduleSerializer(
+            schedule, data=request.data, partial=True, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):

@@ -9,9 +9,7 @@ use dashmap::DashMap;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::{
     PersonHogLeader, PersonHogLeaderServer,
 };
-use personhog_proto::personhog::leader::v1::{
-    LeaderGetPersonRequest, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-};
+use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
     PersonHogReplica, PersonHogReplicaServer,
 };
@@ -30,7 +28,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::RetryConfig;

@@ -15,6 +15,8 @@ export type TriggerTypeDefinition = {
     label: string
     icon: JSX.Element
     description: string
+    /** Group label for sectioning in the trigger type dropdown (e.g. 'Surveys', 'Support') */
+    group?: string
     featureFlag?: FeatureFlagKey
     /** Return true if this trigger type owns the given event-type config */
     matchConfig?: (config: any) => boolean

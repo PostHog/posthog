@@ -47,7 +47,9 @@ class ReadDataWarehouseSchemaMCPTool(HogQLDatabaseMixin, MCPTool[ReadDataWarehou
             lines.append("")
 
         warehouse_tables = database.get_warehouse_table_names()
-        system_tables = database.get_system_table_names()
+        # Filter out tables that live in the persons database and can't be queried via ClickHouse
+        persons_db_tables = {"group_type_mappings", "groups"}
+        system_tables = [t for t in database.get_system_table_names() if t not in persons_db_tables]
         views = database.get_view_names()
 
         def listify(items: list[str]) -> str:

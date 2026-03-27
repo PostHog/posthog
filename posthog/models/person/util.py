@@ -234,9 +234,10 @@ def _fetch_persons_by_distinct_ids_via_personhog(
         GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
     )
 
-    valid_results = [r for r in resp.results if r.person and r.person.id and r.person.team_id == team_id]
+    present_results = [r for r in resp.results if r.person and r.person.id]
+    valid_results = [r for r in present_results if r.person.team_id == team_id]
 
-    mismatched = len(resp.results) - len(valid_results)
+    mismatched = len(present_results) - len(valid_results)
     if mismatched:
         PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
             operation="get_persons_by_distinct_ids", client_name=get_client_name()
@@ -390,9 +391,10 @@ def get_persons_mapped_by_distinct_id(
             GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
         )
 
-        valid_results = [r for r in resp.results if r.person and r.person.id and r.person.team_id == team_id]
+        present_results = [r for r in resp.results if r.person and r.person.id]
+        valid_results = [r for r in present_results if r.person.team_id == team_id]
 
-        mismatched = len(resp.results) - len(valid_results)
+        mismatched = len(present_results) - len(valid_results)
         if mismatched:
             PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
                 operation="get_persons_mapped_by_distinct_id", client_name=get_client_name()
@@ -423,9 +425,10 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
 
     resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
 
-    valid_persons = [p for p in resp.persons if p.id and p.team_id == team_id]
+    present_persons = [p for p in resp.persons if p.id]
+    valid_persons = [p for p in present_persons if p.team_id == team_id]
 
-    mismatched = len(resp.persons) - len(valid_persons)
+    mismatched = len(present_persons) - len(valid_persons)
     if mismatched:
         PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_persons_by_uuids", client_name=get_client_name()).inc(
             mismatched

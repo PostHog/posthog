@@ -36,7 +36,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
     cookielessManager: CookielessManager
-    overflowTopic: string
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
@@ -55,7 +54,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        overflowTopic,
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
@@ -86,7 +84,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
             // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
-            .pipeBatch(createRateLimitToOverflowStep(overflowTopic, preservePartitionLocality, overflowRedirectService))
+            .pipeBatch(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs
