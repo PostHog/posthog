@@ -65,13 +65,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     const clonedSources = JSON.parse(
                         JSON.stringify(values.dataWarehouseSources?.results ?? [])
                     ) as ExternalDataSource[]
-                    const sourceIndex = clonedSources.findIndex((n) =>
-                        n.schemas?.find((m) => m.id === schema.id)
-                    )
+                    const sourceIndex = clonedSources.findIndex((n) => n.schemas?.find((m) => m.id === schema.id))
                     if (sourceIndex !== -1) {
-                        const schemaIndex = clonedSources[sourceIndex].schemas.findIndex(
-                            (n) => n.id === schema.id
-                        )
+                        const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
                         clonedSources[sourceIndex].schemas[schemaIndex] = schema
 
                         actions.loadSourcesSuccess({
