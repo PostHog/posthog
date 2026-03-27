@@ -1,1 +1,1 @@
-1070_add_unique_cohort_kind_per_team
+1075_team_snippet_config

@@ -51,12 +51,12 @@ interface ImagePanelProps {
 
 function ImagePanel({ url, label, emptyTitle }: ImagePanelProps): JSX.Element {
     return (
-        <div className="relative overflow-hidden rounded-lg border bg-bg-light aspect-[16/10]">
+        <div className="relative overflow-hidden rounded-lg border bg-bg-light">
             <div className="absolute top-2 left-2 z-10 rounded-md border bg-surface-primary/90 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide">
                 {label}
             </div>
             {url ? (
-                <img src={url} alt={label} className="size-full object-contain bg-black/5" />
+                <img src={url} alt={label} className="max-w-full bg-black/5" />
             ) : (
                 <EmptyImageState title={emptyTitle} />
             )}
@@ -87,7 +87,7 @@ export function VisualImageDiffViewer({
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
 
-    const [mode, setMode] = useState<ComparisonMode>('blend')
+    const [mode, setMode] = useState<ComparisonMode>('sideBySide')
     const [splitPosition, setSplitPosition] = useState(50)
     const [blendPercentage, setBlendPercentage] = useState(50)
     const [showDiffOverlay, setShowDiffOverlay] = useState(false)

@@ -77,6 +77,7 @@
     },
     "lint-staged": {
         ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
+        ".claude/hooks/**": "sh -c 'printf \"\\n\\033[33mWarning: hooks in .claude/ are reserved for env bootstrapping (SessionStart only).\\nPrefer skills, AGENTS.md instructions, or lint-staged rules. See Agent automation in AGENTS.md.\\033[0m\\n\\n\"'",
         "products/**/manifest.tsx": [
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"
