@@ -14,7 +14,8 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
 )
-from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import PersonPropertyFilter
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 logger = structlog.get_logger(__name__)
 
@@ -56,9 +57,10 @@ def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter
 
         condition_hash = node.get("conditionHash")
         bytecode = node.get("bytecode")
+        property_key = node.get("key")
 
         # Skip if missing required fields or if they're empty
-        if not condition_hash or not bytecode:
+        if not condition_hash or not bytecode or not property_key:
             return
 
         filters.append(
@@ -66,6 +68,7 @@ def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter
                 condition_hash=condition_hash,
                 bytecode=bytecode,
                 cohort_ids=[],  # Will be populated during deduplication
+                property_key=property_key,
             )
         )
 
@@ -92,37 +95,16 @@ class Command(BaseCommand):
             help="Optional: Specific cohort ID to backfill. If not provided, backfills all realtime cohorts for the team",
         )
         parser.add_argument(
-            "--parallelism",
-            type=int,
-            default=5,
-            help="Number of parallel child workflows to spawn (default: 5)",
-        )
-        parser.add_argument(
             "--batch-size",
             type=int,
             default=1000,
-            help="Number of persons to process per batch within each worker (default: 1000)",
-        )
-        parser.add_argument(
-            "--workflows-per-batch",
-            type=int,
-            default=10,
-            help="Number of workflows to start per batch for jittered scheduling (default: 10)",
-        )
-        parser.add_argument(
-            "--batch-delay-minutes",
-            type=int,
-            default=1,
-            help="Delay between batches in minutes (default: 1)",
+            help="Number of persons to process per batch (default: 1000)",
         )
 
     def handle(self, *args, **options):
         team_id = options["team_id"]
         cohort_id = options.get("cohort_id")
-        parallelism = options["parallelism"]
         batch_size = options["batch_size"]
-        workflows_per_batch = options["workflows_per_batch"]
-        batch_delay_minutes = options["batch_delay_minutes"]
 
         # Get cohorts to process
         if cohort_id:
@@ -148,7 +130,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
 
         # Collect and deduplicate filters across all cohorts
-        condition_map: dict[str, tuple[list[Any], set[int]]] = {}
+        condition_map: dict[str, tuple[list[Any], str | None, set[int]]] = {}
         cohort_ids = []
         total_original_filters = 0
         for cohort in cohorts:
@@ -177,11 +159,11 @@ class Command(BaseCommand):
             # Deduplicate by condition_hash
             for f in filters:
                 if f.condition_hash not in condition_map:
-                    condition_map[f.condition_hash] = (f.bytecode, {cohort.id})
+                    condition_map[f.condition_hash] = (f.bytecode, f.property_key, {cohort.id})
                     self.stdout.write(f"  + New condition: {f.condition_hash}")
                 else:
                     # Condition already exists, just add this cohort ID
-                    condition_map[f.condition_hash][1].add(cohort.id)
+                    condition_map[f.condition_hash][2].add(cohort.id)
                     self.stdout.write(f"  = Duplicate condition: {f.condition_hash}")
 
         if not condition_map:
@@ -193,9 +175,10 @@ class Command(BaseCommand):
             PersonPropertyFilter(
                 condition_hash=condition_hash,
                 bytecode=bytecode,
+                property_key=property_key,
                 cohort_ids=sorted(cohort_set),  # Sort cohort IDs for deterministic order
             )
-            for condition_hash, (bytecode, cohort_set) in sorted(
+            for condition_hash, (bytecode, property_key, cohort_set) in sorted(
                 condition_map.items()
             )  # Sort by condition_hash for deterministic order
         ]
@@ -211,7 +194,7 @@ class Command(BaseCommand):
         for filter_obj in deduplicated_filters:
             self.stdout.write(f"  - {filter_obj.condition_hash} (used by cohorts: {filter_obj.cohort_ids})")
 
-        # Run single coordinator workflow with true deduplication
+        # Run coordinator workflow with cursor-based sequential processing
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(deduplicated_filters)} unique conditions"
@@ -222,23 +205,20 @@ class Command(BaseCommand):
             team_id=team_id,
             filters=deduplicated_filters,
             cohort_ids=cohort_ids,
-            parallelism=parallelism,
             batch_size=batch_size,
-            workflows_per_batch=workflows_per_batch,
-            batch_delay_minutes=batch_delay_minutes,
         )
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nSuccessfully started single coordinator workflow for team {team_id}\n"
+                f"\nSuccessfully started coordinator workflow for team {team_id}\n"
                 f"  Workflow ID: {workflow_id}\n"
                 f"  Cohorts: {cohort_ids}\n"
                 f"  Unique conditions: {len(deduplicated_filters)}\n"
-                f"  Parallelism: {parallelism} workers"
+                f"  Batch size: {batch_size} persons per batch"
             )
         )
         self.stdout.write(
-            "\nChild workflows are running in the background. Check Temporal UI for progress and results."
+            "\nWorkflow is running sequentially using cursor-based pagination. Check Temporal UI for progress and results."
         )
 
     def run_temporal_workflow(
@@ -246,10 +226,7 @@ class Command(BaseCommand):
         team_id: int,
         filters: list[PersonPropertyFilter],
         cohort_ids: list[int],
-        parallelism: int,
         batch_size: int,
-        workflows_per_batch: int,
-        batch_delay_minutes: int,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
 
@@ -257,15 +234,18 @@ class Command(BaseCommand):
             # Connect to Temporal
             client = await async_connect()
 
-            # Create coordinator workflow inputs with deduplicated filters
+            # Store filters in Redis and get storage key
+            filter_storage_key = store_filters(filters, team_id)
+            self.stdout.write(
+                self.style.SUCCESS(f"Stored {len(filters)} filters in Redis with key: {filter_storage_key}")
+            )
+
+            # Create coordinator workflow inputs with filter storage key
             inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
                 team_id=team_id,
-                filters=filters,
+                filter_storage_key=filter_storage_key,
                 cohort_ids=cohort_ids,
-                parallelism=parallelism,
                 batch_size=batch_size,
-                workflows_per_batch=workflows_per_batch,
-                batch_delay_minutes=batch_delay_minutes,
             )
 
             # Generate unique workflow ID (one per team, based on timestamp)

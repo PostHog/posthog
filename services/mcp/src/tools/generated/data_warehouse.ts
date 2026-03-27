@@ -19,12 +19,12 @@ import {
 } from '@/generated/data_warehouse/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const WarehouseSavedQueriesListSchema = WarehouseSavedQueriesListQueryParams
+const ViewListSchema = WarehouseSavedQueriesListQueryParams
 
-const warehouseSavedQueriesList = (): ToolBase<typeof WarehouseSavedQueriesListSchema, unknown> => ({
-    name: 'warehouse-saved-queries-list',
-    schema: WarehouseSavedQueriesListSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesListSchema>) => {
+const viewList = (): ToolBase<typeof ViewListSchema, unknown> => ({
+    name: 'view-list',
+    schema: ViewListSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>({
             method: 'GET',
@@ -46,15 +46,15 @@ const warehouseSavedQueriesList = (): ToolBase<typeof WarehouseSavedQueriesListS
     },
 })
 
-const WarehouseSavedQueriesCreateSchema = WarehouseSavedQueriesCreateBody
+const ViewCreateSchema = WarehouseSavedQueriesCreateBody
 
-const warehouseSavedQueriesCreate = (): ToolBase<
-    typeof WarehouseSavedQueriesCreateSchema,
+const viewCreate = (): ToolBase<
+    typeof ViewCreateSchema,
     Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }
 > => ({
-    name: 'warehouse-saved-queries-create',
-    schema: WarehouseSavedQueriesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesCreateSchema>) => {
+    name: 'view-create',
+    schema: ViewCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -62,6 +62,9 @@ const warehouseSavedQueriesCreate = (): ToolBase<
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
@@ -75,15 +78,12 @@ const warehouseSavedQueriesCreate = (): ToolBase<
     },
 })
 
-const WarehouseSavedQueriesRetrieveSchema = WarehouseSavedQueriesRetrieveParams.omit({ project_id: true })
+const ViewGetSchema = WarehouseSavedQueriesRetrieveParams.omit({ project_id: true })
 
-const warehouseSavedQueriesRetrieve = (): ToolBase<
-    typeof WarehouseSavedQueriesRetrieveSchema,
-    Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }
-> => ({
-    name: 'warehouse-saved-queries-retrieve',
-    schema: WarehouseSavedQueriesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesRetrieveSchema>) => {
+const viewGet = (): ToolBase<typeof ViewGetSchema, Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }> => ({
+    name: 'view-get',
+    schema: ViewGetSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'GET',
@@ -96,17 +96,17 @@ const warehouseSavedQueriesRetrieve = (): ToolBase<
     },
 })
 
-const WarehouseSavedQueriesPartialUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({
-    project_id: true,
-}).extend(WarehouseSavedQueriesPartialUpdateBody.shape)
+const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true }).extend(
+    WarehouseSavedQueriesPartialUpdateBody.shape
+)
 
-const warehouseSavedQueriesPartialUpdate = (): ToolBase<
-    typeof WarehouseSavedQueriesPartialUpdateSchema,
+const viewUpdate = (): ToolBase<
+    typeof ViewUpdateSchema,
     Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }
 > => ({
-    name: 'warehouse-saved-queries-partial-update',
-    schema: WarehouseSavedQueriesPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesPartialUpdateSchema>) => {
+    name: 'view-update',
+    schema: ViewUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -117,6 +117,9 @@ const warehouseSavedQueriesPartialUpdate = (): ToolBase<
         }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'PATCH',
@@ -130,12 +133,12 @@ const warehouseSavedQueriesPartialUpdate = (): ToolBase<
     },
 })
 
-const WarehouseSavedQueriesDestroySchema = WarehouseSavedQueriesDestroyParams.omit({ project_id: true })
+const ViewDeleteSchema = WarehouseSavedQueriesDestroyParams.omit({ project_id: true })
 
-const warehouseSavedQueriesDestroy = (): ToolBase<typeof WarehouseSavedQueriesDestroySchema, unknown> => ({
-    name: 'warehouse-saved-queries-destroy',
-    schema: WarehouseSavedQueriesDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesDestroySchema>) => {
+const viewDelete = (): ToolBase<typeof ViewDeleteSchema, unknown> => ({
+    name: 'view-delete',
+    schema: ViewDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'PATCH',
@@ -146,17 +149,17 @@ const warehouseSavedQueriesDestroy = (): ToolBase<typeof WarehouseSavedQueriesDe
     },
 })
 
-const WarehouseSavedQueriesMaterializeCreateSchema = WarehouseSavedQueriesMaterializeCreateParams.omit({
-    project_id: true,
-}).extend(WarehouseSavedQueriesMaterializeCreateBody.shape)
+const ViewMaterializeSchema = WarehouseSavedQueriesMaterializeCreateParams.omit({ project_id: true }).extend(
+    WarehouseSavedQueriesMaterializeCreateBody.shape
+)
 
-const warehouseSavedQueriesMaterializeCreate = (): ToolBase<
-    typeof WarehouseSavedQueriesMaterializeCreateSchema,
+const viewMaterialize = (): ToolBase<
+    typeof ViewMaterializeSchema,
     Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }
 > => ({
-    name: 'warehouse-saved-queries-materialize-create',
-    schema: WarehouseSavedQueriesMaterializeCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesMaterializeCreateSchema>) => {
+    name: 'view-materialize',
+    schema: ViewMaterializeSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewMaterializeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.deleted !== undefined) {
@@ -173,6 +176,9 @@ const warehouseSavedQueriesMaterializeCreate = (): ToolBase<
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
@@ -186,21 +192,17 @@ const warehouseSavedQueriesMaterializeCreate = (): ToolBase<
     },
 })
 
-const WarehouseSavedQueriesRevertMaterializationCreateSchema =
-    WarehouseSavedQueriesRevertMaterializationCreateParams.omit({ project_id: true }).extend(
-        WarehouseSavedQueriesRevertMaterializationCreateBody.shape
-    )
+const ViewUnmaterializeSchema = WarehouseSavedQueriesRevertMaterializationCreateParams.omit({
+    project_id: true,
+}).extend(WarehouseSavedQueriesRevertMaterializationCreateBody.shape)
 
-const warehouseSavedQueriesRevertMaterializationCreate = (): ToolBase<
-    typeof WarehouseSavedQueriesRevertMaterializationCreateSchema,
+const viewUnmaterialize = (): ToolBase<
+    typeof ViewUnmaterializeSchema,
     Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }
 > => ({
-    name: 'warehouse-saved-queries-revert-materialization-create',
-    schema: WarehouseSavedQueriesRevertMaterializationCreateSchema,
-    handler: async (
-        context: Context,
-        params: z.infer<typeof WarehouseSavedQueriesRevertMaterializationCreateSchema>
-    ) => {
+    name: 'view-unmaterialize',
+    schema: ViewUnmaterializeSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewUnmaterializeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.deleted !== undefined) {
@@ -217,6 +219,9 @@ const warehouseSavedQueriesRevertMaterializationCreate = (): ToolBase<
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
@@ -230,17 +235,14 @@ const warehouseSavedQueriesRevertMaterializationCreate = (): ToolBase<
     },
 })
 
-const WarehouseSavedQueriesRunCreateSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: true }).extend(
+const ViewRunSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: true }).extend(
     WarehouseSavedQueriesRunCreateBody.shape
 )
 
-const warehouseSavedQueriesRunCreate = (): ToolBase<
-    typeof WarehouseSavedQueriesRunCreateSchema,
-    Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }
-> => ({
-    name: 'warehouse-saved-queries-run-create',
-    schema: WarehouseSavedQueriesRunCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesRunCreateSchema>) => {
+const viewRun = (): ToolBase<typeof ViewRunSchema, Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }> => ({
+    name: 'view-run',
+    schema: ViewRunSchema,
+    handler: async (context: Context, params: z.infer<typeof ViewRunSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.deleted !== undefined) {
@@ -258,6 +260,9 @@ const warehouseSavedQueriesRunCreate = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/run/`,
@@ -270,17 +275,15 @@ const warehouseSavedQueriesRunCreate = (): ToolBase<
     },
 })
 
-const WarehouseSavedQueriesRunHistoryRetrieveSchema = WarehouseSavedQueriesRunHistoryRetrieveParams.omit({
-    project_id: true,
-})
+const ViewRunHistorySchema = WarehouseSavedQueriesRunHistoryRetrieveParams.omit({ project_id: true })
 
-const warehouseSavedQueriesRunHistoryRetrieve = (): ToolBase<
-    typeof WarehouseSavedQueriesRunHistoryRetrieveSchema,
+const viewRunHistory = (): ToolBase<
+    typeof ViewRunHistorySchema,
     Schemas.DataWarehouseSavedQuery & { _posthogUrl: string }
 > => ({
-    name: 'warehouse-saved-queries-run-history-retrieve',
-    schema: WarehouseSavedQueriesRunHistoryRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesRunHistoryRetrieveSchema>) => {
+    name: 'view-run-history',
+    schema: ViewRunHistorySchema,
+    handler: async (context: Context, params: z.infer<typeof ViewRunHistorySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'GET',
@@ -294,13 +297,13 @@ const warehouseSavedQueriesRunHistoryRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'warehouse-saved-queries-list': warehouseSavedQueriesList,
-    'warehouse-saved-queries-create': warehouseSavedQueriesCreate,
-    'warehouse-saved-queries-retrieve': warehouseSavedQueriesRetrieve,
-    'warehouse-saved-queries-partial-update': warehouseSavedQueriesPartialUpdate,
-    'warehouse-saved-queries-destroy': warehouseSavedQueriesDestroy,
-    'warehouse-saved-queries-materialize-create': warehouseSavedQueriesMaterializeCreate,
-    'warehouse-saved-queries-revert-materialization-create': warehouseSavedQueriesRevertMaterializationCreate,
-    'warehouse-saved-queries-run-create': warehouseSavedQueriesRunCreate,
-    'warehouse-saved-queries-run-history-retrieve': warehouseSavedQueriesRunHistoryRetrieve,
+    'view-list': viewList,
+    'view-create': viewCreate,
+    'view-get': viewGet,
+    'view-update': viewUpdate,
+    'view-delete': viewDelete,
+    'view-materialize': viewMaterialize,
+    'view-unmaterialize': viewUnmaterialize,
+    'view-run': viewRun,
+    'view-run-history': viewRunHistory,
 }

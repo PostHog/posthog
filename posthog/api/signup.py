@@ -6,6 +6,7 @@ from urllib.parse import quote, urlencode
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
+from django.contrib.sessions.backends.base import SessionBase, UpdateError
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
@@ -40,6 +41,15 @@ from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 logger = structlog.get_logger(__name__)
+
+
+def _save_session_with_recovery(session: SessionBase) -> None:
+    """Persist session state and recover from missing-row session races."""
+    try:
+        session.save()
+    except UpdateError:
+        # If another request deleted/recreated this session row, create a new row for this request.
+        session.create()
 
 
 def verify_email_or_login(request: Request, user: User) -> None:
@@ -235,7 +245,7 @@ class SignupSerializer(serializers.Serializer):
             request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
-            request.session.save()
+            _save_session_with_recovery(request.session)
 
         user = self._user
 
@@ -488,7 +498,7 @@ class InviteSignupSerializer(serializers.Serializer):
             request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
-            request.session.save()
+            _save_session_with_recovery(request.session)
 
         return user
 
@@ -631,7 +641,7 @@ def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[
 
 def process_social_invite_signup(
     strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
-) -> User:
+) -> Optional[User]:
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
@@ -641,11 +651,7 @@ def process_social_invite_signup(
         try:
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
-            raise ValidationError(
-                "Team does not exist",
-                code="invalid_invite",
-                params={"source": "social_create_user"},
-            )
+            return None
 
     if user:
         invite.validate(user=user, email=email)
@@ -802,6 +808,8 @@ def social_create_user(
     if invite_id:
         from_invite = True
         user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        if user is None:
+            return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?

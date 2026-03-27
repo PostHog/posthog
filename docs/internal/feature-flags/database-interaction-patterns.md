@@ -4,23 +4,31 @@ This document explains how the Rust feature flags service interacts with Postgre
 
 ## Architecture overview
 
-The service uses a four-pool architecture to separate concerns and optimize for different access patterns:
+The service uses a four-pool architecture (with an optional fifth pool for behavioral cohorts) to separate concerns and optimize for different access patterns:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                      PostgresRouter                             │
+│                        DatabasePools                            │
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐                       │
-│  │ persons_reader  │  │ persons_writer  │  ← Persons database   │
-│  └─────────────────┘  └─────────────────┘    (optional)         │
-│  ┌─────────────────┐  ┌─────────────────┐                       │
-│  │ non_persons_    │  │ non_persons_    │  ← Main database      │
-│  │ reader          │  │ writer          │                       │
-│  └─────────────────┘  └─────────────────┘                       │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                    PostgresRouter                         │  │
+│  │  ┌─────────────────┐  ┌─────────────────┐                │  │
+│  │  │ persons_reader  │  │ persons_writer  │  ← Persons DB  │  │
+│  │  └─────────────────┘  └─────────────────┘    (optional)  │  │
+│  │  ┌─────────────────┐  ┌─────────────────┐                │  │
+│  │  │ non_persons_    │  │ non_persons_    │  ← Main DB     │  │
+│  │  │ reader          │  │ writer          │                │  │
+│  │  └─────────────────┘  └─────────────────┘                │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────┐                        │
+│  │ behavioral_cohorts (optional)       │  ← Behavioral cohorts  │
+│  └─────────────────────────────────────┘    database             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 When the persons database is not configured separately, the persons pools alias to the non-persons pools, effectively creating a two-pool architecture.
+
+When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is configured, a separate reader pool is created for realtime cohort membership lookups. This pool has tight limits (max 5 connections, 1s statement timeout) to avoid impacting flag evaluation latency. When not configured, realtime cohort evaluation is disabled with no impact on existing flag evaluation.
 
 ## Connection pooling
 
@@ -55,12 +63,13 @@ pub struct PoolConfig {
 
 Different pools can have different statement timeouts to match their workload:
 
-| Pool                 | Config key                                | Typical use                       |
-| -------------------- | ----------------------------------------- | --------------------------------- |
-| `non_persons_reader` | `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | Flag definitions, team data       |
-| `persons_reader`     | `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | Person lookups, cohort membership |
-| `persons_writer`     | `WRITER_STATEMENT_TIMEOUT_MS`             | Hash key override writes          |
-| `non_persons_writer` | `WRITER_STATEMENT_TIMEOUT_MS`             | Same as persons_writer            |
+| Pool                 | Config key                                | Typical use                        |
+| -------------------- | ----------------------------------------- | ---------------------------------- |
+| `non_persons_reader` | `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | Flag definitions, team data        |
+| `persons_reader`     | `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | Person lookups, cohort membership  |
+| `persons_writer`     | `WRITER_STATEMENT_TIMEOUT_MS`             | Hash key override writes           |
+| `non_persons_writer` | `WRITER_STATEMENT_TIMEOUT_MS`             | Same as persons_writer             |
+| `behavioral_cohorts` | hardcoded (1000ms)                        | Realtime cohort membership lookups |
 
 Statement timeouts are set via `SET statement_timeout = {ms}` on each new connection using SQLx's `after_connect` hook.
 
@@ -77,6 +86,8 @@ For production with `max_connections=10`:
 
 - **Routing enabled**: 40 connections max per service instance
 - **Routing disabled**: 20 connections max per service instance
+
+When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is configured, an additional 5 connections (hardcoded max) are added to the total.
 
 ## Query routing
 
@@ -97,6 +108,8 @@ pub struct PostgresRouter {
 | ----------------------------------------------------------------------------------- | --------------- |
 | `posthog_person`, `posthog_persondistinctid`, `posthog_featureflaghashkeyoverride`  | `persons_*`     |
 | `posthog_featureflag`, `posthog_team`, `posthog_grouptypemapping`, `posthog_cohort` | `non_persons_*` |
+
+**Note:** `cohort_membership` queries bypass `PostgresRouter` entirely. They are served by the `behavioral_cohorts` pool on `DatabasePools`, accessed directly via `DatabasePools.behavioral_cohorts_reader`. See [Architecture overview](#architecture-overview).
 
 ### Usage pattern
 
@@ -263,23 +276,24 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 
 ### Environment variables
 
-| Variable                                  | Default      | Purpose                                         |
-| ----------------------------------------- | ------------ | ----------------------------------------------- |
-| `READ_DATABASE_URL`                       | required     | Main database read replica URL                  |
-| `WRITE_DATABASE_URL`                      | required     | Main database primary URL                       |
-| `PERSONS_READ_DATABASE_URL`               | empty        | Persons database read replica (enables routing) |
-| `PERSONS_WRITE_DATABASE_URL`              | empty        | Persons database primary (enables routing)      |
-| `MAX_PG_CONNECTIONS`                      | 10           | Max connections per pool                        |
-| `MIN_NON_PERSONS_READER_CONNECTIONS`      | 0            | Min idle connections for non-persons reader     |
-| `MIN_NON_PERSONS_WRITER_CONNECTIONS`      | 0            | Min idle connections for non-persons writer     |
-| `MIN_PERSONS_READER_CONNECTIONS`          | 0            | Min idle connections for persons reader         |
-| `MIN_PERSONS_WRITER_CONNECTIONS`          | 0            | Min idle connections for persons writer         |
-| `ACQUIRE_TIMEOUT_SECS`                    | 10           | Connection acquisition timeout                  |
-| `IDLE_TIMEOUT_SECS`                       | 300          | Idle connection timeout                         |
-| `TEST_BEFORE_ACQUIRE`                     | true         | Validate connections before use                 |
-| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | 0 (disabled) | Statement timeout for non-persons reads         |
-| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | 0 (disabled) | Statement timeout for persons reads             |
-| `WRITER_STATEMENT_TIMEOUT_MS`             | 0 (disabled) | Statement timeout for writes                    |
+| Variable                                  | Default      | Purpose                                                          |
+| ----------------------------------------- | ------------ | ---------------------------------------------------------------- |
+| `READ_DATABASE_URL`                       | required     | Main database read replica URL                                   |
+| `WRITE_DATABASE_URL`                      | required     | Main database primary URL                                        |
+| `PERSONS_READ_DATABASE_URL`               | empty        | Persons database read replica (enables routing)                  |
+| `PERSONS_WRITE_DATABASE_URL`              | empty        | Persons database primary (enables routing)                       |
+| `MAX_PG_CONNECTIONS`                      | 10           | Max connections per pool                                         |
+| `MIN_NON_PERSONS_READER_CONNECTIONS`      | 0            | Min idle connections for non-persons reader                      |
+| `MIN_NON_PERSONS_WRITER_CONNECTIONS`      | 0            | Min idle connections for non-persons writer                      |
+| `MIN_PERSONS_READER_CONNECTIONS`          | 0            | Min idle connections for persons reader                          |
+| `MIN_PERSONS_WRITER_CONNECTIONS`          | 0            | Min idle connections for persons writer                          |
+| `ACQUIRE_TIMEOUT_SECS`                    | 10           | Connection acquisition timeout                                   |
+| `IDLE_TIMEOUT_SECS`                       | 300          | Idle connection timeout                                          |
+| `TEST_BEFORE_ACQUIRE`                     | true         | Validate connections before use                                  |
+| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | 0 (disabled) | Statement timeout for non-persons reads                          |
+| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | 0 (disabled) | Statement timeout for persons reads                              |
+| `WRITER_STATEMENT_TIMEOUT_MS`             | 0 (disabled) | Statement timeout for writes                                     |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL`    | empty        | Behavioral cohorts database (enables realtime cohort evaluation) |
 
 ### Tuning guidance
 
@@ -308,11 +322,11 @@ WRITER_STATEMENT_TIMEOUT_MS=2000  # 2s for writes (should be fast)
 
 ## Related files
 
-| File                                                  | Purpose                                  |
-| ----------------------------------------------------- | ---------------------------------------- |
-| `rust/common/database/src/lib.rs`                     | Pool configuration, error classification |
-| `rust/feature-flags/src/database_pools.rs`            | Four-pool architecture                   |
-| `rust/feature-flags/src/database/postgres_router.rs`  | Query routing                            |
-| `rust/feature-flags/src/config.rs`                    | Environment configuration                |
-| `rust/feature-flags/src/flags/flag_matching_utils.rs` | Query patterns, retry logic              |
-| `rust/feature-flags/src/metrics/consts.rs`            | Metric constants                         |
+| File                                                  | Purpose                                               |
+| ----------------------------------------------------- | ----------------------------------------------------- |
+| `rust/common/database/src/lib.rs`                     | Pool configuration, error classification              |
+| `rust/feature-flags/src/database_pools.rs`            | Pool architecture (including behavioral cohorts pool) |
+| `rust/feature-flags/src/database/postgres_router.rs`  | Query routing                                         |
+| `rust/feature-flags/src/config.rs`                    | Environment configuration                             |
+| `rust/feature-flags/src/flags/flag_matching_utils.rs` | Query patterns, retry logic                           |
+| `rust/feature-flags/src/metrics/consts.rs`            | Metric constants                                      |

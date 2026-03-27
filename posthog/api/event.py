@@ -22,6 +22,8 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.schema import ProductKey
+
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.property_utils import create_property_conditions
@@ -33,6 +35,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Filter, Person, PropertyDefinition
@@ -419,6 +422,7 @@ class EventViewSet(
                 },
                 status=400,
             )
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         query_result = query_with_columns(
             SELECT_ONE_EVENT_SQL,
             {"team_id": self.team.pk, "event_id": pk.replace("-", "")},

@@ -133,12 +133,12 @@ class TestGetCachedOrgTier(BaseTest):
 class TestSnapshotRatesConfig(BaseTest):
     @parameterized.expand(
         [
-            ("free_burst", "free", "snapshots_burst", "60/minute"),
-            ("free_sustained", "free", "snapshots_sustained", "300/hour"),
-            ("paid_burst", "paid", "snapshots_burst", "90/minute"),
-            ("paid_sustained", "paid", "snapshots_sustained", "500/hour"),
-            ("enterprise_burst", "enterprise", "snapshots_burst", "120/minute"),
-            ("enterprise_sustained", "enterprise", "snapshots_sustained", "600/hour"),
+            ("free_burst", "free", "snapshots_burst", "12/minute"),
+            ("free_sustained", "free", "snapshots_sustained", "60/hour"),
+            ("paid_burst", "paid", "snapshots_burst", "60/minute"),
+            ("paid_sustained", "paid", "snapshots_sustained", "300/hour"),
+            ("enterprise_burst", "enterprise", "snapshots_burst", "100/minute"),
+            ("enterprise_sustained", "enterprise", "snapshots_sustained", "400/hour"),
         ]
     )
     def test_rate_config(self, _name: str, tier: str, scope: str, expected_rate: str) -> None:
@@ -242,12 +242,12 @@ class TestSnapshotRatesFromSettings(BaseTest):
 class TestListingRatesConfig(BaseTest):
     @parameterized.expand(
         [
-            ("free_burst", "free", "listing_burst", "60/minute"),
-            ("free_sustained", "free", "listing_sustained", "300/hour"),
-            ("paid_burst", "paid", "listing_burst", "90/minute"),
-            ("paid_sustained", "paid", "listing_sustained", "500/hour"),
-            ("enterprise_burst", "enterprise", "listing_burst", "120/minute"),
-            ("enterprise_sustained", "enterprise", "listing_sustained", "600/hour"),
+            ("free_burst", "free", "listing_burst", "12/minute"),
+            ("free_sustained", "free", "listing_sustained", "60/hour"),
+            ("paid_burst", "paid", "listing_burst", "60/minute"),
+            ("paid_sustained", "paid", "listing_sustained", "300/hour"),
+            ("enterprise_burst", "enterprise", "listing_burst", "100/minute"),
+            ("enterprise_sustained", "enterprise", "listing_sustained", "400/hour"),
         ]
     )
     def test_rate_config(self, _name: str, tier: str, scope: str, expected_rate: str) -> None:

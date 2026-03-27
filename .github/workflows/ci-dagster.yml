@@ -83,6 +83,7 @@ jobs:
     dagster:
         name: Dagster tests
         needs: [changes]
+        timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
@@ -203,6 +204,7 @@ jobs:
         needs: [dagster]
         name: Dagster Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome

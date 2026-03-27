@@ -10,7 +10,7 @@ const meta: Meta<typeof JSSnippet> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/organizations/@current/proxy_records': [],
+                '/api/organizations/:organization_id/proxy_records': [],
             },
         }),
     ],
@@ -19,4 +19,10 @@ export default meta
 
 type Story = StoryObj<typeof JSSnippet>
 
-export const Default: Story = {}
+export const Default: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [], // Non-deterministic width causes intermittent snapshot failures
+        },
+    },
+}

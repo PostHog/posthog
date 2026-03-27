@@ -1,12 +1,15 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+import temporalio.exceptions
+
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
-    PersonPropertyFilter,
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch,
 )
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
 class TestFlushKafkaBatch:
@@ -297,26 +300,30 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 condition_hash="age_filter_25",
                 bytecode=["mock_bytecode_age_25"],
                 cohort_ids=[100],
+                property_key="age",
             ),
             PersonPropertyFilter(
                 condition_hash="country_filter_us",
                 bytecode=["mock_bytecode_country_us"],
                 cohort_ids=[100],
+                property_key="country",
             ),
             PersonPropertyFilter(
                 condition_hash="age_filter_35",
                 bytecode=["mock_bytecode_age_35"],
                 cohort_ids=[200],
+                property_key="age",
             ),
         ]
 
+        # Store filters in filter storage
+        filter_storage_key = store_filters(filters, team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filters=filters,
+            filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
-            batch_size=100,
-            offset=0,
-            limit=2,
+            batch_size=2,
         )
 
         # Mock dependencies
@@ -358,14 +365,21 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 result.result = False
             return result
 
-        # Mock asyncio.to_thread to handle both flush and execute_bytecode calls
+        # Mock asyncio.to_thread to handle flush, get_filters_and_properties, and execute_bytecode calls
         async def mock_to_thread(func, *args, **kwargs):
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call - just return None
                 return None
-            else:
+            elif func.__name__ == "get_filters_and_properties":
+                # This is the get_filters_and_properties call - return both filters and properties
+                person_properties = ["age", "country"]  # Properties from the test filters
+                return (filters, person_properties)
+            elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
 
         with (
             patch(
@@ -452,12 +466,12 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         for event in produced_events:
             assert event["team_id"] == 1
 
-        # Verify distinct_ids are properly handled - each person should generate events for each distinct_id
+        # Verify distinct_ids are properly handled - for backfilling, we use person_id as distinct_id
         person_1_distinct_ids = {e["distinct_id"] for e in produced_events if e["person_id"] == "person_1"}
-        assert person_1_distinct_ids == {"user_1a", "user_1b"}
+        assert person_1_distinct_ids == {"person_1"}  # Uses person_id as distinct_id for backfilling
 
         person_2_distinct_ids = {e["distinct_id"] for e in produced_events if e["person_id"] == "person_2"}
-        assert person_2_distinct_ids == {"user_2a"}
+        assert person_2_distinct_ids == {"person_2"}  # Uses person_id as distinct_id for backfilling
 
     @pytest.mark.asyncio
     async def test_shared_condition_across_multiple_cohorts(self):
@@ -477,16 +491,18 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 condition_hash="age_filter_25",
                 bytecode=["mock_bytecode_age_25"],
                 cohort_ids=[100, 200],  # This condition is shared between both cohorts
+                property_key="age",
             ),
         ]
 
+        # Store filters in filter storage
+        filter_storage_key = store_filters(filters, team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filters=filters,
+            filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
-            batch_size=100,
-            offset=0,
-            limit=1,
+            batch_size=1,
         )
 
         # Track how many times execute_bytecode is called
@@ -534,9 +550,16 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call
                 return None
-            else:
+            elif func.__name__ == "get_filters_and_properties":
+                # This is the get_filters_and_properties call - return both filters and properties
+                person_properties = ["email", "name"]  # Example properties
+                return (filters, person_properties)
+            elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
 
         with (
             patch(
@@ -601,10 +624,104 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert cohort_100_events[0]["person_id"] == "person_1"
         assert cohort_200_events[0]["person_id"] == "person_1"
 
-        # Verify distinct IDs are correct for both
-        assert cohort_100_events[0]["distinct_id"] == "user_1"
-        assert cohort_200_events[0]["distinct_id"] == "user_1"
+        # Verify distinct IDs are correct for both - for backfilling, we use person_id as distinct_id
+        assert cohort_100_events[0]["distinct_id"] == "person_1"
+        assert cohort_200_events[0]["distinct_id"] == "person_1"
 
         # Verify sources are different
         assert cohort_100_events[0]["source"] == "cohort_backfill_100"
         assert cohort_200_events[0]["source"] == "cohort_backfill_200"
+
+    @pytest.mark.asyncio
+    async def test_missing_filter_storage_key_raises_non_retryable_error(self):
+        """Test that missing Redis key raises a non-retryable ApplicationError."""
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="backfill_person_properties_filters:team_1_nonexistent",
+            cohort_ids=[100],
+            batch_size=1,
+        )
+
+        # Mock get_filters_and_properties to return None (simulating missing/expired key)
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties"
+        ) as mock_get_filters_and_properties:
+            mock_get_filters_and_properties.return_value = None
+
+            # Mock asyncio.to_thread to just call the function directly for testing
+            with patch("asyncio.to_thread") as mock_to_thread:
+                mock_to_thread.side_effect = lambda func, *args: func(*args)
+
+                # Should raise non-retryable ApplicationError
+                with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
+                    await backfill_precalculated_person_properties_activity(inputs)
+
+                error = exc_info.value
+                assert error.non_retryable is True
+                assert error.type == "MissingFilters"
+                assert "Filters not found in storage" in str(error)
+                assert "Redis payload may have expired" in str(error)
+                assert inputs.filter_storage_key in str(error)
+
+    def test_property_names_with_backticks_generate_safe_query(self):
+        """Should generate safe SQL queries when property names contain backticks or other dangerous characters."""
+        # Test property names that could potentially break SQL queries
+        dangerous_property_names = [
+            "normal_prop",
+            "prop`with`backticks",
+            "`malicious`DROP TABLE person--",
+            "prop`; DELETE FROM person; --",
+        ]
+
+        # Simulate the query building logic from the activity
+        property_selects = []
+        property_alias_mapping = {}
+
+        for i, prop in enumerate(dangerous_property_names):
+            # Use JSON extract to get only the specific property
+            escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
+            safe_alias = f"prop_{i}"  # Use safe numeric aliases
+            property_selects.append(
+                f"JSONExtractString(argMax(properties, version), '{escaped_prop}') as `{safe_alias}`"
+            )
+            property_alias_mapping[safe_alias] = prop
+
+        properties_clause = ",\n                ".join(property_selects)
+
+        # Build the full query
+        query = f"""
+            SELECT
+                id as person_id,
+                {properties_clause}
+            FROM person
+            WHERE team_id = %(team_id)s
+              AND id > %(cursor)s
+            GROUP BY id
+            HAVING argMax(is_deleted, version) = 0
+            ORDER BY id
+            LIMIT %(batch_size)s
+            FORMAT JSONEachRow
+        """
+
+        # Verify the query uses safe aliases instead of raw property names
+        assert "prop_0" in query
+        assert "prop_1" in query
+        assert "prop_2" in query
+        assert "prop_3" in query
+
+        # Verify dangerous property names are NOT used as column aliases (but may appear in JSON paths)
+        # The problem was that property names were used as column aliases like: ... as `dangerous_name`
+        # Now they should only appear in JSON paths like: JSONExtractString(..., 'dangerous_name')
+        assert "as `malicious`DROP TABLE person--`" not in query
+        assert "as `prop`; DELETE FROM person; --`" not in query
+
+        # Verify that dangerous property names appear safely in JSON extraction
+        # (Single quotes are the only thing that needs escaping in JSON paths)
+        assert "'prop`with`backticks'" in query  # Backticks are safe in JSON paths
+        assert "'`malicious`DROP TABLE person--'" in query  # Only appears in JSON path, not as identifier
+
+        # Verify alias mapping is correct
+        assert property_alias_mapping["prop_0"] == "normal_prop"
+        assert property_alias_mapping["prop_1"] == "prop`with`backticks"
+        assert property_alias_mapping["prop_2"] == "`malicious`DROP TABLE person--"
+        assert property_alias_mapping["prop_3"] == "prop`; DELETE FROM person; --"

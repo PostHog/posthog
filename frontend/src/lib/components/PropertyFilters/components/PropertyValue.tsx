@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconFeatures, IconRefresh } from '@posthog/icons'
@@ -87,6 +88,7 @@ export function PropertyValue({
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
+    // Assignee values come from membersLogic/rolesLogic, not from the property values API
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
@@ -129,25 +131,27 @@ export function PropertyValue({
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isAssigneeProperty &&
             preloadValues &&
             propertyOptions?.status !== 'loading' &&
             propertyOptions?.status !== 'loaded'
         ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isAssigneeProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isAssigneeProperty &&
             !isDateTimeProperty &&
             propertyOptions?.status !== 'loading' &&
             propertyOptions?.status !== 'loaded'
         ) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, load, propertyOptions?.status])
+    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, isAssigneeProperty, load, propertyOptions?.status])
 
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)
@@ -398,7 +402,22 @@ export function PropertyValue({
                           }
                         : undefined
                 }
-                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+                onChange={(nextVal) => {
+                    const newValues = nextVal.filter((v) => !formattedValues.includes(String(v)))
+                    if (newValues.length > 0) {
+                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+                        const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
+
+                        posthog.capture('property_value_selected', {
+                            property_key: propertyKey,
+                            property_type: type,
+                            from_suggestion: fromSuggestion,
+                            options_count: displayOptions.length,
+                            had_search_input: currentSearchInput.current !== '',
+                        })
+                    }
+                    isMultiSelect ? setValue(nextVal) : setValue(nextVal[0])
+                }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}

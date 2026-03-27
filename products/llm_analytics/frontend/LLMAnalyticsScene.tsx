@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -394,7 +394,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
-    reviews: 'Manage reusable scorers for upcoming human reviews.',
+    reviews: 'Organize pending traces into queues and manage the scoring setup for human reviews.',
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
@@ -589,7 +589,14 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
         tabs.push({
             key: 'sentiment',
-            label: 'Sentiment',
+            label: (
+                <>
+                    Sentiment
+                    <LemonTag type="warning" className="ml-1.5 uppercase">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <LLMAnalyticsSentiment />

@@ -1,6 +1,7 @@
 """Convert between PostHog rich content/markdown and Slack payload formats."""
 
 import re
+import html as html_mod
 from collections.abc import Iterable
 from typing import Any
 
@@ -443,6 +444,107 @@ def slack_to_content_and_rich_content(
 
     markdown_content = slack_mrkdwn_to_content(text, user_names)
     return _normalize_single_newlines_to_markdown(markdown_content), None
+
+
+def _escape_html(text: str) -> str:
+    return html_mod.escape(text)
+
+
+def _serialize_text_node_to_html(node: JSON) -> str:
+    text = node.get("text", "")
+    if not text:
+        return ""
+
+    escaped = _escape_html(text)
+    marks = node.get("marks", [])
+
+    link_href: str | None = None
+    for mark in marks:
+        mark_type = mark.get("type")
+        if mark_type == "bold":
+            escaped = f"<strong>{escaped}</strong>"
+        elif mark_type == "italic":
+            escaped = f"<em>{escaped}</em>"
+        elif mark_type == "underline":
+            escaped = f"<u>{escaped}</u>"
+        elif mark_type == "code":
+            escaped = f"<code>{escaped}</code>"
+        elif mark_type == "link":
+            link_href = mark.get("attrs", {}).get("href")
+
+    if link_href:
+        escaped = f'<a href="{_escape_html(link_href)}">{escaped}</a>'
+
+    return escaped
+
+
+def _serialize_inline_nodes_to_html(nodes: list[JSON]) -> str:
+    chunks: list[str] = []
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type == "text":
+            chunks.append(_serialize_text_node_to_html(node))
+        elif node_type == "hardBreak":
+            chunks.append("<br>")
+        elif node_type == "image":
+            src = node.get("attrs", {}).get("src", "")
+            alt = node.get("attrs", {}).get("alt", "")
+            if src:
+                chunks.append(f'<img src="{_escape_html(src)}" alt="{_escape_html(alt)}">')
+    return "".join(chunks)
+
+
+def rich_content_to_html(rich_content: JSON | None) -> str:
+    """Serialize PostHog rich content JSON to email-safe HTML."""
+    if not rich_content or rich_content.get("type") != "doc":
+        return ""
+
+    blocks: list[str] = []
+    for node in rich_content.get("content", []):
+        node_type = node.get("type")
+
+        if node_type == "paragraph":
+            inner = _serialize_inline_nodes_to_html(node.get("content", []))
+            blocks.append(f"<p>{inner}</p>")
+        elif node_type == "blockquote":
+            inner_blocks: list[str] = []
+            for child in node.get("content", []):
+                if child.get("type") == "paragraph":
+                    inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+            blocks.append(f"<blockquote>{'<br>'.join(inner_blocks)}</blockquote>")
+        elif node_type == "bulletList":
+            items: list[str] = []
+            for item in node.get("content", []):
+                if item.get("type") == "listItem":
+                    for p in item.get("content", []):
+                        if p.get("type") == "paragraph":
+                            items.append(f"<li>{_serialize_inline_nodes_to_html(p.get('content', []))}</li>")
+            blocks.append(f"<ul>{''.join(items)}</ul>")
+        elif node_type == "orderedList":
+            items_o: list[str] = []
+            for item in node.get("content", []):
+                if item.get("type") == "listItem":
+                    for p in item.get("content", []):
+                        if p.get("type") == "paragraph":
+                            items_o.append(f"<li>{_serialize_inline_nodes_to_html(p.get('content', []))}</li>")
+            blocks.append(f"<ol>{''.join(items_o)}</ol>")
+        elif node_type == "codeBlock":
+            inner = _serialize_inline_nodes_to_html(node.get("content", []))
+            blocks.append(f"<pre><code>{inner}</code></pre>")
+        elif node_type == "image":
+            src = node.get("attrs", {}).get("src", "")
+            alt = node.get("attrs", {}).get("alt", "")
+            if src:
+                blocks.append(f'<p><img src="{_escape_html(src)}" alt="{_escape_html(alt)}"></p>')
+
+    body = "\n".join(blocks)
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.5; color: #333;">
+{body}
+</body>
+</html>"""
 
 
 def rich_content_to_slack_payload(

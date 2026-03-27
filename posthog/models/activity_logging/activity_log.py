@@ -66,6 +66,7 @@ ActivityScope = Literal[
     "TaggedItem",
     "Subscription",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "User",
     "Action",
     "AlertConfiguration",
@@ -377,6 +378,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "experiments",
         "experimenttosavedmetric_set",
     ],
+    "ProjectSecretAPIKey": [
+        "secure_value",
+    ],
     "Person": [
         "distinct_ids",
         "name",
@@ -578,8 +582,8 @@ field_exclusions: dict[ActivityScope, list[str]] = {
 
 def describe_change(m: Any) -> Union[str, dict]:
     # Use lazy imports to avoid circular dependencies
-    from posthog.models.dashboard import Dashboard
-    from posthog.models.dashboard_tile import DashboardTile
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}

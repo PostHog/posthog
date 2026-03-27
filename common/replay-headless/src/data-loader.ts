@@ -1,3 +1,5 @@
+import pLimit from 'p-limit'
+
 import {
     parseJsonSnapshots,
     noOpTelemetry,
@@ -10,46 +12,51 @@ import {
     type SourceKey,
 } from '@posthog/replay-shared'
 
-import type { PlayerConfig, RecordingBlock } from './types'
+import { BLOCK_REQUEST_PREFIX } from './protocol'
+import type { PlayerConfig } from './types'
 
-const MAX_CONCURRENT_FETCHES = 6
+export class DataLoadError extends Error {
+    readonly statusCode: number
+    readonly retryable: boolean
 
-async function fetchBlocks(config: PlayerConfig): Promise<RecordingBlock[]> {
-    const url = `${config.recordingApiBaseUrl}/api/projects/${config.teamId}/recordings/${config.sessionId}/blocks`
-
-    const response = await fetch(url, {
-        headers: {
-            'X-Internal-Api-Secret': config.recordingApiSecret,
-        },
-    })
-
-    if (!response.ok) {
-        const body = await response.text()
-        throw new Error(`Failed to fetch block listing: ${response.status} ${response.statusText} - ${body}`)
+    constructor(message: string, statusCode: number) {
+        super(message)
+        this.name = 'DataLoadError'
+        this.statusCode = statusCode
+        this.retryable = statusCode >= 500 || statusCode === 429
     }
-
-    const data: { blocks: RecordingBlock[] } = await response.json()
-    return data.blocks
 }
 
-async function fetchBlock(config: PlayerConfig, block: RecordingBlock): Promise<string> {
-    const url = `${config.recordingApiBaseUrl}/api/projects/${config.teamId}/recordings/${config.sessionId}/block`
-    const params = new URLSearchParams({
-        key: block.key,
-        start_byte: String(block.start_byte),
-        end_byte: String(block.end_byte),
-        decompress: 'true',
-    })
+const MAX_CONCURRENT_FETCHES = 6
+const MAX_BLOCK_RETRIES = 3
+const INITIAL_RETRY_DELAY_MS = 500
 
-    const response = await fetch(`${url}?${params}`, {
-        headers: {
-            'X-Internal-Api-Secret': config.recordingApiSecret,
-        },
-    })
+async function withRetry<T>(fn: () => Promise<T>, retries = MAX_BLOCK_RETRIES): Promise<T> {
+    let lastError: unknown
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            return await fn()
+        } catch (err) {
+            lastError = err
+            const isRetryable = err instanceof DataLoadError && err.retryable
+            if (!isRetryable || attempt === retries) {
+                throw err
+            }
+            await new Promise((resolve) => setTimeout(resolve, INITIAL_RETRY_DELAY_MS * 2 ** attempt))
+        }
+    }
+    throw lastError
+}
+
+async function fetchBlock(index: number): Promise<string> {
+    const response = await fetch(`${BLOCK_REQUEST_PREFIX}${index}`)
 
     if (!response.ok) {
         const body = await response.text()
-        throw new Error(`Failed to fetch block: ${response.status} ${response.statusText} - ${body}`)
+        throw new DataLoadError(
+            `Failed to fetch block: ${response.status} ${response.statusText} - ${body}`,
+            response.status
+        )
     }
     return response.text()
 }
@@ -59,10 +66,13 @@ export interface LoadedSources {
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse>
 }
 
-export async function loadAllSources(config: PlayerConfig): Promise<LoadedSources> {
-    const blocks = await fetchBlocks(config)
+export async function loadAllSources(
+    config: PlayerConfig,
+    onProgress?: (loaded: number, total: number) => void
+): Promise<LoadedSources> {
+    const { blockCount } = config
 
-    if (blocks.length === 0) {
+    if (blockCount === 0) {
         return { sources: [], snapshotsBySource: {} }
     }
 
@@ -70,13 +80,14 @@ export async function loadAllSources(config: PlayerConfig): Promise<LoadedSource
     const sources: SessionRecordingSnapshotSource[] = []
     const snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> = {}
 
-    const results: { index: number; snapshots: RecordingSnapshot[] }[] = []
-    for (let i = 0; i < blocks.length; i += MAX_CONCURRENT_FETCHES) {
-        const batch = blocks.slice(i, i + MAX_CONCURRENT_FETCHES)
-        const batchResults = await Promise.all(
-            batch.map(async (block, batchIndex) => {
-                const index = i + batchIndex
-                const text = await fetchBlock(config, block)
+    let blocksLoaded = 0
+    onProgress?.(0, blockCount)
+
+    const limit = pLimit(MAX_CONCURRENT_FETCHES)
+    const results = await Promise.all(
+        Array.from({ length: blockCount }, (_, index) =>
+            limit(async () => {
+                const text = await withRetry(() => fetchBlock(index))
                 const lines = text.split('\n').filter(Boolean)
                 const snapshots: RecordingSnapshot[] = parseJsonSnapshots(
                     lines,
@@ -84,11 +95,11 @@ export async function loadAllSources(config: PlayerConfig): Promise<LoadedSource
                     noOpTelemetry,
                     registerWindowId
                 )
+                onProgress?.(++blocksLoaded, blockCount)
                 return { index, snapshots }
             })
         )
-        results.push(...batchResults)
-    }
+    )
 
     for (const { index, snapshots } of results) {
         const source: SessionRecordingSnapshotSource = {
