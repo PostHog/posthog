@@ -25,7 +25,7 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../pipelines/extensions/tophog'
 import { isDropResult } from '../pipelines/results'
-import { EVENTS_OUTPUT, EventOutput, HeatmapsOutput } from './outputs'
+import { AsyncOutput, EVENTS_OUTPUT, EventOutput, HeatmapsOutput } from './outputs'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -50,7 +50,7 @@ export interface EventSubpipelineConfig {
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext> {
+): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
     const {
         options,
         outputs,

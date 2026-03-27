@@ -34,7 +34,6 @@ from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
-from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
@@ -47,6 +46,7 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,

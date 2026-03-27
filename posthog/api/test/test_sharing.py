@@ -16,12 +16,13 @@ from rest_framework import status
 from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, ExportedAsset
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def mock_exporter_template(test_func):

@@ -93,6 +93,64 @@ export interface DashboardCollaboratorApi {
 }
 
 /**
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
+ */
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
+
+export const DashboardTemplateScopeEnumApi = {
+    Team: 'team',
+    Global: 'global',
+    FeatureFlag: 'feature_flag',
+} as const
+
+export interface DashboardTemplateApi {
+    readonly id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown | null
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown | null
+    variables?: unknown | null
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    created_by?: number | null
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+}
+
+export interface PaginatedDashboardTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplateApi[]
+}
+
+/**
  * * `default` - Default
  * `template` - Template
  * `duplicate` - Duplicate
@@ -420,6 +478,17 @@ export interface PatchedDataColorThemeApi {
     /** @nullable */
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
+}
+
+export type DashboardTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type DashboardsListParams = {
