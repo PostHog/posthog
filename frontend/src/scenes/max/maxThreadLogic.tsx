@@ -575,6 +575,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             limit: queue.max_queue_messages,
                         }
                     } catch (error: any) {
+                        posthog.captureException(error)
                         if (error instanceof ApiError && error.status === 404) {
                             return { messages: [], limit: 0 }
                         }
@@ -668,6 +669,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
+                posthog.captureException(e)
+
                 // Cancel any next iteration
                 actions.setForAnotherAgenticIteration(false)
 
@@ -751,7 +754,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 'Something is wrong with our servers. Please try again later.'
                         }
                     } else {
-                        posthog.captureException(e)
                         console.error(e)
                     }
 
@@ -837,6 +839,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 actions.setQueuedMessages(values.queuedMessages)
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error('You can only queue two messages at a time.')
@@ -856,6 +859,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 lemonToast.error(error?.data?.detail || 'Failed to update the queued message.')
             }
         },
@@ -875,6 +879,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 if (error instanceof ApiError && error.status === 404) {
                     return
                 }
@@ -898,6 +903,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 if (error instanceof ApiError && error.status === 404) {
                     return
                 }
@@ -915,6 +921,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 lemonToast.error(error?.data?.detail || 'Failed to clear queued messages.')
             }
         },
@@ -1046,13 +1053,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
                 actions.resetThread()
             } catch (e: any) {
+                posthog.captureException(e)
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
             }
 
-            try {
-                await actions.loadConversation(values.conversation.id)
-            } catch {}
-
+            actions.loadConversation(values.conversation.id)
             actions.setCancelLoading(false)
         },
 
@@ -1186,6 +1191,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     })
                 }
             } catch (error) {
+                posthog.captureException(error)
                 console.error('Failed to navigate to notebook:', error)
             }
         },
