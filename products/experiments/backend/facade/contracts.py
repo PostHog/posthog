@@ -24,7 +24,7 @@ class CreateFeatureFlagInput:
     """Input for creating a feature flag (new format)."""
 
     key: str
-    variants: list[FeatureFlagVariant]
+    variants: tuple[FeatureFlagVariant, ...]
     name: str | None = None
     rollout_percentage: int | None = None
     aggregation_group_type_index: int | None = None
@@ -38,6 +38,11 @@ class CreateExperimentInput:
 
     Supports both old format (parameters.feature_flag_variants)
     and new format (feature_flag_filters).
+
+    Note: This class is NOT hashable when parameters is non-None due to the
+    dict type. Use only feature_flag_filters (new format) if hashability is
+    required for Turbo caching. The parameters field exists only for backwards
+    compatibility during migration.
     """
 
     name: str

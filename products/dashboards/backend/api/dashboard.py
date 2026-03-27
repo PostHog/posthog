@@ -32,8 +32,6 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
-from posthog.api.dashboards.dashboard_ai import generate_refresh_analysis
-from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
@@ -49,10 +47,9 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import ButtonTile, Dashboard, DashboardTile, Insight, Text
+from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
-from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
@@ -65,6 +62,13 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
+from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
+from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
+    DashboardTemplateCreationJSONSchemaParser,
+)
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
