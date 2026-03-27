@@ -41,7 +41,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(),
                 _base_threshold(),
-                None,
+                "daily",
                 None,
             ),
             (
@@ -50,7 +50,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_increase"),
                 _base_config(),
                 _base_threshold(),
-                None,
+                "daily",
                 None,
             ),
             (
@@ -59,7 +59,7 @@ class TestValidateAlertConfig:
                 None,
                 _base_config(),
                 None,
-                None,
+                "daily",
                 "Alert has invalid condition: None",
             ),
             (
@@ -68,7 +68,7 @@ class TestValidateAlertConfig:
                 {},
                 _base_config(),
                 None,
-                None,
+                "daily",
                 "Alert has invalid condition",
             ),
             (
@@ -77,7 +77,7 @@ class TestValidateAlertConfig:
                 {"type": "bogus"},
                 _base_config(),
                 None,
-                None,
+                "daily",
                 "Alert has invalid condition",
             ),
             (
@@ -86,7 +86,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 None,
                 None,
-                None,
+                "daily",
                 "Unsupported alert config type: None",
             ),
             (
@@ -95,7 +95,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 {"series_index": 0},
                 None,
-                None,
+                "daily",
                 "Unsupported alert config type",
             ),
             (
@@ -104,7 +104,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 {"type": "TrendsAlertConfig"},
                 None,
-                None,
+                "daily",
                 "Alert has invalid TrendsAlertConfig",
             ),
             (
@@ -113,7 +113,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(),
                 None,
-                None,
+                "daily",
                 "query kind 'FunnelsQuery' is not supported",
             ),
             (
@@ -122,7 +122,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(),
                 _base_threshold(),
-                None,
+                "daily",
                 None,
             ),
             (
@@ -131,7 +131,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_increase"),
                 _base_config(),
                 None,
-                None,
+                "daily",
                 "not compatible with non time series",
             ),
             (
@@ -140,7 +140,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_decrease"),
                 _base_config(),
                 None,
-                None,
+                "daily",
                 "not compatible with non time series",
             ),
             (
@@ -149,7 +149,7 @@ class TestValidateAlertConfig:
                 _base_condition("absolute_value"),
                 _base_config(),
                 _base_threshold("percentage"),
-                None,
+                "daily",
                 "Absolute value alerts require an absolute threshold, but a percentage threshold was configured",
             ),
             (
@@ -158,7 +158,7 @@ class TestValidateAlertConfig:
                 _base_condition("absolute_value"),
                 {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
                 _base_threshold("absolute", {"lower": 0}),
-                None,
+                "daily",
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
             ),
             (
@@ -167,7 +167,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_increase"),
                 {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
                 _base_threshold("absolute", {"lower": 0}),
-                None,
+                "daily",
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
             ),
             (
@@ -176,7 +176,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(series_index=5),
                 None,
-                None,
+                "daily",
                 r"series_index 5 is out of range \(query has 1 series\)",
             ),
             (
@@ -195,7 +195,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(series_index=1),
                 _base_threshold(),
-                None,
+                "daily",
                 None,
             ),
             (
@@ -214,7 +214,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(series_index=2),
                 None,
-                None,
+                "daily",
                 r"series_index 2 is out of range \(query has 2 series\)",
             ),
             (
