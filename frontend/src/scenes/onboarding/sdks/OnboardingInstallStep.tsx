@@ -352,7 +352,6 @@ function WizardHeroVariant({
     installationComplete,
     listeningForName,
     teamPropertyToVerify,
-    showSkipAtBottom,
     header,
 }: VariantProps): JSX.Element {
     return (
@@ -360,7 +359,7 @@ function WizardHeroVariant({
             title="Install"
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
-            showSkip={showSkipAtBottom}
+            showSkip={!installationComplete}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -406,7 +405,6 @@ function WizardTabVariant({
     installationComplete,
     listeningForName,
     teamPropertyToVerify,
-    showSkipAtBottom,
     header,
 }: VariantProps): JSX.Element {
     const [activeTab, setActiveTab] = useState<string>('wizard')
@@ -416,7 +414,7 @@ function WizardTabVariant({
             title="Install"
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
-            showSkip={showSkipAtBottom}
+            showSkip={!installationComplete}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -490,7 +488,6 @@ function WizardOnlyVariant({
     installationComplete,
     listeningForName,
     teamPropertyToVerify,
-    showSkipAtBottom,
     selectedSDK,
     header,
 }: VariantProps): JSX.Element {
@@ -501,7 +498,7 @@ function WizardOnlyVariant({
             title="Install"
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
-            showSkip={showSkipAtBottom}
+            showSkip={!installationComplete}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -524,17 +521,6 @@ function WizardOnlyVariant({
 
                 <div className="max-w-xl mx-auto">
                     <WizardCommandBlock />
-                </div>
-
-                <div className="max-w-xl mx-auto">
-                    <LemonDivider />
-                    <div className="flex items-center justify-between">
-                        <RealtimeCheckIndicator
-                            teamPropertyToVerify={teamPropertyToVerify}
-                            listeningForName={listeningForName}
-                        />
-                        <NextButton size="small" installationComplete={installationComplete} />
-                    </div>
                 </div>
 
                 <div className="text-center">
@@ -629,6 +615,8 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         setInstructionsModalOpen(true)
     }
 
+    const isWizardVariant = isWizardHero || isWizardTab || isWizardOnly
+
     const sdkGridProps: SDKGridProps = {
         filteredSDKs: filteredSDKs ?? [],
         searchTerm,
@@ -640,7 +628,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         currentTeam,
         showTopControls: true,
         installationComplete,
-        showTopSkipButton,
+        showTopSkipButton: isWizardVariant ? false : showTopSkipButton,
     }
 
     const variantProps: VariantProps = {
