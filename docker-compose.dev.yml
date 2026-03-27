@@ -168,6 +168,32 @@ services:
         profiles:
             - ingestion
 
+    ingestion-error-tracking:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-error-tracking
+        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-master}
+        ports:
+            - '6740:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
     db:
         extends:
             file: docker-compose.base.yml
@@ -305,12 +331,12 @@ services:
             - '1025:1025'
 
     webhook-tester:
-        image: tarampampam/webhook-tester:1.1.0
+        image: tarampampam/webhook-tester:2.2.6
         restart: on-failure
         ports:
-            - '2080:2080'
+            - '2080:8080'
         environment:
-            - LISTEN_PORT=2080
+            - AUTO_CREATE_SESSIONS=true
 
     feature-flags:
         extends:
@@ -392,8 +418,8 @@ services:
             - 'seaweedfs-data:/data'
 
     duckgres:
-        # DuckLake 0.4 + DuckDB 1.5.1 (posthog/duckgres@153607b)
-        image: ghcr.io/posthog/duckgres:build-153607b
+        # DuckLake 0.4 + DuckDB 1.5.1 (posthog/duckgres@4b787d7)
+        image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
         restart: on-failure
         profiles: ['duckgres']
         ports:

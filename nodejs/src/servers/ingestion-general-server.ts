@@ -159,7 +159,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
-        const clickhouseGroupRepository = new ClickhouseGroupRepository(this.kafkaProducer)
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
@@ -203,6 +202,7 @@ export class IngestionGeneralServer implements NodeServer {
                 this.ingestionProducerRegistry,
                 INGESTION_OUTPUT_DEFINITIONS
             )
+            const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
             const ingestionDeps: IngestionConsumerDeps = {
                 postgres: this.postgres,

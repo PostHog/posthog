@@ -844,6 +844,127 @@ export interface UserBlastRadiusResponseApi {
     total_users: number
 }
 
+/**
+ * * `FeatureFlag` - feature flag
+ */
+export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
+
+export const ModelNameEnumApi = {
+    FeatureFlag: 'FeatureFlag',
+} as const
+
+/**
+ * * `daily` - daily
+ * `weekly` - weekly
+ * `monthly` - monthly
+ * `yearly` - yearly
+ */
+export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+
+export const RecurrenceIntervalEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+    Yearly: 'yearly',
+} as const
+
+export interface ScheduledChangeApi {
+    readonly id: number
+    readonly team_id: number
+    /**
+     * The ID of the record to modify (e.g. the feature flag ID).
+     * @maxLength 200
+     */
+    record_id: string
+    /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+* `FeatureFlag` - feature flag */
+    model_name: ModelNameEnumApi
+    /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+    payload: unknown
+    /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
+    scheduled_at: string
+    /** @nullable */
+    executed_at?: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
+    is_recurring?: boolean
+    /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly
+* `yearly` - yearly */
+    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly last_executed_at: string | null
+    /**
+     * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+     * @nullable
+     */
+    end_date?: string | null
+}
+
+export interface PaginatedScheduledChangeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScheduledChangeApi[]
+}
+
+export interface PatchedScheduledChangeApi {
+    readonly id?: number
+    readonly team_id?: number
+    /**
+     * The ID of the record to modify (e.g. the feature flag ID).
+     * @maxLength 200
+     */
+    record_id?: string
+    /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+* `FeatureFlag` - feature flag */
+    model_name?: ModelNameEnumApi
+    /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+    payload?: unknown
+    /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
+    scheduled_at?: string
+    /** @nullable */
+    executed_at?: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly updated_at?: string
+    /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
+    is_recurring?: boolean
+    /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly
+* `yearly` - yearly */
+    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly last_executed_at?: string | null
+    /**
+     * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+     * @nullable
+     */
+    end_date?: string | null
+}
+
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
@@ -976,4 +1097,23 @@ export type FeatureFlagsMyFlagsRetrieveParams = {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string
+}
+
+export type ScheduledChangesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * Filter by model type. Use "FeatureFlag" to see feature flag schedules.
+     */
+    model_name?: string
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by the ID of a specific feature flag.
+     */
+    record_id?: string
 }

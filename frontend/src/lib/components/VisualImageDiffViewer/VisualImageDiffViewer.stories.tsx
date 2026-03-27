@@ -108,10 +108,28 @@ const newSnapshotSvg = `
 </svg>
 `
 
+const smallBaselineSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#f3f6fb"/>
+  <rect x="10" y="10" width="80" height="80" rx="8" fill="#ffffff" stroke="#d8dee8"/>
+  <circle cx="50" cy="50" r="25" fill="#dbe4f1"/>
+</svg>
+`
+
+const smallCurrentSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#f2f9f8"/>
+  <rect x="10" y="10" width="80" height="80" rx="8" fill="#ffffff" stroke="#cfe2de"/>
+  <circle cx="50" cy="50" r="25" fill="#a7dfcf"/>
+</svg>
+`
+
 const baselineImage = toSvgDataUri(baselineSvg)
 const currentImage = toSvgDataUri(currentSvg)
 const diffImage = toSvgDataUri(diffSvg)
 const newSnapshotImage = toSvgDataUri(newSnapshotSvg)
+const smallBaselineImage = toSvgDataUri(smallBaselineSvg)
+const smallCurrentImage = toSvgDataUri(smallCurrentSvg)
 
 export const ChangedSnapshot: Story = {
     args: {
@@ -137,6 +155,23 @@ export const NewSnapshot: Story = {
         diffUrl: null,
         diffPercentage: null,
         result: 'new',
+    },
+    render: (args) => (
+        <div className="p-6 bg-bg-light min-h-screen">
+            <div className="mx-auto max-w-[1240px]">
+                <VisualImageDiffViewer {...args} />
+            </div>
+        </div>
+    ),
+}
+
+export const SmallImage: Story = {
+    args: {
+        baselineUrl: smallBaselineImage,
+        currentUrl: smallCurrentImage,
+        diffUrl: null,
+        diffPercentage: 12.3,
+        result: 'changed',
     },
     render: (args) => (
         <div className="p-6 bg-bg-light min-h-screen">

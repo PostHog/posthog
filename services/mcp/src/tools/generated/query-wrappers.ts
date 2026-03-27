@@ -787,6 +787,104 @@ const AssistantRetentionQuery = z.object({
     retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
 })
 
+const PathType = z.enum(['$pageview', '$screen', 'custom_event', 'hogql'])
+
+const AssistantPathCleaningFilter = z.object({
+    alias: z
+        .string()
+        .describe(
+            'A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.'
+        ),
+    regex: z
+        .string()
+        .describe(
+            'A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.'
+        ),
+})
+
+const AssistantPathsFilter = z.object({
+    edgeLimit: integer
+        .describe(
+            'Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read.'
+        )
+        .default(50)
+        .optional(),
+    endPoint: z
+        .string()
+        .describe('Filter to only show paths that end at this specific step. Same format as `startPoint`.')
+        .optional(),
+    excludeEvents: z
+        .array(z.string())
+        .describe(
+            'Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.'
+        )
+        .default([])
+        .optional(),
+    includeEventTypes: z
+        .array(PathType)
+        .describe(
+            'Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.'
+        )
+        .optional(),
+    localPathCleaningFilters: z
+        .array(AssistantPathCleaningFilter)
+        .describe(
+            'ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.'
+        )
+        .default([])
+        .optional(),
+    maxEdgeWeight: integer
+        .describe(
+            'Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys.'
+        )
+        .optional(),
+    minEdgeWeight: integer
+        .describe(
+            'Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.'
+        )
+        .optional(),
+    pathGroupings: z
+        .array(z.string())
+        .describe(
+            'Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.'
+        )
+        .default([])
+        .optional(),
+    pathsHogQLExpression: z
+        .string()
+        .describe(
+            'A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.'
+        )
+        .optional(),
+    startPoint: z
+        .string()
+        .describe(
+            'Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.'
+        )
+        .optional(),
+    stepLimit: integer
+        .describe(
+            'Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start.'
+        )
+        .default(5)
+        .optional(),
+})
+
+const AssistantPathsQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters')
+        .default(false)
+        .optional(),
+    kind: z.literal('PathsQuery').default('PathsQuery'),
+    pathsFilter: AssistantPathsFilter.describe(
+        'Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.'
+    ),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+})
+
 const DateRange = z.object({
     date_from: z.string().nullable().optional(),
     date_to: z.string().nullable().optional(),
@@ -1049,6 +1147,12 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-retention',
         schema: AssistantRetentionQuery,
         kind: 'RetentionQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-paths': createQueryWrapper({
+        name: 'query-paths',
+        schema: AssistantPathsQuery,
+        kind: 'PathsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
     }),
     'query-traces-list': createQueryWrapper({ name: 'query-traces-list', schema: TracesQuery, kind: 'TracesQuery' }),
