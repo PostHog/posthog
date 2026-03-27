@@ -103,7 +103,6 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
         tooltipRoot,
         tooltipEl,
         groupTypeLabel,
-        baseCurrency,
     ])
 
     useEffect(() => {
