@@ -45,7 +45,7 @@ export function slugifyHeading(text: string): string {
         .replace(/^-|-$/g, '')
 }
 
-function extractTextFromChildren(children: React.ReactNode): string {
+export function extractTextFromChildren(children: React.ReactNode): string {
     if (typeof children === 'string') {
         return children
     }
