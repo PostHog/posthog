@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
-import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AvailableFeature, Realm } from '~/types'
 
@@ -80,15 +80,6 @@ export const PayGateMiniLimitFeatureOther: Story = {
     render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: cloud !== undefined ? cloud : true,
-                    is_debug: cloud !== undefined ? cloud : true,
-                    realm: Realm.Cloud,
-                },
-                '/api/billing/': {
-                    ...billingJson,
-                },
                 '/api/users/@me': () => [
                     200,
                     {
@@ -122,15 +113,6 @@ export const PayGateMiniLimitFeatureProjects: Story = {
     render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: cloud !== undefined ? cloud : true,
-                    is_debug: cloud !== undefined ? cloud : true,
-                    realm: Realm.Cloud,
-                },
-                '/api/billing/': {
-                    ...billingJson,
-                },
                 '/api/users/@me': () => [
                     200,
                     {
