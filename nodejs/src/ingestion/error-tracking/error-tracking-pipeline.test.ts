@@ -400,6 +400,23 @@ describe('ErrorTrackingPipeline', () => {
             expect(producedEvents).toHaveLength(2)
         })
 
+        it('passes Kafka message byte size to Cymbal for batch chunking', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            const cymbalResponse = createCymbalResponseWithEnrichedProperties({
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({})
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            const cymbalItems = mockCymbalClient.processExceptions.mock.calls[0][0]
+            expect(cymbalItems).toHaveLength(1)
+            expect(cymbalItems[0].estimatedSize).toBe(message.value!.length)
+        })
+
         it('handles events with group types', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
