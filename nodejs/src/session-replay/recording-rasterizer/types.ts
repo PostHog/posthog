@@ -15,6 +15,8 @@ export interface RasterizeRecordingInput {
     trim?: number // optional max output duration in seconds (only trims if video is longer)
     viewport_width?: number // override capture width (default: 1280)
     viewport_height?: number // override capture height (default: 720)
+    screenshot_format?: 'jpeg' | 'png' // capture format for each frame (default: jpeg)
+    screenshot_quality?: number // JPEG quality 0-100 (default: 80, ignored for png)
     s3_bucket: string
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
 }
@@ -45,6 +47,19 @@ export interface RasterizeRecordingOutput {
     inactivity_periods: InactivityPeriod[]
     file_size_bytes: number
     timings: ActivityTimings
+}
+
+export interface CaptureConfig {
+    captureFps: number // recordingFps * playbackSpeed — internal capture rate
+    outputFps: number // recordingFps — what the viewer sees after setpts
+    playbackSpeed: number
+    trim?: number // max output seconds
+    trimFrameLimit: number // trim * outputFps — for early loop stop
+    captureTimeoutMs: number // virtual-time timeout for the capture loop
+    ffmpegOutputOpts: string[]
+    ffmpegVideoFilters: string[]
+    screenshotFormat: 'jpeg' | 'png'
+    screenshotQuality?: number
 }
 
 /** Internal result from the recorder before S3 upload */

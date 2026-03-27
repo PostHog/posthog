@@ -384,8 +384,16 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
+def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[str, str | None]) -> None:
+    for schema in old_schemas:
+        new_label = new_schemas.get(schema.name)
+        if new_label is not None and schema.label != new_label:
+            schema.label = new_label
+            schema.save(update_fields=["label", "updated_at"])
+
+
 def sync_old_schemas_with_new_schemas(
-    new_schemas: list[str],
+    new_schemas: dict[str, str | None],
     source_id: str,
     team_id: int,
     descriptions: dict[str, str | None] | None = None,
@@ -400,9 +408,13 @@ def sync_old_schemas_with_new_schemas(
                 old_schema.description = new_description
                 old_schema.save(update_fields=["description", "updated_at"])
 
-    schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas_names]
+    # Update display labels on existing schemas
+    _update_labels(old_schemas, new_schemas)
 
-    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schemas]
+    new_schema_names = list(new_schemas.keys())
+    schemas_to_create = [name for name in new_schema_names if name not in old_schemas_names]
+
+    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schema_names]
     deleted_schemas: list[str] = []
     actually_created: list[str] = []
 
@@ -416,7 +428,8 @@ def sync_old_schemas_with_new_schemas(
             deleted_obj.deleted = False
             deleted_obj.deleted_at = None
             deleted_obj.description = descriptions.get(schema) if descriptions else None
-            deleted_obj.save(update_fields=["deleted", "deleted_at", "description", "updated_at"])
+            deleted_obj.label = new_schemas.get(schema)
+            deleted_obj.save(update_fields=["deleted", "deleted_at", "description", "label", "updated_at"])
             actually_created.append(schema)
             continue
 
@@ -428,6 +441,7 @@ def sync_old_schemas_with_new_schemas(
             defaults={
                 "should_sync": False,
                 "description": descriptions.get(schema) if descriptions else None,
+                "label": new_schemas.get(schema),
             },
         )
         if created:
