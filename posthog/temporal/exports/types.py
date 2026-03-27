@@ -44,7 +44,3 @@ class ExportAssetResult:
     exported_asset_id: int
     success: bool
     error: Optional[ExportError] = None
-    insight_id: Optional[int] = None
-    duration_ms: Optional[float] = None
-    export_format: str = ""
-    attempts: int = 1
