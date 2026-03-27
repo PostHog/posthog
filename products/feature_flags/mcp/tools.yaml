@@ -110,8 +110,8 @@ tools:
             idempotent: true
         title: Get feature flag activity log
         description: >
-            Get the audit trail for a specific feature flag by ID. Returns a paginated list of changes
-            including who made changes, what was changed, and when. Use limit and page query params for pagination.
+            Get the audit trail for a specific feature flag by ID. Returns a paginated list of changes including who
+            made changes, what was changed, and when. Use limit and page query params for pagination.
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
         enabled: false
@@ -129,8 +129,8 @@ tools:
             idempotent: true
         title: Get dependent feature flags
         description: >
-            Get other active feature flags that depend on this flag. Use this to understand flag dependency
-            chains before making changes to a flag's rollout conditions or disabling it.
+            Get other active feature flags that depend on this flag. Use this to understand flag dependency chains
+            before making changes to a flag's rollout conditions or disabling it.
     feature-flags-enrich-usage-dashboard-create:
         operation: feature_flags_enrich_usage_dashboard_create
         enabled: false
@@ -148,8 +148,8 @@ tools:
             idempotent: true
         title: Get feature flag status
         description: >
-            Check the health and evaluation status of a feature flag by ID. Returns a status
-            (active, stale, deleted, or unknown) and a human-readable reason explaining the status.
+            Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
+            unknown) and a human-readable reason explaining the status.
     feature-flags-bulk-delete-create:
         operation: feature_flags_bulk_delete_create
         enabled: false
@@ -167,9 +167,9 @@ tools:
             idempotent: true
         title: Get feature flag evaluation reasons
         description: >
-            Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id
-            and optionally groups to see each flag's evaluated value and the reason for that evaluation
-            (e.g. condition_match, no_condition_match, disabled).
+            Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups
+            to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match,
+            no_condition_match, disabled).
     feature-flags-local-evaluation-retrieve:
         operation: feature_flags_local_evaluation_retrieve
         enabled: false
@@ -190,9 +190,8 @@ tools:
             idempotent: true
         title: Get user blast radius
         description: >
-            Assess the impact of a feature flag release condition before applying it. Provide a condition
-            object and optionally a group_type_index to see how many users would be affected relative
-            to the total user count.
+            Assess the impact of a feature flag release condition before applying it. Provide a condition object and
+            optionally a group_type_index to see how many users would be affected relative to the total user count.
     feature-flags-copy-flags-create:
         operation: feature_flags_copy_flags_create
         enabled: true
@@ -204,6 +203,87 @@ tools:
             idempotent: false
         title: Copy feature flag across projects
         description: >
-            Copy a feature flag from one project to other projects within the same organization.
-            Provide the flag key, source project ID, and a list of target project IDs. Optionally
-            copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.
+            Copy a feature flag from one project to other projects within the same organization. Provide the flag key,
+            source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule.
+            Returns lists of successful and failed copies.
+    scheduled-changes-list:
+        operation: scheduled_changes_list
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List scheduled changes for feature flags
+        description: >
+            List scheduled changes in the current project. Filter by model_name=FeatureFlag and record_id to see
+            schedules for a specific flag. Returns pending, executed, and failed schedules with their payloads and
+            timing. Use this to check what changes are queued for a feature flag before modifying it.
+        list: true
+        param_overrides:
+            model_name:
+                description: >
+                    Filter by model type. Use "FeatureFlag" to see feature flag schedules.
+            record_id:
+                description: >
+                    Filter by the ID of a specific feature flag.
+    scheduled-changes-get:
+        operation: scheduled_changes_retrieve
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scheduled change
+        description: >
+            Get a single scheduled change by ID. Returns the full details including the payload, schedule timing,
+            execution status, and any failure reason.
+    scheduled-changes-create:
+        operation: scheduled_changes_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a scheduled change
+        description: >
+            Schedule a future change to a feature flag. Supported operations: 'update_status' (enable/disable),
+            'add_release_condition', and 'update_variants'. Provide the flag ID as record_id, model_name as
+            "FeatureFlag", a payload with the operation and value, and a scheduled_at datetime.
+        exclude_params:
+            - executed_at
+    scheduled-changes-update:
+        operation: scheduled_changes_partial_update
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a scheduled change
+        description: >
+            Update a pending scheduled change by ID. You can modify the payload, scheduled_at time, or recurrence
+            settings. Cannot change the target record (record_id) or model type (model_name).
+        exclude_params:
+            - executed_at
+    scheduled-changes-update-full:
+        operation: scheduled_changes_update
+        enabled: false
+    scheduled-changes-delete:
+        operation: scheduled_changes_destroy
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scheduled change
+        description: >
+            Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.

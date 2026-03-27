@@ -8,12 +8,14 @@ import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
     FunnelsQuery,
     HogQLQuery,
+    PathsQuery,
     QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
@@ -233,6 +235,7 @@ export type AnyAssistantGeneratedQuery =
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
+    | AssistantPathsQuery
     | AssistantHogQLQuery
 
 export interface VisualizationItem {
@@ -244,6 +247,7 @@ export interface VisualizationItem {
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | PathsQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
