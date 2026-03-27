@@ -4293,9 +4293,9 @@ snapshots:
     scenes-app-insights-funnels--funnel-with-inline-events-edit--light:
         hash: v1.k794b7964.2ca2051176291816b226748988998d86d9af79a4a59226da49d90ff99bb324a2.Vy4Xhm9sQPVT3YL9wF1YszXg1l8W8FzlEhNCOG39uIE
     scenes-app-insights-insight-options--default--dark:
-        hash: v1.k794b7964.0e5390dc0ceba6a2769a1ef87e9599acc8b53a711c97f6538e1dafef03e83e58.DXn2xvvVreM9L7pU3MRz5_nxfDZ1Z8szY8LtcJMKEwA
+        hash: v1.k794b7964.f4e808b42bddee00d78ab953a2ed20dc96cefbf03f4d556d5f4966cbfe808855.oi2URujF0wtXMcWWOOW43Ln0YBY5sN7HKGPFPiWTGyw
     scenes-app-insights-insight-options--default--light:
-        hash: v1.k794b7964.b7daf528fda9ef7bb935435275b36b5b2a821068e458de1f674f19ca203df27c.fWbStH8o7kaRhqrstG4oYmyGY8HL348k4WmYnzSUtss
+        hash: v1.k794b7964.be865b26ab211fcfa7128574e2ef626c67c9311ede34a7ebb4c971d64f87d67a.IIyUlUEIN_uJx6W7gXJKR80K2tYtnfQaE1aoHx_xE0Q
     scenes-app-insights-lifecycle--lifecycle--dark:
         hash: v1.k794b7964.60035b0571abfe5f8a983ca40b0a1ffa501c7f66dba1dc13a173cb84a19516d0.8kNU5Na-KnoBQjOcPW3AvbieJXapvfhqAfm9XuckdQ8
     scenes-app-insights-lifecycle--lifecycle--light:
@@ -5485,7 +5485,7 @@ snapshots:
     scenes-app-sidepanels--side-panel-max--dark:
         hash: v1.k794b7964.d69b605d1fbde33f1822d8e47ac60ade751765906efd93f9ae6fd68f24ebaa1e.A7eXp9NmFS2emmxokFpLcM8_SJGuKxQDyseTuc2fiMY
     scenes-app-sidepanels--side-panel-max--light:
-        hash: v1.k794b7964.5e57a605a0430ebc0f65229e216de5412a97d660839acd6f050c0c3958529968.k5739NseyFAYk1CYPofzdO5wxqVCGlowhClxnqgAW5Y
+        hash: v1.k794b7964.13e5a60b67ce61a9b7054cd1e32e17c78f1c4204168532ad9bacaf095c02f2a9.dDTnIdshjg1yCt_KMLKWOBwECplPG2JTcxB5jcGmCkg
     scenes-app-sidepanels--side-panel-notebooks--dark:
         hash: v1.k794b7964.1a858d88c46557416efaf264c665af7d7118dd5385ba955485d8595d63455281.v8TRIE84jGlAkE-vpy6tuKLcYNecJYKEPwO6D-hW9y0
     scenes-app-sidepanels--side-panel-notebooks--light:
