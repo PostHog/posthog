@@ -13513,6 +13513,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "EnrichedReviewer": {
+            "additionalProperties": false,
+            "properties": {
+                "github_login": {
+                    "type": "string"
+                },
+                "github_name": {
+                    "type": ["string", "null"]
+                },
+                "relevant_commits": {
+                    "items": {
+                        "$ref": "#/definitions/RelevantCommit"
+                    },
+                    "type": "array"
+                },
+                "user": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/SignalReviewerUserInfo"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["github_login", "github_name", "relevant_commits", "user"],
+            "type": "object"
+        },
         "EnsembleDetectorConfig": {
             "additionalProperties": false,
             "properties": {
@@ -30614,6 +30643,22 @@
             ],
             "type": "string"
         },
+        "RelevantCommit": {
+            "additionalProperties": false,
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "sha": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            },
+            "required": ["sha", "url", "reason"],
+            "type": "object"
+        },
         "ReplayInactivityPeriod": {
             "additionalProperties": false,
             "properties": {
@@ -33170,6 +33215,28 @@
                 }
             ],
             "required": ["source_product"],
+            "type": "object"
+        },
+        "SignalReviewerUserInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "uuid", "first_name", "last_name", "email"],
             "type": "object"
         },
         "SignalSourceProduct": {

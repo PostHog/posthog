@@ -3675,6 +3675,15 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
+class RelevantCommit(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    reason: str
+    sha: str
+    url: str
+
+
 class ReplayInactivityPeriod(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3978,6 +3987,17 @@ class SharingConfigurationSettings(BaseModel):
     showInspector: bool | None = None
     theme: Theme | None = None
     whitelabel: bool | None = None
+
+
+class SignalReviewerUserInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    email: str
+    first_name: str
+    id: float
+    last_name: str
+    uuid: str
 
 
 class SignalSourceProduct(StrEnum):
@@ -5845,6 +5865,16 @@ class EndpointsUsageOverviewItem(BaseModel):
     key: EndpointsUsageOverviewItemKey
     previous: float | None = None
     value: float | None = None
+
+
+class EnrichedReviewer(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    github_login: str
+    github_name: str | None = None
+    relevant_commits: list[RelevantCommit]
+    user: SignalReviewerUserInfo | None = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
