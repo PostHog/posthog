@@ -884,7 +884,7 @@ def get_teams_with_query_metric(
         AND access_method = %(access_method)s
         GROUP BY team_id
     """
-    with tags_context(feature=Feature.USAGE_REPORT):
+    with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             query,
             {
