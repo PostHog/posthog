@@ -587,9 +587,9 @@ snapshots:
     components-pay-gate-mini--pay-gate-mini-contact-sales--light:
         hash: v1.k794b7964.199420708734aa418d88b2c9e73a09e26f92075fa9e048479626e7062d56e26c.cdECQ-IZK_vetarjiKxmYDYP0aS0a-_Aztu4wrGZRFQ
     components-pay-gate-mini--pay-gate-mini-free--dark:
-        hash: v1.k794b7964.33e2096863c95fa683d5a71c7766a7920812a4ffa3f315eacbc96a9c093d64f3.ijk4Lc0pPK_zGYuuAvULICthuzbZNTZUJxK9D-3e_Ew
+        hash: v1.k794b7964.0950d22b02cac291fb0b2bdcab1880c61f52186455c8720fe79c5900d6a02c13.PtXRievYGJrik8mOGIsOslk7o4wIqcZMatQMflZkusE
     components-pay-gate-mini--pay-gate-mini-free--light:
-        hash: v1.k794b7964.69addb070b7d54130dc46e79743d3e288c8c540d269ade6aa4c956c5bfb2a7e0.viQZkV_PvyjUOdJiVCgOSA8zjSpt8W-7LYghsYj87fs
+        hash: v1.k794b7964.800bb992be3c9f5914b0edec749a5276d3769a3592f3bb2049c0eddf012028b5.otJTevEyg1y4-I4BQqtKgrNxSVkBbuFNZqyEKoIZ7nY
     components-pay-gate-mini--pay-gate-mini-grandfathered--dark:
         hash: v1.k794b7964.16497ffba42652fff4fac6a013ae2fc2a1288fa48a0fec12d320efba5cfb947b.fOszZPdI1FYuR807Uz2MhIYgyGadShFZS4zfWPtRngs
     components-pay-gate-mini--pay-gate-mini-grandfathered--light:
@@ -3313,9 +3313,9 @@ snapshots:
     mosaic-components--tooltip-story--light:
         hash: v1.k794b7964.8ef4835630b00ff9b1e57c2682bd5e7628f450827c8f26a03ae1afa535e2320b.q0TgS-fhDwSOVLdcDUxKnbfBMF-HGdokCwSalSsziLI
     posthog-3000-keyboard-shortcut--default--dark:
-        hash: v1.k794b7964.9769f90cab16c0b1a6fe1064375d9edececa35d3b18e7b50cd0c861d304a6020.mn6th5mj7wOJLasLHbg-pa1MbDT3rtK8BImhjWyyOuA
+        hash: v1.k794b7964.b12fb176b653ae2b44b5fc9018e1640fdbc178d331f7b0c1c1570d41684d4728.6uwnkkSL_PbJSBMxl99DnAjdxYAb1ebsqepneGY2NuE
     posthog-3000-keyboard-shortcut--default--light:
-        hash: v1.k794b7964.c30e0d4bd07c08163f9cea7c306db75fd55ef0fa7d7bb45407318022c5edd63c.utte5LctOVywgTDwaWSkU3ErK5l48IunkVx45kQUKHc
+        hash: v1.k794b7964.a114c09c62922c6e330d8e37e97a37d96b2c59cf81a9b3ef7b14d9f9bdea0104.Z9e-Xts5MKG-FFi5BzbjfIM5Nybv_0F3lRkHp87KMQs
     posthog-3000-keyboard-shortcut--within-tooltip--dark:
         hash: v1.k794b7964.16bf9ae85ff75e876f7912ba9ad59d1d54ce7f955e078a2478d516fa18cca072.PlNkVp0flMpMU8n8MLAVw-svE_aUHmoy0_79Re2tDiw
     posthog-3000-keyboard-shortcut--within-tooltip--light:

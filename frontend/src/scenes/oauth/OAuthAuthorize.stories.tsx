@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -62,31 +62,37 @@ const meta: Meta = {
 
 export default meta
 
-export const DefaultScopes: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        const params = new URLSearchParams({
-            client_id: 'test-client-id',
-            redirect_uri: 'https://example.com/callback',
-            response_type: 'code',
-            state: 'test-state',
-        })
-        router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
-    })
+type Story = StoryObj<{}>
 
-    return <App />
+export const DefaultScopes: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            const params = new URLSearchParams({
+                client_id: 'test-client-id',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                state: 'test-state',
+            })
+            router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
+        })
+
+        return <App />
+    },
 }
 
-export const WithScopes: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        const params = new URLSearchParams({
-            client_id: 'test-client-id',
-            redirect_uri: 'https://app.example.com/oauth/callback',
-            response_type: 'code',
-            state: 'test-state',
-            scope: 'experiment:read experiment:write query:read feature_flag:write',
+export const WithScopes: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            const params = new URLSearchParams({
+                client_id: 'test-client-id',
+                redirect_uri: 'https://app.example.com/oauth/callback',
+                response_type: 'code',
+                state: 'test-state',
+                scope: 'experiment:read experiment:write query:read feature_flag:write',
+            })
+            router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
         })
-        router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
-    })
 
-    return <App />
+        return <App />
+    },
 }
