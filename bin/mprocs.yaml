@@ -51,8 +51,13 @@ procs:
         ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, error_tracking, traces, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
+
+    ingestion-errortracking:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6740 ./bin/posthog-node'
+        capability: nodejs_error_tracking
+        ready_pattern: 'All systems go'
 
     ingestion:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
@@ -82,6 +87,11 @@ procs:
                 nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue --max-concurrent-workflow-tasks=1000 --max-concurrent-activities=1000"; \
             fi
         capability: temporal_workflows
+
+    stripe-mock:
+        shell: 'bin/start-stripe-mock'
+        capability: stripe_mock
+        ready_pattern: 'Application startup complete'
 
     recording-rasterizer:
         shell: |-

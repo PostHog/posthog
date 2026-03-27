@@ -69,7 +69,7 @@ const SourceEditorAction = ({
     </AccessControlAction>
 )
 
-interface SchemasProps {
+export interface SchemasProps {
     id: string
 }
 
