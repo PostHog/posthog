@@ -1,6 +1,4 @@
-import sys
-
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
@@ -41,15 +39,13 @@ class Command(BaseCommand):
         org_ids = self._collect_org_ids(options)
 
         if not org_ids:
-            self.stderr.write(self.style.ERROR("No organization IDs provided. Use positional args or --file."))
-            sys.exit(1)
+            raise CommandError("No organization IDs provided. Use positional args or --file.")
 
         self.stdout.write(f"Processing {len(org_ids)} organization(s){'  [DRY RUN]' if dry_run else ''}")
 
         license = get_cached_instance_license()
         if not license:
-            self.stderr.write(self.style.ERROR("No license found - cannot call billing service"))
-            sys.exit(1)
+            raise CommandError("No license found - cannot call billing service")
 
         skipped = 0
         deauthorized = 0
@@ -112,7 +108,7 @@ class Command(BaseCommand):
 
         self.stdout.write("")
         self.stdout.write(f"Done{'  [DRY RUN]' if dry_run else ''}:")
-        self.stdout.write(f"  Deauthorized: {deauthorized}")
+        self.stdout.write(f"  {'Would deauthorize' if dry_run else 'Deauthorized'}: {deauthorized}")
         self.stdout.write(f"  Skipped (has integration): {skipped}")
         self.stdout.write(f"  Not found: {not_found}")
         self.stdout.write(f"  Errors: {errors}")
@@ -122,10 +118,13 @@ class Command(BaseCommand):
 
         file_path = options.get("file")
         if file_path:
-            with open(file_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        org_ids.append(line)
+            try:
+                with open(file_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            org_ids.append(line)
+            except FileNotFoundError:
+                raise CommandError(f"File not found: {file_path}")
 
         return org_ids
