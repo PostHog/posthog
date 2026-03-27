@@ -97,6 +97,7 @@ def test_is_cimd_client_id(url, expected):
 def test_validate_cimd_url_rejects_invalid(url, expected_valid, expected_error_substring):
     valid, error = validate_cimd_url(url)
     assert valid == expected_valid
+    assert error is not None
     assert expected_error_substring in error
 
 
@@ -118,6 +119,7 @@ def test_validate_cimd_url_ssrf_blocked(mock_return, url, expected_error_substri
     with patch("posthog.api.oauth.cimd.is_url_allowed", return_value=mock_return):
         valid, error = validate_cimd_url(url)
         assert valid is False
+        assert error is not None
         assert expected_error_substring in error
 
 
@@ -128,6 +130,8 @@ class TestFetchCimdMetadata(APIBaseTest):
         metadata = _make_metadata()
         mock_get.return_value = _mock_response(metadata, headers={"Cache-Control": "max-age=3600"})
         result, ttl = fetch_cimd_metadata(VALID_CIMD_URL)
+
+        assert "client_name" in result
         self.assertEqual(result["client_name"], "Test MCP Client")
         self.assertEqual(ttl, 3600)
 
