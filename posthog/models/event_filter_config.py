@@ -14,15 +14,22 @@ MAX_CONDITIONS = 20
 DEFAULT_FILTER_TREE = {"type": "or", "children": []}
 
 
+class EventFilterMode(models.TextChoices):
+    DISABLED = "disabled"
+    DRY_RUN = "dry_run"
+    LIVE = "live"
+
+
 class EventFilterConfig(UUIDTModel):
     """
     Per-team event filter configuration evaluated at ingestion time.
     One filter per team. Uses a boolean expression tree with AND, OR, NOT
-    and condition nodes. If the tree evaluates to true, the event is dropped.
+    and condition nodes. If the tree evaluates to true, the event is dropped (live)
+    or marked as would-be-dropped (dry_run).
     """
 
     team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, related_name="event_filter")
-    enabled = models.BooleanField(default=False)
+    mode = models.CharField(max_length=20, choices=EventFilterMode.choices, default=EventFilterMode.DISABLED)
     filter_tree = models.JSONField(
         default=None,
         null=True,
