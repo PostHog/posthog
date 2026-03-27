@@ -1017,10 +1017,10 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
         click.echo("No processes selected. Nothing to do.")
         return
 
-    killed, failed = _kill_processes(selected)
-    freed_rss = sum(p.memory_rss_kb for p in selected[:killed])
+    killed_pids, failed = _kill_processes(selected)
+    freed_rss = sum(p.memory_rss_kb for p in selected if p.pid in killed_pids)
 
-    click.echo(f"\nSummary: killed {killed} process(es)")
+    click.echo(f"\nSummary: killed {len(killed_pids)} process(es)")
     if freed_rss > 0:
         click.echo(f"   Freed ~{_format_rss(freed_rss)} RSS")
     if failed > 0:
@@ -1386,8 +1386,8 @@ def _prompt_process_selection(processes: list[DevProcess]) -> list[DevProcess]:
     return selected
 
 
-def _kill_processes(processes: list[DevProcess]) -> tuple[int, int]:
-    """Kill processes with SIGTERM, then SIGKILL for survivors. Returns (killed, failed)."""
+def _kill_processes(processes: list[DevProcess]) -> tuple[set[int], int]:
+    """Kill processes with SIGTERM, then SIGKILL for survivors. Returns (killed_pids, failed_count)."""
 
     # Build kill order: leaf processes first (those with no children in our list)
     parents = [p for p in processes if any(c.ppid == p.pid for c in processes)]
@@ -1396,7 +1396,7 @@ def _kill_processes(processes: list[DevProcess]) -> tuple[int, int]:
 
     click.echo(f"Sending SIGTERM to {len(ordered)} process(es)...")
 
-    killed = 0
+    killed_pids: set[int] = set()
     failed = 0
     still_alive: list[DevProcess] = []
 
@@ -1406,7 +1406,7 @@ def _kill_processes(processes: list[DevProcess]) -> tuple[int, int]:
             still_alive.append(proc)
         except ProcessLookupError:
             click.echo(f"   PID {proc.pid} ({proc.name}) already exited")
-            killed += 1
+            killed_pids.add(proc.pid)
         except PermissionError:
             click.echo(f"   PID {proc.pid} ({proc.name}) permission denied")
             failed += 1
@@ -1423,7 +1423,7 @@ def _kill_processes(processes: list[DevProcess]) -> tuple[int, int]:
                 remaining.append(proc)
             except ProcessLookupError:
                 click.echo(f"   PID {proc.pid} ({proc.name}) terminated")
-                killed += 1
+                killed_pids.add(proc.pid)
             except PermissionError:
                 # Still alive but we lost permission somehow
                 remaining.append(proc)
@@ -1434,16 +1434,16 @@ def _kill_processes(processes: list[DevProcess]) -> tuple[int, int]:
         try:
             click.echo(f"   PID {proc.pid} ({proc.name}) did not exit after 5s, sending SIGKILL...")
             os.kill(proc.pid, signal.SIGKILL)
-            killed += 1
+            killed_pids.add(proc.pid)
             click.echo(f"   PID {proc.pid} ({proc.name}) force-killed")
         except ProcessLookupError:
             click.echo(f"   PID {proc.pid} ({proc.name}) exited during escalation")
-            killed += 1
+            killed_pids.add(proc.pid)
         except PermissionError:
             click.echo(f"   PID {proc.pid} ({proc.name}) permission denied for SIGKILL")
             failed += 1
 
-    return killed, failed
+    return killed_pids, failed
 
 
 def _format_rss(rss_kb: int) -> str:
