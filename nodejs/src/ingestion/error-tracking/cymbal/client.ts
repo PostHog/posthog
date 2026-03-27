@@ -36,6 +36,12 @@ const cymbalBatchSizeHistogram = new Histogram({
     buckets: [1, 5, 10, 25, 50, 100, 250, 500],
 })
 
+const cymbalChunksPerBatchHistogram = new Histogram({
+    name: 'error_tracking_cymbal_chunks_per_batch',
+    help: 'Number of HTTP requests per batch (1 = no chunking needed)',
+    buckets: [1, 2, 3, 4, 5, 10],
+})
+
 /** Function signature for fetch implementation */
 export type FetchFunction = (
     url: string,
@@ -45,6 +51,8 @@ export type FetchFunction = (
 export interface CymbalClientConfig {
     baseUrl: string
     timeoutMs: number
+    /** Target max body size in bytes for proactive chunking. */
+    maxBodyBytes: number
     /** Custom fetch implementation for testing. Defaults to internalFetch. */
     fetch?: FetchFunction
 }
@@ -77,30 +85,56 @@ class CymbalError extends Error {
 export class CymbalClient {
     private baseUrl: string
     private timeoutMs: number
+    private maxBodyBytes: number
     private fetch: FetchFunction
 
     constructor(config: CymbalClientConfig) {
         this.baseUrl = config.baseUrl.replace(/\/$/, '') // Remove trailing slash
         this.timeoutMs = config.timeoutMs
+        this.maxBodyBytes = config.maxBodyBytes
         this.fetch = config.fetch ?? internalFetch
     }
 
     /**
      * Process a batch of exception events through Cymbal.
      *
-     * @param requests - Array of exception events to process
+     * Uses estimated byte sizes (from the original Kafka messages) to proactively
+     * split batches that would exceed Cymbal's body size limit. This avoids
+     * wasted HTTP roundtrips from 413 rejections without requiring serialization
+     * to measure size.
+     *
+     * @param items - Array of requests paired with their estimated byte size
+     *        (e.g. from Kafka message.value.length).
      * @returns Array of processed events with symbolicated stack traces and fingerprints.
      *          Null entries indicate events that should be dropped (e.g., suppressed issues).
      *          Maintains 1:1 position correspondence with input array.
      * @throws CymbalError with isRetriable flag indicating whether the error should be retried
      */
-    async processExceptions(requests: CymbalRequest[]): Promise<(CymbalResponse | null)[]> {
-        if (requests.length === 0) {
+    async processExceptions(
+        items: { request: CymbalRequest; estimatedSize: number }[]
+    ): Promise<(CymbalResponse | null)[]> {
+        if (items.length === 0) {
             return []
         }
 
-        cymbalBatchSizeHistogram.observe(requests.length)
+        cymbalBatchSizeHistogram.observe(items.length)
 
+        const chunks = this.chunkByEstimatedSize(items)
+        cymbalChunksPerBatchHistogram.observe(chunks.length)
+        const allResults: (CymbalResponse | null)[] = []
+
+        for (const chunk of chunks) {
+            const results = await this.processChunk(chunk.map((item) => item.request))
+            allResults.push(...results)
+        }
+
+        return allResults
+    }
+
+    /**
+     * Process a single chunk of requests through Cymbal's HTTP API.
+     */
+    private async processChunk(requests: CymbalRequest[]): Promise<(CymbalResponse | null)[]> {
         const { response, durationMs } = await this.makeRequest(requests)
 
         if (response.status >= 400) {
@@ -138,6 +172,36 @@ export class CymbalClient {
 
         this.recordMetrics('success', durationMs, requests.length)
         return results as (CymbalResponse | null)[]
+    }
+
+    /**
+     * Split items into chunks using estimated byte sizes. Greedily fills
+     * each chunk until adding the next item would exceed maxBodyBytes.
+     * A single item that exceeds the limit gets its own chunk.
+     */
+    private chunkByEstimatedSize(
+        items: { request: CymbalRequest; estimatedSize: number }[]
+    ): { request: CymbalRequest; estimatedSize: number }[][] {
+        const chunks: { request: CymbalRequest; estimatedSize: number }[][] = []
+        let currentChunk: { request: CymbalRequest; estimatedSize: number }[] = []
+        let currentSize = 0
+
+        for (const item of items) {
+            if (currentChunk.length > 0 && currentSize + item.estimatedSize > this.maxBodyBytes) {
+                chunks.push(currentChunk)
+                currentChunk = [item]
+                currentSize = item.estimatedSize
+            } else {
+                currentChunk.push(item)
+                currentSize += item.estimatedSize
+            }
+        }
+
+        if (currentChunk.length > 0) {
+            chunks.push(currentChunk)
+        }
+
+        return chunks
     }
 
     /**

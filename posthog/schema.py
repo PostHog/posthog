@@ -418,6 +418,29 @@ class AssistantNumericValuePropertyFilterOperator(StrEnum):
     LT = "lt"
 
 
+class AssistantPathCleaningFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    alias: str = Field(
+        ...,
+        description=(
+            "A human-readable alias that replaces matched path patterns in the"
+            " visualization. For example, `/user/:id/profile` to replace"
+            " `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement"
+            " syntax — use `\\\\1` for capture group back-references."
+        ),
+    )
+    regex: str = Field(
+        ...,
+        description=(
+            "A ClickHouse regex pattern to match against path values. Matched paths"
+            " will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile`"
+            " to match any user profile URL."
+        ),
+    )
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -2126,6 +2149,8 @@ class HeatmapSettings(BaseModel):
     gradient: list[HeatmapGradientStop] | None = None
     gradientPreset: str | None = None
     gradientScaleMode: GradientScaleMode | None = None
+    nullLabel: str | None = None
+    nullValue: str | None = None
     valueColumn: str | None = None
     xAxisColumn: str | None = None
     xAxisLabel: str | None = None
@@ -4045,6 +4070,7 @@ class SourceFieldOauthConfig(BaseModel):
     label: str
     name: str
     required: bool
+    requiredScopes: str | None = None
     type: Literal["oauth"] = "oauth"
 
 
@@ -5165,6 +5191,100 @@ class AssistantNumericValuePropertyFilter(BaseModel):
     )
     operator: AssistantNumericValuePropertyFilterOperator
     value: float
+
+
+class AssistantPathsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edgeLimit: int | None = Field(
+        default=50,
+        description=(
+            "Maximum number of path edges (connections between steps) to return. Higher"
+            " values show more detail but can make the visualization harder to read."
+        ),
+    )
+    endPoint: str | None = Field(
+        default=None,
+        description=("Filter to only show paths that end at this specific step. Same format as `startPoint`."),
+    )
+    excludeEvents: list[str] | None = Field(
+        default=[],
+        description=(
+            "Event names or URLs to exclude from the path analysis entirely. Excluded"
+            " events are filtered out before building the path visualization. Useful"
+            " for removing noise from common but uninteresting events."
+        ),
+    )
+    includeEventTypes: list[PathType] | None = Field(
+        default=None,
+        description=(
+            "Which event types to include in the path analysis. Available values:"
+            " `$pageview` - web page views. Path values are page URLs (from"
+            " `$current_url`), with trailing slashes stripped. `$screen` - mobile"
+            " screen views. Path values are screen names (from `$screen_name`)."
+            " `custom_event` - custom events (any event not starting with `$`). Path"
+            " values are event names. `hogql` - custom HogQL expression defined in"
+            " `pathsHogQLExpression`. Path values come from evaluating the expression."
+            " You can combine multiple types. If not specified, all events are included"
+            " without type filtering."
+        ),
+    )
+    localPathCleaningFilters: list[AssistantPathCleaningFilter] | None = Field(
+        default=[],
+        description=(
+            "ClickHouse regex-based rules to clean and normalize path values at the"
+            " query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in"
+            " sequence. Useful for removing dynamic IDs or parameters from URLs."
+        ),
+    )
+    maxEdgeWeight: int | None = Field(
+        default=None,
+        description=(
+            "Maximum number of users who traversed an edge for it to be displayed."
+            " Filters out high-traffic paths to focus on less common journeys."
+        ),
+    )
+    minEdgeWeight: int | None = Field(
+        default=None,
+        description=(
+            "Minimum number of users who traversed an edge for it to be displayed."
+            " Filters out low-traffic paths to reduce visual noise."
+        ),
+    )
+    pathGroupings: list[str] | None = Field(
+        default=[],
+        description=(
+            "Glob-like patterns to group multiple path items into a single step. Use"
+            " `*` as a wildcard. The patterns are auto-escaped, so only `*` has special"
+            " meaning. For example, `/product/*` to group all product pages into one"
+            " node."
+        ),
+    )
+    pathsHogQLExpression: str | None = Field(
+        default=None,
+        description=(
+            "A HogQL expression to use as the path item. Required when `hogql` is"
+            " included in `includeEventTypes`. For example, `properties.$current_url`"
+            " to use the current URL as the path item."
+        ),
+    )
+    startPoint: str | None = Field(
+        default=None,
+        description=(
+            "Filter to only show paths that start from this specific step. The value"
+            " format depends on the included event types: For `$pageview` paths, use"
+            " page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen"
+            " names. For `custom_event` paths, use event names."
+        ),
+    )
+    stepLimit: int | None = Field(
+        default=5,
+        description=(
+            "Maximum number of steps (path depth) to show in the visualization."
+            " Controls how deep the path analysis goes from the start."
+        ),
+    )
 
 
 class AssistantRetentionActionsNode(BaseModel):
@@ -7395,6 +7515,7 @@ class TableSettings(BaseModel):
     columns: list[ChartAxis] | None = None
     conditionalFormatting: list[ConditionalFormattingRule] | None = None
     pinnedColumns: list[str] | None = None
+    transpose: bool | None = None
 
 
 class TaskExecutionItem(BaseModel):
@@ -8303,6 +8424,56 @@ class AssistantMessage(BaseModel):
     parent_tool_call_id: str | None = None
     tool_calls: list[AssistantToolCall] | None = None
     type: Literal["ai"] = "ai"
+
+
+class AssistantPathsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    kind: Literal["PathsQuery"] = "PathsQuery"
+    pathsFilter: AssistantPathsFilter = Field(
+        ...,
+        description=(
+            "Properties specific to the paths insight. Paths show the most common"
+            " sequences of events or pages that users navigate through, helping"
+            " identify popular user flows and drop-off points."
+        ),
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
 
 
 class AssistantRetentionFilter(BaseModel):
@@ -19438,6 +19609,7 @@ class VisualizationBlock(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantPathsQuery
         | AssistantHogQLQuery
     ) = Field(
         ...,
@@ -19445,56 +19617,6 @@ class VisualizationBlock(BaseModel):
     )
     title: str | None = Field(default=None, description="Optional title for the visualization")
     type: Literal["visualization"] = "visualization"
-
-
-class VisualizationItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-    )
-    initiator: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-
-
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-    )
-    id: str | None = None
-    initiator: str | None = None
-    parent_tool_call_id: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-    short_id: str | None = None
-    type: Literal["ai/viz"] = "ai/viz"
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
@@ -19639,17 +19761,6 @@ class FunnelsActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class MultiVisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    commentary: str | None = None
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    type: Literal["ai/multi_viz"] = "ai/multi_viz"
-    visualizations: list[VisualizationItem]
-
-
 class NotebookArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19717,6 +19828,60 @@ class ProductAnalyticsInsightQueryNode(
     RootModel[TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery]
 ):
     root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
+
+
+class VisualizationItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantPathsQuery
+        | AssistantHogQLQuery
+    )
+    initiator: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantPathsQuery
+        | AssistantHogQLQuery
+    )
+    id: str | None = None
+    initiator: str | None = None
+    parent_tool_call_id: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+    short_id: str | None = None
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -19805,6 +19970,17 @@ class InsightVizNode(BaseModel):
     suppressSessionAnalysisWarning: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: VizSpecificOptions | None = None
+
+
+class MultiVisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    commentary: str | None = None
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["ai/multi_viz"] = "ai/multi_viz"
+    visualizations: list[VisualizationItem]
 
 
 class WebVitalsQuery(BaseModel):
@@ -21238,6 +21414,7 @@ class VisualizationArtifactContent(BaseModel):
         AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantPathsQuery
         | AssistantHogQLQuery
         | EventsNode
         | ActionsNode

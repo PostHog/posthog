@@ -7,6 +7,8 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -86,8 +88,12 @@ export const settingsLogic = kea<settingsLogicType>([
             ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
+            organizationLogic,
+            ['currentOrganization'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
+            billingLogic,
+            ['canAccessBilling'],
         ],
     })),
 
@@ -238,8 +244,24 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.isCloudOrDev, s.currentTeam, s.organizationIntegrations, s.preflight],
-            (doesMatchFlags, isCloudOrDev, currentTeam, organizationIntegrations, preflight): SettingSection[] => {
+            (s) => [
+                s.doesMatchFlags,
+                s.isCloudOrDev,
+                s.currentTeam,
+                s.currentOrganization,
+                s.organizationIntegrations,
+                s.preflight,
+                s.canAccessBilling,
+            ],
+            (
+                doesMatchFlags,
+                isCloudOrDev,
+                currentTeam,
+                currentOrganization,
+                organizationIntegrations,
+                preflight,
+                canAccessBilling
+            ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
                         return false
@@ -263,9 +285,17 @@ export const settingsLogic = kea<settingsLogicType>([
                     ) {
                         return false
                     }
+                    if (section.id === 'organization-billing' && !canAccessBilling) {
+                        return false
+                    }
 
                     return true
                 })
+
+                // If there's no current organization, hide everything except user sections
+                if (!currentOrganization) {
+                    return sections.filter((section) => section.level === 'user')
+                }
 
                 // If there's no current team, hide project and environment sections entirely
                 if (!currentTeam) {

@@ -10,8 +10,7 @@ from botocore.client import Config
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, ExportedAsset, Insight, InsightVariable
-from posthog.models.dashboard_tile import DashboardTile
+from posthog.models import ExportedAsset, Insight, InsightVariable
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -21,6 +20,9 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import image_exporter
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
 def make_insight_result(cache_key: str) -> InsightResult:

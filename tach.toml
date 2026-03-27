@@ -42,6 +42,7 @@ depends_on = [
     "<root>",
     "posthog",
     "products.alerts",
+    "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
     "products.event_definitions",
@@ -67,6 +68,7 @@ depends_on = [
     "products.batch_exports",
     "products.conversations",
     "products.customer_analytics",
+    "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
     "products.desktop_recordings",
@@ -148,7 +150,11 @@ layer = "non_isolated"
 
 [[modules]]
 path = "products.dashboards"
-depends_on = []
+depends_on = [
+    "ee",
+    "posthog",
+    "products.llm_analytics",
+]
 layer = "non_isolated"
 
 [[modules]]
@@ -164,6 +170,7 @@ path = "products.data_warehouse"
 depends_on = [
     "ee",
     "posthog",
+    "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics",
 ]
@@ -255,6 +262,7 @@ path = "products.llm_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.dashboards",
 ]
 layer = "non_isolated"
 
@@ -364,6 +372,7 @@ path = "products.slack_app"
 depends_on = [
     "ee",
     "posthog",
+    "products.dashboards",
 ]
 layer = "non_isolated"
 

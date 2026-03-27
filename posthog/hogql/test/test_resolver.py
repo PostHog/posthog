@@ -127,6 +127,43 @@ class TestResolver(BaseTest):
 
     @parameterized.expand(
         [
+            ("current_date",),
+            ("current_time",),
+            ("current_timestamp",),
+            ("localtime",),
+            ("localtimestamp",),
+        ]
+    )
+    def test_postgres_current_date_keyword_resolves_to_keyword(self, keyword: str):
+        expr = self._select(f"SELECT {keyword}")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert len(resolved.select) == 1
+        select_expr = resolved.select[0]
+        assert isinstance(select_expr, ast.Keyword)
+        assert select_expr.name == keyword
+
+    def test_postgres_current_date_alias_not_treated_as_keyword(self):
+        expr = self._select(
+            """
+            SELECT
+                distinct_id as current_date
+            FROM
+                events
+            WHERE
+                current_date is not null
+            """
+        )
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert isinstance(resolved.where, ast.CompareOperation)
+        left = resolved.where.left
+        if isinstance(left, ast.Alias):
+            left = left.expr
+        assert isinstance(left, ast.Field)
+
+    @parameterized.expand(
+        [
             ("events.created_at", None),
             ("created_at", None),
             ("e.created_at", "e"),

@@ -95,6 +95,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Comments: explain _why_, not _what_ — if the reason isn't important, skip the comment
 - Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
+- Python: do not create empty `__init__.py` files
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code

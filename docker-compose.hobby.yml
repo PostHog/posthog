@@ -188,6 +188,18 @@ services:
             - clickhouse
             - kafka
 
+    ingestion-error-tracking:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-error-tracking
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        environment:
+            ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+        depends_on:
+            - db
+            - redis7
+            - kafka
+
     proxy:
         extends:
             file: docker-compose.base.yml
