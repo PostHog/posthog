@@ -2,7 +2,6 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "calculation_interval": {
-            "default": "daily",
             "description": "How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
             "enum": ["hourly", "daily", "weekly", "monthly"],
             "type": "string"
