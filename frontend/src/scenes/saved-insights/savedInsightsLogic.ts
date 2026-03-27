@@ -27,6 +27,7 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
+import { userLogic } from '../userLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
@@ -84,7 +85,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     tabAwareScene(),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId'], userLogic, ['user']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -243,8 +244,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
         ],
         paramsFromFilters: [
-            (s) => [s.filters],
-            (filters) => ({
+            (s) => [s.filters, s.user],
+            (filters, user) => ({
                 order: filters.order,
                 limit: INSIGHTS_PER_PAGE,
                 offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
@@ -254,9 +255,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && {
-                    created_by: JSON.stringify(filters.createdBy),
-                }),
+                ...(filters.tab === SavedInsightsTabs.Yours && user
+                    ? { created_by: JSON.stringify([user.id]) }
+                    : filters.createdBy !== 'All users'
+                      ? { created_by: JSON.stringify(filters.createdBy) }
+                      : {}),
                 ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {
