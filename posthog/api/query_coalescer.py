@@ -376,5 +376,5 @@ class QueryCoalescingMiddleware:
             except (orjson.JSONDecodeError, ValueError):
                 normalized = request.body
 
-        raw = f"{team_id}:{request.path}:{normalized.decode()}"
+        raw = f"{team_id}:{request.method}:{request.path}:{normalized.decode()}"
         return hashlib.sha256(raw.encode()).hexdigest()
