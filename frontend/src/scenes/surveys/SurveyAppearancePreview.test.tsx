@@ -13,6 +13,7 @@ jest.mock('posthog-js/dist/surveys-preview', () => ({
 }))
 
 const mockRenderSurveysPreview = jest.mocked(renderSurveysPreview)
+type RenderSurveysPreviewArgs = Parameters<typeof renderSurveysPreview>[0]
 
 describe('SurveyAppearancePreview', () => {
     const survey = {
@@ -38,7 +39,7 @@ describe('SurveyAppearancePreview', () => {
     })
 
     it('renders previews inside a bounded container and passes the same container to the renderer', () => {
-        mockRenderSurveysPreview.mockImplementation(({ parentElement, positionStyles }) => {
+        mockRenderSurveysPreview.mockImplementation(({ parentElement, positionStyles }: RenderSurveysPreviewArgs) => {
             const previewElement = document.createElement('div')
             Object.assign(previewElement.style, positionStyles)
             parentElement.appendChild(previewElement)
