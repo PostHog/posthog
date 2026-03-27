@@ -510,10 +510,10 @@ impl PrecomputedDependencyGraph {
     ) -> Self {
         let id_to_flag: HashMap<i32, &FeatureFlag> = flags.iter().map(|f| (f.id, f)).collect();
 
-        // When flag_keys is specified and we have transitive dependency info, compute
-        // the set of needed flag IDs upfront so we only clone flags that will actually
-        // be evaluated. When transitive_deps is empty (PG fallback path), we can't
-        // resolve dependencies, so evaluate all flags regardless of flag_keys.
+        // When flag_keys is specified, compute the set of needed flag IDs upfront so we
+        // only clone flags that will actually be evaluated. On the PG fallback path,
+        // single_stage() populates per-flag empty dep sets so independent-flag filtering
+        // still works. If transitive_deps is truly empty, we can't filter at all.
         let needed_ids: Option<HashSet<i32>> = if evaluation_metadata.transitive_deps.is_empty() {
             None
         } else {

@@ -1701,20 +1701,21 @@ mod precomputed_dependency_graph_tests {
     }
 
     #[test]
-    fn test_build_with_flag_keys_evaluates_all_when_transitive_deps_empty() {
-        // Simulates PG fallback: single_stage metadata has empty transitive_deps.
-        // flag_keys filtering must be disabled because we can't resolve dependencies.
+    fn test_build_with_flag_keys_filters_independent_flags_on_pg_fallback() {
+        // Simulates PG fallback: single_stage metadata has per-flag empty transitive_deps.
+        // flag_keys filtering should work for independent flags since each flag maps to
+        // an empty dep set, allowing unrelated flags to be skipped.
         let feature_flags = FeatureFlagList {
             flags: vec![
                 create_flag(1, "flag_a", HashSet::new(), true),
                 create_flag(2, "flag_b", HashSet::new(), true),
                 create_flag(3, "flag_c", HashSet::new(), true),
             ],
-            evaluation_metadata: EvaluationMetadata {
-                dependency_stages: vec![vec![1, 2, 3]],
-                flags_with_missing_deps: vec![],
-                transitive_deps: HashMap::new(),
-            },
+            evaluation_metadata: EvaluationMetadata::single_stage(&[
+                create_flag(1, "flag_a", HashSet::new(), true),
+                create_flag(2, "flag_b", HashSet::new(), true),
+                create_flag(3, "flag_c", HashSet::new(), true),
+            ]),
             ..Default::default()
         };
 
@@ -1727,14 +1728,7 @@ mod precomputed_dependency_graph_tests {
             .flat_map(|s| s.iter().map(|f| f.key.clone()))
             .collect();
 
-        assert_eq!(
-            all_keys,
-            HashSet::from([
-                "flag_a".to_string(),
-                "flag_b".to_string(),
-                "flag_c".to_string()
-            ])
-        );
+        assert_eq!(all_keys, HashSet::from(["flag_a".to_string()]));
     }
 
     #[test]

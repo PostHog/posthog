@@ -68,6 +68,7 @@ impl EvaluationMetadata {
     pub fn single_stage(flags: &[FeatureFlag]) -> Self {
         Self {
             dependency_stages: vec![flags.iter().map(|f| f.id).collect()],
+            transitive_deps: flags.iter().map(|f| (f.id, HashSet::new())).collect(),
             ..Default::default()
         }
     }
