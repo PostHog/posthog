@@ -592,12 +592,14 @@ describe('BatchWritingPersonStore', () => {
         })
 
         // Mock fallback to also fail
+        const originalUpdatePerson = mockRepo.updatePerson
         mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
 
         try {
             await expect(personStore.flush()).rejects.toThrow('Database error')
         } finally {
             mockRepo.updatePersonsBatch = originalUpdatePersonsBatch
+            mockRepo.updatePerson = originalUpdatePerson
         }
     })
 
