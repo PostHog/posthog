@@ -5,7 +5,7 @@ from typing import Optional
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from django.http import HttpResponse
 from django.utils.timezone import now
@@ -1001,6 +1001,21 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
+
+    @patch("posthog.api.exports.emit_slo_started")
+    @patch("posthog.api.exports.async_connect")
+    def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect, _mock_slo) -> None:
+        mock_client = AsyncMock()
+        mock_client.execute_workflow.side_effect = Exception("workflow failed")
+        mock_async_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_content"])
 
 
 class TestExportHeatmapSSRFValidation(APIBaseTest):

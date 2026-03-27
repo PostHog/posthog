@@ -326,7 +326,20 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 execution_timeout=timedelta(minutes=35),
             )
 
-        async_to_sync(_run)()
+        try:
+            async_to_sync(_run)()
+        except Exception as e:
+            # Swallow workflow failures so the API always returns a 201 with the
+            # ExportedAsset record. export_asset_direct populates the exception
+            # field before re-raising, so callers (frontend toast, sharing
+            # endpoint) can inspect the failure on the asset itself.
+            logger.info(
+                "export_workflow_failed_gracefully",
+                asset_id=instance.id,
+                error=str(e),
+            )
+            return
+
         logger.info(
             "export_workflow_dispatched" if force_async else "export_workflow_completed",
             asset_id=instance.id,
