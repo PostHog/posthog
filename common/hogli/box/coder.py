@@ -10,34 +10,73 @@ import sys
 import json
 import shutil
 import subprocess
+import webbrowser
+from pathlib import Path
 
 import click
 
-TEMPLATE_NAME = "posthog-devbox"
+TEMPLATE_NAME = "posthog-linux"
+CODER_URL = "http://coder"
 
-# Map human-friendly sizes to EC2 instance types
-SIZE_MAP: dict[str, str] = {
-    "small": "m6i.xlarge",  # 4 vCPU, 16 GB
-    "medium": "m6i.2xlarge",  # 8 vCPU, 32 GB
-    "large": "m6i.4xlarge",  # 16 vCPU, 64 GB
-}
+
+def _tailscale_connected() -> bool:
+    """Check if Tailscale is running and connected."""
+    ts = shutil.which("tailscale")
+    if not ts:
+        return False
+    result = subprocess.run(
+        ["tailscale", "status", "--json"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+        return data.get("BackendState") == "Running"
+    except (json.JSONDecodeError, KeyError):
+        return False
+
+
+def _ssh_configured() -> bool:
+    """Check if coder SSH config is present in ~/.ssh/config."""
+    ssh_config = Path.home() / ".ssh" / "config"
+    if not ssh_config.exists():
+        return False
+    return "# --- START CODER" in ssh_config.read_text()
 
 
 def ensure_coder() -> None:
-    """Verify coder CLI is installed and authenticated.
+    """Verify Tailscale, coder CLI, auth, and SSH config. Guides first-run setup interactively."""
+    # 1. Tailscale must be connected (coder server is on the tailnet)
+    if not _tailscale_connected():
+        click.echo(click.style("Tailscale is not connected.", fg="red"))
+        click.echo()
+        click.echo("The Coder server is on the PostHog tailnet.")
+        click.echo("Connect to Tailscale, then try again.")
+        raise SystemExit(1)
 
-    Exits with instructions if either check fails.
-    """
+    # 2. coder CLI must be installed
     if not shutil.which("coder"):
         click.echo(click.style("coder CLI not found.", fg="red"))
         click.echo()
-        click.echo("Install:")
-        click.echo("  curl -L https://coder.com/install.sh | sh")
-        click.echo()
-        click.echo("Then authenticate:")
-        click.echo("  coder login <coder-server-url>")
-        raise SystemExit(1)
+        if shutil.which("brew"):
+            if click.confirm("Install via Homebrew?", default=True):
+                result = subprocess.run(["brew", "install", "coder/coder/coder"])
+                if result.returncode != 0:
+                    raise SystemExit(1)
+                click.echo()
+            else:
+                click.echo("Install manually:")
+                click.echo("  brew install coder/coder/coder")
+                click.echo("  curl -L https://coder.com/install.sh | sh")
+                raise SystemExit(1)
+        else:
+            click.echo("Install:")
+            click.echo("  curl -L https://coder.com/install.sh | sh")
+            raise SystemExit(1)
 
+    # 3. Must be authenticated
     result = subprocess.run(
         ["coder", "whoami"],
         capture_output=True,
@@ -46,9 +85,28 @@ def ensure_coder() -> None:
     if result.returncode != 0:
         click.echo(click.style("Not authenticated with Coder.", fg="red"))
         click.echo()
-        click.echo("Authenticate:")
-        click.echo("  coder login <coder-server-url>")
-        raise SystemExit(1)
+        if click.confirm("Log in now? (opens browser for Google SSO)", default=True):
+            result = subprocess.run(["coder", "login", CODER_URL])
+            if result.returncode != 0:
+                raise SystemExit(1)
+            click.echo()
+        else:
+            click.echo(f"Run manually: coder login {CODER_URL}")
+            raise SystemExit(1)
+
+    # 4. Auto-configure SSH (idempotent, no prompt needed)
+    if not _ssh_configured():
+        click.echo("Configuring SSH for Coder workspaces...")
+        result = subprocess.run(
+            ["coder", "config-ssh", "--yes"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            click.echo("SSH configured. VS Code Remote SSH will work automatically.")
+        else:
+            click.echo(click.style("Warning: could not configure SSH.", fg="yellow"))
+            click.echo("Run manually: coder config-ssh")
 
 
 def get_username() -> str:
@@ -114,7 +172,7 @@ def get_workspace_status(workspace: dict) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def create_workspace(name: str, instance_type: str, branch: str) -> None:
+def create_workspace(name: str, disk_size: int, branch: str) -> None:
     """Create a new Coder workspace."""
     cmd = [
         "coder",
@@ -123,9 +181,9 @@ def create_workspace(name: str, instance_type: str, branch: str) -> None:
         "--template",
         TEMPLATE_NAME,
         "--parameter",
-        f"instance_type={instance_type}",
+        f"disk_size={disk_size}",
         "--parameter",
-        f"posthog_branch={branch}",
+        f"repo={branch}",
         "--yes",
     ]
     result = subprocess.run(cmd)
@@ -172,3 +230,36 @@ def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
         os.execvp(coder_path, args)
     else:
         sys.exit(subprocess.run(args).returncode)
+
+
+def logs_replace(name: str, follow: bool) -> None:
+    """Tail workspace logs. Replaces the current process."""
+    coder_path = shutil.which("coder")
+    args = ["coder", "logs", name]
+    if follow:
+        args.append("--follow")
+    if coder_path:
+        os.execvp(coder_path, args)
+    else:
+        sys.exit(subprocess.run(args).returncode)
+
+
+def open_in_browser(name: str) -> None:
+    """Open workspace dashboard in the default browser."""
+    username = get_username()
+    webbrowser.open(f"{CODER_URL}/@{username}/{name}")
+
+
+def open_vscode(name: str) -> None:
+    """Open workspace in VS Code Desktop via Coder SSH."""
+    coder_path = shutil.which("coder")
+    if coder_path:
+        os.execvp(coder_path, ["coder", "open", "vscode", name])
+    else:
+        sys.exit(subprocess.run(["coder", "open", "vscode", name]).returncode)
+
+
+def open_web_ide(name: str) -> None:
+    """Open code-server (VS Code in browser) for the workspace."""
+    username = get_username()
+    webbrowser.open(f"{CODER_URL}/@{username}/{name}/apps/code-server")

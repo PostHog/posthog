@@ -9,13 +9,16 @@ import click
 from hogli.core.cli import cli
 
 from .coder import (
-    SIZE_MAP,
     create_workspace,
     delete_workspace,
     ensure_coder,
     get_workspace,
     get_workspace_name,
     get_workspace_status,
+    logs_replace,
+    open_in_browser,
+    open_vscode,
+    open_web_ide,
     port_forward_replace,
     ssh_replace,
     start_workspace,
@@ -27,20 +30,23 @@ def _print_connection_info(name: str) -> None:
     """Print connection commands after workspace is ready."""
     click.echo()
     click.echo("  SSH:      hogli box:ssh")
+    click.echo("  Open:     hogli box:open")
+    click.echo("  VS Code:  hogli box:open --vscode")
     click.echo("  Forward:  hogli box:forward")
+    click.echo("  Logs:     hogli box:logs -f")
     click.echo("  Status:   hogli box:status")
     click.echo("  Stop:     hogli box:stop")
 
 
 @cli.command(name="box:start", help="Start or create your remote devbox")
 @click.option(
-    "--size",
-    type=click.Choice(list(SIZE_MAP.keys())),
-    default="medium",
-    help="VM size: small (4 vCPU/16GB), medium (8/32GB), large (16/64GB)",
+    "--disk",
+    type=click.Choice(["30", "50", "100"]),
+    default="50",
+    help="Disk size in GiB (default: 50)",
 )
 @click.option("--branch", default="master", help="Git branch to check out on the devbox")
-def box_start(size: str, branch: str) -> None:
+def box_start(disk: str, branch: str) -> None:
     """Start or create the remote devbox."""
     ensure_coder()
     name = get_workspace_name()
@@ -70,9 +76,8 @@ def box_start(size: str, branch: str) -> None:
         _print_connection_info(name)
         return
 
-    instance_type = SIZE_MAP[size]
-    click.echo(f"Creating devbox '{name}' ({instance_type}, branch={branch})...")
-    create_workspace(name, instance_type, branch)
+    click.echo(f"Creating devbox '{name}' (disk={disk}GiB, branch={branch})...")
+    create_workspace(name, int(disk), branch)
     click.echo("Created.")
     _print_connection_info(name)
 
@@ -104,6 +109,34 @@ def box_ssh() -> None:
     ensure_coder()
     name = get_workspace_name()
     ssh_replace(name)
+
+
+@cli.command(name="box:open", help="Open devbox in browser or VS Code")
+@click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
+@click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
+def box_open(vscode: bool, web: bool) -> None:
+    """Open the devbox in a browser or editor."""
+    ensure_coder()
+    name = get_workspace_name()
+
+    if vscode:
+        click.echo(f"Opening '{name}' in VS Code...")
+        open_vscode(name)
+    elif web:
+        click.echo(f"Opening code-server for '{name}'...")
+        open_web_ide(name)
+    else:
+        click.echo(f"Opening '{name}' in browser...")
+        open_in_browser(name)
+
+
+@cli.command(name="box:logs", help="Tail devbox build and agent logs")
+@click.option("-f", "--follow", is_flag=True, help="Follow log output")
+def box_logs(follow: bool) -> None:
+    """Tail workspace build and agent logs."""
+    ensure_coder()
+    name = get_workspace_name()
+    logs_replace(name, follow)
 
 
 @cli.command(name="box:destroy", help="Destroy your devbox and its data")
@@ -148,6 +181,10 @@ def box_status() -> None:
 
     click.echo(f"  Name:    {name}")
     click.echo(f"  Status:  {click.style(status, fg=color)}")
+
+    if ws.get("outdated"):
+        click.echo(click.style("  Update:  template update available", fg="yellow"))
+        click.echo("           Run: hogli box:update")
 
     # Show agent status if available
     resources = ws.get("latest_build", {}).get("resources", [])
