@@ -20,12 +20,15 @@ def backfill_feature_enrollment(apps, schema_editor):
     )
 
     for flag in queryset.iterator(chunk_size=BATCH_SIZE):
-        super_groups = flag.filters.get("super_groups")
-        if not isinstance(super_groups, list) or len(super_groups) == 0:
-            continue
+        try:
+            super_groups = flag.filters.get("super_groups")
+            if not isinstance(super_groups, list) or len(super_groups) == 0:
+                continue
 
-        flag.filters["feature_enrollment"] = True
-        objects_to_update.append(flag)
+            flag.filters["feature_enrollment"] = True
+            objects_to_update.append(flag)
+        except Exception:
+            logger.exception("backfill_feature_enrollment_error", flag_id=flag.id)
 
         if len(objects_to_update) >= BATCH_SIZE:
             FeatureFlag.objects.bulk_update(objects_to_update, ["filters"])
@@ -42,7 +45,7 @@ def backfill_feature_enrollment(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1071_move_tokens_to_sensitive_config"),
+        ("posthog", "1074_backfill_vercel_connectable_resources"),
     ]
 
     operations = [
