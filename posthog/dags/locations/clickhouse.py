@@ -12,6 +12,7 @@ from posthog.dags import (
     fix_missing_person_overrides,
     fix_person_id_overrides,
     orm_examples,
+    part_breaker,
     person_overrides,
     postgres_to_clickhouse_etl,
     property_definitions,
@@ -42,7 +43,6 @@ defs = dagster.Definitions(
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
-        data_deletion_requests.data_deletion_request_event_removal,
     ],
     schedules=[
         export_query_logs_to_s3.query_logs_export_schedule,
