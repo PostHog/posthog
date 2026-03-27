@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import time
+import shlex
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 from .config import AgentArtifacts, SandboxedEvalCase, SandboxEvalConfig
 
@@ -30,8 +33,13 @@ class SandboxedEvalRunner:
     Callers should prefer the ``run_eval_case`` convenience method which wraps the full lifecycle.
     """
 
-    def __init__(self, config: SandboxEvalConfig | None = None):
+    def __init__(
+        self,
+        config: SandboxEvalConfig | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
+    ):
         self.config = config or SandboxEvalConfig()
+        self.mcp_configs = mcp_configs
 
     def _build_sandbox_config(self, case_name: str) -> SandboxConfig:
         env_vars = {**self.config.environment_variables}
@@ -65,11 +73,17 @@ class SandboxedEvalRunner:
 
     def run_agent(self, sandbox: DockerSandbox, case: SandboxedEvalCase) -> ExecutionResult:
         """Run the agent inside the sandbox with the eval case prompt."""
+        mcp_arg = ""
+        if self.mcp_configs:
+            mcp_json = json.dumps([c.to_dict() for c in self.mcp_configs])
+            mcp_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+
         command = (
             f"cd /scripts && node runAgent.mjs"
             f" --repositoryPath {SANDBOX_REPO_DIR}"
             f" --prompt {_shell_quote(case.prompt)}"
             f" --max-turns {self.config.agent_max_turns}"
+            f"{mcp_arg}"
         )
 
         logger.info(f"Running agent in sandbox {sandbox.id} for case '{case.name}'")

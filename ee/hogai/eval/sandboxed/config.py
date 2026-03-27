@@ -120,3 +120,9 @@ class SandboxEvalConfig:
 
     environment_variables: dict[str, str] = field(default_factory=dict)
     """Extra environment variables injected into the sandbox."""
+
+    enable_mcp: bool = True
+    """Whether to pass MCP server config to the agent."""
+
+    mcp_url: str | None = None
+    """Override for the MCP server URL. Defaults to ``SANDBOX_MCP_URL`` setting or ``http://localhost:8787/mcp``."""
