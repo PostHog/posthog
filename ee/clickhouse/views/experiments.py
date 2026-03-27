@@ -23,6 +23,7 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.filters.filter import Filter
+from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -30,6 +31,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
+from posthog.user_permissions import UserPermissions
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -547,9 +549,6 @@ class EnterpriseExperimentsViewSet(
 
         if target_team.organization_id != self.team.organization_id:
             return Response({"detail": "Target project must be in the same organization."}, status=403)
-
-        from posthog.models.organization import OrganizationMembership
-        from posthog.user_permissions import UserPermissions
 
         user_permissions = UserPermissions(user=cast(User, request.user))
         target_team_permissions = user_permissions.team(target_team)
