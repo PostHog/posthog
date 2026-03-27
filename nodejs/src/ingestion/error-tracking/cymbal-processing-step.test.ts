@@ -65,6 +65,7 @@ describe('createCymbalProcessingStep', () => {
         // Verify Cymbal request format
         expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
             expect.objectContaining({
+                estimatedSize: expect.any(Number),
                 request: expect.objectContaining({
                     uuid: 'uuid-1',
                     event: '$exception',
@@ -72,6 +73,7 @@ describe('createCymbalProcessingStep', () => {
                 }),
             }),
             expect.objectContaining({
+                estimatedSize: expect.any(Number),
                 request: expect.objectContaining({
                     uuid: 'uuid-2',
                     event: '$exception',
@@ -142,6 +144,7 @@ describe('createCymbalProcessingStep', () => {
 
         expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
             expect.objectContaining({
+                estimatedSize: expect.any(Number),
                 request: expect.objectContaining({
                     properties: expect.objectContaining({
                         $geoip_country_code: 'US',
@@ -170,6 +173,7 @@ describe('createCymbalProcessingStep', () => {
         // Group properties are passed through in the properties object
         expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
             expect.objectContaining({
+                estimatedSize: expect.any(Number),
                 request: expect.objectContaining({
                     properties: expect.objectContaining({
                         $group_0: 'company-1',
@@ -211,6 +215,7 @@ describe('createCymbalProcessingStep', () => {
 
         expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
             expect.objectContaining({
+                estimatedSize: expect.any(Number),
                 request: expect.objectContaining({
                     properties: { some_prop: 'value' },
                 }),
@@ -229,6 +234,7 @@ describe('createCymbalProcessingStep', () => {
 
             expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
                 expect.objectContaining({
+                    estimatedSize: expect.any(Number),
                     request: expect.objectContaining({
                         timestamp: '2024-01-15T10:30:00.000Z',
                     }),
@@ -250,6 +256,7 @@ describe('createCymbalProcessingStep', () => {
 
                 expect(mockCymbalClient.processExceptions).toHaveBeenCalledWith([
                     expect.objectContaining({
+                        estimatedSize: expect.any(Number),
                         request: expect.objectContaining({
                             timestamp: '2024-01-20T12:00:00.000Z',
                         }),
