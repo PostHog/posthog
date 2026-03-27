@@ -53,7 +53,13 @@ export class RequestInterceptor {
             return
         }
 
-        const path = new URL(url).pathname
+        let path: string
+        try {
+            path = new URL(url).pathname
+        } catch {
+            void request.continue()
+            return
+        }
         if (path.startsWith(BLOCK_REQUEST_PREFIX)) {
             void this.blockProxy.handleRequest(request, path)
             return

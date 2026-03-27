@@ -199,6 +199,20 @@ describe('RequestInterceptor', () => {
                 expect(req.respond).not.toHaveBeenCalled()
             }
         )
+
+        it.each(['data:text/css;base64,Ym9keSB7fQ==', 'blob:null/abc-123', 'about:blank'])(
+            'continues requests with unparseable URL %s',
+            async (url) => {
+                const { page } = await createInterceptor()
+                const handler = getRequestHandler(page.page)
+                const req = mockRequest('document', mainFrame, url)
+
+                handler(req)
+                expect(req.continue).toHaveBeenCalled()
+                expect(req.respond).not.toHaveBeenCalled()
+                expect(req.abort).not.toHaveBeenCalled()
+            }
+        )
     })
 
     describe('stylesheet proxy', () => {

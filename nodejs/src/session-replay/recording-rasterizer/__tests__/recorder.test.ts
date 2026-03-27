@@ -1,172 +1,225 @@
-import * as fs from 'fs/promises'
-
+import { BlockProxy } from '../capture/block-proxy'
 import { BrowserPool } from '../capture/browser-pool'
+import { capturePlayback } from '../capture/capture'
+import { CapturePage } from '../capture/capture-page'
+import { PlayerController } from '../capture/player'
 import { rasterizeRecording } from '../capture/recorder'
-import { uploadToS3 } from '../storage'
-import { createActivities } from '../temporal/activities'
-import { RasterizeRecordingInput, RecordingResult } from '../types'
+import { RasterizeRecordingInput } from '../types'
 
-jest.mock('@temporalio/activity', () => ({
-    Context: {
-        current: () => ({
-            info: {
-                activityId: 'test-activity-1',
-                workflowExecution: { workflowId: 'test-workflow-1', runId: 'test-run-1' },
-            },
-        }),
-    },
+jest.mock('../capture/capture')
+jest.mock('../capture/capture-page')
+jest.mock('../capture/block-proxy')
+jest.mock('../capture/player')
+jest.mock('../logger', () => ({
+    createLogger: () => ({
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+        debug: jest.fn(),
+        child: jest.fn().mockReturnThis(),
+    }),
 }))
-jest.mock('../capture/recorder')
-jest.mock('../storage')
-jest.mock('../metrics')
 
-const mockedRasterizeRecording = rasterizeRecording as jest.MockedFunction<typeof rasterizeRecording>
-const mockedUploadToS3 = uploadToS3 as jest.MockedFunction<typeof uploadToS3>
+const mockedCapturePage = CapturePage as jest.Mocked<typeof CapturePage>
+const mockedBlockProxy = BlockProxy as jest.MockedClass<typeof BlockProxy>
+const mockedPlayerController = PlayerController as jest.MockedClass<typeof PlayerController>
+const mockedCapturePlayback = capturePlayback as jest.MockedFunction<typeof capturePlayback>
+
+const mockPage = {} as any
+const mockCapturePage = { page: mockPage } as unknown as CapturePage
 
 function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
     return {
-        session_id: 'test-session-123',
+        session_id: 'test-session',
         team_id: 1,
         playback_speed: 4,
-        s3_bucket: 'test-bucket',
-        s3_key_prefix: 'exports/mp4/team-1/task-1',
+        s3_bucket: 'bucket',
+        s3_key_prefix: 'prefix',
         ...overrides,
     }
 }
 
-function baseRecordingResult(videoPath: string, overrides: Partial<RecordingResult> = {}): RecordingResult {
-    return {
-        video_path: videoPath,
-        playback_speed: 4,
-        capture_duration_s: 3.0,
-        frame_count: 72,
-        truncated: false,
-        inactivity_periods: [{ ts_from_s: 0, ts_to_s: 10, active: true }],
-        custom_fps: 3,
-        timings: { setup_s: 1.5, capture_s: 3.2 },
-        ...overrides,
-    }
+const baseCaptureResult = {
+    capture_duration_s: 5,
+    frame_count: 120,
+    truncated: false,
+    inactivity_periods: [],
+    timings: { setup_s: 0, capture_s: 2.5 },
 }
 
-function mockSuccessfulRecording(overrides: Partial<RecordingResult> = {}) {
-    mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
-        await fs.writeFile(outputPath, Buffer.alloc(1024))
-        return baseRecordingResult(outputPath, overrides)
-    })
-}
+const cfg = {
+    siteUrl: 'http://localhost:8000',
+    captureBrowserLogs: false,
+    recordingApiBaseUrl: 'http://localhost:6738',
+    recordingApiSecret: 'secret',
+    screenshotFormat: 'jpeg' as const,
+    screenshotJpegQuality: 80,
+} as any
 
-describe('rasterizeRecordingActivity', () => {
-    const mockPool = { stats: { usageCount: 0, activePages: 0 } } as unknown as BrowserPool
-    const playerHtml = '<html>player</html>'
-    const activities = createActivities(mockPool, playerHtml)
-    const rasterizeRecordingActivity = activities['rasterize-recording']
+describe('rasterizeRecording', () => {
+    let mockPool: BrowserPool
+    let mockPlayer: jest.Mocked<PlayerController>
 
     beforeEach(() => {
         jest.clearAllMocks()
-        mockedUploadToS3.mockResolvedValue('s3://test-bucket/exports/mp4/team-1/task-1/uuid.mp4')
+
+        mockPool = {
+            getPage: jest.fn().mockResolvedValue(mockPage),
+            releasePage: jest.fn().mockResolvedValue(undefined),
+        } as unknown as BrowserPool
+
+        mockedCapturePage.prepare = jest.fn().mockResolvedValue(mockCapturePage)
+
+        mockedBlockProxy.prototype.fetchBlocks = jest.fn().mockResolvedValue(3)
+
+        mockPlayer = {
+            load: jest.fn().mockResolvedValue(undefined),
+            waitForStart: jest.fn().mockResolvedValue(undefined),
+            dispose: jest.fn(),
+        } as unknown as jest.Mocked<PlayerController>
+        mockedPlayerController.mockImplementation(() => mockPlayer)
+
+        mockedCapturePlayback.mockResolvedValue(baseCaptureResult)
     })
 
-    it('orchestrates recording, upload, and returns complete output', async () => {
-        const inactivityPeriods = [
-            { ts_from_s: 0, ts_to_s: 5, active: true },
-            { ts_from_s: 5, ts_to_s: 10, active: false },
-        ]
-        mockSuccessfulRecording({
-            playback_speed: 1,
-            custom_fps: 24,
-            inactivity_periods: inactivityPeriods,
+    it('calls modules in the correct order', async () => {
+        const callOrder: string[] = []
+        ;(mockPool.getPage as jest.Mock).mockImplementation(() => {
+            callOrder.push('getPage')
+            return Promise.resolve(mockPage)
+        })
+        mockedCapturePage.prepare = jest.fn().mockImplementation(() => {
+            callOrder.push('prepare')
+            return Promise.resolve(mockCapturePage)
+        })
+        mockedBlockProxy.prototype.fetchBlocks = jest.fn().mockImplementation(() => {
+            callOrder.push('fetchBlocks')
+            return Promise.resolve(3)
+        })
+        mockPlayer.load.mockImplementation(() => {
+            callOrder.push('load')
+            return Promise.resolve()
+        })
+        mockPlayer.waitForStart.mockImplementation(() => {
+            callOrder.push('waitForStart')
+            return Promise.resolve()
+        })
+        mockedCapturePlayback.mockImplementation(() => {
+            callOrder.push('capturePlayback')
+            return Promise.resolve(baseCaptureResult)
         })
 
-        const result = await rasterizeRecordingActivity(baseInput({ playback_speed: 1 }))
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', cfg)
 
-        // Verify full output shape
-        expect(result.s3_uri).toBe('s3://test-bucket/exports/mp4/team-1/task-1/uuid.mp4')
-        expect(result.video_duration_s).toBe(3.0)
-        expect(result.playback_speed).toBe(1)
-        expect(result.show_metadata_footer).toBe(false)
-        expect(result.truncated).toBe(false)
-        expect(result.file_size_bytes).toBeGreaterThan(0)
+        expect(callOrder).toEqual(['getPage', 'prepare', 'fetchBlocks', 'load', 'waitForStart', 'capturePlayback'])
+    })
 
-        // Verify inactivity periods have video timestamps computed
-        expect(result.inactivity_periods[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 5 })
-        expect(result.inactivity_periods[1]).toMatchObject({ recording_ts_from_s: 5, recording_ts_to_s: 5 })
+    it('releases page and disposes player on success', async () => {
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', cfg)
 
-        // Verify timings are populated
-        expect(result.timings.total_s).toBeGreaterThan(0)
-        expect(result.timings.setup_s).toBe(1.5)
-        expect(result.timings.capture_s).toBe(3.2)
-        expect(result.timings.upload_s).toBeGreaterThanOrEqual(0)
+        expect(mockPlayer.dispose).toHaveBeenCalled()
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+    })
 
-        // Verify pool is passed through to rasterizeRecording
-        expect(mockedRasterizeRecording).toHaveBeenCalledWith(
-            mockPool,
-            expect.objectContaining({ session_id: 'test-session-123' }),
-            expect.stringContaining('ph-video-'),
-            playerHtml,
-            undefined,
+    it('releases page and disposes player when capturePlayback throws', async () => {
+        mockedCapturePlayback.mockRejectedValue(new Error('capture failed'))
+
+        await expect(rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', cfg)).rejects.toThrow(
+            'capture failed'
+        )
+
+        expect(mockPlayer.dispose).toHaveBeenCalled()
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+    })
+
+    it('releases page when player.load throws (before player is assigned)', async () => {
+        mockPlayer.load.mockRejectedValue(new Error('navigation failed'))
+
+        await expect(rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', cfg)).rejects.toThrow(
+            'navigation failed'
+        )
+
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+    })
+
+    it('releases page when BlockProxy.fetchBlocks throws', async () => {
+        mockedBlockProxy.prototype.fetchBlocks = jest.fn().mockRejectedValue(new Error('API down'))
+
+        await expect(rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', cfg)).rejects.toThrow(
+            'API down'
+        )
+
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+    })
+
+    it('passes playerHtml to CapturePage.prepare', async () => {
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html>player</html>', cfg)
+
+        expect(mockedCapturePage.prepare).toHaveBeenCalledWith(
+            mockPage,
             expect.any(Object),
-            expect.any(Function)
+            'http://localhost:8000/player',
+            '<html>player</html>',
+            false,
+            expect.any(Object)
         )
     })
 
-    it('uploads to the specified S3 bucket and key prefix', async () => {
-        mockSuccessfulRecording()
-
-        await rasterizeRecordingActivity(
-            baseInput({ s3_bucket: 'my-bucket', s3_key_prefix: 'exports/mp4/team-99/task-42' })
+    it('uses input viewport dimensions with defaults', async () => {
+        await rasterizeRecording(
+            mockPool,
+            baseInput({ viewport_width: 1920, viewport_height: 1080 }),
+            '/tmp/out.mp4',
+            '<html></html>',
+            cfg
         )
 
-        expect(mockedUploadToS3).toHaveBeenCalledWith(
+        expect(mockedCapturePage.prepare).toHaveBeenCalledWith(
+            mockPage,
+            { width: 1920, height: 1080 },
             expect.any(String),
-            'my-bucket',
-            'exports/mp4/team-99/task-42',
-            expect.any(String)
+            expect.any(String),
+            expect.any(Boolean),
+            expect.any(Object)
         )
     })
 
-    it('passes show_metadata_footer=true through to output', async () => {
-        mockSuccessfulRecording()
-        const result = await rasterizeRecordingActivity(baseInput({ show_metadata_footer: true }))
-        expect(result.show_metadata_footer).toBe(true)
+    it('defaults viewport to 1280x720', async () => {
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', cfg)
+
+        expect(mockedCapturePage.prepare).toHaveBeenCalledWith(
+            mockPage,
+            { width: 1280, height: 720 },
+            expect.any(String),
+            expect.any(String),
+            expect.any(Boolean),
+            expect.any(Object)
+        )
     })
 
-    it('preserves fractional video_duration_s', async () => {
-        mockSuccessfulRecording({ capture_duration_s: 39.96 })
-        const result = await rasterizeRecordingActivity(baseInput())
-        expect(result.video_duration_s).toBe(39.96)
+    it('returns RecordingResult with fields from capturePlayback', async () => {
+        const result = await rasterizeRecording(
+            mockPool,
+            baseInput({ playback_speed: 8 }),
+            '/tmp/out.mp4',
+            '<html></html>',
+            cfg
+        )
+
+        expect(result.video_path).toBe('/tmp/out.mp4')
+        expect(result.playback_speed).toBe(8)
+        expect(result.capture_duration_s).toBe(5)
+        expect(result.frame_count).toBe(120)
+        expect(result.truncated).toBe(false)
+        expect(result.timings.capture_s).toBe(2.5)
+        expect(result.timings.setup_s).toBeGreaterThanOrEqual(0)
     })
 
-    describe('temp file cleanup', () => {
-        it('cleans up temp file on success', async () => {
-            let outputPath: string | undefined
-            mockedRasterizeRecording.mockImplementation(async (_pool, _input, path) => {
-                outputPath = path
-                await fs.writeFile(path, Buffer.alloc(64))
-                return baseRecordingResult(path)
-            })
+    it('calls onProgress after waitForStart', async () => {
+        const onProgress = jest.fn()
 
-            await rasterizeRecordingActivity(baseInput())
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', cfg, undefined, onProgress)
 
-            expect(outputPath).toBeDefined()
-            await expect(fs.access(outputPath!)).rejects.toThrow()
-        })
-
-        it('cleans up temp file on recording failure', async () => {
-            mockedRasterizeRecording.mockRejectedValue(new Error('browser crashed'))
-            await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('browser crashed')
-        })
-
-        it('cleans up temp file on S3 upload failure', async () => {
-            let outputPath: string | undefined
-            mockedRasterizeRecording.mockImplementation(async (_pool, _input, path) => {
-                outputPath = path
-                await fs.writeFile(path, Buffer.alloc(64))
-                return baseRecordingResult(path)
-            })
-            mockedUploadToS3.mockRejectedValue(new Error('S3 access denied'))
-
-            await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('S3 access denied')
-            await expect(fs.access(outputPath!)).rejects.toThrow()
-        })
+        expect(onProgress).toHaveBeenCalledTimes(1)
     })
 })

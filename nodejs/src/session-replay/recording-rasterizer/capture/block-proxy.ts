@@ -81,11 +81,10 @@ export class BlockProxy {
                 return
             }
             const contentType = resp.headers['content-type'] || 'application/octet-stream'
-            const body = Buffer.from(await resp.text(), 'utf-8')
             await request.respond({
                 status: resp.status,
                 contentType,
-                body,
+                body: await resp.text(),
             })
         } catch (err) {
             this.log.error({ path, err }, 'block proxy failed')
