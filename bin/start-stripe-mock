@@ -7,8 +7,7 @@ cd "$REPO_ROOT/services/stripe-mock"
 unset VIRTUAL_ENV
 export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
 
-[ -d ".venv" ] || uv venv .venv
-uv pip install -e . --quiet
+uv sync --quiet
 
 exec .venv/bin/uvicorn stripe_mock.main:app \
     --host 0.0.0.0 \
