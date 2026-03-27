@@ -99,7 +99,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
-        self.assertEqual(self.organization.is_member_join_email_enabled, False)
+        self.assertEqual(self.organization.is_member_join_email_enabled, True)
 
     def test_update_organization_if_owner(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -119,7 +119,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
-        self.assertEqual(self.organization.is_member_join_email_enabled, False)
+        self.assertEqual(self.organization.is_member_join_email_enabled, True)
 
     def test_cannot_update_organization_if_not_owner_or_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

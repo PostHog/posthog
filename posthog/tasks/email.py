@@ -247,9 +247,14 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
             "organization_name": organization.name,
         },
     )
-    # Don't send this email to the new member themselves
-    members_to_email = organization.members.exclude(email=invitee.email)
-    if members_to_email:
+    # Don't send this email to the new member themselves; respect per-user org notification prefs
+    org_id_str = str(organization_id)
+    members_to_email = [
+        user
+        for user in organization.members.exclude(email=invitee.email)
+        if user.should_send_organization_member_join_email(org_id_str)
+    ]
+    if len(members_to_email) > 0:
         for user in members_to_email:
             message.add_user_recipient(user)
         message.send()
