@@ -60,6 +60,8 @@ Typical action names:
 - delete
 Example regex for search: execute-sql or experiment.
 
+{group_types}
+
 {guidelines}
 
 ### Examples

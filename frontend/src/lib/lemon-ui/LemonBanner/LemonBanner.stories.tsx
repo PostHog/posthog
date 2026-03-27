@@ -32,7 +32,7 @@ WideTemplate.parameters = {
 }
 
 export const Info: Story = WideTemplate.bind({})
-Info.args = { type: 'info', children: 'PSA: Every dish can be improved by adding more garlic.' }
+Info.args = { type: 'info', children: 'PSA: Every dish can be improved by adding more butter.' }
 
 export const Warning: Story = WideTemplate.bind({})
 Warning.args = { type: 'warning', children: 'This spacecraft is about to explode. Please evacuate immediately.' }

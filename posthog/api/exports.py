@@ -19,15 +19,17 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import groups
-from posthog.models import Insight, User
+from posthog.event_usage import EventSource, get_event_source, groups
+from posthog.models import Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
-from posthog.tasks import exporter
+from posthog.slo.events import emit_slo_started
+from posthog.slo.types import SloArea, SloOperation, SloStartedProperties
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
 VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
@@ -230,20 +232,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
                         raise
             else:
-                exporter.export_asset(instance.id)
+                self._start_export_workflow(instance, team, user, force_async=False)
         else:
-            task = exporter.export_asset.delay(instance.id)
-            posthoganalytics.capture(
-                distinct_id=user.distinct_id if user else str(team.uuid),
-                event="export queued",
-                properties={
-                    **instance.get_analytics_metadata(),
-                    "force_async": force_async,
-                    "reason": reason,
-                    "task_id": task.id,
-                },
-                groups=groups(team.organization, team),
-            )
+            self._start_export_workflow(instance, team, user, force_async=True)
 
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(team.uuid),
@@ -294,6 +285,65 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 )
                 pass
         return instance
+
+    def _start_export_workflow(
+        self, instance: ExportedAsset, team: Team, user: User | None, force_async: bool = False
+    ) -> None:
+        request = self.context.get("request")
+        source = get_event_source(request) if request else EventSource.EXPORT
+        distinct_id = str(user.distinct_id) if user else str(team.id)
+
+        emit_slo_started(
+            distinct_id=distinct_id,
+            properties=SloStartedProperties(
+                operation=SloOperation.EXPORT,
+                resource_id=str(instance.id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=team.id,
+            ),
+            extra_properties={
+                "source": source,
+                "export_format": instance.export_format,
+            },
+        )
+
+        workflow_inputs = ExportAssetWorkflowInputs(
+            exported_asset_id=instance.id,
+            team_id=team.id,
+            distinct_id=distinct_id,
+            export_format=instance.export_format,
+        )
+
+        async def _run():
+            client = await async_connect()
+            method = client.start_workflow if force_async else client.execute_workflow
+            await method(
+                ExportAssetWorkflow.run,
+                workflow_inputs,
+                id=f"export-asset-{instance.id}",
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+                execution_timeout=timedelta(minutes=35),
+            )
+
+        try:
+            async_to_sync(_run)()
+        except Exception as e:
+            # Swallow workflow failures so the API always returns a 201 with the
+            # ExportedAsset record. export_asset_direct populates the exception
+            # field before re-raising, so callers (frontend toast, sharing
+            # endpoint) can inspect the failure on the asset itself.
+            logger.info(
+                "export_workflow_failed_gracefully",
+                asset_id=instance.id,
+                error=str(e),
+            )
+            return
+
+        logger.info(
+            "export_workflow_dispatched" if force_async else "export_workflow_completed",
+            asset_id=instance.id,
+        )
 
 
 @extend_schema(tags=["core"])

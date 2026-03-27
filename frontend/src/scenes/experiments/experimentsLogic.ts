@@ -517,6 +517,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['tab'] = values.tab
             }
 
+            // Preserve the activity deep-link param only when on the history tab
+            const currentActivity = router.values.searchParams['activity']
+            if (currentActivity && values.tab === ExperimentsTabs.History) {
+                searchParams['activity'] = currentActivity
+            }
+
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 

@@ -63,6 +63,7 @@ PRODUCTS_APPS = [
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
 ]
 
@@ -368,7 +369,7 @@ SPECTACULAR_SETTINGS = {
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "DashboardRestrictionLevel": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
