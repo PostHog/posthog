@@ -6,8 +6,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0008_alter_signalsourceconfig_source_product_and_more"),
-        ("tasks", "0021_alter_task_origin_product"),
+        ("signals", "0011_add_error_tracking_signal_types"),
+        ("tasks", "0024_task_title_manually_set"),
     ]
 
     operations = [
