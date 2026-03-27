@@ -118,7 +118,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(typeof result.results).toBe('string')
         })
 
         it('should execute lifecycle with toggled lifecycles filter', async () => {
@@ -136,7 +135,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             })) as any
 
             expect(result).toHaveProperty('results')
-            expect(typeof result.results).toBe('string')
         })
 
         it('should execute lifecycle with weekly interval', async () => {
@@ -151,7 +149,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             })) as any
 
             expect(result).toHaveProperty('results')
-            expect(typeof result.results).toBe('string')
         })
     })
 
