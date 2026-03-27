@@ -550,12 +550,14 @@ class EnterpriseExperimentsViewSet(
         if target_team.organization_id != self.team.organization_id:
             return Response({"detail": "Target project must be in the same organization."}, status=403)
 
+        from posthog.models.organization import OrganizationMembership
         from posthog.user_permissions import UserPermissions
 
         user_permissions = UserPermissions(user=cast(User, request.user))
-        accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
-        if target_team.id not in accessible_team_ids:
-            return Response({"detail": "You do not have access to the target project."}, status=403)
+        target_team_permissions = user_permissions.team(target_team)
+        effective_level = target_team_permissions.effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+            return Response({"detail": "You do not have write access to the target project."}, status=403)
 
         feature_flag_key = request.data.get("feature_flag_key")
 
