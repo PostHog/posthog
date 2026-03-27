@@ -90,11 +90,30 @@ The default aggregation for stickiness is unique persons. You can change how use
 
 - `dau` or omit math — count unique persons (default behavior; both resolve to person_id aggregation)
 - `unique_group` — count unique groups (requires `math_group_type_index` to be set to the group type index from the group mapping)
+- `hogql` — custom HogQL expression (requires `math_hogql` to be set to a valid HogQL aggregation expression, e.g. `count(distinct properties.$session_id)`)
+
+## Stickiness criteria
+
+Use `stickinessFilter.stickinessCriteria` to filter which intervals count based on event frequency within each interval. This applies a HAVING clause to the inner aggregation.
+
+- `operator` — one of `gte` (greater than or equal), `lte` (less than or equal), `exact` (exactly equal)
+- `value` — the threshold count
+
+For example, to only count intervals where the user performed the event at least 3 times, set `stickinessCriteria: { "operator": "gte", "value": 3 }`.
+
+## Cumulative mode
+
+Use `stickinessFilter.computedAs` to change how stickiness is computed:
+
+- `non_cumulative` (default) — each bar shows users active on **exactly** N intervals
+- `cumulative` — each bar shows users active on **N or more** intervals
 
 ## Time interval
 
 Specify the time interval using the `interval` field. Available intervals are: `hour`, `day`, `week`, `month`.
 Unless the user has specified otherwise, use `day` as the default interval.
+
+Use `intervalCount` to group multiple base intervals into a single period. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods. Defaults to 1.
 
 ## Compare
 
@@ -140,6 +159,36 @@ Use `compareFilter` with `compare: true` to show the current and previous period
   "properties": [{ "key": "paidCustomer", "operator": "exact", "type": "person", "value": ["true"] }],
   "compareFilter": { "compare": true },
   "filterTestAccounts": true
+}
+```
+
+## Stickiness with criteria: only count days with 3+ events
+
+```json
+{
+  "kind": "StickinessQuery",
+  "series": [{ "kind": "EventsNode", "event": "$pageview" }],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day",
+  "filterTestAccounts": true,
+  "stickinessFilter": {
+    "stickinessCriteria": { "operator": "gte", "value": 3 }
+  }
+}
+```
+
+## Cumulative stickiness: users active on N or more days
+
+```json
+{
+  "kind": "StickinessQuery",
+  "series": [{ "kind": "EventsNode", "event": "feature used" }],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day",
+  "filterTestAccounts": true,
+  "stickinessFilter": {
+    "computedAs": "cumulative"
+  }
 }
 ```
 

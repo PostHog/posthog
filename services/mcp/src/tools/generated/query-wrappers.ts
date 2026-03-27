@@ -792,6 +792,12 @@ const AssistantStickinessEventsNode = z.object({
     kind: z.literal('EventsNode').default('EventsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
@@ -805,6 +811,12 @@ const AssistantStickinessActionsNode = z.object({
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
@@ -816,7 +828,16 @@ const AssistantStickinessNode = z.union([AssistantStickinessEventsNode, Assistan
 
 const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar', 'ActionsAreaGraph'])
 
+const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
+
+const StickinessComputationMode = z.enum(['non_cumulative', 'cumulative'])
+
 const AssistantStickinessFilter = z.object({
+    computedAs: StickinessComputationMode.describe(
+        'Computation mode. `non_cumulative` (default) shows users active on exactly N intervals. `cumulative` shows users active on N or more intervals.'
+    )
+        .default('non_cumulative')
+        .optional(),
     display: AssistantStickinessDisplayType.describe(
         'Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart.'
     )
@@ -827,6 +848,15 @@ const AssistantStickinessFilter = z.object({
         .boolean()
         .describe('Whether to show a value on each data point.')
         .default(false)
+        .optional(),
+    stickinessCriteria: z
+        .object({
+            operator: StickinessOperator,
+            value: integer,
+        })
+        .describe(
+            'Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times.'
+        )
         .optional(),
 })
 
@@ -845,6 +875,11 @@ const AssistantStickinessQuery = z.object({
         'Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one "interval" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days.'
     )
         .default('day')
+        .optional(),
+    intervalCount: integer
+        .describe(
+            'How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.'
+        )
         .optional(),
     kind: z.literal('StickinessQuery').default('StickinessQuery'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
