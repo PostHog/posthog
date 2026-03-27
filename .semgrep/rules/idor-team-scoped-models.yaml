@@ -61,6 +61,7 @@ rules:
                               |AlertConfiguration
                               |Annotation
                               |ApprovalPolicy
+                              |Artifact
                               |BatchExport
                               |BatchExportBackfill
                               |BatchImport
@@ -153,6 +154,8 @@ rules:
                               |QuickFilterContext
                               |Repo
                               |RepoRoutingRule
+                              |Run
+                              |RunSnapshot
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -242,6 +245,7 @@ rules:
                         |AlertConfiguration
                         |Annotation
                         |ApprovalPolicy
+                        |Artifact
                         |BatchExport
                         |BatchExportBackfill
                         |BatchImport
@@ -332,6 +336,8 @@ rules:
                         |QuickFilterContext
                         |Repo
                         |RepoRoutingRule
+                        |Run
+                        |RunSnapshot
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap

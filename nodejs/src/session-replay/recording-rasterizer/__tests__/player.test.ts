@@ -1,139 +1,212 @@
-import { buildPlayerConfig, fetchBlockList } from '../capture/player'
-import { RasterizationError } from '../errors'
-import { RasterizeRecordingInput } from '../types'
+import type { PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
+import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 
-const mockInternalFetch = jest.fn()
-jest.mock('../../../utils/request', () => ({
-    internalFetch: (...args: any[]) => mockInternalFetch(...args),
+import { BlockProxy } from '../capture/block-proxy'
+import { CapturePage } from '../capture/capture-page'
+import { PlayerController } from '../capture/player'
+import { RasterizationError } from '../errors'
+
+jest.mock('../capture/request-interceptor', () => ({
+    RequestInterceptor: jest.fn().mockImplementation(() => ({
+        install: jest.fn().mockResolvedValue(undefined),
+        waitForSettled: jest.fn().mockResolvedValue(undefined),
+    })),
 }))
 
-function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
+jest.mock('../logger', () => ({
+    createLogger: () => ({
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+        debug: jest.fn(),
+        child: jest.fn().mockReturnThis(),
+    }),
+}))
+
+const playerUrl = 'http://localhost:8000/player'
+const playerHtml = '<html>player</html>'
+
+function mockCapturePage() {
+    let emitFn: ((msg: PlayerMessage) => void) | null = null
+
+    const page = {
+        exposeFunction: jest.fn().mockImplementation((name: string, fn: any) => {
+            if (name === PLAYER_EMIT_FN) {
+                emitFn = fn
+            }
+            return Promise.resolve()
+        }),
+        evaluateOnNewDocument: jest.fn().mockResolvedValue(undefined),
+        goto: jest.fn().mockResolvedValue(undefined),
+        evaluate: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const capturePage = { page, playerUrl, playerHtml } as unknown as CapturePage
+
     return {
-        session_id: 'test-session-123',
-        team_id: 1,
-        s3_bucket: 'test-bucket',
-        s3_key_prefix: 'exports/mp4/team-1/task-1',
+        capturePage,
+        page,
+        _emit(msg: PlayerMessage) {
+            emitFn?.(msg)
+        },
+    }
+}
+
+const mockBlockProxy = {} as unknown as BlockProxy
+
+function basePlayerConfig(overrides: Partial<PlayerConfig> = {}): PlayerConfig {
+    return {
+        teamId: 1,
+        sessionId: 'test-session',
+        playbackSpeed: 4,
+        blockCount: 0,
+        skipInactivity: true,
+        mouseTail: true,
+        viewportEvents: [],
         ...overrides,
     }
 }
 
-const testCfg = {
-    recordingApiBaseUrl: 'http://localhost:6738',
-    recordingApiSecret: 'test-secret',
-} as any
+describe('PlayerController', () => {
+    it('load() sets up exposeFunction, evaluateOnNewDocument, and navigates', async () => {
+        const { capturePage, page } = mockCapturePage()
+        const controller = new PlayerController(capturePage, mockBlockProxy)
 
-describe('fetchBlockList', () => {
-    afterEach(() => {
-        jest.restoreAllMocks()
-        mockInternalFetch.mockReset()
+        await controller.load(basePlayerConfig())
+
+        expect(page.exposeFunction).toHaveBeenCalledWith(PLAYER_EMIT_FN, expect.any(Function))
+        expect(page.evaluateOnNewDocument).toHaveBeenCalledWith(
+            expect.any(Function),
+            PLAYER_CONFIG_KEY,
+            expect.objectContaining({ sessionId: 'test-session' })
+        )
+        expect(page.goto).toHaveBeenCalledWith(playerUrl, {
+            waitUntil: 'load',
+            timeout: 30000,
+        })
     })
 
-    it('returns parsed blocks on success', async () => {
-        const blocks = [
-            { key: 'recordings/block-0', start_byte: 0, end_byte: 1000 },
-            { key: 'recordings/block-1', start_byte: 0, end_byte: 2000 },
+    it('waitForStart() resolves when player sends started message', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
+
+        mp._emit({ type: 'started' })
+
+        await expect(startPromise).resolves.toBeUndefined()
+    })
+
+    it('waitForStart() resets timeout on loading_progress messages', async () => {
+        jest.useFakeTimers()
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig(), 1000)
+
+        // Advance 800ms — almost at timeout
+        jest.advanceTimersByTime(800)
+        // Progress resets the timer
+        mp._emit({ type: 'loading_progress', loaded: 1, total: 5 })
+
+        // Advance another 800ms — would have timed out without reset
+        jest.advanceTimersByTime(800)
+        // Still alive — send started
+        mp._emit({ type: 'started' })
+
+        await expect(startPromise).resolves.toBeUndefined()
+        jest.useRealTimers()
+    })
+
+    it('waitForStart() rejects on timeout when no progress', async () => {
+        jest.useFakeTimers()
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig({ sessionId: 'sess-abc' }), 1000)
+
+        jest.advanceTimersByTime(1001)
+
+        await expect(startPromise).rejects.toThrow('Recording did not start for session sess-abc')
+        await expect(startPromise).rejects.toBeInstanceOf(RasterizationError)
+        jest.useRealTimers()
+    })
+
+    it('waitForStart() rejects when player sends error message', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
+
+        mp._emit({
+            type: 'error',
+            code: 'NO_SNAPSHOTS',
+            message: 'No snapshot data found',
+            retryable: false,
+        })
+
+        await expect(startPromise).rejects.toThrow('[NO_SNAPSHOTS] No snapshot data found')
+        await expect(startPromise).rejects.toBeInstanceOf(RasterizationError)
+    })
+
+    it('isEnded() returns true after ended message', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
+
+        expect(controller.isEnded()).toBe(false)
+        mp._emit({ type: 'ended' })
+        expect(controller.isEnded()).toBe(true)
+    })
+
+    it('getError() returns stored error from message received outside active promise', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
+
+        expect(controller.getError()).toBeNull()
+
+        mp._emit({
+            type: 'error',
+            code: 'PLAYBACK_ERROR',
+            message: 'rendering failed',
+            retryable: true,
+        })
+
+        const err = controller.getError()
+        expect(err).toBeInstanceOf(RasterizationError)
+        expect(err!.message).toBe('[PLAYBACK_ERROR] rendering failed')
+        expect(err!.code).toBe('PLAYBACK_ERROR')
+        expect(err!.retryable).toBe(true)
+    })
+
+    it('getInactivityPeriods() returns periods from player', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
+
+        expect(controller.getInactivityPeriods()).toEqual([])
+
+        const periods = [
+            { ts_from_s: 0, ts_to_s: 5, active: true },
+            { ts_from_s: 5, ts_to_s: 15, active: false },
         ]
+        mp._emit({ type: 'inactivity_periods', periods })
 
-        mockInternalFetch.mockResolvedValue({
-            status: 200,
-            json: jest.fn().mockResolvedValue({ blocks }),
-        })
-
-        const result = await fetchBlockList(baseInput(), testCfg)
-        expect(result).toEqual(blocks)
-        expect(mockInternalFetch).toHaveBeenCalledWith(
-            'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
-            { headers: { 'X-Internal-Api-Secret': 'test-secret' } }
-        )
+        expect(controller.getInactivityPeriods()).toEqual(periods)
     })
 
-    it('throws RasterizationError on non-ok response', async () => {
-        mockInternalFetch.mockResolvedValue({
-            status: 404,
-            text: jest.fn().mockResolvedValue('session not found'),
-        })
+    it('startPlayback() dispatches the start event', async () => {
+        const { capturePage, page } = mockCapturePage()
+        const controller = new PlayerController(capturePage, mockBlockProxy)
+        await controller.load(basePlayerConfig())
 
-        await expect(fetchBlockList(baseInput(), testCfg)).rejects.toThrow(RasterizationError)
-        await expect(fetchBlockList(baseInput(), testCfg)).rejects.toThrow('Failed to fetch block listing: 404')
-    })
+        await controller.startPlayback()
 
-    it.each([
-        [500, true],
-        [403, false],
-    ])('marks %i response as retryable=%s', async (status, expectedRetryable) => {
-        mockInternalFetch.mockResolvedValue({
-            status,
-            text: jest.fn().mockResolvedValue('error body'),
-        })
-
-        await expect(fetchBlockList(baseInput(), testCfg)).rejects.toMatchObject({
-            retryable: expectedRetryable,
-            code: 'BLOCK_LISTING_FAILED',
-        })
-    })
-
-    it('throws on invalid blocks response', async () => {
-        mockInternalFetch.mockResolvedValue({
-            status: 200,
-            json: jest.fn().mockResolvedValue({ blocks: 'not-an-array' }),
-        })
-
-        await expect(fetchBlockList(baseInput(), testCfg)).rejects.toThrow('Invalid block listing response')
-    })
-})
-
-describe('buildPlayerConfig', () => {
-    it('includes session_id and team_id', () => {
-        const result = buildPlayerConfig(baseInput({ session_id: 'abc-123', team_id: 42 }), 4, 5)
-        expect(result.sessionId).toBe('abc-123')
-        expect(result.teamId).toBe(42)
-    })
-
-    it('sets skipInactivity and playbackSpeed', () => {
-        const result = buildPlayerConfig(baseInput(), 8, 5)
-        expect(result.skipInactivity).toBe(true)
-        expect(result.playbackSpeed).toBe(8)
-    })
-
-    it('passes showMetadataFooter flag', () => {
-        const result = buildPlayerConfig(baseInput({ show_metadata_footer: true }), 4, 5)
-        expect(result.showMetadataFooter).toBe(true)
-    })
-
-    it('passes startTimestamp and endTimestamp', () => {
-        const result = buildPlayerConfig(
-            baseInput({ start_timestamp: 1700000000000, end_timestamp: 1700000060000 }),
-            4,
-            5
-        )
-        expect(result.startTimestamp).toBe(1700000000000)
-        expect(result.endTimestamp).toBe(1700000060000)
-    })
-
-    it('omits startTimestamp and endTimestamp when not provided', () => {
-        const result = buildPlayerConfig(baseInput(), 4, 5)
-        expect(result.startTimestamp).toBeUndefined()
-        expect(result.endTimestamp).toBeUndefined()
-    })
-
-    it('passes skipInactivity=false when explicitly disabled', () => {
-        const result = buildPlayerConfig(baseInput({ skip_inactivity: false }), 4, 5)
-        expect(result.skipInactivity).toBe(false)
-    })
-
-    it('passes mouseTail=false when explicitly disabled', () => {
-        const result = buildPlayerConfig(baseInput({ mouse_tail: false }), 4, 5)
-        expect(result.mouseTail).toBe(false)
-    })
-
-    it('passes viewport events', () => {
-        const events = [{ timestamp: 1000, width: 1920, height: 1080 }]
-        const result = buildPlayerConfig(baseInput({ viewport_events: events }), 4, 5)
-        expect(result.viewportEvents).toEqual(events)
-    })
-
-    it('does not include recording API secret in player config', () => {
-        const result = buildPlayerConfig(baseInput(), 4, 5)
-        expect(result).not.toHaveProperty('recordingApiSecret')
+        expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function), PLAYER_START_EVENT)
     })
 })

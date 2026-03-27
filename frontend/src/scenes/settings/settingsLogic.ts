@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -87,6 +88,8 @@ export const settingsLogic = kea<settingsLogicType>([
             ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
+            organizationLogic,
+            ['currentOrganization'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
@@ -245,6 +248,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.doesMatchFlags,
                 s.isCloudOrDev,
                 s.currentTeam,
+                s.currentOrganization,
                 s.organizationIntegrations,
                 s.preflight,
                 s.canAccessBilling,
@@ -253,6 +257,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 doesMatchFlags,
                 isCloudOrDev,
                 currentTeam,
+                currentOrganization,
                 organizationIntegrations,
                 preflight,
                 canAccessBilling
@@ -286,6 +291,11 @@ export const settingsLogic = kea<settingsLogicType>([
 
                     return true
                 })
+
+                // If there's no current organization, hide everything except user sections
+                if (!currentOrganization) {
+                    return sections.filter((section) => section.level === 'user')
+                }
 
                 // If there's no current team, hide project and environment sections entirely
                 if (!currentTeam) {
