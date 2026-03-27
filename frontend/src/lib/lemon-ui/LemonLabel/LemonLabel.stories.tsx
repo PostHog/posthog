@@ -32,8 +32,8 @@ const Template: StoryFn<typeof LemonLabel> = (props: LemonLabelProps) => {
 
 export const Basic: Story = Template.bind({})
 Basic.args = {
-    info: 'This field is required',
-    showOptional: false,
+    info: 'This field is optional',
+    showOptional: true,
     children: 'Label',
 }
 
