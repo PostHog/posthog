@@ -124,6 +124,14 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showYAxisBorder: value })
                                     }}
                                 />
+                                <LemonSwitch
+                                    className="flex-1 w-full"
+                                    label="Show values on series"
+                                    checked={chartSettings.showValuesOnSeries ?? false}
+                                    onChange={(value) => {
+                                        updateChartSettings({ showValuesOnSeries: value })
+                                    }}
+                                />
                             </>
                         ),
                     },

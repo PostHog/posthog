@@ -5,7 +5,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
-import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
+import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -153,6 +153,7 @@ export const LineGraph = ({
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
+    const showValuesOnSeries = chartSettings.showValuesOnSeries ?? false
 
     const MAX_SERIES = 200
     const ySeriesData = useMemo(() => {
@@ -367,13 +368,28 @@ export const LineGraph = ({
                         backgroundColor: (context) => {
                             return (context.dataset.borderColor as string) || 'black'
                         },
-                        display: () => {
-                            return false
+                        display: (context) => {
+                            const datum = context.dataset.data[context.dataIndex]
+                            return showValuesOnSeries && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                         },
-                        formatter: () => {},
+                        formatter: (value, context) => {
+                            if (typeof value !== 'number' || value === 0) {
+                                return ''
+                            }
+
+                            if (isStackedBarChart && chartSettings.stackBars100) {
+                                const data = context.chart?.data as ExtendedChartData
+                                const percentageValue = data.calculatedData?.[context.datasetIndex]?.[context.dataIndex]
+
+                                return typeof percentageValue === 'number' ? `${percentageValue.toFixed(1)}%` : ''
+                            }
+
+                            return formatDataWithSettings(value, ySeriesData[context.datasetIndex]?.settings) ?? ''
+                        },
                         borderWidth: 2,
                         borderRadius: 4,
                         borderColor: 'white',
+                        clamp: true,
                     },
                     legend: {
                         display: chartSettings.showLegend ?? false,
@@ -665,6 +681,10 @@ export const LineGraph = ({
                           }
                         : {}),
                 },
+            }
+
+            if (showValuesOnSeries && !isBarChart) {
+                options.layout = { padding: { right: 30 } }
             }
 
             return {
