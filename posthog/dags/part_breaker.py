@@ -1200,14 +1200,20 @@ def break_part(
 @dagster.op
 def report_results(
     context: dagster.OpExecutionContext,
+    config: PartBreakerConfig,
     results: list[Optional[BreakResult]],
 ):
     """Summarize the results of the part breaking run."""
     completed = [r for r in results if r is not None]
     failed_count = len(results) - len(completed)
 
+    if config.dry_run:
+        context.log.info(f"DRY RUN complete — checked {len(results)} part(s), no modifications made")
+        context.add_output_metadata({"parts_checked": len(results), "status": "dry_run"})
+        return
+
     if not completed and failed_count == 0:
-        context.log.info("No parts were processed (dry run or nothing to do)")
+        context.log.info("No parts were processed (nothing to do)")
         context.add_output_metadata({"parts_processed": 0, "status": "no_work"})
         return
 
