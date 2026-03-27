@@ -1,13 +1,13 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ensureAnchored } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
 import { uuid } from 'lib/utils'
 
 import { SessionRecordingTriggerGroup, UrlTriggerConfig } from '~/lib/components/IngestionControls/types'
 
-import { replayTriggersV2Logic } from './replayTriggersV2Logic'
 import type { triggerGroupFormLogicType } from './triggerGroupFormLogicType'
 
 function isValidRegex(pattern: string): boolean {
@@ -29,14 +29,11 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
     path(['scenes', 'settings', 'environment', 'replayTriggers', 'triggerGroupFormLogic']),
     props({} as TriggerGroupFormLogicProps),
     key((props) => props.group?.id || 'new'),
-    connect({
-        values: [replayTriggersV2Logic, ['triggerGroups']],
-    }),
     actions({
         setIsAddingUrl: (isAdding: boolean) => ({ isAdding }),
         setNewUrl: (url: string) => ({ url }),
         setTestUrl: (url: string) => ({ url }),
-        addUrl: true,
+        addUrl: (url: string) => ({ url }),
         removeUrl: (url: string) => ({ url }),
         removeEvent: (event: string) => ({ event }),
         addFlag: (_id: number, key: string) => ({ key }),
@@ -87,11 +84,8 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
                 urls: UrlTriggerConfig[]
                 flag: string | null
             },
-            errors: ({ name, urls }) => ({
+            errors: ({ name }) => ({
                 name: !name?.trim() ? 'Group name is required' : undefined,
-                urls: urls.some((urlConfig) => !isValidRegex(urlConfig.url))
-                    ? 'One or more URL patterns are invalid'
-                    : undefined,
             }),
             submit: async (formValues) => {
                 const savedGroup: SessionRecordingTriggerGroup = {
@@ -110,31 +104,31 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
             },
         },
     })),
-    selectors({
-        isEditing: [(_, p) => [p.group], (group): boolean => !!group],
-    }),
     listeners(({ actions, values }) => ({
-        addUrl: () => {
-            const trimmedUrl = values.newUrl.trim()
+        addUrl: ({ url }) => {
+            const trimmedUrl = url.trim()
             if (!trimmedUrl) {
                 return
             }
 
             // Validate regex pattern
             if (!isValidRegex(trimmedUrl)) {
-                lemonToast.error('Invalid regex pattern. Please check your syntax.')
+                lemonToast.error('Invalid regex pattern. Please check your syntax.', { hideButton: true })
                 return
             }
 
+            // Apply anchoring like V1
+            const anchoredUrl = ensureAnchored(trimmedUrl)
+
             // Check for duplicates
-            if (values.triggerGroup.urls.find((u) => u.url === trimmedUrl)) {
+            if (values.triggerGroup.urls.find((u) => u.url === anchoredUrl)) {
                 lemonToast.warning('This URL pattern has already been added')
                 return
             }
 
             actions.setTriggerGroupValue('urls', [
                 ...values.triggerGroup.urls,
-                { url: trimmedUrl, matching: 'regex' as const },
+                { url: anchoredUrl, matching: 'regex' as const },
             ])
         },
         removeUrl: ({ url }) => {

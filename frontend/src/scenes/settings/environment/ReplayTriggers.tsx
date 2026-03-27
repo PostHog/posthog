@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
 // TODO: Update once the SDK version supporting trigger groups v2 is released
-const TRIGGER_GROUPS_MIN_SDK_VERSION = 'X'
+export const TRIGGER_GROUPS_MIN_SDK_VERSION = 'X'
 
 function TriggerPanelHeader({
     title,

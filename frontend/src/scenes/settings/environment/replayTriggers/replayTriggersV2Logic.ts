@@ -107,36 +107,25 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ asyncActions }) => ({
         addTriggerGroup: async () => {
             // Auto-save after adding
-            try {
-                await actions.saveConfig()
-                lemonToast.success('Trigger group saved')
-            } catch (error) {
-                lemonToast.error('Failed to save trigger group. Please try again.')
-                console.error('Error saving trigger group:', error)
-            }
+            await asyncActions.saveConfig()
         },
         deleteTriggerGroup: async () => {
             // Auto-save after deleting
-            try {
-                await actions.saveConfig()
-                lemonToast.success('Trigger group deleted')
-            } catch (error) {
-                lemonToast.error('Failed to delete trigger group. Please try again.')
-                console.error('Error deleting trigger group:', error)
-            }
+            await asyncActions.saveConfig()
         },
         updateTriggerGroup: async () => {
             // Auto-save after updating
-            try {
-                await actions.saveConfig()
-                lemonToast.success('Trigger group updated')
-            } catch (error) {
-                lemonToast.error('Failed to update trigger group. Please try again.')
-                console.error('Error updating trigger group:', error)
-            }
+            await asyncActions.saveConfig()
+        },
+        saveConfigSuccess: () => {
+            lemonToast.success('Trigger group saved')
+        },
+        saveConfigFailure: ({ error }) => {
+            lemonToast.error('Failed to save trigger group. Please try again.')
+            console.error('Error saving trigger group:', error)
         },
     })),
     // Load config from currentTeam on mount

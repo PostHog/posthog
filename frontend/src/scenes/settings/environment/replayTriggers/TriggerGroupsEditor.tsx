@@ -11,13 +11,11 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 
+import { TRIGGER_GROUPS_MIN_SDK_VERSION } from '../ReplayTriggers'
 import { Since } from '../SessionRecordingSettings'
 import { replayTriggersV2Logic } from './replayTriggersV2Logic'
 import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'
-
-// TODO: Update once the SDK version supporting trigger groups v2 is released
-const TRIGGER_GROUPS_MIN_SDK_VERSION = 'X'
 
 export function TriggerGroupsEditor(): JSX.Element {
     const { triggerGroups, isAddingGroup, editingGroupId } = useValues(replayTriggersV2Logic)
@@ -99,7 +97,7 @@ interface GroupFormProps {
 
 function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
     const logic = triggerGroupFormLogic({ group, onSave, onCancel })
-    const { triggerGroup, isEditing, isAddingUrl, newUrl, testUrl, isTriggerGroupSubmitting } = useValues(logic)
+    const { triggerGroup, isAddingUrl, newUrl, testUrl, isTriggerGroupSubmitting } = useValues(logic)
     const {
         setTriggerGroupValue,
         setIsAddingUrl,
@@ -185,34 +183,6 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                             </LemonButton>
                         </div>
 
-                        {isAddingUrl && (
-                            <div className="border rounded p-3 bg-bg-3000 mb-2">
-                                <LemonBanner type="info" className="text-sm mb-2">
-                                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do
-                                    not). This is because <code className="inline">https://example.com/</code> does not
-                                    only match the homepage. You'd need{' '}
-                                    <code className="inline">^https://example.com/$</code>
-                                </LemonBanner>
-                                <LemonLabel>Matching regex:</LemonLabel>
-                                <div className="flex gap-2 mt-1">
-                                    <LemonInput
-                                        value={newUrl}
-                                        onChange={setNewUrl}
-                                        onPressEnter={addUrl}
-                                        placeholder="e.g., /checkout/.*, ^https://example.com/page$"
-                                        fullWidth
-                                        autoFocus
-                                    />
-                                    <LemonButton type="secondary" onClick={() => setIsAddingUrl(false)}>
-                                        Cancel
-                                    </LemonButton>
-                                    <LemonButton type="primary" onClick={addUrl}>
-                                        Save
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        )}
-
                         {triggerGroup.urls.length > 0 && (
                             <>
                                 <div className="border rounded p-3 bg-bg-3000 mb-2">
@@ -250,8 +220,8 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                     {triggerGroup.urls.map((urlConfig) => (
                                         <div key={urlConfig.url} className="border rounded flex items-center p-2 pl-4">
                                             <span className="flex-1 truncate">
-                                                <span className="text-muted text-xs">Matches regex: </span>
-                                                <code className="text-sm">{urlConfig.url}</code>
+                                                <span>Matches regex: </span>
+                                                <span>{urlConfig.url}</span>
                                             </span>
                                             <LemonButton
                                                 icon={<IconTrash />}
@@ -265,6 +235,34 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                     ))}
                                 </div>
                             </>
+                        )}
+
+                        {isAddingUrl && (
+                            <div className="border rounded p-3 bg-bg-3000 mb-2">
+                                <LemonBanner type="info" className="text-sm mb-2">
+                                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do
+                                    not). This is because <code className="inline">https://example.com/</code> does not
+                                    only match the homepage. You'd need{' '}
+                                    <code className="inline">^https://example.com/$</code>
+                                </LemonBanner>
+                                <LemonLabel>Matching regex:</LemonLabel>
+                                <div className="flex gap-2 mt-1">
+                                    <LemonInput
+                                        value={newUrl}
+                                        onChange={setNewUrl}
+                                        onPressEnter={() => addUrl(newUrl)}
+                                        placeholder="e.g., /checkout/.*, ^https://example.com/page$"
+                                        fullWidth
+                                        autoFocus
+                                    />
+                                    <LemonButton type="secondary" onClick={() => setIsAddingUrl(false)}>
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton type="primary" onClick={() => addUrl(newUrl)}>
+                                        Save
+                                    </LemonButton>
+                                </div>
+                            </div>
                         )}
                     </div>
 
@@ -300,7 +298,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                         loading={isTriggerGroupSubmitting}
                         disabledReason={!triggerGroup.name.trim() ? 'Group name is required' : undefined}
                     >
-                        {isEditing ? 'Save Changes' : 'Add Group'}
+                        Save
                     </LemonButton>
                 </div>
             </div>

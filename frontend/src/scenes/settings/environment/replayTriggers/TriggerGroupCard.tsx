@@ -21,13 +21,13 @@ interface ConditionRowProps {
 function ConditionRow({ type, values, matchType, isFirst }: ConditionRowProps & { isFirst: boolean }): JSX.Element {
     const labels = {
         events: 'Event',
-        urls: 'URL',
+        urls: 'URL matches pattern',
         flag: 'Feature flag',
     }
 
     const actions = {
         events: 'occurred',
-        urls: 'matches pattern',
+        urls: '',
         flag: 'is enabled',
     }
 
