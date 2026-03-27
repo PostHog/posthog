@@ -3815,9 +3815,9 @@ snapshots:
     scenes-app-dashboards--list--light:
         hash: v1.k794b7964.c58e53f931c5a6e662c305976292c4216196fa84a9ee52765e767cc6efb33a50.w2BAVLBeni34eFQMuuGcEoUKfNCCn1kKI9_Y6_D-gnw
     scenes-app-dashboards--new--dark:
-        hash: v1.k794b7964.887257bb632eb4095490545f16a403f9c6c13f0d85aa4fc98a3616b1150185b3.4Mbpm8V5gAoKFTPA-VT06dyzlGQcExuHiSkoc_BN8FM
+        hash: v1.k794b7964.5d6db0b1fc413f7a1f2e47321c06b4c5bc271b0a18b55f4f0199af92d6f5b5eb.RX0kQp0CiNRWt3POKOkitEhkhrW_1MyBwxq4K4Ebbtk
     scenes-app-dashboards--new--light:
-        hash: v1.k794b7964.217ffb38daf6048928a7eda2e5ada4227f294e688a4c3c378e96fb9e81ec39cb.cQVfXVhPYrGISUw2LD_0eog03GdUn6V_PhNlUQyQSSI
+        hash: v1.k794b7964.8b30968fc1729ae8d284cdfd6eb1801596b3553114a464500ab7ff40288c9884.PuTYM6nRHLJewOGpIKzbWgoyoH-ToAs0TQRaJrWYvy0
     scenes-app-dashboards--new-select-variables--dark:
         hash: v1.k794b7964.1df34af2380790ba14e17a206368a4002f9034ad61d6643fa08d8b2c7f9cbf40.rPZydSd5HcKhLDzbpS2em72xeRq7QaqiVgmTSxlc668
     scenes-app-dashboards--new-select-variables--light:
@@ -4161,17 +4161,25 @@ snapshots:
     scenes-app-heatmaps-saved--list--light:
         hash: v1.k794b7964.f199565d46189ece2732988033b8c5697c8f09f4fd4413831ce7eacae229b820.8_KzI6onkr2fIfRS1-g2WfX_oZQszCS5KGZR-1jWwYw
     scenes-app-hogfunctions-destination--backfills-empty--dark:
-        hash: v1.k794b7964.108a2befd66f45672ed8d1e1be882ba540291a9bb41706e40e26ac8a8ec59421.lhi9Gyu0QXFxWrkDx3jW58zKaYIfdF8Rlbuk1eXUfh4
+        hash: v1.k794b7964.24e63fe88b70a555ac0465c25961458719855451fea8e9a45228f5d9c7cbb582.T450xoCdORKK86urgklV8IBpS_xv2UJNUKY6U1TVMj4
     scenes-app-hogfunctions-destination--backfills-empty--light:
-        hash: v1.k794b7964.7f3df028f908a10ff0428a374c6b6688d11e6ecdcbdcf7ff62abfb313d4f813e.ECUE5GQ7t8NqCDgrLY_KKf_WNwlFqLas8B8GD2p6lq4
+        hash: v1.k794b7964.fd329b209728e85d17d20749210a7ea50b9da55fe1142270dde237f89556bf9f.rflVaZTLsov0aYaOt6XTbYgjs5cML1BO0zkRBtZSvMs
     scenes-app-hogfunctions-destination--backfills-with-data--dark:
-        hash: v1.k794b7964.7bc3b283d5b9ecdc5159f7f2224a6acb4022b51f59619b5ef724cc0a6d4bb59a.LVudXfKtymOtKrGBk7sC4E5mrUFmUlXbAEW2LynqdqU
+        hash: v1.k794b7964.8799a55b99c5ce7e06501645ae7f4433bcbc763ee0a870dd0cb12d8153f24510.o132k0E1iOmpkmjfvDkuXxRUUZbEBQppAig8tHiDzps
     scenes-app-hogfunctions-destination--backfills-with-data--light:
-        hash: v1.k794b7964.26e61376e46531f1953398bf42b96ae913006ac10781a4690a649d87557043ab.pvcR9fgMfvbkGU-ADlW9zrTV4quoRvHeKSNLXmzrL3I
+        hash: v1.k794b7964.fe3b70722d5f58dd3f5cbd53d47e52ba400034f54199f4a67801293b864bc1ec.VGdsbRb5jkbkrOfRz655TLEBhNMMaO1wnh7qsRj3Vv0
     scenes-app-hogfunctions-destination--configuration--dark:
-        hash: v1.k794b7964.8ec05941b13a3be81bbbae2f0956de37bc546203932853b1df0485eb6bbae215.f9LueyMPV1l20kytidGWd9sGyM_XzD09JEQOC9BMPso
+        hash: v1.k794b7964.b1c1af53c0a648a989cc3e7567389e74b0626f269133254b862f3b641c35905e.FXN00w3PSSscrHc2QC-mc97qGwh1a8dnVDL1OjegjJc
     scenes-app-hogfunctions-destination--configuration--light:
-        hash: v1.k794b7964.a9c7f64ede1509efe6a7c81309171afba40ed15e849156a5501a56ca4edb2f1b.PPCUJIpBksPBtNOsLGb2gF0-0Rr6_CmibpaSRz5dZH0
+        hash: v1.k794b7964.e16f7f589e20d284b3d920f52f4c6f663f233330c433d0089eac4c2e5937c4a8.4erwuYxi0HdTVRIQch3BpGdvImzdiyECz1ggJ4u2FAE
+    scenes-app-hogfunctions-destination--runs-empty--dark:
+        hash: v1.k794b7964.f73a4ce27231855f5cb5824111fad9531121ad7a7998143ba8224da742839777.AzV9BMcQhll58q568DXPAJUAXDfNyf8Rdg6FRsSSbTk
+    scenes-app-hogfunctions-destination--runs-empty--light:
+        hash: v1.k794b7964.523127570b79ff54cbc457ff43412909f06f88be2b1a2aef4df5ee9b9490bf95.ZJmL5qTpEAwUEic2DDyWLpfcXBYDkNkLStKD3_mJTo0
+    scenes-app-hogfunctions-destination--runs-with-data--dark:
+        hash: v1.k794b7964.58bbec6b029500e5bd870a49a7c638fdd80d68c70366f4cab3fbb30ae98109e4.0KpCASQxxEmLRwIonRNznd6r2A0Kzaj5n_njGQUo3CI
+    scenes-app-hogfunctions-destination--runs-with-data--light:
+        hash: v1.k794b7964.cbe9bb01a86a1bfdc1587cc6c06207b3164cd8d5d4435e5be6a6160ff04c1f47.MZ3ZT4Spwg1po5hMQ3_9gQKKIazS6CSdRU8LEz7KcIw
     scenes-app-insights--user-paths-edit--dark:
         hash: v1.k794b7964.a61b65e72baafd7ce69d4d6f6c0bd4095e6319748c5590c27428520941376003.7LlgEusK7dyL5i3XYpFJWUicOTkR9CIwGfld-A5P_kQ
     scenes-app-insights-boldnumber--compare-null-previous--dark:
