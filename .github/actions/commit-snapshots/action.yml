@@ -29,6 +29,10 @@ inputs:
     github-token:
         description: 'GitHub token for authentication'
         required: true
+    extra-files:
+        description: 'Additional file paths to include in the commit (space-separated)'
+        required: false
+        default: ''
 
 outputs:
     committed:
@@ -149,7 +153,7 @@ runs:
               commit_message: ${{ inputs.commit-message }}
               repo: ${{ inputs.repository }}
               branch: ${{ inputs.branch-name }}
-              file_pattern: ${{ inputs.snapshot-path }}
+              file_pattern: '${{ inputs.snapshot-path }} ${{ inputs.extra-files }}'
           env:
               GITHUB_TOKEN: ${{ inputs.github-token }}
 

@@ -670,7 +670,6 @@ jobs:
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR"
 
-            # Stage baseline if updated by VR submit — included in the snapshot commit
             - name: Check baseline changes
               id: check-baseline
               run: |
@@ -690,6 +689,7 @@ jobs:
                   workflow-type: storybook
                   patch-path: /tmp/snapshot-patches/
                   snapshot-path: frontend/__snapshots__/
+                  extra-files: frontend/snapshots.yml
                   commit-message: 'test(storybook): update UI snapshots'
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
