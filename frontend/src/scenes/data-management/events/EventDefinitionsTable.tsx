@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconApps, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
@@ -17,6 +17,7 @@ import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -37,12 +38,6 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
         label: 'PostHog events',
         'data-attr': 'event-type-option-event-posthog',
     },
-]
-
-const verifiedOptions: LemonSelectOptions<string> = [
-    { value: 'all', label: 'All', 'data-attr': 'verified-option-all' },
-    { value: 'verified', label: 'Verified only', 'data-attr': 'verified-option-verified' },
-    { value: 'unverified', label: 'Unverified only', 'data-attr': 'verified-option-unverified' },
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
@@ -191,13 +186,13 @@ export function EventDefinitionsTable(): JSX.Element {
                     />
                     <span>Verified:</span>
                     <LemonSelect
-                        value={filters.verified === undefined ? 'all' : filters.verified ? 'verified' : 'unverified'}
+                        value={verifiedFilterValue(filters.verified)}
                         options={verifiedOptions}
                         data-attr="event-verified-filter"
                         dropdownMatchSelectWidth={false}
                         onChange={(value) => {
                             setFilters({
-                                verified: value === 'all' ? undefined : value === 'verified' ? true : false,
+                                verified: verifiedFilterFromOption(value),
                             })
                         }}
                         size="small"

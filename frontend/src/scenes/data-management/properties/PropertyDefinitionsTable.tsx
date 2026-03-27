@@ -2,7 +2,7 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonSelectOptions, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,6 +12,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,12 +20,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
-
-const verifiedOptions: LemonSelectOptions<string> = [
-    { value: 'all', label: 'All', 'data-attr': 'verified-option-all' },
-    { value: 'verified', label: 'Verified only', 'data-attr': 'verified-option-verified' },
-    { value: 'unverified', label: 'Unverified only', 'data-attr': 'verified-option-unverified' },
-]
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
@@ -114,13 +109,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 />
                 <span>Verified:</span>
                 <LemonSelect
-                    value={filters.verified === undefined ? 'all' : filters.verified ? 'verified' : 'unverified'}
+                    value={verifiedFilterValue(filters.verified)}
                     options={verifiedOptions}
                     data-attr="property-verified-filter"
                     dropdownMatchSelectWidth={false}
                     onChange={(value) => {
                         setFilters({
-                            verified: value === 'all' ? undefined : value === 'verified' ? true : false,
+                            verified: verifiedFilterFromOption(value),
                         })
                     }}
                     size="small"
