@@ -327,6 +327,7 @@ class QueryCoalescingMiddleware:
                     status=data["status"],
                     content_type=data.get("content_type", "application/json"),
                 )
+            log.warning("query_coalescing_middleware_follower_done_read_failed")
 
         if signal == CoalesceSignal.ERROR:
             data = coalescer.get_error_response()
@@ -337,6 +338,7 @@ class QueryCoalescingMiddleware:
                     status=data["status"],
                     content_type="application/json",
                 )
+            log.warning("query_coalescing_middleware_follower_error_read_failed")
 
         if signal == CoalesceSignal.TIMEOUT:
             log.warning("query_coalescing_middleware_follower_timeout")
