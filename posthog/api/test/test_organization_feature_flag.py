@@ -8,13 +8,13 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.api.dashboards.dashboard import Dashboard
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.team.team import Team
 
+from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.surveys.backend.models import Survey
@@ -166,8 +166,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
                     }
                 ],
+                "aggregation_group_type_index": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
@@ -258,8 +260,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
                     }
                 ],
+                "aggregation_group_type_index": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
@@ -395,8 +399,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
                     }
                 ],
+                "aggregation_group_type_index": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,

@@ -1,18 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
+import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
+import { matchesSharedMetricSearch } from '../utils'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
@@ -48,9 +51,11 @@ export function SharedMetricModal({
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
     onDelete: (metric: SharedMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode } =
+    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode, searchTerm } =
         useValues(sharedMetricModalLogic)
-    const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
+    const { closeSharedMetricModal, setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricModalLogic)
+    const { savingTagsMetricId } = useValues(sharedMetricsLogic)
+    const { tags: allTags } = useValues(tagsModel)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
 
@@ -74,13 +79,13 @@ export function SharedMetricModal({
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
 
+    const searchLower = searchTerm.toLowerCase()
+    const filteredMetrics = searchTerm
+        ? availableSharedMetrics.filter((metric) => matchesSharedMetricSearch(metric, searchLower))
+        : availableSharedMetrics
+
     const availableTags = Array.from(
-        new Set(
-            availableSharedMetrics
-                .filter((metric: SharedMetric) => metric.tags)
-                .flatMap((metric: SharedMetric) => metric.tags)
-                .filter(Boolean)
-        )
+        new Set(filteredMetrics.flatMap((metric: SharedMetric) => metric.tags ?? []).filter(Boolean))
     ).sort()
 
     return (
@@ -146,15 +151,20 @@ export function SharedMetricModal({
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
+                            <LemonInput
+                                type="search"
+                                placeholder="Search shared metrics..."
+                                value={searchTerm}
+                                onChange={setSearchTerm}
+                                fullWidth
+                            />
                             <div className="flex flex-wrap gap-2">
                                 <LemonLabel>Quick select:</LemonLabel>
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
                                     onClick={() => {
-                                        setSelectedMetricIds(
-                                            availableSharedMetrics.map((metric: SharedMetric) => metric.id)
-                                        )
+                                        setSelectedMetricIds(filteredMetrics.map((metric: SharedMetric) => metric.id))
                                     }}
                                 >
                                     All
@@ -177,7 +187,7 @@ export function SharedMetricModal({
                                         type="secondary"
                                         onClick={() => {
                                             setSelectedMetricIds(
-                                                availableSharedMetrics
+                                                filteredMetrics
                                                     .filter((metric: SharedMetric) => metric.tags?.includes(tag))
                                                     .map((metric: SharedMetric) => metric.id)
                                             )
@@ -188,7 +198,7 @@ export function SharedMetricModal({
                                 ))}
                             </div>
                             <LemonTable
-                                dataSource={availableSharedMetrics}
+                                dataSource={filteredMetrics}
                                 columns={[
                                     {
                                         title: '',
@@ -224,7 +234,12 @@ export function SharedMetricModal({
                                         dataIndex: 'tags' as keyof SharedMetric,
                                         key: 'tags',
                                         render: (_: any, metric: SharedMetric) => (
-                                            <ObjectTags tags={metric.tags || []} staticOnly />
+                                            <InlineTagEditor
+                                                metric={metric}
+                                                allTags={allTags}
+                                                onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
+                                                saving={savingTagsMetricId === metric.id}
+                                            />
                                         ),
                                     },
                                     {

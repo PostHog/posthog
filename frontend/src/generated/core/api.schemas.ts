@@ -909,15 +909,6 @@ export interface DashboardTemplateApi {
     is_featured?: boolean
 }
 
-export interface PaginatedDashboardTemplateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardTemplateApi[]
-}
-
 export interface PatchedDashboardTemplateApi {
     readonly id?: string
     /**
@@ -1928,17 +1919,6 @@ export type CommentsListParams = {
      * The pagination cursor value.
      */
     cursor?: string
-}
-
-export type DashboardTemplatesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type ExportsListParams = {

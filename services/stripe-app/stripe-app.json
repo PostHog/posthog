@@ -89,7 +89,8 @@
     "account_configuration_schema": "{\"type\":\"object\",\"properties\":{\"region\":{\"type\":\"string\",\"enum\":[\"US\",\"EU\"],\"description\":\"Which PostHog region to connect the Stripe account to\"}},\"required\":[\"region\"],\"additionalProperties\":false}",
     "deep_link_purposes": [
       "dashboard"
-    ]
+    ],
+    "llm_context": "https://posthog.com/stripe/llm-context.md"
   },
   "ui_extension": {
     "views": [

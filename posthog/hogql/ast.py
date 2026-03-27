@@ -819,6 +819,10 @@ class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
 
+    def __post_init__(self):
+        if self.order not in ("ASC", "DESC"):
+            raise ValueError(f"Invalid order direction: {self.order}")
+
 
 @dataclass(kw_only=True)
 class ArrayAccess(Expr):
