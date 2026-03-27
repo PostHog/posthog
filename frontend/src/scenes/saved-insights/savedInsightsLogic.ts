@@ -255,8 +255,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.tab === SavedInsightsTabs.Yours && user
-                    ? { created_by: JSON.stringify([user.id]) }
+                ...(filters.tab === SavedInsightsTabs.Yours
+                    ? user
+                        ? { created_by: JSON.stringify([user.id]) }
+                        : {} // user not yet loaded - return nothing rather than all insights
                     : filters.createdBy !== 'All users'
                       ? { created_by: JSON.stringify(filters.createdBy) }
                       : {}),
