@@ -1165,7 +1165,9 @@ def report_results(
     )
 
     if failed_count > 0:
-        context.log.warning(f"{failed_count} part(s) failed — check individual op logs for details")
+        raise dagster.Failure(
+            description=f"{failed_count} part(s) failed out of {len(results)} — check individual op logs for details"
+        )
 
 
 def _cast_partition_id(partition_id: str):
@@ -1182,8 +1184,6 @@ def _cast_partition_id(partition_id: str):
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
-        # Disable slack alerts during initial validation — remove once stable
-        "disable_slack_notifications": True,
     },
     resource_defs=PART_BREAKER_RESOURCE_DEFS,
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": settings.PART_BREAKER_MAX_CONCURRENT}),
