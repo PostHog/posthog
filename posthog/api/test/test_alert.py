@@ -474,6 +474,54 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
 
+    @parameterized.expand(
+        [
+            (
+                "null_interval_rejected",
+                {"calculation_interval": None},
+                status.HTTP_400_BAD_REQUEST,
+                "weekly",
+                None,
+            ),
+            (
+                "omitted_interval_preserves_existing",
+                {"name": "renamed alert"},
+                status.HTTP_200_OK,
+                "weekly",
+                "renamed alert",
+            ),
+            (
+                "updated_interval_applied",
+                {"calculation_interval": "hourly"},
+                status.HTTP_200_OK,
+                "hourly",
+                "alert name",
+            ),
+        ]
+    )
+    def test_patch_calculation_interval(self, _name, patch_payload, expected_status, expected_interval, expected_name):
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+            "calculation_interval": "weekly",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        assert alert["calculation_interval"] == "weekly"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            patch_payload,
+            content_type="application/json",
+        )
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()["calculation_interval"] == expected_interval
+            assert response.json()["name"] == expected_name
+
 
 class TestAlertSimulate(APIBaseTest):
     def setUp(self):

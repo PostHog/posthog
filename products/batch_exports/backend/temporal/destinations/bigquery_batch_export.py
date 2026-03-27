@@ -997,6 +997,25 @@ class BigQueryClient:
                 await asyncio.sleep(backoff)
                 attempt += 1
 
+            except Forbidden as err:
+                if err.reason != "quotaExceeded" and "reason: quotaExceeded" not in str(err):
+                    raise
+
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                self.logger.exception("LoadJob quota exceeded", attempt=attempt, backoff=backoff, error_code=err.code)
+                self.external_logger.error(  # noqa: TRY400
+                    "BigQuery load job quota exceeded. This error will be retried in %d seconds, this is attempt number %d."
+                    " It may take several minutes or longer until the quota is restored, as it is restored over the course"
+                    " of 24 hours. If this happens frequently, consider contacting Google Cloud support to increase your quota.",
+                    backoff,
+                    attempt,
+                    attempt=attempt,
+                    backoff=backoff,
+                    error_code=err.code,
+                )
+                await asyncio.sleep(backoff)
+                attempt += 1
+
             else:
                 return result
 
@@ -1005,19 +1024,9 @@ class BigQueryClient:
 
         This method blocks and should only be run on an executor.
         """
-        try:
-            load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-            result = load_job.result()
-        except Forbidden as err:
-            if err.reason == "quotaExceeded":
-                self.external_logger.exception(
-                    "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
-                )
-                raise BigQueryQuotaExceededError(err.message) from err
-
-            raise
-        else:
-            return result
+        load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
+        result = load_job.result()
+        return result
 
 
 class MissingRequiredPermissionsError(Exception):

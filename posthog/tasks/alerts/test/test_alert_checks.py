@@ -1194,29 +1194,32 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
         else:
             check_alert_task(self.alert_id, self.team.id, calculation_interval)
 
-        mock_slo_started.assert_called_once_with(
-            distinct_id=self.alert_id,
-            properties=SloStartedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_CHECK,
-                team_id=self.team.id,
-                resource_id=self.alert_id,
-            ),
-            extra_properties={"calculation_interval": calculation_interval},
+        mock_slo_started.assert_called_once()
+        started_kwargs = mock_slo_started.call_args.kwargs
+        assert started_kwargs["distinct_id"] == self.alert_id
+        assert started_kwargs["properties"] == SloStartedProperties(
+            area=SloArea.ANALYTIC_PLATFORM,
+            operation=SloOperation.ALERT_CHECK,
+            team_id=self.team.id,
+            resource_id=self.alert_id,
         )
-        mock_slo_completed.assert_called_once_with(
-            distinct_id=self.alert_id,
-            properties=SloCompletedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_CHECK,
-                team_id=self.team.id,
-                resource_id=self.alert_id,
-                outcome=expected_outcome,
-                duration_ms=mock_slo_completed.call_args.kwargs["properties"].duration_ms,
-            ),
-            extra_properties={
-                "calculation_interval": calculation_interval,
-                **(expected_error_extra or {}),
-            },
+        assert started_kwargs["extra_properties"] == {"calculation_interval": calculation_interval}
+        assert started_kwargs["capture"] is not None  # ph_scoped_capture callable
+
+        mock_slo_completed.assert_called_once()
+        completed_kwargs = mock_slo_completed.call_args.kwargs
+        assert started_kwargs["capture"] is completed_kwargs["capture"]  # same scoped client for both
+        assert completed_kwargs["distinct_id"] == self.alert_id
+        assert completed_kwargs["properties"] == SloCompletedProperties(
+            area=SloArea.ANALYTIC_PLATFORM,
+            operation=SloOperation.ALERT_CHECK,
+            team_id=self.team.id,
+            resource_id=self.alert_id,
+            outcome=expected_outcome,
+            duration_ms=completed_kwargs["properties"].duration_ms,
         )
+        assert completed_kwargs["extra_properties"] == {
+            "calculation_interval": calculation_interval,
+            **(expected_error_extra or {}),
+        }
         assert mock_slo_completed.call_args.kwargs["properties"].duration_ms >= 0
