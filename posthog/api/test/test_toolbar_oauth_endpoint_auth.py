@@ -237,7 +237,7 @@ class TestToolbarOAuthBypassesPersonalApiKeyRestriction(APIBaseTest):
         self.client.logout()
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"}
         )
         assert response.status_code == 403, f"Personal API key should still be blocked, got {response.status_code}"
 
@@ -262,7 +262,7 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         self.client.logout()
         response = self.client.post(
             self._url(),
-            HTTP_AUTHORIZATION=f"Bearer {self.write_token.token}",
+            headers={"authorization": f"Bearer {self.write_token.token}"}
         )
         # Auth passes; request fails on missing file, not auth
         assert response.status_code != 401
@@ -271,7 +271,7 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         self.client.logout()
         response = self.client.post(
             self._url(),
-            HTTP_AUTHORIZATION=f"Bearer {self.read_token.token}",
+            headers={"authorization": f"Bearer {self.read_token.token}"}
         )
         assert response.status_code == 403
 
@@ -279,7 +279,7 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         self.client.logout()
         response = self.client.post(
             self._url(),
-            HTTP_AUTHORIZATION=f"Bearer {self.expired_token.token}",
+            headers={"authorization": f"Bearer {self.expired_token.token}"}
         )
         assert response.status_code == 401
 
@@ -303,7 +303,7 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
     def test_read_token_grants_get_access(self):
         token = _make_token(self.user, self.oauth_app, "pha_hh_read", scope="user:read")
         self.client.logout()
-        response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        response = self.client.get(self._url(), headers={"authorization": f"Bearer {token.token}"})
         assert response.status_code == 200
 
     def test_read_token_rejected_for_patch(self):
@@ -313,7 +313,7 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
             self._url(),
             data={"color": "red"},
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+            headers={"authorization": f"Bearer {token.token}"}
         )
         assert response.status_code == 403
 
@@ -324,14 +324,14 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
             self._url(),
             data={"color": "red"},
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+            headers={"authorization": f"Bearer {token.token}"}
         )
         assert response.status_code == 200
 
     def test_expired_token_is_rejected(self):
         token = _make_token(self.user, self.oauth_app, "pha_hh_exp", scope="user:read", delta_hours=-1)
         self.client.logout()
-        response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        response = self.client.get(self._url(), headers={"authorization": f"Bearer {token.token}"})
         assert response.status_code == 401
 
     def test_unauthenticated_is_rejected(self):
@@ -384,9 +384,7 @@ class TestOAuthCorsPreflightMiddleware(APIBaseTest):
     def test_preflight_echoes_back_custom_headers(self, _label, path):
         response = self.client.options(
             path,
-            HTTP_ORIGIN="https://www.example.com",
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type,x-app-version,x-custom-header",
+            headers={"origin": "https://www.example.com", "access-control-request-method": "POST", "access-control-request-headers": "content-type,x-app-version,x-custom-header"}
         )
         assert response.status_code == 200
         assert response["Access-Control-Allow-Origin"] == "https://www.example.com"
@@ -405,7 +403,7 @@ class TestOAuthCorsPreflightMiddleware(APIBaseTest):
     def test_non_preflight_post_passes_through(self, _label, path):
         response = self.client.post(
             path,
-            HTTP_ORIGIN="https://www.example.com",
+            headers={"origin": "https://www.example.com"}
         )
         # POST should not be intercepted — it flows through to django-cors-headers
         assert not response.has_header("Access-Control-Max-Age")
@@ -414,8 +412,7 @@ class TestOAuthCorsPreflightMiddleware(APIBaseTest):
     def test_preflight_without_origin_passes_through(self, _label, path):
         response = self.client.options(
             path,
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
+            headers={"access-control-request-method": "POST", "access-control-request-headers": "content-type"}
         )
         # OPTIONS without Origin is not a CORS preflight — should not be intercepted
         assert not response.has_header("Access-Control-Max-Age")
@@ -423,9 +420,7 @@ class TestOAuthCorsPreflightMiddleware(APIBaseTest):
     def test_preflight_to_unrelated_path_not_intercepted(self):
         response = self.client.options(
             f"/api/projects/{self.team.id}/actions/",
-            HTTP_ORIGIN="https://www.example.com",
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type,x-app-version",
+            headers={"origin": "https://www.example.com", "access-control-request-method": "POST", "access-control-request-headers": "content-type,x-app-version"}
         )
         # Should be handled by django-cors-headers, not our middleware
         allow_headers = response.get("Access-Control-Allow-Headers", "")

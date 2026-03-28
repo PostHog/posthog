@@ -25,7 +25,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     # for nodes with a saved_query, this is automatically synced from saved_query.name
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
-    type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE)
+    type = models.TextField(max_length=16, choices=NodeType, default=NodeType.TABLE)
     description = models.TextField(max_length=1024, default="", blank=True)
     properties = models.JSONField(default=dict)
 

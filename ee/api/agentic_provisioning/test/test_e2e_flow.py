@@ -53,8 +53,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=token_body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"}
         )
         assert res.status_code == 200
         token_data = res.json()
@@ -131,8 +130,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=refresh_body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"}
         )
         assert res.status_code == 200
         new_access_token = res.json()["access_token"]

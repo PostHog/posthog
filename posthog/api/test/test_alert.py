@@ -717,7 +717,7 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             },
-            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            headers={"authorization": f"Bearer {api_key}"}
         )
 
         assert response.status_code == expected_status

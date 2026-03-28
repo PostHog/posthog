@@ -385,7 +385,7 @@ class Team(UUIDTClassicModel):
     session_recording_retention_period = field_access_control(
         models.CharField(
             max_length=3,
-            choices=SessionRecordingRetentionPeriod.choices,
+            choices=SessionRecordingRetentionPeriod,
             default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
         ),
         "project",
@@ -491,7 +491,7 @@ class Team(UUIDTClassicModel):
     access_control = models.BooleanField(default=False)
 
     week_start_day = field_access_control(
-        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices), "project", "admin"
+        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay), "project", "admin"
     )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
@@ -526,7 +526,7 @@ class Team(UUIDTClassicModel):
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
-            choices=CookielessServerHashMode.choices,
+            choices=CookielessServerHashMode,
             null=True,
         ),
         "project",
@@ -650,7 +650,7 @@ class Team(UUIDTClassicModel):
     business_model = field_access_control(
         models.CharField(
             max_length=10,
-            choices=BusinessModel.choices,
+            choices=BusinessModel,
             null=True,
             blank=True,
             help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",

@@ -1260,7 +1260,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            HTTP_X_POSTHOG_CLIENT="mcp",
+            headers={"x-posthog-client": "mcp"}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1282,7 +1282,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
-            HTTP_X_POSTHOG_CLIENT="mcp",
+            headers={"x-posthog-client": "mcp"}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1328,7 +1328,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "EventsQuery", "select": ["event"]}},
-            HTTP_X_POSTHOG_CLIENT="mcp",
+            headers={"x-posthog-client": "mcp"}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1360,7 +1360,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            HTTP_X_POSTHOG_CLIENT="mcp",
+            headers={"x-posthog-client": "mcp"}
         )
 
         self.assertEqual(response.status_code, 200)

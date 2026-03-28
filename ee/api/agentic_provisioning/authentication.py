@@ -12,7 +12,7 @@ BEARER_PREFIX = "Bearer "
 
 class StripeProvisioningBearerAuthentication(BaseAuthentication):
     def authenticate(self, request: Request):
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith(BEARER_PREFIX):
             return None
 

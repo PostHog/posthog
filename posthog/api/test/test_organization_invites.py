@@ -1356,10 +1356,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             response = self.client.post(
                 url,
                 {"target_email": "scope-test-invite@posthog.com"},
-                HTTP_AUTHORIZATION=f"Bearer {api_key}",
+                headers={"authorization": f"Bearer {api_key}"}
             )
         else:
-            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key}")
+            response = self.client.get(url, headers={"authorization": f"Bearer {api_key}"})
 
         assert response.status_code == expected_status
         if error_scope:
@@ -1376,7 +1376,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         response = self.client.delete(
             f"/api/organizations/{self.organization.id}/invites/{invite.id}/",
-            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            headers={"authorization": f"Bearer {api_key}"}
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "organization_member:write" in response.json()["detail"]
@@ -1390,7 +1390,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/bulk/",
             [{"target_email": "bulk@posthog.com"}],
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            headers={"authorization": f"Bearer {api_key}"}
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "organization_member:write" in response.json()["detail"]

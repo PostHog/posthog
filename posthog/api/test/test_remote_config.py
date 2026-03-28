@@ -157,7 +157,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/array/{self.team.api_token}/array.js",
-            HTTP_IF_NONE_MATCH=etag,
+            headers={"if-none-match": etag}
         )
         assert response.status_code == status.HTTP_304_NOT_MODIFIED
         assert response.headers["ETag"] == etag
@@ -166,7 +166,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def test_array_js_returns_200_on_etag_mismatch(self, mock_get_array_js_content):
         response = self.client.get(
             f"/array/{self.team.api_token}/array.js",
-            HTTP_IF_NONE_MATCH='"stale-etag"',
+            headers={"if-none-match": '"stale-etag"'}
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -192,7 +192,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         # Old ETag should no longer produce a 304
         response3 = self.client.get(
             f"/array/{self.team.api_token}/array.js",
-            HTTP_IF_NONE_MATCH=etag1,
+            headers={"if-none-match": etag1}
         )
         assert response3.status_code == status.HTTP_200_OK
 
@@ -203,7 +203,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/array/{self.team.api_token}/array.js",
-            HTTP_IF_NONE_MATCH=etag,
+            headers={"if-none-match": etag}
         )
         assert response.status_code == status.HTTP_304_NOT_MODIFIED
         assert (

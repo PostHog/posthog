@@ -24,7 +24,7 @@ class DataDeletionRequest(UUIDModel):
     team_id = models.IntegerField()
     request_type = models.CharField(
         max_length=40,
-        choices=RequestType.choices,
+        choices=RequestType,
         help_text="property_removal: remove specific properties from matching events. "
         "event_removal: delete entire events matching the criteria.",
     )
@@ -41,7 +41,7 @@ class DataDeletionRequest(UUIDModel):
         help_text="Enter property names as a comma-separated list, e.g. ['$ip', '$geoip_city']. "
         "Required for property_removal requests.",
     )
-    status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
+    status = models.CharField(max_length=40, choices=RequestStatus, default=RequestStatus.DRAFT)
 
     # Stats (populated by ClickHouse query)
     count = models.BigIntegerField(null=True, blank=True)

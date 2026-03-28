@@ -114,7 +114,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
                 {"sharing_access_token": old_access_token},
-                HTTP_AUTHORIZATION=f"Bearer {jwt_token}",
+                headers={"authorization": f"Bearer {jwt_token}"}
             )
             assert response.status_code in [401, 403], (
                 f"Expired password-protected sharing token should be rejected. Got {response.status_code}"
@@ -124,7 +124,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
                 {"sharing_access_token": new_config.access_token},
-                HTTP_AUTHORIZATION=f"Bearer {new_jwt_token}",
+                headers={"authorization": f"Bearer {new_jwt_token}"}
             )
             assert response.status_code == 200, (
                 f"New password-protected sharing token should still work. Got {response.status_code}"
