@@ -1,10 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmTaggersLogicType } from './llmTaggersLogicType'
+import { defaultTaggerTemplates, TaggerTemplate } from './templates'
 import { Tagger } from './types'
 
 export interface LLMTaggersLogicProps {
@@ -25,6 +27,8 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
         loadTaggersSuccess: (taggers: Tagger[]) => ({ taggers }),
         toggleTaggerEnabled: (id: string) => ({ id }),
         setTaggersFilter: (filter: string) => ({ filter }),
+        createFromTemplate: (template: TaggerTemplate) => ({ template }),
+        createAllFromTemplates: true,
     }),
 
     reducers({
@@ -76,6 +80,30 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
             const response = await api.get(`api/environments/@current/taggers/${id}/`)
             await api.update(`api/environments/@current/taggers/${id}/`, { enabled: !response.enabled })
             await breakpoint(100)
+            actions.loadTaggers()
+        },
+        createFromTemplate: async ({ template }) => {
+            await api.create('api/environments/@current/taggers/', {
+                name: template.name,
+                description: template.description,
+                enabled: false,
+                tagger_config: template.tagger_config,
+                conditions: [{ id: `cond-${Date.now()}`, rollout_percentage: 100, properties: [] }],
+            })
+            lemonToast.success(`Tagger "${template.name}" created`)
+            actions.loadTaggers()
+        },
+        createAllFromTemplates: async () => {
+            for (const template of defaultTaggerTemplates) {
+                await api.create('api/environments/@current/taggers/', {
+                    name: template.name,
+                    description: template.description,
+                    enabled: false,
+                    tagger_config: template.tagger_config,
+                    conditions: [{ id: `cond-${Date.now()}`, rollout_percentage: 100, properties: [] }],
+                })
+            }
+            lemonToast.success(`Created ${defaultTaggerTemplates.length} example taggers`)
             actions.loadTaggers()
         },
     })),

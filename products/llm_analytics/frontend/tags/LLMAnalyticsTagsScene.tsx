@@ -18,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { llmTaggersLogic } from './llmTaggersLogic'
+import { defaultTaggerTemplates } from './templates'
 import { Tagger } from './types'
 
 export const scene: SceneExport = {
@@ -26,14 +27,70 @@ export const scene: SceneExport = {
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
+function TaggerTemplatesEmptyState({ tabId }: { tabId?: string }): JSX.Element {
+    const { createFromTemplate, createAllFromTemplates } = useActions(llmTaggersLogic({ tabId }))
+    const { searchParams } = useValues(router)
+
+    return (
+        <div className="space-y-6">
+            <div className="text-center">
+                <h3 className="text-lg font-semibold">Get started with example taggers</h3>
+                <p className="text-muted mt-1">
+                    These pre-built taggers classify your LLM generations automatically. Create them disabled — enable
+                    when you're ready.
+                </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {defaultTaggerTemplates.map((template) => (
+                    <button
+                        key={template.key}
+                        className="flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover transition-colors text-left p-5 cursor-pointer"
+                        onClick={() => createFromTemplate(template)}
+                        data-attr={`tagger-template-${template.key}`}
+                    >
+                        <h4 className="font-semibold mb-1">{template.name}</h4>
+                        <p className="text-sm text-muted mb-3 flex-1">{template.description}</p>
+                        <div className="flex flex-wrap gap-1">
+                            {template.tagger_config.tags.slice(0, 4).map((tag) => (
+                                <LemonTag key={tag.name} type="option" size="small">
+                                    {tag.name}
+                                </LemonTag>
+                            ))}
+                            {template.tagger_config.tags.length > 4 && (
+                                <LemonTag type="muted" size="small">
+                                    +{template.tagger_config.tags.length - 4}
+                                </LemonTag>
+                            )}
+                        </div>
+                    </button>
+                ))}
+            </div>
+
+            <div className="flex justify-center gap-3">
+                <LemonButton type="primary" icon={<IconPlus />} onClick={createAllFromTemplates}>
+                    Create all examples
+                </LemonButton>
+                <LemonButton type="secondary" to={combineUrl(urls.llmAnalyticsTag('new'), searchParams).url}>
+                    Start from scratch
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
     const taggersLogic = llmTaggersLogic({ tabId })
-    const { filteredTaggers, taggersLoading, taggersFilter } = useValues(taggersLogic)
+    const { taggers, filteredTaggers, taggersLoading, taggersFilter } = useValues(taggersLogic)
     const { setTaggersFilter, toggleTaggerEnabled, loadTaggers } = useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const taggerUrl = (id: string): string => combineUrl(urls.llmAnalyticsTag(id), searchParams).url
+
+    if (!taggersLoading && taggers.length === 0) {
+        return <TaggerTemplatesEmptyState tabId={tabId} />
+    }
 
     const columns: LemonTableColumns<Tagger> = [
         {
@@ -201,14 +258,7 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
                     pageSize: 50,
                 }}
                 nouns={['tagger', 'taggers']}
-                emptyState={
-                    <div className="text-center py-8">
-                        <h3 className="text-lg font-semibold">No taggers yet</h3>
-                        <p className="text-muted mt-2">
-                            Create your first tagger to automatically classify LLM generations.
-                        </p>
-                    </div>
-                }
+                emptyState={<div />}
             />
         </div>
     )
