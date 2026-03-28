@@ -1953,3 +1953,171 @@ async fn test_flag_definitions_with_legacy_secret_token_fallback() {
         response.text().await.unwrap()
     );
 }
+
+// Tests that use the global ALLOWLIST_CACHE must run sequentially
+static ALLOWLIST_TEST_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[rstest::rstest]
+#[case::allowlisted(true, 200)]
+#[case::not_allowlisted(false, 429)]
+#[tokio::test]
+async fn test_db_allowlist_rate_limit_bypass(#[case] in_allowlist: bool, #[case] expected_status: u16) {
+    let _lock = ALLOWLIST_TEST_MUTEX.lock().await;
+    use feature_flags::{
+        api::flag_definitions::invalidate_allowlist_cache, config::Config,
+        utils::test_utils::TestContext,
+    };
+
+    let context = TestContext::new(None).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_rate_limits =
+        format!(r#"{{"{}": "1/second"}}"#, team.id).parse().unwrap();
+
+    if in_allowlist {
+        context
+            .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", &team.id.to_string())
+            .await
+            .unwrap();
+    } else {
+        context
+            .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+            .await
+            .unwrap();
+    }
+
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client, team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    invalidate_allowlist_cache().await;
+
+    // First request succeeds (within rate limit) and triggers allowlist refresh from DB
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Second request: allowlisted teams bypass, non-allowlisted get 429
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), expected_status);
+
+    context
+        .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_db_allowlist_only_listed_team_bypasses() {
+    let _lock = ALLOWLIST_TEST_MUTEX.lock().await;
+    use feature_flags::{
+        api::flag_definitions::invalidate_allowlist_cache, config::Config,
+        utils::test_utils::TestContext,
+    };
+
+    let context = TestContext::new(None).await;
+
+    let (team1, secret_token1, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let (team2, secret_token2, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_rate_limits = format!(
+        r#"{{"{}": "1/second", "{}": "1/second"}}"#,
+        team1.id, team2.id
+    )
+    .parse()
+    .unwrap();
+
+    // Only team1 is allowlisted
+    context
+        .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", &team1.id.to_string())
+        .await
+        .unwrap();
+
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client.clone(), team1.id)
+        .await
+        .unwrap();
+    context
+        .populate_flag_definitions_cache(redis_client, team2.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    invalidate_allowlist_cache().await;
+
+    // Team1 (allowlisted) can make many requests without being rate limited
+    for i in 0..5 {
+        let response = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret_token1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "Allowlisted team1 request {i} should succeed");
+    }
+
+    // Team2 (not allowlisted) should eventually be rate limited
+    let mut saw_rate_limit = false;
+    for _ in 0..10 {
+        let response = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team2.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret_token2}"))
+            .send()
+            .await
+            .unwrap();
+        if response.status() == 429 {
+            saw_rate_limit = true;
+            break;
+        }
+    }
+    assert!(saw_rate_limit, "Non-allowlisted team2 should eventually be rate limited");
+
+    context
+        .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+        .await
+        .unwrap();
+}

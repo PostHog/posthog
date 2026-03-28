@@ -24,10 +24,94 @@ use axum::{
 };
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
+use common_types::TeamId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::RwLock as TokioRwLock;
 use tracing::{info, warn};
+
+/// Cached rate limit allowlist from the database.
+/// Refreshes at most once per ALLOWLIST_TTL_SECS, matching Django's lru_cache with TTL approach.
+static ALLOWLIST_CACHE: std::sync::LazyLock<TokioRwLock<(HashSet<TeamId>, Instant)>> =
+    std::sync::LazyLock::new(|| TokioRwLock::new((HashSet::new(), Instant::now())));
+
+const ALLOWLIST_TTL_SECS: u64 = 60;
+const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
+
+/// Invalidate the cached allowlist, forcing the next request to re-read from the database.
+pub async fn invalidate_allowlist_cache() {
+    let mut cache = ALLOWLIST_CACHE.write().await;
+    *cache = (HashSet::new(), Instant::now() - std::time::Duration::from_secs(ALLOWLIST_TTL_SECS + 1));
+}
+
+/// Refresh the rate limit allowlist from the database if stale, then update the limiter.
+/// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
+pub async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
+    let cache = ALLOWLIST_CACHE.read().await;
+    if cache.1.elapsed().as_secs() < ALLOWLIST_TTL_SECS {
+        return;
+    }
+    drop(cache);
+
+    let mut cache = ALLOWLIST_CACHE.write().await;
+    // Double-check after acquiring write lock (another request may have refreshed it)
+    if cache.1.elapsed().as_secs() < ALLOWLIST_TTL_SECS {
+        return;
+    }
+
+    match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
+        Ok(new_allowlist) => {
+            state
+                .flag_definitions_limiter
+                .update_allowlist(new_allowlist.clone());
+            *cache = (new_allowlist, Instant::now());
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to refresh rate limit allowlist from database, using cached value");
+            // Update the timestamp so we don't retry on every request
+            cache.1 = Instant::now();
+        }
+    }
+}
+
+/// Query the posthog_instancesetting table for the rate limit allowlist.
+/// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
+pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<HashSet<TeamId>, String> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
+            .bind(CONSTANCE_KEY)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("DB query failed: {e}"))?;
+
+    let raw_value = match row {
+        Some((val,)) => val,
+        None => return Ok(HashSet::new()),
+    };
+
+    // The value may be JSON-encoded (e.g. "\"23047,12345\"") or a bare string ("23047,12345")
+    let value = raw_value.trim().trim_matches('"');
+    if value.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let mut team_ids = HashSet::new();
+    for part in value.split(',').map(|p| p.trim()) {
+        if part.is_empty() {
+            continue;
+        }
+        let team_id = part
+            .parse::<TeamId>()
+            .map_err(|e| format!("Invalid team ID '{part}': {e}"))?;
+        team_ids.insert(team_id);
+    }
+
+    Ok(team_ids)
+}
 
 /// Response for flag definitions endpoint
 /// This is returned as raw JSON from cache to avoid deserialization overhead
@@ -88,6 +172,9 @@ pub async fn flags_definitions(
 
     // Authenticate against the specified team
     authenticate_flag_definitions(&state, &team, &headers).await?;
+
+    // Refresh the rate limit allowlist from the database if stale (every ~60s)
+    refresh_rate_limit_allowlist_if_stale(&state).await;
 
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;

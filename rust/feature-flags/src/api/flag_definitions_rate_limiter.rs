@@ -42,8 +42,9 @@ where
     /// Wrapped in RwLock for thread-safe access
     custom_limiters: CustomLimitersMap<K>,
 
-    /// Keys that bypass rate limiting entirely
-    allowlist: HashSet<K>,
+    /// Keys that bypass rate limiting entirely.
+    /// Wrapped in Arc<RwLock<>> so the request handler can update it from the database.
+    allowlist: Arc<RwLock<HashSet<K>>>,
 
     /// Prometheus metric name for total requests
     request_counter: &'static str,
@@ -124,7 +125,7 @@ where
         Ok(KeyedRateLimiter {
             default_limiter,
             custom_limiters,
-            allowlist,
+            allowlist: Arc::new(RwLock::new(allowlist)),
             request_counter,
             limited_counter,
             bypassed_counter,
@@ -160,7 +161,8 @@ where
             // Allowlisted keys bypass rate limiting when they would be limited.
             // Matches Django's behavior: the bypassed counter only fires for
             // requests that exceed the limit but are allowed through.
-            if self.allowlist.contains(&key) {
+            let allowlist = self.allowlist.read().unwrap();
+            if allowlist.contains(&key) {
                 inc(
                     self.bypassed_counter,
                     &[("key".to_string(), key.to_string())],
@@ -194,7 +196,23 @@ where
 
     /// Get the number of keys in the rate limit allowlist
     pub fn allowlist_count(&self) -> usize {
-        self.allowlist.len()
+        self.allowlist.read().unwrap().len()
+    }
+
+    /// Replace the allowlist with a new set of keys.
+    /// Called by the request handler when the cached DB value is stale.
+    pub fn update_allowlist(&self, new_allowlist: HashSet<K>) {
+        let mut allowlist = self.allowlist.write().unwrap();
+        let old_count = allowlist.len();
+        *allowlist = new_allowlist;
+        let new_count = allowlist.len();
+        if old_count != new_count {
+            info!(
+                old_count = old_count,
+                new_count = new_count,
+                "Rate limit allowlist updated"
+            );
+        }
     }
 
     /// Removes stale entries and reclaims memory across all limiters.
