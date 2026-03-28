@@ -1,9 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import { Field, Form } from 'kea-forms'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -11,7 +14,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
+import { modelPickerLogic } from '../modelPickerLogic'
 import { llmTaggerLogic } from './llmTaggerLogic'
+import { TaggerConditionSet } from './types'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTaggerScene,
@@ -65,6 +71,204 @@ function TagDefinitionsEditor(): JSX.Element {
                     />
                 </div>
             ))}
+        </div>
+    )
+}
+
+function TaggerModelPicker({ id }: { id: string }): JSX.Element {
+    const {
+        hasByokKeys,
+        byokModels,
+        trialModels,
+        providerModelGroups,
+        trialProviderModelGroups,
+        byokModelsLoading,
+        trialModelsLoading,
+        providerKeysLoading,
+    } = useValues(modelPickerLogic)
+    const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
+    const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
+
+    const allModels = hasByokKeys ? byokModels : trialModels
+    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
+    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+
+    const footerLink = getModelPickerFooterLink(hasByokKeys)
+
+    return (
+        <div className="bg-bg-light border rounded p-6">
+            <h3 className="text-lg font-semibold mb-2">Classification model</h3>
+            <p className="text-muted text-sm mb-4">
+                Select which LLM provider and model to use for running this tagger.
+            </p>
+
+            <div className="space-y-4">
+                <Field name="model" label="Model">
+                    <ModelPicker
+                        model={selectedModel}
+                        selectedProviderKeyId={selectedPickerProviderKeyId}
+                        onSelect={selectModelFromPicker}
+                        groups={groups}
+                        loading={loading}
+                        footerLink={footerLink}
+                        selectedModelName={selectedModelName}
+                        data-attr="tagger-model-selector"
+                    />
+                </Field>
+            </div>
+        </div>
+    )
+}
+
+function TaggerTriggers({ id }: { id: string }): JSX.Element {
+    const { taggerForm } = useValues(llmTaggerLogic({ id }))
+    const { setConditions } = useActions(llmTaggerLogic({ id }))
+
+    const conditions = taggerForm.conditions
+
+    const addConditionSet = (): void => {
+        const newCondition: TaggerConditionSet = {
+            id: `cond-${Date.now()}`,
+            rollout_percentage: 100,
+            properties: [],
+        }
+        setConditions([...conditions, newCondition])
+    }
+
+    const updateConditionSet = (index: number, updates: Partial<TaggerConditionSet>): void => {
+        const updated = conditions.map((condition, i) => (i === index ? { ...condition, ...updates } : condition))
+        setConditions(updated)
+    }
+
+    const removeConditionSet = (index: number): void => {
+        if (conditions.length === 1) {
+            return
+        }
+        setConditions(conditions.filter((_, i) => i !== index))
+    }
+
+    const duplicateConditionSet = (index: number): void => {
+        const duplicated: TaggerConditionSet = {
+            ...conditions[index],
+            id: `cond-${Date.now()}`,
+        }
+        const updated = [...conditions]
+        updated.splice(index + 1, 0, duplicated)
+        setConditions(updated)
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="text-sm text-muted">
+                Each condition set defines when this tagger should trigger. If multiple condition sets exist, the tagger
+                will trigger if ANY of them match (OR logic).
+            </div>
+
+            {conditions.map((condition, index) => {
+                const percentageValue = condition.rollout_percentage || 0
+
+                return (
+                    <div key={condition.id} className="bg-bg-light border rounded p-4 space-y-4">
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                                <h4 className="font-semibold">Condition set {index + 1}</h4>
+                                {conditions.length > 1 && (
+                                    <div className="text-sm text-muted">{index === 0 ? 'IF' : 'OR IF'}</div>
+                                )}
+                            </div>
+                            <div className="flex gap-1">
+                                <LemonButton
+                                    icon={<IconCopy />}
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => duplicateConditionSet(index)}
+                                    tooltip="Duplicate condition set"
+                                />
+                                {conditions.length > 1 && (
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        size="small"
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={() => removeConditionSet(index)}
+                                        tooltip="Remove condition set"
+                                    />
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-sm font-medium">
+                                Sampling percentage <span className="text-danger">*</span>
+                            </label>
+                            <div className="flex items-center gap-4 max-w-md">
+                                <div className="flex-1">
+                                    <LemonSlider
+                                        value={percentageValue}
+                                        onChange={(value) => updateConditionSet(index, { rollout_percentage: value })}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                    />
+                                </div>
+                                <div className="w-24">
+                                    <LemonInput
+                                        type="number"
+                                        value={percentageValue}
+                                        onChange={(value) =>
+                                            updateConditionSet(index, { rollout_percentage: Number(value) || 0 })
+                                        }
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                        suffix={<span>%</span>}
+                                        placeholder="Set percentage"
+                                        status={percentageValue === 0 ? 'danger' : undefined}
+                                    />
+                                </div>
+                            </div>
+                            {percentageValue === 0 ? (
+                                <div className="text-xs text-danger">
+                                    Please set a sampling percentage between 0.1% and 100%
+                                </div>
+                            ) : (
+                                <div className="text-xs text-muted">
+                                    This tagger will run on {percentageValue.toFixed(2)}% of matching generations
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-sm font-medium">Filter conditions</label>
+                            <div className="text-sm text-muted mb-2">
+                                Filter by generation event properties or person properties to target specific
+                                generations. Leave empty to match all generations.
+                            </div>
+                            <PropertyFilters
+                                propertyFilters={condition.properties}
+                                onChange={(properties) => updateConditionSet(index, { properties })}
+                                pageKey={`tagger-condition-${condition.id}`}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.EventMetadata,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                ]}
+                                addText="Add filter condition"
+                                hasRowOperator={false}
+                                sendAllKeyUpdates
+                                allowRelativeDateOptions={false}
+                            />
+                        </div>
+                    </div>
+                )
+            })}
+
+            <div className="flex justify-center">
+                <LemonButton type="secondary" icon={<IconPlus />} onClick={addConditionSet}>
+                    Add condition set
+                </LemonButton>
+            </div>
         </div>
     )
 }
@@ -167,6 +371,15 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                                 />
                             </div>
                         </div>
+                    </div>
+
+                    {/* Model Configuration */}
+                    <TaggerModelPicker id={id} />
+
+                    {/* Trigger Configuration */}
+                    <div className="border-t pt-4 space-y-4">
+                        <h3 className="text-lg font-semibold">Triggers</h3>
+                        <TaggerTriggers id={id} />
                     </div>
 
                     <div className="flex gap-2 pt-4 border-t">

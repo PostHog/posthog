@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -6,6 +6,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { parseTrialProviderKeyId } from '../ModelPicker'
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
 import { ModelConfiguration, Tagger, TaggerConditionSet, TaggerConfig } from './types'
 
@@ -49,7 +51,14 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     props({} as LLMTaggerLogicProps),
     key((props) => props.id),
 
+    connect(() => ({
+        values: [llmProviderKeysLogic, ['providerKeys']],
+        actions: [llmProviderKeysLogic, ['loadProviderKeys']],
+    })),
+
     actions({
+        selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
+        setConditions: (conditions: TaggerConditionSet[]) => ({ conditions }),
         loadTagger: true,
         loadTaggerSuccess: (tagger: Tagger) => ({ tagger }),
         deleteTagger: true,
@@ -74,6 +83,24 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 loadTaggerSuccess: () => false,
             },
         ],
+        selectedModel: [
+            '' as string,
+            {
+                selectModelFromPicker: (_, { modelId }) => modelId,
+                loadTaggerSuccess: (_, { tagger }) => tagger?.model_configuration?.model || '',
+            },
+        ],
+        selectedPickerProviderKeyId: [
+            null as string | null,
+            {
+                selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                loadTaggerSuccess: (_, { tagger }) => tagger?.model_configuration?.provider_key_id || null,
+            },
+        ],
+    }),
+
+    selectors({
+        isNewTagger: [(_, props) => [props.id], (id: string) => id === 'new'],
     }),
 
     forms(({ props }) => ({
@@ -177,6 +204,35 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             actions.setTaggerFormValues({
                 conditions: values.taggerForm.conditions.filter((_, i) => i !== index),
             })
+        },
+        setConditions: ({ conditions }) => {
+            actions.setTaggerFormValues({ conditions })
+        },
+        selectModelFromPicker: ({ modelId, providerKeyId }) => {
+            if (!modelId) {
+                return
+            }
+            const trialProvider = parseTrialProviderKeyId(providerKeyId)
+            if (trialProvider) {
+                actions.setTaggerFormValues({
+                    model_configuration: {
+                        provider: trialProvider,
+                        model: modelId,
+                        provider_key_id: null,
+                    },
+                })
+                return
+            }
+            const key = values.providerKeys.find((k: LLMProviderKey) => k.id === providerKeyId)
+            if (key) {
+                actions.setTaggerFormValues({
+                    model_configuration: {
+                        provider: key.provider,
+                        model: modelId,
+                        provider_key_id: providerKeyId,
+                    },
+                })
+            }
         },
     })),
 
