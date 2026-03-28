@@ -18,6 +18,8 @@ class BlastRadiusResult:
     total_users: int
     groups_affected: Optional[int] = None
     total_groups: Optional[int] = None
+    users_query_error: Optional[str] = None
+    groups_query_error: Optional[str] = None
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -73,8 +75,15 @@ def _get_mixed_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     Runs two independent queries — one against the persons table and one against
     the groups table — and returns both counts. The counts are independent
     estimates, which is acceptable since blast radius is already an approximation.
+
+    If one sub-query fails, the other's results are still returned alongside an
+    error message for the failed query, rather than failing the entire request.
     """
+    import logging
+
     from posthog.models.property import PropertyGroup
+
+    logger = logging.getLogger(__name__)
 
     all_properties = filter.property_groups.flat
     person_props, group_props = _split_properties_by_type(all_properties)
@@ -82,30 +91,42 @@ def _get_mixed_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     # Person sub-query
     users_affected: int = 0
     total_users: int = team.persons_seen_so_far
+    users_query_error: Optional[str] = None
     if person_props:
-        person_filter = Filter(
-            data={"properties": PropertyGroup(type=filter.property_groups.type, values=person_props).to_dict()},
-            team=team,
-        )
-        users_affected, total_users = _get_person_blast_radius(team, person_filter)
+        try:
+            person_filter = Filter(
+                data={"properties": PropertyGroup(type=filter.property_groups.type, values=person_props).to_dict()},
+                team=team,
+            )
+            users_affected, total_users = _get_person_blast_radius(team, person_filter)
+        except Exception as e:
+            logger.warning("Mixed blast radius: person sub-query failed", exc_info=True, extra={"team_id": team.pk})
+            users_query_error = str(e)
     else:
         users_affected = total_users
 
     # Group sub-query
     groups_affected: Optional[int] = None
     total_groups: Optional[int] = None
+    groups_query_error: Optional[str] = None
     if group_props:
-        group_filter = Filter(
-            data={"properties": PropertyGroup(type=filter.property_groups.type, values=group_props).to_dict()},
-            team=team,
-        )
-        groups_affected, total_groups = _get_group_blast_radius(team, group_filter, group_type_index)
+        try:
+            group_filter = Filter(
+                data={"properties": PropertyGroup(type=filter.property_groups.type, values=group_props).to_dict()},
+                team=team,
+            )
+            groups_affected, total_groups = _get_group_blast_radius(team, group_filter, group_type_index)
+        except Exception as e:
+            logger.warning("Mixed blast radius: group sub-query failed", exc_info=True, extra={"team_id": team.pk})
+            groups_query_error = str(e)
 
     return BlastRadiusResult(
         users_affected=users_affected,
         total_users=total_users,
         groups_affected=groups_affected,
         total_groups=total_groups,
+        users_query_error=users_query_error,
+        groups_query_error=groups_query_error,
     )
 
 

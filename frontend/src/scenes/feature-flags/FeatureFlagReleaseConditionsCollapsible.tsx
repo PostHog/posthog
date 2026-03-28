@@ -290,6 +290,17 @@ interface ConditionProps {
     totalGroupCounts: Record<string, number | undefined>
     aggregationTargetName: string
     aggregationLabel: (groupTypeIndex: GroupTypeIndex) => { singular: string; plural: string }
+    taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
+    groupTypes: Map<
+        GroupTypeIndex,
+        {
+            group_type: string
+            group_type_index: GroupTypeIndex
+            name_singular: string | null
+            name_plural: string | null
+        }
+    >
+    onSetConditionAggregation: (groupTypeIndex: number | null) => void
     onMoveUp: () => void
     onMoveDown: () => void
     onDuplicate: () => void
@@ -301,7 +312,6 @@ interface ConditionProps {
         variant?: string | null,
         description?: string
     ) => void
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
     variants?: MultivariateFlagVariant[]
@@ -358,12 +368,14 @@ const ConditionContent = ({
     totalGroupCounts,
     aggregationTargetName,
     aggregationLabel,
+    taxonomicGroupTypesForCondition,
+    groupTypes,
+    onSetConditionAggregation,
     onMoveUp,
     onMoveDown,
     onDuplicate,
     onRemove,
     updateConditionSet,
-    taxonomicGroupTypes,
     filtersTaxonomicOptions,
     releaseFilters,
     variants,
@@ -511,6 +523,31 @@ const ConditionContent = ({
                                         />
                                     </div>
 
+                                    {groupTypes.size > 0 && (
+                                        <div>
+                                            <LemonLabel className="mb-1">Condition targeting</LemonLabel>
+                                            <LemonSelect
+                                                size="small"
+                                                dropdownMatchSelectWidth={false}
+                                                value={
+                                                    group.aggregation_group_type_index ??
+                                                    releaseFilters.aggregation_group_type_index ??
+                                                    -1
+                                                }
+                                                onChange={(value) => {
+                                                    onSetConditionAggregation(value === -1 ? null : value)
+                                                }}
+                                                options={[
+                                                    { value: -1, label: 'Users' },
+                                                    ...Array.from(groupTypes.values()).map((groupType) => ({
+                                                        value: groupType.group_type_index,
+                                                        label: groupType.name_plural || groupType.group_type,
+                                                    })),
+                                                ]}
+                                            />
+                                        </div>
+                                    )}
+
                                     <div>
                                         <LemonLabel className="mb-1">Match filters</LemonLabel>
                                         <PropertyFilters
@@ -522,7 +559,9 @@ const ConditionContent = ({
                                             onChange={(properties) => {
                                                 updateConditionSet(index, undefined, properties)
                                             }}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            taxonomicGroupTypes={taxonomicGroupTypesForCondition(
+                                                group.aggregation_group_type_index
+                                            )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
                                         />
@@ -804,7 +843,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
     })
 
     const {
-        taxonomicGroupTypes,
         filterGroups,
         filtersTaxonomicOptions,
         affectedUsers,
@@ -813,6 +851,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         totalGroups: totalGroupCounts,
         aggregationTargetName,
         aggregationLabel,
+        taxonomicGroupTypesForCondition,
         filters: releaseFilters,
         groupTypes,
         openConditions,
@@ -831,6 +870,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         moveConditionSetDown,
         reorderConditionSets,
         setAggregationGroupTypeIndex,
+        setConditionAggregation,
         setOpenConditions,
     } = useActions(releaseConditionsLogic)
 
@@ -1126,12 +1166,16 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalGroupCounts={totalGroupCounts}
                                         aggregationTargetName={aggregationTargetName}
                                         aggregationLabel={aggregationLabel}
+                                        taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
+                                        groupTypes={groupTypes}
+                                        onSetConditionAggregation={(groupTypeIndex) =>
+                                            setConditionAggregation(index, groupTypeIndex)
+                                        }
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
                                         onDuplicate={() => duplicateConditionSet(index)}
                                         onRemove={() => removeConditionSet(index)}
                                         updateConditionSet={updateConditionSet}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
@@ -1196,12 +1240,16 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 totalGroupCounts={totalGroupCounts}
                                 aggregationTargetName={aggregationTargetName}
                                 aggregationLabel={aggregationLabel}
+                                taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
+                                groupTypes={groupTypes}
+                                onSetConditionAggregation={(groupTypeIndex) =>
+                                    setConditionAggregation(index, groupTypeIndex)
+                                }
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}
                                 onDuplicate={() => duplicateConditionSet(index)}
                                 onRemove={() => removeConditionSet(index)}
                                 updateConditionSet={updateConditionSet}
-                                taxonomicGroupTypes={taxonomicGroupTypes}
                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                 releaseFilters={releaseFilters}
                                 variants={variants}

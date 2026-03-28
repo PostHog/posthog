@@ -108,6 +108,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newVariant,
             newDescription,
         }),
+        setConditionAggregation: (index: number, groupTypeIndex: number | null) => ({
+            index,
+            groupTypeIndex,
+        }),
         setAffectedUsers: (sortKey: string, count?: number) => ({
             sortKey,
             count,
@@ -222,6 +226,20 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     groups[index] = { ...groups[index], description }
                 }
 
+                return { ...state, groups }
+            },
+            setConditionAggregation: (state, { index, groupTypeIndex }) => {
+                if (!state) {
+                    return state
+                }
+                const groups = [...state.groups]
+                groups[index] = {
+                    ...groups[index],
+                    aggregation_group_type_index: groupTypeIndex,
+                    // Reset properties when changing aggregation type to avoid
+                    // stale property filters from the previous aggregation scope
+                    properties: [],
+                }
                 return { ...state, groups }
             },
             removeConditionSet: (state, { index }) => {
@@ -405,6 +423,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
             if (response.total_groups !== undefined) {
                 actions.setTotalGroups(sortKey, response.total_groups)
+            }
+        },
+        setConditionAggregation: ({ index }) => {
+            const group = values.filters.groups[index]
+            if (group?.sort_key) {
+                const groupTypeIndex =
+                    group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                actions.calculateBlastRadiusForCondition(group.sort_key, group.properties, groupTypeIndex)
             }
         },
         addConditionSet: async () => {
@@ -599,6 +625,37 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
                 return 'users'
             },
+        ],
+        taxonomicGroupTypesForCondition: [
+            (s) => [s.filters, s.groupTypes],
+            (filters, groupTypes) =>
+                (conditionGroupTypeIndex: number | null | undefined): TaxonomicFilterGroupType[] => {
+                    const effectiveIndex = conditionGroupTypeIndex ?? filters?.aggregation_group_type_index
+                    const targetGroupTypes: TaxonomicFilterGroupType[] = []
+
+                    if (effectiveIndex != null) {
+                        const targetGroup = groupTypes.get(effectiveIndex as GroupTypeIndex)
+                        if (targetGroup) {
+                            targetGroupTypes.push(
+                                `${TaxonomicFilterGroupType.GroupsPrefix}_${targetGroup.group_type_index}` as unknown as TaxonomicFilterGroupType
+                            )
+                            targetGroupTypes.push(
+                                `${TaxonomicFilterGroupType.GroupNamesPrefix}_${effectiveIndex}` as unknown as TaxonomicFilterGroupType
+                            )
+                        }
+                        // Always include person properties and cohorts so users can
+                        // build mixed person+group conditions within a single condition set
+                        targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
+                        targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+                    } else {
+                        targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
+                        targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+                        targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
+                        targetGroupTypes.push(TaxonomicFilterGroupType.Metadata)
+                    }
+
+                    return targetGroupTypes
+                },
         ],
         filtersTaxonomicOptions: [
             (s) => [s.filters],

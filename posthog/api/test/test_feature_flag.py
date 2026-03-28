@@ -9907,6 +9907,168 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("groups_affected", response_json)
         self.assertNotIn("total_groups", response_json)
 
+    def test_user_blast_radius_with_group_key_in_mixed_condition(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(5):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"plan": "pro" if i < 3 else "free"},
+            )
+
+        for i in range(6):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"size": "large"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["pro"],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["org:0", "org:1"],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)
+        self.assertEqual(response_json["total_users"], 5)
+        self.assertEqual(response_json["groups_affected"], 2)
+        self.assertEqual(response_json["total_groups"], 6)
+
+    def test_user_blast_radius_with_cohort_and_group_mixed_condition(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(8):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"plan": "pro" if i < 5 else "free"},
+            )
+
+        for i in range(4):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"tier": "enterprise" if i < 2 else "startup"},
+            )
+
+        # Create a cohort that matches persons with plan=pro
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "plan", "value": ["pro"], "type": "person", "operator": "exact"}],
+                        }
+                    ],
+                }
+            },
+            name="Pro users",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "id",
+                            "type": "cohort",
+                            "value": cohort.pk,
+                        },
+                        {
+                            "key": "tier",
+                            "type": "group",
+                            "value": ["enterprise"],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        # Cohort resolves person-side: 5 persons match plan=pro
+        self.assertEqual(response_json["users_affected"], 5)
+        self.assertEqual(response_json["total_users"], 8)
+        # Group-side: 2 groups match tier=enterprise
+        self.assertEqual(response_json["groups_affected"], 2)
+        self.assertEqual(response_json["total_groups"], 4)
+
+    def test_user_blast_radius_no_error_fields_for_successful_queries(self):
+        """Successful queries should not include error fields in the response."""
+        for i in range(3):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"plan": "pro"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["pro"],
+                            "operator": "exact",
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertNotIn("users_query_error", response_json)
+        self.assertNotIn("groups_query_error", response_json)
+
 
 class TestFeatureFlagEvaluationContexts(APIBaseTest):
     def setUp(self):
