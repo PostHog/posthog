@@ -731,9 +731,26 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             }
                         }
 
-                        // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                        // 409 means the conversation is already in progress.
+                        // Reconnect to the existing stream instead of resending the message.
                         if (e.status === 409 && generationAttempt <= 5) {
-                            await retry()
+                            // Mark that the next stream replay should clear the thread on the
+                            // first real event. We defer the clear (rather than doing it now)
+                            // so the user keeps seeing the existing thread + loading indicator
+                            // while we reconnect. The stream replays all events from the
+                            // beginning so we must rebuild from scratch to avoid duplicates.
+                            cache.clearThreadOnReplay = true
+                            await breakpoint(1000 * (generationAttempt + 1))
+                            actions.decrActiveStreamingThreads()
+                            actions.streamConversation(
+                                {
+                                    content: null,
+                                    conversation: streamData.conversation,
+                                    agent_mode: agentMode,
+                                    is_sandbox: isSandbox || undefined,
+                                },
+                                generationAttempt + 1
+                            )
                             return
                         }
 
@@ -1877,6 +1894,14 @@ export async function onEventImplementation(
         agentMode: AgentMode | null
     }
 ): Promise<void> {
+    // On 409 reconnect, the stream replays all events from the beginning.
+    // Clear the thread on the first real event so the replay rebuilds it
+    // from scratch — this avoids duplicates and ordering conflicts.
+    if (cache.clearThreadOnReplay) {
+        cache.clearThreadOnReplay = false
+        actions.setThread([])
+    }
+
     // A Conversation object is only received when the conversation is new
     if (event === AssistantEventType.Conversation) {
         const parsedResponse = parseResponse<Conversation>(data)
