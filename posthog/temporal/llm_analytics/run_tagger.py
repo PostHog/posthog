@@ -50,16 +50,25 @@ class TagResult(BaseModel):
     reasoning: str
 
 
-def build_tag_result_schema(tag_names: list[str]) -> type[TagResult]:
-    """Build a TagResult schema with valid tag names in the field description.
+def build_tag_result_schema(tag_names: list[str], min_tags: int = 0, max_tags: int | None = None) -> type[TagResult]:
+    """Build a TagResult schema with valid tag names and constraints in the field description.
 
     This ensures the JSON schema sent to the LLM provider includes the allowed
-    tag values, improving structured output reliability.
+    tag values and min/max constraints, improving structured output reliability.
     """
     tag_list = ", ".join(f'"{name}"' for name in tag_names)
 
+    constraint_parts = [f"Valid values: [{tag_list}]"]
+    if min_tags > 0:
+        constraint_parts.append(f"Minimum {min_tags} tag(s)")
+    if max_tags is not None:
+        constraint_parts.append(f"Maximum {max_tags} tag(s)")
+    constraint_parts.append("Can be empty if no tags apply")
+
+    description = "Tags to apply. " + ". ".join(constraint_parts) + "."
+
     class DynamicTagResult(TagResult):
-        tags: list[str] = Field(description=f"Tags to apply. Valid values: [{tag_list}]")
+        tags: list[str] = Field(description=description)
         reasoning: str = Field(description="Brief explanation for why these tags were selected")
 
     DynamicTagResult.__name__ = "TagResult"
@@ -91,15 +100,13 @@ def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags
     else:
         constraint = "Select as many tags as apply."
 
-    return f"""You are a classifier. Given the following AI generation, select which of these tags apply:
+    return f"""You are a tagger. Given the following AI generation, select which of these tags apply:
 
 {tag_list}
 
 {prompt}
 
-{constraint} Only use tags from the list above. If no tags apply, return an empty list.
-
-Return your response as a JSON object with "tags" (list of tag names) and "reasoning" (brief explanation)."""
+{constraint} Only use tags from the list above. If no tags apply, return an empty list."""
 
 
 @dataclass
@@ -246,7 +253,7 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
 
     system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags)
     tag_names = [tag["name"] for tag in tags]
-    response_format = build_tag_result_schema(tag_names)
+    response_format = build_tag_result_schema(tag_names, min_tags, max_tags)
 
     user_prompt = f"""Input: {input_data}
 
