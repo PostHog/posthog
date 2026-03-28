@@ -24,6 +24,7 @@ export namespace Schemas {
       AiMetric: '$ai_metric',
       AiFeedback: '$ai_feedback',
       AiEvaluation: '$ai_evaluation',
+      AiTag: '$ai_tag',
       AiTraceSummary: '$ai_trace_summary',
       AiGenerationSummary: '$ai_generation_summary',
       AiTraceClusters: '$ai_trace_clusters',
@@ -22120,6 +22121,64 @@ export namespace Schemas {
       results: TaggedItem[];
     }
 
+    export interface TagDefinition {
+      /**
+       * Tag identifier
+       * @maxLength 100
+       */
+      name: string;
+      /**
+       * Description to help the LLM classify
+       * @maxLength 500
+       */
+      description?: string;
+    }
+
+    export interface TaggerConfig {
+      /**
+       * Classification prompt for the LLM
+       * @minLength 1
+       */
+      prompt: string;
+      /** Available tags for classification */
+      tags: TagDefinition[];
+      /**
+       * Minimum number of tags to apply
+       * @minimum 0
+       */
+      min_tags?: number;
+      /**
+       * Maximum number of tags to apply (null = no limit)
+       * @minimum 1
+       * @nullable
+       */
+      max_tags?: number | null;
+    }
+
+    export interface Tagger {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_config: TaggerConfig;
+      conditions?: unknown;
+      model_configuration?: ModelConfiguration | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      deleted?: boolean;
+    }
+
+    export interface PaginatedTaggerList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Tagger[];
+    }
+
     export interface PaginatedTaskList {
       count: number;
       /** @nullable */
@@ -26275,6 +26334,21 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
       options?: PatchedTableOptions;
+    }
+
+    export interface PatchedTagger {
+      readonly id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_config?: TaggerConfig;
+      conditions?: unknown;
+      model_configuration?: ModelConfiguration | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly created_by?: UserBasic;
+      deleted?: boolean;
     }
 
     /**
@@ -33979,6 +34053,40 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
     };
 
     export type UserInterviewsListParams = {

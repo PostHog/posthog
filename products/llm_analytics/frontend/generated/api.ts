@@ -44,6 +44,7 @@ import type {
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
+    PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
     PatchedClusteringJobApi,
     PatchedDatasetApi,
@@ -65,6 +66,8 @@ import type {
     SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
+    TaggerApi,
+    TaggersListParams,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceReviewApi,
@@ -1325,6 +1328,50 @@ export const llmPromptsResolveNameRetrieve = async (
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTaggersListUrl = (projectId: string, params?: TaggersListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/taggers/?${stringifiedParams}`
+        : `/api/environments/${projectId}/taggers/`
+}
+
+export const taggersList = async (
+    projectId: string,
+    params?: TaggersListParams,
+    options?: RequestInit
+): Promise<PaginatedTaggerListApi> => {
+    return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaggersCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/taggers/`
+}
+
+export const taggersCreate = async (
+    projectId: string,
+    taggerApi: NonReadonly<TaggerApi>,
+    options?: RequestInit
+): Promise<TaggerApi> => {
+    return apiMutator<TaggerApi>(getTaggersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taggerApi),
     })
 }
 

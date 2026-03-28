@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0895_alter_earlyaccessfeature_stage"),
+        ("posthog", "1075_team_snippet_config"),
         ("llm_analytics", "0022_reviewqueue_reviewqueueitem_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

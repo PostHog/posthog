@@ -1132,6 +1132,64 @@ export interface LLMPromptResolveResponseApi {
     has_more: boolean
 }
 
+export interface TagDefinitionApi {
+    /**
+     * Tag identifier
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Description to help the LLM classify
+     * @maxLength 500
+     */
+    description?: string
+}
+
+export interface TaggerConfigApi {
+    /**
+     * Classification prompt for the LLM
+     * @minLength 1
+     */
+    prompt: string
+    /** Available tags for classification */
+    tags: TagDefinitionApi[]
+    /**
+     * Minimum number of tags to apply
+     * @minimum 0
+     */
+    min_tags?: number
+    /**
+     * Maximum number of tags to apply (null = no limit)
+     * @minimum 1
+     * @nullable
+     */
+    max_tags?: number | null
+}
+
+export interface TaggerApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_config: TaggerConfigApi
+    conditions?: unknown
+    model_configuration?: ModelConfigurationApi | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+}
+
+export interface PaginatedTaggerListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaggerApi[]
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
@@ -1499,6 +1557,40 @@ export type LlmPromptsResolveNameRetrieveParams = {
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
      */
     version_id?: string
+}
+
+export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+* `name` - Name
+* `-name` - Name (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name or description
+     */
+    search?: string
 }
 
 export type DatasetItemsListParams = {
