@@ -139,6 +139,36 @@ export class TemporalService {
         return handle
     }
 
+    async startTaggerRunWorkflow(taggerId: string, event: RawKafkaEvent): Promise<WorkflowHandle> {
+        const client = await this.ensureConnected()
+
+        const workflowId = `llma-tagger-${taggerId}-${event.uuid}-ingestion`
+
+        const handle = await client.workflow.start('run-tagger', {
+            args: [
+                {
+                    tagger_id: taggerId,
+                    event_data: event,
+                },
+            ],
+            taskQueue: EVALUATION_TASK_QUEUE,
+            workflowId,
+            workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowTaskTimeout: '2 minutes',
+        })
+
+        temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+
+        logger.debug('Started tagger run workflow', {
+            workflowId,
+            taggerId,
+            targetEventId: event.uuid,
+            timestamp: event.timestamp,
+        })
+
+        return handle
+    }
+
     async disconnect(): Promise<void> {
         if (this.client) {
             await this.client.connection.close()

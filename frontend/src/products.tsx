@@ -161,6 +161,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
     '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
     '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
+    '/llm-analytics/taggers': ['LLMAnalyticsTaggers', 'llmAnalyticsTaggers'],
+    '/llm-analytics/taggers/:id': ['LLMAnalyticsTagger', 'llmAnalyticsTagger'],
     '/llm-analytics/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
     '/llm-analytics/evaluations/offline/experiments': ['LLMAnalyticsEvaluations', 'llmAnalyticsOfflineEvaluations'],
     '/llm-analytics/evaluations/offline/experiments/:experimentId': [
@@ -738,6 +740,8 @@ export const productUrls = {
             item?: string
         }
     ): string => combineUrl(`/llm-analytics/datasets/${id}`, params).url,
+    llmAnalyticsTaggers: (): string => '/llm-analytics/taggers',
+    llmAnalyticsTagger: (id: string): string => `/llm-analytics/taggers/${id}`,
     llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
     llmAnalyticsOfflineEvaluations: (): string => '/llm-analytics/evaluations/offline/experiments',
     llmAnalyticsOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
@@ -1623,6 +1627,34 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
         sceneKey: 'Surveys',
         sceneKeys: ['Survey', 'Surveys'],
+    },
+    {
+        path: 'Taggers',
+        intents: [ProductKey.LLM_ANALYTICS],
+        category: 'AI engineering',
+        type: 'llm_taggers',
+        iconType: 'llm_analytics' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.llmAnalyticsTaggers(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGGERS,
+        tags: ['alpha'],
+        sceneKey: 'LLMAnalyticsTaggers',
+        sceneKeys: [
+            'LLMAnalytics',
+            'LLMAnalyticsTrace',
+            'LLMAnalyticsSession',
+            'LLMAnalyticsUsers',
+            'LLMAnalyticsPlayground',
+            'LLMAnalyticsDatasets',
+            'LLMAnalyticsDataset',
+            'LLMAnalyticsEvaluations',
+            'LLMAnalyticsEvaluation',
+            'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompts',
+            'LLMAnalyticsPrompt',
+            'LLMAnalyticsClusters',
+            'LLMAnalyticsCluster',
+        ],
     },
     {
         path: 'Tasks',

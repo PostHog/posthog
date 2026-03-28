@@ -56,6 +56,7 @@ import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLo
 import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
+import { LLMAnalyticsTaggersScene } from './taggers/LLMAnalyticsTaggersScene'
 import { LLMAnalyticsHumanReviews } from './traceReviews/LLMAnalyticsHumanReviews'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
@@ -599,6 +600,27 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ),
             link: combineUrl(urls.llmAnalyticsTools(), searchParams).url,
             'data-attr': 'tools-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGGERS_TAB]) {
+        tabs.push({
+            key: 'taggers',
+            label: (
+                <>
+                    Taggers
+                    <LemonTag type="completion" className="ml-1.5 uppercase">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsTaggersScene />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsTaggers(), searchParams).url,
+            'data-attr': 'llma-taggers-tab',
         })
     }
 

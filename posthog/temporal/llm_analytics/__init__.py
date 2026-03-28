@@ -11,6 +11,13 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     send_trial_usage_email_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.run_tagger import (
+    RunTaggerWorkflow,
+    disable_tagger_activity,
+    emit_tagger_event_activity,
+    execute_tagger_activity,
+    fetch_tagger_activity,
+)
 from posthog.temporal.llm_analytics.sentiment import ClassifySentimentWorkflow, classify_sentiment_activity
 from posthog.temporal.llm_analytics.shared_activities import (
     fetch_all_clustering_filters_activity,
@@ -50,6 +57,17 @@ EVAL_ACTIVITIES = [
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+]
+
+TAGGER_WORKFLOWS = [
+    RunTaggerWorkflow,
+]
+
+TAGGER_ACTIVITIES = [
+    fetch_tagger_activity,
+    execute_tagger_activity,
+    emit_tagger_event_activity,
+    disable_tagger_activity,
 ]
 
 SENTIMENT_WORKFLOWS = [

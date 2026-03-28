@@ -74,6 +74,7 @@ APIScopeObject = Literal[
     "sharing_configuration",
     "subscription",
     "survey",
+    "tagger",
     "ticket",
     "task",
     "tracing",
