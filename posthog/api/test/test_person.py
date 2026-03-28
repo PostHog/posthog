@@ -783,6 +783,34 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_property_to_null(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"existing_prop": "some_value"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "existing_prop", "value": None},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"existing_prop": None},
+            },
+            process_person_profile=True,
+        )
+
+    @mock.patch("posthog.api.person.capture_internal")
     def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
