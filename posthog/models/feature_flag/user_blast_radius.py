@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from rest_framework.exceptions import ValidationError
@@ -9,6 +10,14 @@ from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+
+
+@dataclass
+class BlastRadiusResult:
+    users_affected: int
+    total_users: int
+    groups_affected: Optional[int] = None
+    total_groups: Optional[int] = None
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -40,18 +49,92 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
     return Filter(data={"properties": prop_groups.to_dict()}, team=team)
 
 
+def _split_properties_by_type(
+    properties: list[Property],
+) -> tuple[list[Property], list[Property]]:
+    """Partition properties into person-type and group-type lists.
+
+    Returns (person_properties, group_properties). The $group_key property
+    is classified as group-type since it references the groups.key column.
+    """
+    person_props: list[Property] = []
+    group_props: list[Property] = []
+    for prop in properties:
+        if prop.type == "group" or prop.key == "$group_key":
+            group_props.append(prop)
+        else:
+            person_props.append(prop)
+    return person_props, group_props
+
+
+def _get_mixed_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> BlastRadiusResult:
+    """Calculate blast radius when a condition has both person and group properties.
+
+    Runs two independent queries — one against the persons table and one against
+    the groups table — and returns both counts. The counts are independent
+    estimates, which is acceptable since blast radius is already an approximation.
+    """
+    from posthog.models.property import PropertyGroup
+
+    all_properties = filter.property_groups.flat
+    person_props, group_props = _split_properties_by_type(all_properties)
+
+    # Person sub-query
+    users_affected: int = 0
+    total_users: int = team.persons_seen_so_far
+    if person_props:
+        person_filter = Filter(
+            data={"properties": PropertyGroup(type=filter.property_groups.type, values=person_props).to_dict()},
+            team=team,
+        )
+        users_affected, total_users = _get_person_blast_radius(team, person_filter)
+    else:
+        users_affected = total_users
+
+    # Group sub-query
+    groups_affected: Optional[int] = None
+    total_groups: Optional[int] = None
+    if group_props:
+        group_filter = Filter(
+            data={"properties": PropertyGroup(type=filter.property_groups.type, values=group_props).to_dict()},
+            team=team,
+        )
+        groups_affected, total_groups = _get_group_blast_radius(team, group_filter, group_type_index)
+
+    return BlastRadiusResult(
+        users_affected=users_affected,
+        total_users=total_users,
+        groups_affected=groups_affected,
+        total_groups=total_groups,
+    )
+
+
 def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
     group_type_index: Optional[GroupTypeIndex] = None,
-):
+) -> BlastRadiusResult:
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
     if group_type_index is not None:
-        return _get_group_blast_radius(team, cleaned_filter, group_type_index)
+        all_properties = cleaned_filter.property_groups.flat
+        person_props, group_props = _split_properties_by_type(all_properties)
+
+        if person_props and group_props:
+            return _get_mixed_blast_radius(team, cleaned_filter, group_type_index)
+        elif person_props:
+            # Pure person properties with group aggregation (the common case today)
+            affected, total = _get_person_blast_radius(team, cleaned_filter)
+            return BlastRadiusResult(users_affected=affected, total_users=total)
+        else:
+            # Pure group properties, or no properties at all — delegate to the
+            # group path which handles the "all groups" case for empty filters.
+            affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
+            return BlastRadiusResult(users_affected=affected, total_users=total)
     else:
-        return _get_person_blast_radius(team, cleaned_filter)
+        affected, total = _get_person_blast_radius(team, cleaned_filter)
+        return BlastRadiusResult(users_affected=affected, total_users=total)
 
 
 def get_user_blast_radius_persons(

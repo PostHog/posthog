@@ -1779,6 +1779,18 @@ class UserBlastRadiusRequestSerializer(serializers.Serializer):
 class UserBlastRadiusResponseSerializer(serializers.Serializer):
     users_affected = serializers.IntegerField(help_text="Number of users matching the condition")
     total_users = serializers.IntegerField(help_text="Total number of users in the project")
+    groups_affected = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Number of groups matching the condition (only present for mixed person+group conditions)",
+    )
+    total_groups = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Total number of groups of this type (only present for mixed person+group conditions)",
+    )
 
 
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
@@ -2975,15 +2987,18 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
-        # TODO: Handle distinct_id and $group_key properties, which are not currently supported
-        users_affected, total_users = get_user_blast_radius(self.team, condition, group_type_index)
+        result = get_user_blast_radius(self.team, condition, group_type_index)
 
-        return Response(
-            {
-                "users_affected": users_affected,
-                "total_users": total_users,
-            }
-        )
+        response_data: dict = {
+            "users_affected": result.users_affected,
+            "total_users": result.total_users,
+        }
+        if result.groups_affected is not None:
+            response_data["groups_affected"] = result.groups_affected
+        if result.total_groups is not None:
+            response_data["total_groups"] = result.total_groups
+
+        return Response(response_data)
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

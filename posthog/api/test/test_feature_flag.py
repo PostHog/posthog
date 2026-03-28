@@ -9777,6 +9777,136 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["users_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
         self.assertEqual(response_json["total_users"], 5)
 
+    def test_user_blast_radius_with_mixed_person_and_group_properties(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(10):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"plan": "pro" if i < 6 else "free"},
+            )
+
+        for i in range(8):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"size": "enterprise" if i < 3 else "startup"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["pro"],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "size",
+                            "type": "group",
+                            "value": ["enterprise"],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 6)
+        self.assertEqual(response_json["total_users"], 10)
+        self.assertEqual(response_json["groups_affected"], 3)
+        self.assertEqual(response_json["total_groups"], 8)
+
+    def test_user_blast_radius_pure_person_condition_has_no_group_counts(self):
+        for i in range(5):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"plan": "pro" if i < 3 else "free"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["pro"],
+                            "operator": "exact",
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)
+        self.assertEqual(response_json["total_users"], 5)
+        self.assertNotIn("groups_affected", response_json)
+        self.assertNotIn("total_groups", response_json)
+
+    def test_user_blast_radius_pure_person_with_group_aggregation_has_no_group_counts(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(5):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"plan": "pro" if i < 3 else "free"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["pro"],
+                            "operator": "exact",
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)
+        self.assertEqual(response_json["total_users"], 5)
+        self.assertNotIn("groups_affected", response_json)
+        self.assertNotIn("total_groups", response_json)
+
 
 class TestFeatureFlagEvaluationContexts(APIBaseTest):
     def setUp(self):
