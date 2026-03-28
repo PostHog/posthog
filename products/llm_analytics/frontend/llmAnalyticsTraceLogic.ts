@@ -44,6 +44,7 @@ export enum TraceViewMode {
     Raw = 'raw',
     Summary = 'summary',
     Evals = 'evals',
+    Tags = 'tags',
     Clusters = 'clusters',
     Feedback = 'feedback',
 }
