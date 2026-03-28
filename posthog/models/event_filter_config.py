@@ -38,7 +38,7 @@ class EventFilterConfig(UUIDTModel):
             "Boolean expression tree. Nodes: "
             '{"type": "and"|"or", "children": [...]}, '
             '{"type": "not", "child": {...}}, '
-            '{"type": "condition", "field": "event_name"|"distinct_id"|"session_id", '
+            '{"type": "condition", "field": "event_name"|"distinct_id", '
             '"operator": "exact"|"contains", "value": "<string>"}'
         ),
     )
@@ -47,7 +47,7 @@ class EventFilterConfig(UUIDTModel):
         blank=True,
         help_text=(
             "Test events to validate the filter. Each: "
-            '{"event_name": "...", "distinct_id": "...", "session_id": "...", '
+            '{"event_name": "...", "distinct_id": "...", '
             '"expected_result": "drop"|"ingest"}'
         ),
     )
