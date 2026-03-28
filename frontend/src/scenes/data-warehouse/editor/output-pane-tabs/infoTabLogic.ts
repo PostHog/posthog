@@ -40,6 +40,7 @@ export const infoTabLogic = kea<infoTabLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMap'],
         ],
+        actions: [sqlEditorLogic({ tabId: props.tabId }), ['loadUpstream']],
     })),
     actions({
         setStartingMaterialization: (starting: boolean) => ({ starting }),
@@ -127,6 +128,10 @@ export const infoTabLogic = kea<infoTabLogicType>([
     }),
     listeners(({ actions, cache }) => ({
         loadDataModelingJobsSuccess: ({ payload }) => {
+            if (payload) {
+                actions.loadUpstream(payload)
+            }
+
             cache.disposables.add(() => {
                 const timeoutId = setTimeout(() => {
                     if (payload) {

@@ -1,13 +1,13 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { range } from 'lib/utils'
 
 import { Lettermark, LettermarkColor, LettermarkProps, NUM_LETTERMARK_STYLES } from './Lettermark'
 
-type Story = StoryObj<typeof Lettermark>
-const meta: Meta<typeof Lettermark> = {
+type Story = StoryObj<LettermarkProps>
+const meta: Meta<LettermarkProps> = {
     title: 'Lemon UI/Lettermark',
-    component: Lettermark,
+    component: Lettermark as any,
     parameters: {
         docs: {
             description: {
@@ -23,52 +23,57 @@ const meta: Meta<typeof Lettermark> = {
 }
 export default meta
 
-const Template: StoryFn<typeof Lettermark> = (props: LettermarkProps) => {
-    return <Lettermark {...props} />
+export const Base: Story = {
+    args: { name: 'Athena' },
 }
 
-export const Base: Story = Template.bind({})
-Base.args = { name: 'Athena' }
+export const Overview: Story = {
+    render: () => {
+        return (
+            <div className="deprecated-space-y-2">
+                <div>
+                    <Lettermark name="Ben" /> Text
+                </div>
+                <div>
+                    <Lettermark name={42} /> Number
+                </div>
+                <div>
+                    <Lettermark name={null} /> Missing
+                </div>
 
-export const Overview = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-2">
-            <div>
-                <Lettermark name="Ben" /> Text
-            </div>
-            <div>
-                <Lettermark name={42} /> Number
-            </div>
-            <div>
-                <Lettermark name={null} /> Missing
-            </div>
-
-            <div>
-                <p>Color based on index</p>
-                <div className="deprecated-space-x-1">
-                    {range(NUM_LETTERMARK_STYLES).map((x) => (
-                        <Lettermark key={x} index={x} name={x + 1} />
-                    ))}
+                <div>
+                    <p>Color based on index</p>
+                    <div className="deprecated-space-x-1">
+                        {range(NUM_LETTERMARK_STYLES).map((x) => (
+                            <Lettermark key={x} index={x} name={x + 1} />
+                        ))}
+                    </div>
                 </div>
             </div>
-        </div>
-    )
+        )
+    },
 }
 
-export const String: Story = Template.bind({})
-String.args = { name: 'Athena' }
+export const String: Story = {
+    args: { name: 'Athena' },
+}
 
-export const Number: Story = Template.bind({})
-Number.args = { name: 42 }
+export const Number: Story = {
+    args: { name: 42 },
+}
 
-export const Unknown: Story = Template.bind({})
-Unknown.args = { name: null }
+export const Unknown: Story = {
+    args: { name: null },
+}
 
-export const Gray: Story = Template.bind({})
-Gray.args = { name: 5, color: LettermarkColor.Gray }
+export const Gray: Story = {
+    args: { name: 5, color: LettermarkColor.Gray },
+}
 
-export const ExtraSmall: Story = Template.bind({})
-ExtraSmall.args = { name: 'Xtra', size: 'xsmall' }
+export const ExtraSmall: Story = {
+    args: { name: 'Xtra', size: 'xsmall' },
+}
 
-export const ExtraLarge: Story = Template.bind({})
-ExtraLarge.args = { name: 'Xtra', size: 'xlarge' }
+export const ExtraLarge: Story = {
+    args: { name: 'Xtra', size: 'xlarge' },
+}

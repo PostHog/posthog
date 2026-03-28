@@ -6,7 +6,11 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
-export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
+export interface DashboardTemplateEditorProps {
+    inline?: boolean
+}
+
+export function DashboardTemplateEditor({ inline = false }: DashboardTemplateEditorProps): JSX.Element {
     const {
         closeDashboardTemplateEditor,
         createDashboardTemplate,

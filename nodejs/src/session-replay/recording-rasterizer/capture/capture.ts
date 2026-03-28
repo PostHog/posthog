@@ -1,88 +1,13 @@
 import * as fs from 'fs/promises'
-import { CDPSession, Page } from 'puppeteer'
 import { PuppeteerCaptureFormat, capture as captureVideo } from 'puppeteer-capture'
 
-import { config } from '../config'
+import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
-import { InactivityPeriod, RasterizeRecordingInput, RecordingResult } from '../types'
+import { CaptureConfig, InactivityPeriod, RecordingResult } from '../types'
 import { elapsed } from '../utils'
 import { PlayerController } from './player'
 
-const DEFAULT_PLAYBACK_SPEED = 4
-const DEFAULT_FPS = 24
-
-export interface CaptureConfig {
-    captureFps: number // recordingFps * playbackSpeed — internal capture rate
-    outputFps: number // recordingFps — what the viewer sees after setpts
-    playbackSpeed: number
-    trim?: number // max output seconds
-    trimFrameLimit: number // trim * outputFps — for early loop stop
-    captureTimeoutMs: number // virtual-time timeout for the capture loop
-    ffmpegOutputOpts: string[]
-    ffmpegVideoFilters: string[]
-}
-
-export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfig {
-    const playbackSpeed = input.playback_speed || DEFAULT_PLAYBACK_SPEED
-    const outputFps = input.recording_fps || DEFAULT_FPS
-    // Capture at outputFps * playbackSpeed so that after setpts stretches
-    // timestamps by playbackSpeed, the output plays at outputFps in real-time.
-    // e.g. 3fps output × 8x speed = 24fps capture → stretched 8x → 3fps.
-    const captureFps = outputFps * playbackSpeed
-
-    const ffmpegOutputOpts = ['-crf 23', '-pix_fmt yuv420p', '-movflags +faststart']
-    if (input.trim) {
-        ffmpegOutputOpts.push(`-t ${input.trim}`)
-    }
-
-    const ffmpegVideoFilters: string[] = []
-    // Stretch timestamps so capture at Nx speed outputs real-time video.
-    // This eliminates the need for a separate post-processing encode pass.
-    if (playbackSpeed > 1) {
-        ffmpegVideoFilters.push(`setpts=${playbackSpeed}*PTS`)
-        ffmpegVideoFilters.push(`fps=${outputFps}`)
-    }
-
-    return {
-        captureFps,
-        outputFps,
-        playbackSpeed,
-        trim: input.trim,
-        trimFrameLimit: input.trim ? input.trim * outputFps : Infinity,
-        captureTimeoutMs: input.capture_timeout ? input.capture_timeout * 1000 : Infinity,
-        ffmpegOutputOpts,
-        ffmpegVideoFilters,
-    }
-}
-
-/**
- * Wrap a page's CDP session to override the screenshot format in
- * HeadlessExperimental.beginFrame calls. puppeteer-capture hardcodes
- * PNG — this lets us use JPEG (faster encoding) without forking.
- * Must be called BEFORE `captureVideo(page, ...)`.
- */
-function overrideScreenshotFormat(page: Page, format: 'jpeg' | 'png', quality?: number): void {
-    const originalCreateCDPSession = page.createCDPSession.bind(page)
-    ;(page as any).createCDPSession = async (): Promise<CDPSession> => {
-        const session = await originalCreateCDPSession()
-        const originalSend = session.send.bind(session)
-        ;(session as any).send = (method: string, ...args: any[]): Promise<any> => {
-            if (method === 'HeadlessExperimental.beginFrame') {
-                const params = args[0] ?? {}
-                params.screenshot = { format }
-                if (format === 'jpeg' && quality != null) {
-                    params.screenshot.quality = quality
-                }
-                return originalSend(method as any, params)
-            }
-            return originalSend(method as any, ...args)
-        }
-        return session
-    }
-}
-
 export async function capturePlayback(
-    page: Page,
     player: PlayerController,
     captureConfig: CaptureConfig,
     outputPath: string,
@@ -94,14 +19,13 @@ export async function capturePlayback(
     const captureStart = process.hrtime()
     let frameCount = 0
 
-    if (config.screenshotFormat !== 'png') {
-        overrideScreenshotFormat(page, config.screenshotFormat, config.screenshotJpegQuality)
-    }
+    // Install CDP guards before captureVideo — it wraps createCDPSession
+    // to inject screenshot format and gate beginFrame on pending stylesheets.
+    player.prepareBrowserForCapture(captureConfig.screenshotFormat, captureConfig.screenshotQuality)
 
-    // Start capture FIRST — this installs virtual time shims (Date.now,
-    // setTimeout, rAF). Then dispatch player-start so all playback happens
-    // under deterministic virtual time control. rrweb's rAF-based rendering
-    // fires naturally as we advance virtual time in the loop below.
+    const page = player.page
+
+    // Start capture — installs virtual time shims before playback.
     const recorder = await captureVideo(page, {
         fps: captureConfig.captureFps,
         format: PuppeteerCaptureFormat.MP4('veryfast', 'libx264'),
@@ -111,6 +35,9 @@ export async function capturePlayback(
             for (const filter of captureConfig.ffmpegVideoFilters) {
                 ffmpeg.videoFilters(filter)
             }
+            ffmpeg.on('start', (cmd: string) => log.info({ cmd }, 'ffmpeg started'))
+            ffmpeg.on('stderr', (line: string) => log.debug({ ffmpeg: line }, 'ffmpeg'))
+            ffmpeg.on('error', (err: Error) => log.error({ err }, 'ffmpeg error'))
         },
         ffmpeg: process.env.FFMPEG_PATH || undefined,
     })
@@ -131,6 +58,16 @@ export async function capturePlayback(
         }
     })
 
+    // When ffmpeg dies, puppeteer-capture stops capturing but waitForTimeout()
+    // hangs forever. Listen for captureStopped to break out of the loop.
+    let captureAborted: Error | null = null
+    let captureAbortReject: ((err: Error) => void) | null = null
+    recorder.on('captureStopped', () => {
+        const err = new RasterizationError('capture stopped unexpectedly (ffmpeg crashed)', true, 'CAPTURE_ABORTED')
+        captureAborted = err
+        captureAbortReject?.(err)
+    })
+
     let virtualElapsed = 0
     let truncated = false
     try {
@@ -141,18 +78,21 @@ export async function capturePlayback(
         await player.startPlayback()
         log.info('playback started')
 
-        // Advance virtual time until the recording ends or we hit a limit.
-        // puppeteer-capture's waitForTimeout advances the virtual clock; rrweb's
-        // shimmed timers fire deterministically within that virtual time.
         const checkIntervalMs = 250
 
         while (virtualElapsed < captureConfig.captureTimeoutMs) {
-            await recorder.waitForTimeout(checkIntervalMs)
+            if (captureAborted) {
+                throw captureAborted
+            }
+            await Promise.race([
+                recorder.waitForTimeout(checkIntervalMs),
+                new Promise<never>((_, reject) => {
+                    captureAbortReject = reject
+                }),
+            ])
+            captureAbortReject = null
             virtualElapsed += checkIntervalMs
 
-            // Stop early when we've captured enough frames for the trim duration.
-            // ffmpeg -t handles the precise cut, but without this the loop would
-            // keep advancing virtual time wastefully.
             if (frameCount >= captureConfig.trimFrameLimit) {
                 log.info({ trim_s: captureConfig.trim, frames: frameCount }, 'trim limit reached')
                 break
@@ -177,6 +117,7 @@ export async function capturePlayback(
             truncated = true
         }
     } finally {
+        captureAbortReject = null
         try {
             await recorder.stop()
         } catch {
@@ -195,9 +136,6 @@ export async function capturePlayback(
 
     const inactivityPeriods: InactivityPeriod[] = player.getInactivityPeriods()
 
-    // frameCount / outputFps = total frames expressed as video seconds.
-    // When trim is set, ffmpeg -t caps the actual output — use that as
-    // the authoritative duration since ffmpeg may discard trailing frames.
     const rawDurationS = frameCount / captureConfig.outputFps
     const captureDurationS = captureConfig.trim ? Math.min(rawDurationS, captureConfig.trim) : rawDurationS
 

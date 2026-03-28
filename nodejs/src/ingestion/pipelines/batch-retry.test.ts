@@ -1,7 +1,7 @@
 import { BatchProcessingStep } from './base-batch-pipeline'
 import { withBatchRetry } from './batch-retry'
 import { newBatchPipelineBuilder } from './builders'
-import { createContext } from './helpers'
+import { createOkContext } from './helpers'
 import { drop, isDlqResult, isDropResult, isOkResult, ok } from './results'
 
 // Suppress logger output during tests
@@ -28,7 +28,7 @@ class NonRetriableError extends Error {
 
 // Helper to create a batch of test inputs
 function createTestBatch<T>(values: T[]) {
-    return values.map((value) => createContext(ok(value)))
+    return values.map((value) => createOkContext(value, {}))
 }
 
 describe('withBatchRetry', () => {
