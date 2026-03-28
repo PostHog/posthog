@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 
 ALLOWED_FIELDS = {"event_name", "distinct_id"}
@@ -28,7 +29,7 @@ class EventFilterConfig(UUIDTModel):
     or marked as would-be-dropped (dry_run).
     """
 
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, related_name="event_filter")
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, related_name="event_filter")
     mode = models.CharField(max_length=20, choices=EventFilterMode.choices, default=EventFilterMode.DISABLED)
     filter_tree = models.JSONField(
         default=None,
@@ -61,7 +62,7 @@ class EventFilterConfig(UUIDTModel):
     )
 
     def __str__(self) -> str:
-        return f"EventFilterConfig(team={self.team_id}, enabled={self.enabled})"
+        return f"EventFilterConfig(team={self.team_id}, mode={self.mode})"
 
     def clean(self) -> None:
         if self.filter_tree:
