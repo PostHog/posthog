@@ -2732,7 +2732,6 @@ describe('PersonState.processEvent()', () => {
             hub = await createHub({})
             personRepository = new PostgresPersonRepository(hub.postgres)
 
-            jest.spyOn(hub.kafkaProducer, 'produce')
             jest.spyOn(personRepository, 'fetchPerson')
             jest.spyOn(personRepository, 'updatePerson')
             jest.spyOn(personRepository, 'updatePersonsBatch')
@@ -2761,6 +2760,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             const state: PersonMergeService = personMergeService({}, hub)
+            jest.spyOn(hub.kafkaProducer, 'produce')
 
             const result = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
@@ -2794,6 +2794,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             const mergeService: PersonMergeService = personMergeService({}, hub, personRepository)
+            jest.spyOn(hub.kafkaProducer, 'produce')
 
             const result = await mergeService.mergePeople({
                 mergeInto: first,
@@ -2976,6 +2977,7 @@ describe('PersonState.processEvent()', () => {
                 distinctId: secondUserDistinctId,
             })
             const state: PersonMergeService = personMergeService({}, hub)
+            jest.spyOn(hub.kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(hub.postgres, 'transaction').mockImplementation(() => {
@@ -3027,6 +3029,7 @@ describe('PersonState.processEvent()', () => {
                 distinctId: secondUserDistinctId,
             })
             const state: PersonMergeService = personMergeService({}, hub)
+            jest.spyOn(hub.kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
@@ -3083,6 +3086,7 @@ describe('PersonState.processEvent()', () => {
                 },
                 hub
             )
+            jest.spyOn(hub.kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
