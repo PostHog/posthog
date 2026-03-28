@@ -2823,7 +2823,8 @@ describe('PersonState.processEvent()', () => {
 
             // Batch mode uses updatePersonsBatch instead of updatePerson
             expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
-            expect(hub.kafkaProducer.produce).toHaveBeenCalledTimes(2)
+            // 3 produce calls: move distinct ID + delete source person (from merge) + update target person (from flush)
+            expect(hub.kafkaProducer.produce).toHaveBeenCalledTimes(3)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
