@@ -128,7 +128,7 @@
             "intents": ["llm_evaluations"]
         },
         {
-            "path": "Taggers",
+            "path": "Tags",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_taggers",

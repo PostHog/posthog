@@ -20,7 +20,7 @@ import { llmTaggerLogic } from './llmTaggerLogic'
 import { TaggerConditionSet } from './types'
 
 export const scene: SceneExport = {
-    component: LLMAnalyticsTaggerScene,
+    component: LLMAnalyticsTagScene,
     logic: llmTaggerLogic,
     paramsToProps: ({ params }): { id: string } => ({ id: params.id || 'new' }),
     productKey: ProductKey.LLM_ANALYTICS,
@@ -391,7 +391,7 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                         >
                             {id === 'new' ? 'Create tagger' : 'Save changes'}
                         </LemonButton>
-                        <LemonButton type="secondary" to={urls.llmAnalyticsTaggers()}>
+                        <LemonButton type="secondary" to={urls.llmAnalyticsTags()}>
                             Cancel
                         </LemonButton>
                         {id !== 'new' && (
@@ -406,7 +406,7 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
     )
 }
 
-export function LLMAnalyticsTaggerScene({ id }: { id?: string }): JSX.Element {
+export function LLMAnalyticsTagScene({ id }: { id?: string }): JSX.Element {
     const taggerId = id || 'new'
     const isNew = taggerId === 'new'
 

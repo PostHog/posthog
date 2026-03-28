@@ -134,7 +134,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                     await api.update(`api/environments/@current/taggers/${props.id}/`, payload)
                     lemonToast.success('Tagger updated')
                 }
-                router.actions.push(urls.llmAnalyticsTaggers())
+                router.actions.push(urls.llmAnalyticsTags())
             },
         },
     })),
@@ -161,7 +161,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             }
             await api.update(`api/environments/@current/taggers/${props.id}/`, { deleted: true })
             lemonToast.success('Tagger deleted')
-            router.actions.push(urls.llmAnalyticsTaggers())
+            router.actions.push(urls.llmAnalyticsTags())
         },
         addTag: () => {
             const current = values.taggerForm.tagger_config

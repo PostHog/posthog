@@ -56,7 +56,7 @@ import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLo
 import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
-import { LLMAnalyticsTaggersScene } from './taggers/LLMAnalyticsTaggersScene'
+import { LLMAnalyticsTagsScene } from './tags/LLMAnalyticsTagsScene'
 import { LLMAnalyticsHumanReviews } from './traceReviews/LLMAnalyticsHumanReviews'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
@@ -605,10 +605,10 @@ function LLMAnalyticsSceneContent(): JSX.Element {
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]) {
         tabs.push({
-            key: 'taggers',
+            key: 'tags',
             label: (
                 <>
-                    Taggers
+                    Tags
                     <LemonTag type="completion" className="ml-1.5 uppercase">
                         Alpha
                     </LemonTag>
@@ -616,11 +616,11 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ),
             content: (
                 <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsTaggersScene />
+                    <LLMAnalyticsTagsScene />
                 </LLMAnalyticsSetupPrompt>
             ),
-            link: combineUrl(urls.llmAnalyticsTaggers(), searchParams).url,
-            'data-attr': 'llma-taggers-tab',
+            link: combineUrl(urls.llmAnalyticsTags(), searchParams).url,
+            'data-attr': 'llma-tags-tab',
         })
     }
 

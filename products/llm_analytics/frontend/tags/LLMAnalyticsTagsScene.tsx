@@ -21,19 +21,19 @@ import { llmTaggersLogic } from './llmTaggersLogic'
 import { Tagger } from './types'
 
 export const scene: SceneExport = {
-    component: LLMAnalyticsTaggersScene,
+    component: LLMAnalyticsTagsScene,
     logic: llmTaggersLogic,
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
-function LLMAnalyticsTaggersContent({ tabId }: { tabId?: string }): JSX.Element {
+function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
     const taggersLogic = llmTaggersLogic({ tabId })
     const { filteredTaggers, taggersLoading, taggersFilter } = useValues(taggersLogic)
     const { setTaggersFilter, toggleTaggerEnabled, loadTaggers } = useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
-    const taggerUrl = (id: string): string => combineUrl(urls.llmAnalyticsTagger(id), searchParams).url
+    const taggerUrl = (id: string): string => combineUrl(urls.llmAnalyticsTag(id), searchParams).url
 
     const columns: LemonTableColumns<Tagger> = [
         {
@@ -160,7 +160,7 @@ function LLMAnalyticsTaggersContent({ tabId }: { tabId?: string }): JSX.Element 
 
             <div className="flex justify-between items-center">
                 <div>
-                    <h2 className="text-xl font-semibold">Taggers</h2>
+                    <h2 className="text-xl font-semibold">Tags</h2>
                     <p className="text-muted">
                         Configure AI-powered taggers to automatically classify your LLM generations into categories.
                     </p>
@@ -172,7 +172,7 @@ function LLMAnalyticsTaggersContent({ tabId }: { tabId?: string }): JSX.Element 
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        to={combineUrl(urls.llmAnalyticsTagger('new'), searchParams).url}
+                        to={combineUrl(urls.llmAnalyticsTag('new'), searchParams).url}
                         data-attr="create-tagger-button"
                     >
                         Create tagger
@@ -214,17 +214,17 @@ function LLMAnalyticsTaggersContent({ tabId }: { tabId?: string }): JSX.Element 
     )
 }
 
-export function LLMAnalyticsTaggersScene({ tabId }: { tabId?: string }): JSX.Element {
+export function LLMAnalyticsTagsScene({ tabId }: { tabId?: string }): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Taggers"
+                name="Tags"
                 description="Configure AI-powered taggers to classify LLM generations into categories."
                 resourceType={{
                     type: 'llm_taggers',
                 }}
             />
-            <LLMAnalyticsTaggersContent tabId={tabId} />
+            <LLMAnalyticsTagsContent tabId={tabId} />
         </SceneContent>
     )
 }
