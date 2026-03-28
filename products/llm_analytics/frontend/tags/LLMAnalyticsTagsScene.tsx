@@ -18,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { llmTaggersLogic } from './llmTaggersLogic'
+import { TagMetrics } from './TagMetrics'
 import { Tagger } from './types'
 
 export const scene: SceneExport = {
@@ -159,6 +160,8 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
     return (
         <div className="space-y-4">
             <TrialUsageMeter showSettingsLink={false} noun="runs" />
+
+            <TagMetrics tabId={tabId} />
 
             <div className="flex justify-between items-center">
                 <div>
