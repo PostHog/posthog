@@ -9,7 +9,8 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import { EventFilterManager } from '../common/event-filters'
+import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
@@ -58,6 +59,7 @@ export interface JoinedIngestionPipelineConfig {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | AppMetricsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
@@ -67,6 +69,7 @@ export interface JoinedIngestionPipelineDeps {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
+    eventFilterManager: EventFilterManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     promiseScheduler: PromiseScheduler
@@ -124,6 +127,7 @@ export function createJoinedIngestionPipeline<
         personsStore,
         groupStore,
         hogTransformer,
+        eventFilterManager,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         promiseScheduler,
@@ -143,6 +147,8 @@ export function createJoinedIngestionPipeline<
     }
 
     const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
+        eventFilterManager,
+        outputs,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
