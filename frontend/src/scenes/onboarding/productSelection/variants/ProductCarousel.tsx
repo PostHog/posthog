@@ -1,10 +1,10 @@
-import './SimplifiedProductSelection.scss'
+import './spotlight/SpotlightProductSelection.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconArrowRight, IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconChevronLeft, IconChevronRight, IconPlus } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
@@ -26,8 +26,8 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../utils'
-import { productSelectionLogic } from './productSelectionLogic'
+import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../../utils'
+import { type RecommendationSource, productSelectionLogic } from '../productSelectionLogic'
 
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
 
@@ -61,7 +61,6 @@ const SPRING_C = 0.55
 const MAX_SPRING_VEL = 0.2
 const DRAG_DEAD_ZONE = 5
 
-// ─── Nauseous easter egg ────────────────────────────────────────────────────
 const NAUSEOUS_THRESHOLD = 25
 const AGITATION_DECAY = 0.98
 const DIRECTION_CHANGE_BOOST = 12
@@ -75,7 +74,6 @@ function useCarousel(
     position: number
     isDragging: boolean
     isNauseous: boolean
-    isAnimating: boolean
     activeIndex: number
     hadDragMovement: React.MutableRefObject<boolean>
     handlePointerDown: (e: React.PointerEvent) => void
@@ -85,7 +83,6 @@ function useCarousel(
     const [position, setPosition] = useState(initialIndex)
     const [isDragging, setIsDragging] = useState(false)
     const [isNauseous, setIsNauseous] = useState(false)
-    const [isAnimating, setIsAnimating] = useState(false)
 
     const posRef = useRef(initialIndex)
     const velRef = useRef(0)
@@ -135,10 +132,7 @@ function useCarousel(
             settledRef.current = idx
             onSettleRef.current(idx)
         }
-        if (animatingRef.current) {
-            animatingRef.current = false
-            setIsAnimating(false)
-        }
+        animatingRef.current = false
     }, [])
 
     const tick = useCallback(() => {
@@ -187,10 +181,7 @@ function useCarousel(
 
     const startLoop = useCallback(() => {
         cancelAnimationFrame(rafRef.current)
-        if (!animatingRef.current) {
-            animatingRef.current = true
-            setIsAnimating(true)
-        }
+        animatingRef.current = true
         rafRef.current = requestAnimationFrame(tick)
     }, [tick])
 
@@ -240,7 +231,6 @@ function useCarousel(
                 window.removeEventListener('pointerup', onUp)
 
                 if (!hadDragMovement.current) {
-                    // No drag movement — let onClick handle navigation
                     return
                 }
 
@@ -290,24 +280,29 @@ function useCarousel(
 
     useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
 
-    return {
-        position,
-        isDragging,
-        isNauseous,
-        isAnimating,
-        activeIndex,
-        hadDragMovement,
-        handlePointerDown,
-        stepTo,
-        goToIndex,
-    }
+    return { position, isDragging, isNauseous, activeIndex, hadDragMovement, handlePointerDown, stepTo, goToIndex }
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
+// ─── Shared carousel component ──────────────────────────────────────────────
 
-export function SimplifiedProductSelection(): JSX.Element {
-    const { firstProductOnboarding, hasBrowsingHistory } = useValues(productSelectionLogic)
-    const { setFirstProductOnboarding, selectSingleProduct } = useActions(productSelectionLogic)
+export type CarouselMode = 'single' | 'multi'
+
+interface ProductCarouselProps {
+    mode: CarouselMode
+    recommendationSource: RecommendationSource
+}
+
+export function ProductCarousel({ mode, recommendationSource }: ProductCarouselProps): JSX.Element {
+    const isMulti = mode === 'multi'
+
+    const { selectedProducts, firstProductOnboarding, hasBrowsingHistory } = useValues(productSelectionLogic)
+    const {
+        toggleProduct,
+        setFirstProductOnboarding,
+        selectSingleProduct,
+        setRecommendationSource,
+        handleStartOnboarding,
+    } = useActions(productSelectionLogic)
     const { showInviteModal } = useActions(inviteLogic)
 
     const allProducts = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
@@ -322,6 +317,10 @@ export function SimplifiedProductSelection(): JSX.Element {
     const hasTrackedSpinRef = useRef(false)
 
     useEffect(() => {
+        setRecommendationSource(recommendationSource)
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
         const timer = setTimeout(() => setMounted(true), 100)
         return () => clearTimeout(timer)
     }, [])
@@ -332,7 +331,6 @@ export function SimplifiedProductSelection(): JSX.Element {
             setSettledIndex(index)
             setFirstProductOnboarding(allProducts[index])
 
-            // Track product navigation (only when the product actually changed)
             if (index !== prevIndex) {
                 window.posthog?.capture('onboarding_product_browsed', {
                     product: allProducts[index],
@@ -347,7 +345,7 @@ export function SimplifiedProductSelection(): JSX.Element {
     const { position, isDragging, isNauseous, activeIndex, hadDragMovement, handlePointerDown, stepTo, goToIndex } =
         useCarousel(allProducts.length, handleSettle, initialIndex)
 
-    // Track when the user triggers the nauseous hedgehog (spin for fun)
+    // Nauseous hedgehog tracking
     useEffect(() => {
         if (isNauseous && !hasTrackedSpinRef.current) {
             hasTrackedSpinRef.current = true
@@ -363,13 +361,29 @@ export function SimplifiedProductSelection(): JSX.Element {
     const spotlightDescription = spotlightProduct.userCentricDescription || spotlightProduct.description
     const spotlightSocialProof = getSocialProof(spotlightKey)
     const HedgehogComponent = PRODUCT_HEDGEHOG[spotlightKey]
+    const isInStack = isMulti && selectedProducts.includes(spotlightKey as ProductKey)
 
-    const handleGetStarted = (): void => {
-        selectSingleProduct(allProducts[activeIndex])
+    // ── Action handlers (differ by mode) ──
+    const handleAction = (): void => {
+        if (isMulti) {
+            const productKey = allProducts[activeIndex] as ProductKey
+            const isAdding = !selectedProducts.includes(productKey)
+            toggleProduct(productKey)
+            if (!firstProductOnboarding) {
+                setFirstProductOnboarding(productKey)
+            }
+            if (isAdding) {
+                navigationSourceRef.current = 'chevron_button'
+                stepTo(1)
+            }
+        } else {
+            selectSingleProduct(allProducts[activeIndex])
+        }
     }
-    const handleGetStartedRef = useRef(handleGetStarted)
-    handleGetStartedRef.current = handleGetStarted
+    const handleActionRef = useRef(handleAction)
+    handleActionRef.current = handleAction
 
+    // Keyboard navigation
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent): void => {
             if (e.key === 'ArrowLeft') {
@@ -382,7 +396,7 @@ export function SimplifiedProductSelection(): JSX.Element {
                 stepTo(1)
             } else if (e.key === 'Enter') {
                 e.preventDefault()
-                handleGetStartedRef.current()
+                handleActionRef.current()
             }
         }
         window.addEventListener('keydown', onKeyDown)
@@ -393,8 +407,6 @@ export function SimplifiedProductSelection(): JSX.Element {
         const wrappedPos = ((position % allProducts.length) + allProducts.length) % allProducts.length
         let offset = itemIndex - wrappedPos
         const half = allProducts.length / 2
-        // Use strict inequality on one side so items at exactly ±half
-        // stay put instead of jumping between sides during animation
         if (offset >= half) {
             offset -= allProducts.length
         }
@@ -404,9 +416,19 @@ export function SimplifiedProductSelection(): JSX.Element {
         return offset
     }
 
+    // ── Heading copy ──
+    const heading = isMulti ? 'Build your stack' : 'What should we build first?'
+    const subheading = hasBrowsingHistory
+        ? isMulti
+            ? "We've got a hunch about where to start. Add what you need."
+            : "We've got a hunch about where to start."
+        : isMulti
+          ? 'Pick the products you need — start with one or grab a few.'
+          : "Pick your starting point — you'll unlock the rest soon enough."
+
     return (
         <div className="SimplifiedProductSelection flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
-            {/* Subtle product color wash across the whole page */}
+            {/* Subtle product color wash */}
             <div
                 className="absolute inset-0 transition-colors duration-700 pointer-events-none"
                 style={{
@@ -419,12 +441,8 @@ export function SimplifiedProductSelection(): JSX.Element {
                 <div className="flex justify-center mb-4">
                     <Logomark />
                 </div>
-                <h1 className="text-4xl font-bold text-center mb-1">What should we build first?</h1>
-                <p className="text-center text-muted mb-8">
-                    {hasBrowsingHistory
-                        ? "We've got a hunch about where to start."
-                        : "Pick your starting point — you'll unlock the rest soon enough."}
-                </p>
+                <h1 className="text-4xl font-bold text-center mb-1">{heading}</h1>
+                <p className="text-center text-muted mb-8">{subheading}</p>
 
                 {/* ── Hero spotlight ── */}
                 <div className="flex items-center gap-3 w-full max-w-2xl mb-6">
@@ -440,7 +458,6 @@ export function SimplifiedProductSelection(): JSX.Element {
                     </button>
 
                     <div className="flex-1 max-w-xl mx-auto rounded-xl border overflow-hidden bg-surface-primary shadow-sm">
-                        {/* Color accent bar */}
                         <div
                             className="h-1.5 transition-all duration-500"
                             style={{
@@ -450,7 +467,6 @@ export function SimplifiedProductSelection(): JSX.Element {
 
                         <div className="h-[280px]">
                             {isNauseous ? (
-                                /* ── Nauseous easter egg ── */
                                 <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
                                     <div className="SimplifiedProductSelection__buzz">
                                         <SurprisedHog className="w-[140px] h-[140px]" />
@@ -461,9 +477,7 @@ export function SimplifiedProductSelection(): JSX.Element {
                                     </div>
                                 </div>
                             ) : (
-                                /* ── Product spotlight ── */
                                 <div className="flex h-full">
-                                    {/* Hedgehog hero area — this is the star of the show */}
                                     <div className="w-[180px] shrink-0 relative overflow-hidden flex items-end justify-center">
                                         <div
                                             className="absolute inset-0 opacity-[0.12] transition-colors duration-500"
@@ -474,7 +488,6 @@ export function SimplifiedProductSelection(): JSX.Element {
                                         )}
                                     </div>
 
-                                    {/* Product info */}
                                     <div className="flex-1 flex flex-col justify-between p-5">
                                         <div>
                                             <div className="flex items-center gap-1.5 text-xs text-muted mb-1.5">
@@ -507,18 +520,50 @@ export function SimplifiedProductSelection(): JSX.Element {
                                             )}
                                         </div>
 
+                                        {/* ── CTA (differs by mode) ── */}
                                         <div className="flex flex-col gap-2 mt-2">
-                                            <LemonButton
-                                                type="primary"
-                                                status="alt"
-                                                size="large"
-                                                onClick={handleGetStarted}
-                                                sideIcon={<IconArrowRight />}
-                                                data-attr="onboarding-continue"
-                                                fullWidth
-                                            >
-                                                Let's go
-                                            </LemonButton>
+                                            {isMulti ? (
+                                                isInStack ? (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="large"
+                                                        onClick={handleAction}
+                                                        icon={<IconCheck />}
+                                                        data-attr="onboarding-remove-from-stack"
+                                                        fullWidth
+                                                        className="border-2"
+                                                        style={{
+                                                            borderColor: spotlightProduct.iconColor,
+                                                            color: spotlightProduct.iconColor,
+                                                        }}
+                                                    >
+                                                        Added
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="large"
+                                                        onClick={handleAction}
+                                                        sideIcon={<IconPlus />}
+                                                        data-attr="onboarding-add-to-stack"
+                                                        fullWidth
+                                                    >
+                                                        Add to my stack
+                                                    </LemonButton>
+                                                )
+                                            ) : (
+                                                <LemonButton
+                                                    type="primary"
+                                                    status="alt"
+                                                    size="large"
+                                                    onClick={handleAction}
+                                                    sideIcon={<IconArrowRight />}
+                                                    data-attr="onboarding-continue"
+                                                    fullWidth
+                                                >
+                                                    Let's go
+                                                </LemonButton>
+                                            )}
                                             {spotlightSocialProof && (
                                                 <span className="text-xs text-muted text-center">
                                                     {spotlightSocialProof}
@@ -561,12 +606,12 @@ export function SimplifiedProductSelection(): JSX.Element {
                         const absOffset = Math.abs(offset)
                         const isCenter = absOffset < 0.5
                         const isVisible = absOffset <= 5
+                        const productInStack = isMulti && selectedProducts.includes(productKey as ProductKey)
 
                         const x = offset * ITEM_SPACING
                         const y = absOffset * absOffset * 2
                         const scale = Math.max(0.82, 1 - absOffset * 0.035)
                         const itemOpacity = isVisible ? Math.max(0.4, 1 - absOffset * 0.12) : 0
-
                         const entranceDelay = Math.round(absOffset) * 60
 
                         return (
@@ -594,7 +639,7 @@ export function SimplifiedProductSelection(): JSX.Element {
                                 data-attr={`${productKey}-arc-item`}
                             >
                                 <div
-                                    className={clsx('rounded-xl p-3 transition-shadow duration-200', {
+                                    className={clsx('rounded-xl p-3 transition-shadow duration-200 relative', {
                                         'border-2 bg-surface-primary shadow-lg': isCenter,
                                         'border border-primary bg-surface-primary': !isCenter,
                                     })}
@@ -604,13 +649,23 @@ export function SimplifiedProductSelection(): JSX.Element {
                                                   borderColor: product.iconColor,
                                                   boxShadow: `0 4px 20px ${product.iconColor}25`,
                                               }
-                                            : undefined
+                                            : productInStack
+                                              ? { borderColor: product.iconColor + '60' }
+                                              : undefined
                                     }
                                 >
                                     {getProductIcon(product.icon, {
                                         iconColor: product.iconColor,
                                         className: 'text-[28px]',
                                     })}
+                                    {productInStack && (
+                                        <div
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                            style={{ backgroundColor: product.iconColor }}
+                                        >
+                                            <IconCheck className="text-white text-[10px]" />
+                                        </div>
+                                    )}
                                 </div>
                                 <span
                                     className={clsx(
@@ -625,27 +680,50 @@ export function SimplifiedProductSelection(): JSX.Element {
                     })}
                 </div>
 
-                <div className="flex items-center gap-4 text-muted text-xs mb-3">
-                    <span className="flex items-center gap-1.5">
-                        <kbd className="px-1.5 py-0.5 rounded border border-primary bg-surface-primary text-[10px] font-mono">
-                            &larr;
-                        </kbd>
-                        <kbd className="px-1.5 py-0.5 rounded border border-primary bg-surface-primary text-[10px] font-mono">
-                            &rarr;
-                        </kbd>
-                        browse
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                        <kbd className="px-1.5 py-0.5 rounded border border-primary bg-surface-primary text-[10px] font-mono">
-                            &crarr;
-                        </kbd>
-                        select
-                    </span>
-                </div>
-                <p className="text-muted text-xs mb-2">You can always add more from Settings.</p>
-                <p className="text-muted text-sm">
-                    Need help from a team member? <Link onClick={() => showInviteModal()}>Invite them</Link>
-                </p>
+                {/* ── Footer (differs by mode) ── */}
+                {isMulti ? (
+                    selectedProducts.length > 0 && (
+                        <div className="flex flex-col items-center gap-2">
+                            <p className="text-muted text-xs animate-pulse">
+                                Make sure to check out the other products too!
+                            </p>
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                size="large"
+                                onClick={handleStartOnboarding}
+                                sideIcon={<IconArrowRight />}
+                                data-attr="onboarding-continue"
+                            >
+                                Get started{selectedProducts.length > 1 ? ` (${selectedProducts.length})` : ''}
+                            </LemonButton>
+                        </div>
+                    )
+                ) : (
+                    <>
+                        <div className="flex items-center gap-4 text-muted text-xs mb-3">
+                            <span className="flex items-center gap-1.5">
+                                <kbd className="px-1.5 py-0.5 rounded border border-primary bg-surface-primary text-[10px] font-mono">
+                                    &larr;
+                                </kbd>
+                                <kbd className="px-1.5 py-0.5 rounded border border-primary bg-surface-primary text-[10px] font-mono">
+                                    &rarr;
+                                </kbd>
+                                browse
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <kbd className="px-1.5 py-0.5 rounded border border-primary bg-surface-primary text-[10px] font-mono">
+                                    &crarr;
+                                </kbd>
+                                select
+                            </span>
+                        </div>
+                        <p className="text-muted text-xs mb-2">You can always add more from Settings.</p>
+                        <p className="text-muted text-sm">
+                            Need help from a team member? <Link onClick={() => showInviteModal()}>Invite them</Link>
+                        </p>
+                    </>
+                )}
             </div>
         </div>
     )

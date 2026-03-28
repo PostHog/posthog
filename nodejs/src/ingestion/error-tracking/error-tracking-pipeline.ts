@@ -127,7 +127,7 @@ export function createErrorTrackingPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                preservePartitionLocality: false,
+                                preservePartitionLocality: true,
                             })
                         )
                         // Parse Kafka message body [REUSE]
@@ -162,7 +162,7 @@ export function createErrorTrackingPipeline(
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
-                                            false, // preservePartitionLocality
+                                            true, // preservePartitionLocality
                                             overflowRedirectService
                                         )
                                     )
