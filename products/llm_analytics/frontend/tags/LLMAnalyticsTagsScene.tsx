@@ -158,7 +158,7 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink={false} />
+            <TrialUsageMeter showSettingsLink={false} noun="runs" />
 
             <div className="flex justify-between items-center">
                 <div>
