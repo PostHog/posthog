@@ -24,8 +24,8 @@ export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
                 { name: 'data-analysis', description: 'Working with data, charts, queries, or analytics' },
                 { name: 'code-generation', description: 'Writing or modifying code' },
             ],
-            min_tags: 1,
-            max_tags: 3,
+            min_tags: 0,
+            max_tags: null,
         },
     },
     {
@@ -42,8 +42,8 @@ export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
                 { name: 'feedback', description: 'Providing feedback or corrections to the AI' },
                 { name: 'follow-up', description: 'Following up on a previous response or asking for clarification' },
             ],
-            min_tags: 1,
-            max_tags: 2,
+            min_tags: 0,
+            max_tags: null,
         },
     },
     {
@@ -80,8 +80,8 @@ export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
                 { name: 'complex', description: 'In-depth technical or analytical response with multiple parts' },
                 { name: 'expert', description: 'Highly specialized response requiring deep expertise' },
             ],
-            min_tags: 1,
-            max_tags: 1,
+            min_tags: 0,
+            max_tags: null,
         },
     },
     {
@@ -97,8 +97,8 @@ export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
                 { name: 'frustrated', description: 'User seems frustrated, confused, or dissatisfied' },
                 { name: 'urgent', description: 'User seems to need help urgently or is under time pressure' },
             ],
-            min_tags: 1,
-            max_tags: 1,
+            min_tags: 0,
+            max_tags: null,
         },
     },
 ] as const
