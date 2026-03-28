@@ -36,7 +36,7 @@ class ExpectedView:
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind.choices)
+    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind)
 
     class Meta:
         constraints = [

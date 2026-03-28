@@ -83,15 +83,15 @@ class Subscription(models.Model):
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
-    target_type = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
+    target_type = models.CharField(max_length=10, choices=SubscriptionTarget)
     target_value = models.TextField()
 
     # Subscription delivery (related to rrule)
-    frequency = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
+    frequency = models.CharField(max_length=10, choices=SubscriptionFrequency)
     interval = models.IntegerField(default=1)
     count = models.IntegerField(null=True)
     byweekday: ArrayField = ArrayField(
-        models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices),
+        models.CharField(max_length=10, choices=SubscriptionByWeekDay),
         null=True,
         blank=True,
         default=None,

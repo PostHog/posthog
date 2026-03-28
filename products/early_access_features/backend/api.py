@@ -69,7 +69,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         help_text="A longer description of what this early access feature does, shown to users in the opt-in UI.",
     )
     stage = serializers.ChoiceField(
-        choices=EarlyAccessFeature.Stage.choices,
+        choices=EarlyAccessFeature.Stage,
         help_text="Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.",
     )
     documentation_url = serializers.URLField(

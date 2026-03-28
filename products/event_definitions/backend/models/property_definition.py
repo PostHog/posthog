@@ -53,7 +53,7 @@ class PropertyDefinition(UUIDTModel):
     property_type = models.CharField(max_length=50, choices=PropertyType, blank=True, null=True)
 
     # :TRICKY: May be null for historical events
-    type = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type.choices)
+    type = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type)
     # Only populated for `Type.GROUP`
     group_type_index = models.PositiveSmallIntegerField(null=True)
 

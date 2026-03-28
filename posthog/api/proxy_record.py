@@ -72,7 +72,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
         help_text="The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value.",
     )
     status = serializers.ChoiceField(
-        choices=ProxyRecord.Status.choices,
+        choices=ProxyRecord.Status,
         read_only=True,
         help_text=(
             "Current provisioning status. "

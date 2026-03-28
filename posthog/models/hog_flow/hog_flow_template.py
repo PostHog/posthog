@@ -41,7 +41,7 @@ class HogFlowTemplate(UUIDTModel):
     description = models.TextField(blank=True, default="")
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     tags = ArrayField(models.CharField(max_length=255), blank=True, default=list)
-    scope = models.CharField(max_length=24, choices=Scope.choices)
+    scope = models.CharField(max_length=24, choices=Scope)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -51,7 +51,7 @@ class HogFlowTemplate(UUIDTModel):
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)
-    exit_condition = models.CharField(max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION)
+    exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)

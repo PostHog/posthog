@@ -36,7 +36,7 @@ class ErrorTrackingIssue(UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
@@ -347,10 +347,10 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         WEB = "web"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
+    library = models.CharField(max_length=24, choices=Library, null=False, blank=False, default=Library.WEB)
 
     match_type = models.CharField(
-        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
+        max_length=24, choices=MatchType, null=False, blank=False, default=MatchType.ALL
     )
 
     sample_rate = models.DecimalField(
@@ -417,7 +417,7 @@ class ErrorTrackingGroup(UUIDTModel):
         blank=False,
         default=list,
     )
-    status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.CharField(max_length=40, choices=Status, default=Status.ACTIVE, null=False)
     assignee = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
