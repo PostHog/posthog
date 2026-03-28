@@ -134,9 +134,10 @@ export function drawHighlightPoint(
     x: number,
     y: number,
     color: string,
+    backgroundColor: string,
     radius: number = 4
 ): void {
-    ctx.fillStyle = '#ffffff'
+    ctx.fillStyle = backgroundColor
     ctx.beginPath()
     ctx.arc(x, y, radius + 2, 0, Math.PI * 2)
     ctx.fill()

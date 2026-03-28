@@ -1,5 +1,3 @@
-import type * as d3 from 'd3'
-
 export type { AxisFormat, ChartTheme } from 'lib/charts/types'
 
 export interface Series {
@@ -140,6 +138,9 @@ export interface ChartDrawArgs {
     theme: import('lib/charts/types').ChartTheme
 }
 
+/** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
+export type ResolveValueFn = (series: Series, dataIndex: number) => number
+
 /** Factory function that chart types provide to create their scales from dimensions and data. */
 export type CreateScalesFn = (series: Series[], labels: string[], dimensions: ChartDimensions) => ChartScales
 
@@ -147,7 +148,8 @@ export type CreateScalesFn = (series: Series[], labels: string[], dimensions: Ch
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. */
     x: (label: string) => number | undefined
+    /** Maps a y value to a pixel coordinate. */
     y: (value: number) => number
-    /** Underlying d3 scale, needed for tick generation. */
-    yRaw: d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
+    /** Returns tick values for the y-axis. */
+    yTicks: () => number[]
 }

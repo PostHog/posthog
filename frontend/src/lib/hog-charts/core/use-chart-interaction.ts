@@ -1,7 +1,9 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from './interaction'
-import type { ChartDimensions, ChartScales, PointClickData, Series, TooltipContext } from './types'
+import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Series, TooltipContext } from './types'
+
+const defaultResolveValue: ResolveValueFn = (series, dataIndex) => series.data[dataIndex] ?? 0
 
 interface UseChartInteractionOptions {
     scales: ChartScales | null
@@ -11,7 +13,7 @@ interface UseChartInteractionOptions {
     canvasRef: React.RefObject<HTMLCanvasElement | null>
     showTooltip: boolean
     onPointClick?: (data: PointClickData) => void
-    stackedData?: Map<string, number[]>
+    resolveValue?: ResolveValueFn
 }
 
 interface UseChartInteractionResult {
@@ -32,10 +34,12 @@ export function useChartInteraction({
     canvasRef,
     showTooltip,
     onPointClick,
-    stackedData,
+    resolveValue = defaultResolveValue,
 }: UseChartInteractionOptions): UseChartInteractionResult {
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext | null>(null)
+    const hoverIndexRef = useRef(hoverIndex)
+    hoverIndexRef.current = hoverIndex
 
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -65,12 +69,12 @@ export function useChartInteraction({
                     scales.x,
                     scales.y,
                     canvasBounds,
-                    stackedData
+                    resolveValue
                 )
                 setTooltipCtx(newTooltipCtx)
             }
         },
-        [scales, dimensions, labels, series, showTooltip, stackedData, canvasRef]
+        [scales, dimensions, labels, series, showTooltip, resolveValue, canvasRef]
     )
 
     const onMouseLeave = useCallback(() => {
@@ -79,13 +83,13 @@ export function useChartInteraction({
     }, [])
 
     const onClick = useCallback(() => {
-        if (onPointClick && hoverIndex >= 0) {
-            const clickData = buildPointClickData(hoverIndex, series, labels, stackedData)
+        if (onPointClick && hoverIndexRef.current >= 0) {
+            const clickData = buildPointClickData(hoverIndexRef.current, series, labels, resolveValue)
             if (clickData) {
                 onPointClick(clickData)
             }
         }
-    }, [onPointClick, hoverIndex, series, labels, stackedData])
+    }, [onPointClick, series, labels, resolveValue])
 
     return {
         hoverIndex,

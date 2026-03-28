@@ -1,6 +1,6 @@
 import { bisector } from 'd3'
 
-import type { ChartDimensions, PointClickData, Series, TooltipContext } from './types'
+import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext } from './types'
 
 export function findNearestIndex(
     mouseX: number,
@@ -39,7 +39,7 @@ export function buildTooltipContext(
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
-    stackedData?: Map<string, number[]>
+    resolveValue: ResolveValueFn
 ): TooltipContext | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -53,14 +53,11 @@ export function buildTooltipContext(
 
     const seriesData = series
         .filter((s) => !s.hidden)
-        .map((s) => {
-            const data = stackedData?.get(s.key) ?? s.data
-            return {
-                series: s,
-                value: data[dataIndex] ?? 0,
-                color: s.color,
-            }
-        })
+        .map((s) => ({
+            series: s,
+            value: resolveValue(s, dataIndex),
+            color: s.color,
+        }))
 
     // Position Y at the midpoint of all visible series values
     const yValues = seriesData.map((d) => yScale(d.value)).filter(isFinite)
@@ -79,30 +76,28 @@ export function buildPointClickData(
     dataIndex: number,
     series: Series[],
     labels: string[],
-    stackedData?: Map<string, number[]>
+    resolveValue: ResolveValueFn
 ): PointClickData | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }
 
-    // Find the first visible series
     const visibleSeries = series.filter((s) => !s.hidden)
     if (visibleSeries.length === 0) {
         return null
     }
 
     const firstSeries = visibleSeries[0]
-    const firstData = stackedData?.get(firstSeries.key) ?? firstSeries.data
 
     return {
         seriesIndex: series.indexOf(firstSeries),
         dataIndex,
         series: firstSeries,
-        value: firstData[dataIndex] ?? 0,
+        value: resolveValue(firstSeries, dataIndex),
         label: labels[dataIndex],
-        crossSeriesData: visibleSeries.map((s) => {
-            const data = stackedData?.get(s.key) ?? s.data
-            return { series: s, value: data[dataIndex] ?? 0 }
-        }),
+        crossSeriesData: visibleSeries.map((s) => ({
+            series: s,
+            value: resolveValue(s, dataIndex),
+        })),
     }
 }

@@ -1,11 +1,14 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
+import { buildTheme } from 'lib/charts/utils/theme'
 import { LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ChartParams } from '~/types'
 
@@ -14,6 +17,8 @@ import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
 
 export function TrendsLineChartD3({ context }: ChartParams): JSX.Element | null {
+    const { isDarkModeOn } = useValues(themeLogic)
+    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps } = useValues(insightLogic)
 
     const {
@@ -70,5 +75,5 @@ export function TrendsLineChartD3({ context }: ChartParams): JSX.Element | null 
         })),
     }
 
-    return <LineChart series={hogSeries} labels={labels} config={chartConfig} />
+    return <LineChart series={hogSeries} labels={labels} config={chartConfig} theme={theme} />
 }

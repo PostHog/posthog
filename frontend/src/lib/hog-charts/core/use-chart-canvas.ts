@@ -38,7 +38,6 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
         const context = canvas.getContext('2d')
         if (context) {
-            context.scale(dpr, dpr)
             setCtx(context)
         }
 
@@ -70,7 +69,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         return () => {
             observer.disconnect()
         }
-    }, [margins.left, margins.right, margins.top, margins.bottom])
+    }, [margins.left, margins.right, margins.top, margins.bottom, updateSize])
 
     return { canvasRef, wrapperRef, dimensions, ctx }
 }

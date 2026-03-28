@@ -19,6 +19,7 @@ export type {
     GoalLine,
     LineChartConfig,
     PointClickData,
+    ResolveValueFn,
     Series,
     TooltipContext,
 } from './core/types'

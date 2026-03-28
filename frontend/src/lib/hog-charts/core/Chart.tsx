@@ -1,8 +1,5 @@
 import React, { useMemo, useEffect } from 'react'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-import { getSeriesColor } from 'lib/colors'
-
 import { AxisLabels } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
@@ -15,8 +12,10 @@ import type {
     ChartDrawArgs,
     ChartMargins,
     ChartScales,
+    ChartTheme,
     CreateScalesFn,
     PointClickData,
+    ResolveValueFn,
     Series,
     TooltipContext,
 } from './types'
@@ -44,13 +43,15 @@ export interface ChartProps {
     series: Series[]
     labels: string[]
     config?: ChartConfig
+    theme: ChartTheme
     createScales: CreateScalesFn
     draw: (args: ChartDrawArgs) => void
     tooltip?: React.ComponentType<TooltipContext>
     onPointClick?: (data: PointClickData) => void
     className?: string
     children?: React.ReactNode
-    stackedData?: Map<string, number[]>
+    /** Resolves the y-value for a series at a given index. Defaults to series.data[index]. */
+    resolveValue?: ResolveValueFn
 }
 
 const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
@@ -59,13 +60,14 @@ export function Chart({
     series,
     labels,
     config,
+    theme,
     createScales: createScalesFn,
     draw,
     tooltip: TooltipComponent = DefaultTooltip,
     onPointClick,
     className,
     children,
-    stackedData,
+    resolveValue,
 }: ChartProps): React.ReactElement {
     const {
         xTickFormatter,
@@ -76,8 +78,6 @@ export function Chart({
         showCrosshair = false,
         goalLines,
     } = config ?? {}
-
-    const theme = useMemo(() => buildTheme(), [])
 
     const margins = useMemo<ChartMargins>(() => {
         const m = { ...DEFAULT_MARGINS }
@@ -96,9 +96,9 @@ export function Chart({
         () =>
             series.map((s, i) => ({
                 ...s,
-                color: s.color || getSeriesColor(i),
+                color: s.color || theme.colors[i % theme.colors.length],
             })),
-        [series]
+        [series, theme.colors]
     )
 
     const scales = useMemo<ChartScales | null>(() => {
@@ -112,8 +112,8 @@ export function Chart({
         if (yTickFormatter) {
             return yTickFormatter
         }
-        const domain = scales?.yRaw.domain() ?? [0, 1]
-        const domainMax = Math.abs(domain[1])
+        const ticks = scales?.yTicks() ?? []
+        const domainMax = ticks.length > 0 ? Math.abs(Math.max(...ticks)) : 1
         return (v: number) => autoFormatYTick(v, domainMax)
     }, [yTickFormatter, scales])
 
@@ -125,7 +125,7 @@ export function Chart({
         canvasRef,
         showTooltip,
         onPointClick,
-        stackedData,
+        resolveValue,
     })
 
     useEffect(() => {
@@ -133,22 +133,26 @@ export function Chart({
             return
         }
 
-        const dpr = window.devicePixelRatio || 1
-        ctx.save()
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        ctx.clearRect(0, 0, dimensions.width, dimensions.height)
+        const id = requestAnimationFrame(() => {
+            const dpr = window.devicePixelRatio || 1
+            ctx.save()
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+            ctx.clearRect(0, 0, dimensions.width, dimensions.height)
 
-        draw({
-            ctx,
-            dimensions,
-            scales,
-            series: coloredSeries,
-            labels,
-            hoverIndex,
-            theme,
+            draw({
+                ctx,
+                dimensions,
+                scales,
+                series: coloredSeries,
+                labels,
+                hoverIndex,
+                theme,
+            })
+
+            ctx.restore()
         })
 
-        ctx.restore()
+        return () => cancelAnimationFrame(id)
     }, [ctx, dimensions, scales, coloredSeries, labels, theme, hoverIndex, draw])
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
@@ -178,6 +182,8 @@ export function Chart({
             >
                 <canvas
                     ref={canvasRef as React.RefObject<HTMLCanvasElement>}
+                    role="img"
+                    aria-label={`Chart with ${coloredSeries.filter((s) => !s.hidden).length} data series`}
                     style={{
                         position: 'absolute',
                         top: 0,

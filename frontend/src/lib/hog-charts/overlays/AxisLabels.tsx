@@ -13,6 +13,14 @@ interface AxisLabelsProps {
 const LABEL_FONT = '11px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_PADDING = 20
 
+let measureCtx: CanvasRenderingContext2D | null = null
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+    if (!measureCtx) {
+        measureCtx = document.createElement('canvas').getContext('2d')
+    }
+    return measureCtx
+}
+
 function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
@@ -35,8 +43,7 @@ function computeVisibleXLabels(
         return []
     }
 
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
+    const ctx = getMeasureCtx()
     if (!ctx) {
         return candidates
     }
@@ -68,7 +75,7 @@ export function AxisLabels({
     axisColor = 'rgba(0, 0, 0, 0.5)',
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels } = useChart()
-    const yTicks = scales.yRaw.ticks?.() ?? []
+    const yTicks = scales.yTicks()
 
     const visibleXLabels = useMemo(
         () => (hideXAxis ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter)),
