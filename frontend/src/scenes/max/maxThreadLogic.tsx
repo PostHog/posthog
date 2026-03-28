@@ -669,8 +669,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
-                posthog.captureException(e)
-
                 // Cancel any next iteration
                 actions.setForAnotherAgenticIteration(false)
 
@@ -692,6 +690,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    posthog.captureException(e)
                     let releaseException = true
                     // Generic message by default
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }

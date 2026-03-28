@@ -438,18 +438,23 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             serializer = AssistantSSESerializer()
             stream_manager = AgentExecutor(conversation, timeout=timeout, max_length=max_length)
             last_yield_time = time.time()
+            last_chunk_time = last_yield_time
             aiter = stream_manager.astream(workflow_class, workflow_inputs).__aiter__()
 
             while True:
                 next_task = asyncio.ensure_future(aiter.__anext__())
-
-                while not next_task.done():
-                    elapsed = time.time() - last_yield_time
-                    wait_time = max(0.1, SSE_KEEPALIVE_INTERVAL - elapsed)
-                    done, _ = await asyncio.wait({next_task}, timeout=wait_time)
-                    if not done:
-                        yield SSE_KEEPALIVE_COMMENT
-                        last_yield_time = time.time()
+                try:
+                    while not next_task.done():
+                        elapsed = time.time() - last_yield_time
+                        wait_time = max(0.1, SSE_KEEPALIVE_INTERVAL - elapsed)
+                        done, _ = await asyncio.wait({next_task}, timeout=wait_time)
+                        if not done:
+                            yield SSE_KEEPALIVE_COMMENT
+                            last_yield_time = time.time()
+                except BaseException:
+                    if not next_task.done():
+                        next_task.cancel()
+                    raise
 
                 try:
                     chunk = next_task.result()
@@ -457,7 +462,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     break
 
                 now = time.time()
-                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(now - last_yield_time)
+                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(now - last_chunk_time)
+                last_chunk_time = now
                 last_yield_time = now
 
                 event = await serializer.dumps(chunk)
