@@ -20,7 +20,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
-from ..models.taggers import Tagger, TaggerConfig
+from ..models.taggers import Tagger, TaggerType, validate_tagger_config
 from .metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
@@ -85,7 +85,8 @@ class ModelConfigurationSerializer(serializers.Serializer):
 class TaggerSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
-    tagger_config = TaggerConfigSerializer()
+    tagger_config = serializers.JSONField(help_text="Tagger configuration (varies by tagger_type)")
+    tagger_type = serializers.ChoiceField(choices=TaggerType.choices, default=TaggerType.LLM)
 
     class Meta:
         model = Tagger
@@ -94,6 +95,7 @@ class TaggerSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "tagger_type",
             "tagger_config",
             "conditions",
             "model_configuration",
@@ -104,12 +106,15 @@ class TaggerSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
-    def validate_tagger_config(self, value: dict) -> dict:
-        try:
-            validated = TaggerConfig(**value)
-            return validated.model_dump(exclude_none=True)
-        except Exception as e:
-            raise serializers.ValidationError(str(e))
+    def validate(self, data: dict) -> dict:
+        tagger_type = data.get("tagger_type", self.instance.tagger_type if self.instance else TaggerType.LLM)
+        tagger_config = data.get("tagger_config")
+        if tagger_config:
+            try:
+                data["tagger_config"] = validate_tagger_config(tagger_type, tagger_config)
+            except Exception as e:
+                raise serializers.ValidationError({"tagger_config": str(e)})
+        return data
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int

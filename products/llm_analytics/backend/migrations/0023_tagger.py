@@ -30,6 +30,14 @@ class Migration(migrations.Migration):
                 ("name", models.CharField(max_length=400)),
                 ("description", models.TextField(blank=True, default="")),
                 ("enabled", models.BooleanField(default=False)),
+                (
+                    "tagger_type",
+                    models.CharField(
+                        choices=[("llm", "LLM"), ("hog", "Hog")],
+                        default="llm",
+                        max_length=50,
+                    ),
+                ),
                 ("tagger_config", models.JSONField(default=dict)),
                 ("conditions", models.JSONField(default=list)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),

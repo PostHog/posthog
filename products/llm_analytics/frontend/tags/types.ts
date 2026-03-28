@@ -7,12 +7,22 @@ export interface TagDefinition {
     description?: string
 }
 
-export interface TaggerConfig {
+export type TaggerType = 'llm' | 'hog'
+
+export interface LLMTaggerConfig {
     prompt: string
     tags: TagDefinition[]
     min_tags: number
     max_tags: number | null
 }
+
+export interface HogTaggerConfig {
+    source: string
+    bytecode?: unknown[]
+    tags: TagDefinition[]
+}
+
+export type TaggerConfig = LLMTaggerConfig | HogTaggerConfig
 
 export interface ModelConfiguration {
     provider: LLMProvider
@@ -32,6 +42,7 @@ export interface Tagger {
     name: string
     description?: string
     enabled: boolean
+    tagger_type: TaggerType
     tagger_config: TaggerConfig
     conditions: TaggerConditionSet[]
     model_configuration: ModelConfiguration | null

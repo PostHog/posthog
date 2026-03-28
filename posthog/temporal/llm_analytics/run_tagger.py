@@ -147,6 +147,7 @@ async def fetch_tagger_activity(inputs: RunTaggerInputs) -> dict[str, Any]:
             return {
                 "id": str(tagger.id),
                 "name": tagger.name,
+                "tagger_type": tagger.tagger_type,
                 "tagger_config": tagger.tagger_config,
                 "team_id": tagger.team_id,
                 "model_configuration": model_configuration,
@@ -354,6 +355,111 @@ Output: {output_data}"""
     }
 
 
+def run_hog_tagger(bytecode: list, event_data: dict[str, Any], valid_tag_names: set[str]) -> dict[str, Any]:
+    """Run compiled Hog bytecode to tag a single event.
+
+    The Hog code should return a list of tag name strings.
+    Returns {"tags": list[str], "reasoning": str, "error": str | None}.
+    """
+    from common.hogvm.python.execute import execute_bytecode
+    from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
+
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    event_type = event_data["event"]
+    input_raw, output_raw = extract_event_io(event_type, properties)
+
+    input_val = json.dumps(input_raw) if isinstance(input_raw, (list, dict)) else (input_raw or "")
+    output_val = json.dumps(output_raw) if isinstance(output_raw, (list, dict)) else (output_raw or "")
+
+    globals_dict: dict[str, Any] = {
+        "input": input_val,
+        "output": output_val,
+        "properties": properties,
+        "event": {
+            "uuid": event_data.get("uuid", ""),
+            "event": event_type,
+            "distinct_id": event_data.get("distinct_id", ""),
+        },
+        "tags": sorted(valid_tag_names),
+    }
+
+    try:
+        response = execute_bytecode(
+            bytecode,
+            globals=globals_dict,
+            timeout=timedelta(seconds=5),
+            team=None,
+        )
+    except HogVMRuntimeExceededException:
+        return {"tags": [], "reasoning": "", "error": "Execution timed out (5s limit exceeded)"}
+    except HogVMMemoryExceededException:
+        return {"tags": [], "reasoning": "", "error": "Memory limit exceeded"}
+    except HogVMException as e:
+        return {"tags": [], "reasoning": "", "error": f"Runtime error: {e}"}
+    except Exception:
+        logger.exception("Unexpected error executing Hog tagger bytecode")
+        return {"tags": [], "reasoning": "", "error": "Unexpected error during tagging"}
+
+    reasoning = "\n".join(response.stdout) if response.stdout else ""
+
+    # Expect a list of strings
+    result = response.result
+    if result is None:
+        return {"tags": [], "reasoning": reasoning, "error": None}
+
+    if isinstance(result, str):
+        result = [result]
+
+    if not isinstance(result, list):
+        return {
+            "tags": [],
+            "reasoning": reasoning,
+            "error": f"Must return a list of tag names, got {type(result).__name__}: {result}",
+        }
+
+    # Filter to valid tags only
+    tags = [str(t) for t in result if str(t) in valid_tag_names]
+
+    return {"tags": tags, "reasoning": reasoning, "error": None}
+
+
+@temporalio.activity.defn
+async def execute_hog_tagger_activity(tagger: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
+    """Execute Hog code to tag the target event."""
+    if tagger.get("tagger_type") != "hog":
+        raise ApplicationError(
+            f"Unsupported tagger type: {tagger.get('tagger_type')}",
+            non_retryable=True,
+        )
+
+    tagger_config = tagger.get("tagger_config", {})
+    bytecode = tagger_config.get("bytecode")
+    if not bytecode:
+        raise ApplicationError("Missing bytecode in tagger_config", non_retryable=True)
+
+    tags_def = tagger_config.get("tags", [])
+    valid_tag_names = {tag["name"] for tag in tags_def}
+
+    def _execute():
+        return run_hog_tagger(bytecode, event_data, valid_tag_names)
+
+    result = await database_sync_to_async(_execute, thread_sensitive=False)()
+
+    if result["error"]:
+        raise ApplicationError(
+            f"Hog tagger error: {result['error']}",
+            non_retryable=True,
+        )
+
+    return {
+        "tags": result["tags"],
+        "reasoning": result["reasoning"],
+    }
+
+
 @dataclass
 class EmitTaggerEventInputs:
     tagger: dict[str, Any]
@@ -455,50 +561,62 @@ class RunTaggerWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Activity 2: Execute LLM tagger
-        try:
-            result = await temporalio.workflow.execute_activity(
-                execute_tagger_activity,
-                ExecuteTaggerInputs(tagger=tagger, event_data=inputs.event_data),
-                schedule_to_close_timeout=timedelta(minutes=6),
-                retry_policy=LLM_TAGGER_RETRY_POLICY,
-            )
-        except temporalio.exceptions.ActivityError as e:
-            if isinstance(e.cause, ApplicationError) and e.cause.details:
-                details = e.cause.details[0]
-                error_type = details.get("error_type")
+        tagger_type = tagger.get("tagger_type", "llm")
 
-                if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
-                    if error_type == "trial_limit_reached":
+        # Activity 2: Execute tagger based on type
+        if tagger_type == "hog":
+            # Hog taggers are deterministic — don't retry
+            result = await temporalio.workflow.execute_activity(
+                execute_hog_tagger_activity,
+                args=[tagger, inputs.event_data],
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        else:
+            # LLM tagger
+            try:
+                result = await temporalio.workflow.execute_activity(
+                    execute_tagger_activity,
+                    ExecuteTaggerInputs(tagger=tagger, event_data=inputs.event_data),
+                    schedule_to_close_timeout=timedelta(minutes=6),
+                    retry_policy=LLM_TAGGER_RETRY_POLICY,
+                )
+            except temporalio.exceptions.ActivityError as e:
+                if isinstance(e.cause, ApplicationError) and e.cause.details:
+                    details = e.cause.details[0]
+                    error_type = details.get("error_type")
+
+                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
+                        if error_type == "trial_limit_reached":
+                            await temporalio.workflow.execute_activity(
+                                disable_tagger_activity,
+                                args=[tagger["id"], tagger["team_id"]],
+                                schedule_to_close_timeout=timedelta(seconds=30),
+                                retry_policy=RetryPolicy(maximum_attempts=2),
+                            )
+                        return {
+                            "tags": [],
+                            "skipped": True,
+                            "skip_reason": error_type,
+                            "message": e.cause.message,
+                            "tagger_id": tagger["id"],
+                        }
+
+                    # Update key state for API-related errors
+                    from posthog.temporal.llm_analytics.run_evaluation import update_key_state_activity
+
+                    key_id = details.get("key_id")
+                    if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
+                        new_state = (
+                            LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
+                        )
                         await temporalio.workflow.execute_activity(
-                            disable_tagger_activity,
-                            args=[tagger["id"], tagger["team_id"]],
-                            schedule_to_close_timeout=timedelta(seconds=30),
+                            update_key_state_activity,
+                            args=[key_id, new_state, e.cause.message],
+                            schedule_to_close_timeout=timedelta(seconds=10),
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
-                    return {
-                        "tags": [],
-                        "skipped": True,
-                        "skip_reason": error_type,
-                        "message": e.cause.message,
-                        "tagger_id": tagger["id"],
-                    }
-
-                # Update key state for API-related errors
-                from posthog.temporal.llm_analytics.run_evaluation import update_key_state_activity
-
-                key_id = details.get("key_id")
-                if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
-                    new_state = (
-                        LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
-                    )
-                    await temporalio.workflow.execute_activity(
-                        update_key_state_activity,
-                        args=[key_id, new_state, e.cause.message],
-                        schedule_to_close_timeout=timedelta(seconds=10),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-            raise
+                raise
 
         # Increment trial counter if using PostHog key
         if not result.get("is_byok"):

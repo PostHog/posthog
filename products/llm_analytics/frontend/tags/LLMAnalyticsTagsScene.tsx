@@ -89,17 +89,36 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
             ),
         },
         {
-            title: 'Prompt',
-            key: 'prompt',
+            title: 'Method',
+            key: 'method',
             render: (_, tagger) => (
-                <Tooltip title={tagger.tagger_config.prompt} placement="top">
-                    <div className="max-w-md">
-                        <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate cursor-default">
-                            {tagger.tagger_config.prompt || '(empty)'}
-                        </div>
-                    </div>
-                </Tooltip>
+                <LemonTag type={tagger.tagger_type === 'hog' ? 'option' : 'caution'}>
+                    {tagger.tagger_type === 'hog' ? 'Hog' : 'LLM'}
+                </LemonTag>
             ),
+        },
+        {
+            title: 'Config',
+            key: 'config',
+            render: (_, tagger) => {
+                const preview =
+                    tagger.tagger_type === 'hog'
+                        ? 'source' in tagger.tagger_config
+                            ? tagger.tagger_config.source
+                            : ''
+                        : 'prompt' in tagger.tagger_config
+                          ? tagger.tagger_config.prompt
+                          : ''
+                return (
+                    <Tooltip title={preview} placement="top">
+                        <div className="max-w-md">
+                            <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate cursor-default">
+                                {preview || '(empty)'}
+                            </div>
+                        </div>
+                    </Tooltip>
+                )
+            },
         },
         {
             title: 'Triggers',
