@@ -11,11 +11,11 @@ export interface TaggerTemplate {
 export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
     {
         key: 'topic',
-        name: 'Topic classifier',
-        description: 'Classify what topic or subject area each generation covers',
+        name: 'Topic tags',
+        description: 'Tag each generation with the topics or subject areas it covers',
         icon: 'tag',
         tagger_config: {
-            prompt: 'Classify the main topic or subject area discussed in this AI generation. Select all topics that are substantively covered.',
+            prompt: 'Tag this AI generation with the topics or subject areas it covers. Select all that substantively apply.',
             tags: [
                 { name: 'technical-support', description: 'Troubleshooting, debugging, or fixing technical issues' },
                 { name: 'how-to', description: 'Step-by-step instructions or tutorials' },
@@ -31,10 +31,10 @@ export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
     {
         key: 'intent',
         name: 'User intent',
-        description: 'Identify what the user is trying to accomplish',
+        description: 'Tag what the user is trying to accomplish',
         icon: 'message-circle',
         tagger_config: {
-            prompt: "Identify the primary intent behind the user's message in this generation. What is the user trying to accomplish?",
+            prompt: "Tag the primary intent behind the user's message in this generation. What is the user trying to accomplish?",
             tags: [
                 { name: 'question', description: 'Asking a question or seeking information' },
                 { name: 'task', description: 'Requesting the AI to perform a specific task' },
@@ -70,7 +70,7 @@ export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
     {
         key: 'complexity',
         name: 'Response complexity',
-        description: 'Categorize the complexity level of the AI response',
+        description: 'Tag the complexity level of each AI response',
         icon: 'zap',
         tagger_config: {
             prompt: "Assess the complexity of the AI's response. Select the single best-fitting complexity level.",
@@ -87,7 +87,7 @@ export const defaultTaggerTemplates: readonly TaggerTemplate[] = [
     {
         key: 'sentiment',
         name: 'User sentiment',
-        description: 'Detect the emotional tone of the user in the conversation',
+        description: 'Tag the emotional tone of the user in each conversation',
         icon: 'users',
         tagger_config: {
             prompt: "Analyze the emotional tone of the user's messages (not the AI's response) in this generation. What sentiment is the user expressing?",

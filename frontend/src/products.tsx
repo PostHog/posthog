@@ -438,7 +438,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsTags: {
         projectBased: true,
         name: 'Tags',
-        description: 'Configure AI-powered taggers to classify LLM generations.',
+        description: 'Add custom tags to your LLM generations automatically.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',

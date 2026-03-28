@@ -39,7 +39,7 @@ function TagDefinitionsEditor(): JSX.Element {
                 </LemonButton>
             </div>
             <p className="text-muted text-sm">
-                Define the tags the LLM can assign. Add descriptions to help it classify more accurately.
+                Define the tags the LLM can assign. Add descriptions to help it tag more accurately.
             </p>
             {taggerForm.tagger_config.tags.map((tag, index) => (
                 <div key={index} className="flex gap-2 items-start">
@@ -316,7 +316,7 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                         <div>
                             <label className="font-semibold">Prompt</label>
                             <p className="text-muted text-sm mb-1">
-                                Instructions for the LLM on how to classify generations.
+                                Instructions for the LLM on how to tag generations.
                             </p>
                             <LemonTextArea
                                 placeholder="e.g. Which product features were discussed or used in this generation?"

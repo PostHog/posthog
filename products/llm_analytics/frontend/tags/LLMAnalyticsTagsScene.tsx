@@ -36,8 +36,8 @@ function TaggerTemplatesEmptyState({ tabId }: { tabId?: string }): JSX.Element {
             <div className="text-center">
                 <h3 className="text-lg font-semibold">Get started with example taggers</h3>
                 <p className="text-muted mt-1">
-                    These pre-built taggers classify your LLM generations automatically. Create them disabled — enable
-                    when you're ready.
+                    These example taggers add useful tags to your generations automatically. Create them disabled —
+                    enable when you're ready.
                 </p>
             </div>
 
@@ -219,7 +219,7 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
                 <div>
                     <h2 className="text-xl font-semibold">Tags</h2>
                     <p className="text-muted">
-                        Configure AI-powered taggers to automatically classify your LLM generations into categories.
+                        Set up taggers to automatically add custom tags to your LLM generations.
                     </p>
                 </div>
                 <AccessControlAction
@@ -269,7 +269,7 @@ export function LLMAnalyticsTagsScene({ tabId }: { tabId?: string }): JSX.Elemen
         <SceneContent>
             <SceneTitleSection
                 name="Tags"
-                description="Configure AI-powered taggers to classify LLM generations into categories."
+                description="Automatically add custom tags to your LLM generations."
                 resourceType={{
                     type: 'llm_taggers',
                 }}
