@@ -1,6 +1,8 @@
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
+import { CohortMembershipResolver } from '../../utils/cohort-membership-resolver'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import {
+    buildCohortFunctionsProvider,
     convertClickhouseRawEventToFilterGlobals,
     convertToHogFunctionFilterGlobal,
     filterFunctionInstrumented,
@@ -243,6 +245,8 @@ describe('hog-function-filtering', () => {
     describe('Pre-filtering on event name', () => {
         let mockHogFunction: HogFunctionType
         let mockFilterGlobals: HogFunctionFilterGlobals
+        let mockShouldResolve: jest.Mock
+        let mockResolve: jest.Mock
 
         beforeEach(() => {
             mockHogFunction = {
@@ -256,6 +260,9 @@ describe('hog-function-filtering', () => {
                 distinct_id: 'user_123',
                 timestamp: '2025-01-01T00:00:00.000Z',
             } as HogFunctionFilterGlobals
+
+            mockShouldResolve = jest.fn()
+            mockResolve = jest.fn()
         })
 
         it('should return false and skip bytecode when event does not match specific events', async () => {
@@ -273,6 +280,26 @@ describe('hog-function-filtering', () => {
             })
 
             expect(result.match).toBe(false)
+        })
+
+        it('should return false and skip evaluating function providers when event does not match specific events', async () => {
+            // Filter with only specific event names
+            mockHogFunction.filters = {
+                events: [{ id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 }],
+            }
+
+            // Test with an event that doesn't match any specific event names
+            mockFilterGlobals.event = '$pageview'
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+                functionProviders: [{ shouldResolve: mockShouldResolve.mockReturnValue(true), resolve: mockResolve }],
+            })
+
+            expect(result.match).toBe(false)
+            expect(mockShouldResolve).not.toHaveBeenCalled()
+            expect(mockResolve).not.toHaveBeenCalled()
         })
 
         it('should return true and execute bytecode when event matches specific event name', async () => {
@@ -297,6 +324,60 @@ describe('hog-function-filtering', () => {
                 filterGlobals: mockFilterGlobals,
             })
             expect(result.match).toBe(true)
+        })
+
+        it('should not resolve function providers when precondition is not met', async () => {
+            mockHogFunction.filters = {
+                events: [
+                    { id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 },
+                    {
+                        id: 'project_create_change_order_clicked',
+                        name: 'project_create_change_order_clicked',
+                        type: 'events',
+                        order: 1,
+                    },
+                ],
+                bytecode: ['_H', 1, 29], // Simple bytecode that returns true
+            }
+
+            // Test with an event that matches one of the specific events
+            mockFilterGlobals.event = 'change_order_generated'
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+                functionProviders: [{ shouldResolve: mockShouldResolve.mockReturnValue(false), resolve: mockResolve }],
+            })
+            expect(result.match).toBe(true)
+            expect(mockShouldResolve).toHaveBeenCalledTimes(1)
+            expect(mockResolve).not.toHaveBeenCalled()
+        })
+
+        it('should resolve function providers when precondition is met', async () => {
+            mockHogFunction.filters = {
+                events: [
+                    { id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 },
+                    {
+                        id: 'project_create_change_order_clicked',
+                        name: 'project_create_change_order_clicked',
+                        type: 'events',
+                        order: 1,
+                    },
+                ],
+                bytecode: ['_H', 1, 29], // Simple bytecode that returns true
+            }
+
+            // Test with an event that matches one of the specific events
+            mockFilterGlobals.event = 'change_order_generated'
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+                functionProviders: [{ shouldResolve: mockShouldResolve.mockReturnValue(true), resolve: mockResolve }],
+            })
+            expect(result.match).toBe(true)
+            expect(mockShouldResolve).toHaveBeenCalledTimes(1)
+            expect(mockResolve).toHaveBeenCalledTimes(1)
         })
 
         it('should not run pre-filter when actions are present', async () => {
@@ -356,6 +437,132 @@ describe('hog-function-filtering', () => {
 
             // Should execute bytecode because properties filters are present
             expect(result.match).toBe(true)
+        })
+    })
+
+    describe('filterFunctionInstrumented with cohort filtering', () => {
+        let mockHogFunction: HogFunctionType
+        let mockFilterGlobals: HogFunctionFilterGlobals
+        let mockResolver: CohortMembershipResolver
+
+        // Bytecode: push 41, call inCohort(1 arg) — equivalent to `inCohort(41)`
+        const inCohortBytecode = ['_H', 1, 33, 41, 2, 'inCohort', 1]
+        // Bytecode: push 41, call notInCohort(1 arg)
+        const notInCohortBytecode = ['_H', 1, 33, 41, 2, 'notInCohort', 1]
+
+        beforeEach(() => {
+            mockHogFunction = {
+                id: 'test-function',
+                team_id: 1,
+                name: 'Test Function',
+            } as unknown as HogFunctionType
+
+            mockFilterGlobals = {
+                event: '$pageview',
+                distinct_id: 'user_123',
+                timestamp: '2025-01-01T00:00:00.000Z',
+                person: { id: 'person_123', properties: {} },
+            } as HogFunctionFilterGlobals
+
+            mockResolver = {
+                getPersonCohortIds: jest.fn().mockResolvedValue([41, 42]),
+            } as unknown as CohortMembershipResolver
+        })
+
+        it.each([
+            {
+                name: 'inCohort matches when person is in cohort',
+                bytecode: inCohortBytecode,
+                cohortIds: [41, 42],
+                expected: true,
+            },
+            {
+                name: 'inCohort does not match when person is not in cohort',
+                bytecode: inCohortBytecode,
+                cohortIds: [99],
+                expected: false,
+            },
+            {
+                name: 'notInCohort matches when person is not in cohort',
+                bytecode: notInCohortBytecode,
+                cohortIds: [99],
+                expected: true,
+            },
+            {
+                name: 'notInCohort does not match when person is in cohort',
+                bytecode: notInCohortBytecode,
+                cohortIds: [41],
+                expected: false,
+            },
+            {
+                name: 'inCohort with empty cohort list does not match',
+                bytecode: inCohortBytecode,
+                cohortIds: [],
+                expected: false,
+            },
+            {
+                name: 'notInCohort with empty cohort list matches',
+                bytecode: notInCohortBytecode,
+                cohortIds: [],
+                expected: true,
+            },
+        ])('$name', async ({ bytecode, cohortIds, expected }) => {
+            ;(mockResolver.getPersonCohortIds as jest.Mock).mockResolvedValue(cohortIds)
+
+            mockHogFunction.filters = {
+                events: [{ id: null, name: 'All events', type: 'events', order: 0 }],
+                bytecode,
+            }
+
+            const provider = buildCohortFunctionsProvider(mockResolver, 1, 'person_123')
+
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+                functionProviders: [provider],
+            })
+
+            expect(result.match).toBe(expected)
+            expect(mockResolver.getPersonCohortIds).toHaveBeenCalledWith(1, 'person_123')
+        })
+
+        it('does not resolve cohort provider when bytecode has no cohort references', async () => {
+            mockHogFunction.filters = {
+                events: [{ id: null, name: 'All events', type: 'events', order: 0 }],
+                bytecode: ['_H', 1, 29], // returns true, no cohort calls
+            }
+
+            const provider = buildCohortFunctionsProvider(mockResolver, 1, 'person_123')
+
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+                functionProviders: [provider],
+            })
+
+            expect(result.match).toBe(true)
+            expect(mockResolver.getPersonCohortIds).not.toHaveBeenCalled()
+        })
+
+        it('returns empty cohort list when personId is undefined', async () => {
+            mockHogFunction.filters = {
+                events: [{ id: null, name: 'All events', type: 'events', order: 0 }],
+                bytecode: inCohortBytecode,
+            }
+
+            const provider = buildCohortFunctionsProvider(mockResolver, 1, undefined)
+
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+                functionProviders: [provider],
+            })
+
+            expect(result.match).toBe(false)
+            expect(mockResolver.getPersonCohortIds).not.toHaveBeenCalled()
         })
     })
 })
