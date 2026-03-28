@@ -99,10 +99,13 @@ def update_repo(
     repo_id: UUID,
     team_id: int,
     baseline_file_paths: dict[str, str] | None = None,
+    enable_pr_comments: bool | None = None,
 ) -> Repo:
     repo = get_repo(repo_id, team_id)
     if baseline_file_paths is not None:
         repo.baseline_file_paths = baseline_file_paths
+    if enable_pr_comments is not None:
+        repo.enable_pr_comments = enable_pr_comments
     repo.save()
     return repo
 
@@ -1005,18 +1008,17 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
 
     Best-effort and never raises.
     """
-    if not repo.repo_full_name or run.pr_number is None:
+    if not repo.enable_pr_comments:
         return
 
-    if run.metadata.get("auto_approve_requested"):
+    if not repo.repo_full_name or run.pr_number is None:
         return
 
     from django.conf import settings
 
     run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
     comment = (
-        "👋 Visual changes were detected for this PR.\n\n"
-        f"Please review and approve this run in PostHog: {run_url}"
+        f"👋 Visual changes were detected for this PR.\n\nPlease review and approve this run in PostHog: {run_url}"
     )
 
     try:

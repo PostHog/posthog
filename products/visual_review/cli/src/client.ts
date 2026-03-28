@@ -83,7 +83,6 @@ export class VisualReviewClient {
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
         baselineHashes?: Record<string, string>
-        metadata?: Record<string, unknown>
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -93,7 +92,6 @@ export class VisualReviewClient {
             snapshots: input.snapshots,
             pr_number: input.prNumber,
             baseline_hashes: input.baselineHashes,
-            metadata: input.metadata,
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {
