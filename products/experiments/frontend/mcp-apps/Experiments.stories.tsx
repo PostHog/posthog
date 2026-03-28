@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import {
     ExperimentListView,
@@ -21,6 +21,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const runningExperiment: ExperimentData = {
     id: 1,
@@ -75,14 +77,20 @@ const draftExperiment: ExperimentData = {
     },
 }
 
-export const Running: StoryFn = () => <ExperimentView experiment={runningExperiment} />
-Running.storyName = 'Running experiment'
+export const Running: Story = {
+    render: () => <ExperimentView experiment={runningExperiment} />,
+    storyName: 'Running experiment',
+}
 
-export const Completed: StoryFn = () => <ExperimentView experiment={completedExperiment} />
-Completed.storyName = 'Completed with winner'
+export const Completed: Story = {
+    render: () => <ExperimentView experiment={completedExperiment} />,
+    storyName: 'Completed with winner',
+}
 
-export const Draft: StoryFn = () => <ExperimentView experiment={draftExperiment} />
-Draft.storyName = 'Draft experiment'
+export const Draft: Story = {
+    render: () => <ExperimentView experiment={draftExperiment} />,
+    storyName: 'Draft experiment',
+}
 
 const sampleListData: ExperimentListData = {
     count: 3,
@@ -90,8 +98,10 @@ const sampleListData: ExperimentListData = {
     _posthogUrl: 'https://us.posthog.com/project/1/experiments',
 }
 
-export const List: StoryFn = () => <ExperimentListView data={sampleListData} />
-List.storyName = 'Experiment list'
+export const List: Story = {
+    render: () => <ExperimentListView data={sampleListData} />,
+    storyName: 'Experiment list',
+}
 
 const sampleResults: ExperimentResultsData = {
     experiment: { id: 2, name: 'Pricing page CTA' },
@@ -112,5 +122,7 @@ const sampleResults: ExperimentResultsData = {
     _posthogUrl: 'https://us.posthog.com/project/1/experiments/2',
 }
 
-export const Results: StoryFn = () => <ExperimentResultsView data={sampleResults} />
-Results.storyName = 'Experiment results'
+export const Results: Story = {
+    render: () => <ExperimentResultsView data={sampleResults} />,
+    storyName: 'Experiment results',
+}

@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { LLMCostsView, type LLMCostsData } from './index'
 
@@ -14,6 +14,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const multiModelData: LLMCostsData = {
     results: [
@@ -68,11 +70,17 @@ const emptyData: LLMCostsData = {
     _posthogUrl: 'https://us.posthog.com/project/1/llm-analytics',
 }
 
-export const MultiModel: StoryFn = () => <LLMCostsView data={multiModelData} />
-MultiModel.storyName = 'Multiple models'
+export const MultiModel: Story = {
+    render: () => <LLMCostsView data={multiModelData} />,
+    storyName: 'Multiple models',
+}
 
-export const SingleModel: StoryFn = () => <LLMCostsView data={singleModelData} />
-SingleModel.storyName = 'Single model'
+export const SingleModel: Story = {
+    render: () => <LLMCostsView data={singleModelData} />,
+    storyName: 'Single model',
+}
 
-export const Empty: StoryFn = () => <LLMCostsView data={emptyData} />
-Empty.storyName = 'No data'
+export const Empty: Story = {
+    render: () => <LLMCostsView data={emptyData} />,
+    storyName: 'No data',
+}

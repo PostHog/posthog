@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
@@ -17,8 +17,8 @@ interface StoryProps {
     sectionId: SettingSectionId
 }
 
-type Story = StoryObj<(props: StoryProps) => JSX.Element>
-const meta: Meta<(props: StoryProps) => JSX.Element> = {
+type Story = StoryObj<StoryProps>
+const meta: Meta<StoryProps> = {
     title: 'Scenes-App/Settings/Environment',
     parameters: {
         layout: 'fullscreen',
@@ -56,71 +56,54 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             },
         }),
     ],
+    render: ({ sectionId }: StoryProps) => {
+        useEffect(() => {
+            router.actions.push(urls.settings(sectionId))
+        }, [sectionId])
+
+        return <App />
+    },
 }
 export default meta
 
-const Template: StoryFn<StoryProps> = ({ sectionId }) => {
-    useEffect(() => {
-        router.actions.push(urls.settings(sectionId))
-    }, [sectionId])
-
-    return <App />
-}
-
 // -- Environment --
-export const SettingsEnvironmentDetails: Story = Template.bind({})
-SettingsEnvironmentDetails.args = { sectionId: 'environment-details' }
+export const SettingsEnvironmentDetails: Story = { args: { sectionId: 'environment-details' } }
 
-export const SettingsEnvironmentCustomization: Story = Template.bind({})
-SettingsEnvironmentCustomization.args = { sectionId: 'environment-customization' }
+export const SettingsEnvironmentCustomization: Story = { args: { sectionId: 'environment-customization' } }
 
-export const SettingsEnvironmentAutocapture: Story = Template.bind({})
-SettingsEnvironmentAutocapture.args = { sectionId: 'environment-autocapture' }
+export const SettingsEnvironmentAutocapture: Story = { args: { sectionId: 'environment-autocapture' } }
 
-export const SettingsEnvironmentHeatmaps: Story = Template.bind({})
-SettingsEnvironmentHeatmaps.args = { sectionId: 'environment-heatmaps' }
+export const SettingsEnvironmentHeatmaps: Story = { args: { sectionId: 'environment-heatmaps' } }
 
-export const SettingsEnvironmentProductAnalytics: Story = Template.bind({})
-SettingsEnvironmentProductAnalytics.args = { sectionId: 'environment-product-analytics' }
+export const SettingsEnvironmentProductAnalytics: Story = { args: { sectionId: 'environment-product-analytics' } }
 
-export const SettingsEnvironmentRevenueAnalytics: Story = Template.bind({})
-SettingsEnvironmentRevenueAnalytics.args = { sectionId: 'environment-revenue-analytics' }
+export const SettingsEnvironmentRevenueAnalytics: Story = { args: { sectionId: 'environment-revenue-analytics' } }
 
-export const SettingsEnvironmentMarketingAnalytics: Story = Template.bind({})
-SettingsEnvironmentMarketingAnalytics.args = { sectionId: 'environment-marketing-analytics' }
-SettingsEnvironmentMarketingAnalytics.parameters = {
-    featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+export const SettingsEnvironmentMarketingAnalytics: Story = {
+    args: { sectionId: 'environment-marketing-analytics' },
+    parameters: {
+        featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+    },
 }
 
-export const SettingsEnvironmentWebAnalytics: Story = Template.bind({})
-SettingsEnvironmentWebAnalytics.args = { sectionId: 'environment-web-analytics' }
+export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
 
-export const SettingsEnvironmentReplay: Story = Template.bind({})
-SettingsEnvironmentReplay.args = { sectionId: 'environment-replay' }
+export const SettingsEnvironmentReplay: Story = { args: { sectionId: 'environment-replay' } }
 
-export const SettingsEnvironmentSurveys: Story = Template.bind({})
-SettingsEnvironmentSurveys.args = { sectionId: 'environment-surveys' }
+export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environment-surveys' } }
 
-export const SettingsEnvironmentFeatureFlags: Story = Template.bind({})
-SettingsEnvironmentFeatureFlags.args = { sectionId: 'environment-feature-flags' }
+export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'environment-feature-flags' } }
 
-export const SettingsEnvironmentErrorTracking: Story = Template.bind({})
-SettingsEnvironmentErrorTracking.args = { sectionId: 'environment-error-tracking' }
+export const SettingsEnvironmentErrorTracking: Story = { args: { sectionId: 'environment-error-tracking' } }
 
-export const SettingsEnvironmentCSPReporting: Story = Template.bind({})
-SettingsEnvironmentCSPReporting.args = { sectionId: 'environment-csp-reporting' }
+export const SettingsEnvironmentCSPReporting: Story = { args: { sectionId: 'environment-csp-reporting' } }
 
-export const SettingsEnvironmentPrivacy: Story = Template.bind({})
-SettingsEnvironmentPrivacy.args = { sectionId: 'environment-privacy' }
+export const SettingsEnvironmentPrivacy: Story = { args: { sectionId: 'environment-privacy' } }
 
-export const SettingsEnvironmentMax: Story = Template.bind({})
-SettingsEnvironmentMax.args = { sectionId: 'environment-max' }
+export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-max' } }
 
-export const SettingsEnvironmentIntegrations: Story = Template.bind({})
-SettingsEnvironmentIntegrations.args = { sectionId: 'environment-integrations' }
+export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'environment-integrations' } }
 
-export const SettingsEnvironmentAccessControl: Story = Template.bind({})
-SettingsEnvironmentAccessControl.args = { sectionId: 'environment-access-control' }
+export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
 
-export const SettingsEnvironmentDangerZone: Story = Template.bind({})
-SettingsEnvironmentDangerZone.args = { sectionId: 'environment-danger-zone' }
+export const SettingsEnvironmentDangerZone: Story = { args: { sectionId: 'environment-danger-zone' } }
