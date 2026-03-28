@@ -19,7 +19,14 @@ export function TagsTabContent({ generationEventId }: { generationEventId: strin
         {
             title: 'Tagger',
             key: 'tagger_name',
-            render: (_, run) => <span className="font-medium">{run.tagger_name || '-'}</span>,
+            render: (_, run) =>
+                run.tagger_id ? (
+                    <Link to={urls.llmAnalyticsTag(run.tagger_id)} className="font-medium">
+                        {run.tagger_name || run.tagger_id.slice(0, 12)}
+                    </Link>
+                ) : (
+                    <span className="font-medium">{run.tagger_name || '-'}</span>
+                ),
         },
         {
             title: 'Tags',

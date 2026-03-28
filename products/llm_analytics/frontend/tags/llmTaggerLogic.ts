@@ -19,6 +19,7 @@ export interface TagRun {
     reasoning: string
     trace_id: string
     target_event_id: string
+    tagger_id: string
     tagger_name: string
 }
 
@@ -187,6 +188,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                         properties.$ai_tag_reasoning as reasoning,
                         properties.$ai_trace_id as trace_id,
                         properties.$ai_target_event_id as target_event_id,
+                        properties.$ai_tagger_id as tagger_id,
                         properties.$ai_tagger_name as tagger_name
                     FROM events
                     WHERE event = '$ai_tag'
@@ -203,7 +205,8 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                     reasoning: row[2] || '',
                     trace_id: row[3] || '',
                     target_event_id: row[4] || '',
-                    tagger_name: row[5] || '',
+                    tagger_id: row[5] || '',
+                    tagger_name: row[6] || '',
                 }))
                 actions.loadTagRunsSuccess(runs)
             } catch {
