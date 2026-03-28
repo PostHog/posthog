@@ -2732,6 +2732,7 @@ describe('PersonState.processEvent()', () => {
             hub = await createHub({})
             personRepository = new PostgresPersonRepository(hub.postgres)
 
+            jest.spyOn(hub.kafkaProducer, 'produce')
             jest.spyOn(personRepository, 'fetchPerson')
             jest.spyOn(personRepository, 'updatePerson')
             jest.spyOn(personRepository, 'updatePersonsBatch')
