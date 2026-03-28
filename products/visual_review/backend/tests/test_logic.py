@@ -637,6 +637,23 @@ class TestCommitStatusChecks:
 
         assert len(mock_github_api.review_comments) == 0
 
+    def test_complete_run_does_not_comment_when_auto_approve_requested(self, github_repo, mock_github_api):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+            baseline_hashes={"changed": "old_h"},
+            metadata={"auto_approve_requested": True},
+        )
+
+        logic.mark_run_completed(run.id)
+
+        assert len(mock_github_api.review_comments) == 0
+
     def test_complete_run_posts_error_on_failure(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
             repo_id=github_repo.id,

@@ -1008,6 +1008,9 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     if not repo.repo_full_name or run.pr_number is None:
         return
 
+    if run.metadata.get("auto_approve_requested"):
+        return
+
     from django.conf import settings
 
     run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"

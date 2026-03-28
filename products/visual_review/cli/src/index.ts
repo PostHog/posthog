@@ -282,6 +282,9 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         commitSha: commit,
         branch,
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
+        metadata: {
+            auto_approve_requested: options.autoApprove,
+        },
         snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
             content_hash: s.hash,
