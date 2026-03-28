@@ -311,5 +311,10 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             actions.loadTagger()
             actions.loadTagRuns()
         }
+        // Read initial tab from URL search params
+        const { searchParams } = router.values
+        if (searchParams.tab === 'configuration' || searchParams.tab === 'runs') {
+            actions.setActiveTab(searchParams.tab)
+        }
     }),
 ])

@@ -130,7 +130,14 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => push(taggerUrl(tagger.id))}
+                            onClick={() =>
+                                push(
+                                    combineUrl(urls.llmAnalyticsTag(tagger.id), {
+                                        ...searchParams,
+                                        tab: 'configuration',
+                                    }).url
+                                )
+                            }
                         />
                     </AccessControlAction>
                     <AccessControlAction
