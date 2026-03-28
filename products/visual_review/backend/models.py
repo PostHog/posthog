@@ -6,10 +6,7 @@ import uuid
 
 from django.db import models
 
-from posthog.models.team import Team
-from posthog.models.user import User
-
-from .facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, RunType, SnapshotResult
 
 
 class Repo(models.Model):
@@ -21,7 +18,9 @@ class Repo(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
+    # References posthog.Team in the main database — no FK constraint because
+    # this model lives in a separate product database.
+    team_id = models.BigIntegerField(db_index=True)
 
     # GitHub identity: numeric ID is stable, full_name is for API calls + display
     repo_external_id = models.BigIntegerField()
@@ -41,7 +40,7 @@ class Repo(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "repo_external_id"], name="unique_repo_per_team"),
+            models.UniqueConstraint(fields=["team_id", "repo_external_id"], name="unique_repo_per_team"),
         ]
 
     def __str__(self) -> str:
@@ -74,6 +73,8 @@ class Artifact(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
+    # Denormalized from repo.team_id for direct team scoping.
+    team_id = models.BigIntegerField(db_index=True)
 
     content_hash = models.CharField(max_length=128, db_index=True)
     storage_path = models.CharField(max_length=1024)
@@ -102,6 +103,8 @@ class Run(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
+    # Denormalized from repo.team_id for direct team scoping.
+    team_id = models.BigIntegerField(db_index=True)
 
     status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
     run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType], default=RunType.OTHER)
@@ -111,10 +114,18 @@ class Run(models.Model):
     branch = models.CharField(max_length=255)
     pr_number = models.PositiveIntegerField(null=True, blank=True)
 
-    # Approval
+    # Purpose and review
+    purpose = models.CharField(
+        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW
+    )
+    review_decision = models.CharField(
+        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING
+    )
+    # Legacy — derived from review_decision, kept for backward compat during migration
     approved = models.BooleanField(default=False)
     approved_at = models.DateTimeField(null=True, blank=True)
-    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # References posthog.User in the main database — plain integer, no FK.
+    approved_by_id = models.BigIntegerField(null=True, blank=True)
 
     # Summary (populated after diff processing)
     total_snapshots = models.PositiveIntegerField(default=0)
@@ -165,6 +176,8 @@ class RunSnapshot(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
+    # Denormalized from run.team_id for direct team scoping.
+    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
 
@@ -208,7 +221,8 @@ class RunSnapshot(models.Model):
         default=ReviewState.PENDING,
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
-    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # References posthog.User in the main database — plain integer, no FK.
+    reviewed_by_id = models.BigIntegerField(null=True, blank=True)
     review_comment = models.TextField(blank=True)  # For rejection reasons or notes
     # Hash that was approved (specific to approval action)
     approved_hash = models.CharField(max_length=128, blank=True)

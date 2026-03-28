@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { DataColorToken } from 'lib/colors'
 
 import { LemonButton } from '../LemonButton'
-import { LemonColorPicker } from './LemonColorPicker'
+import { LemonColorPicker, LemonColorPickerProps } from './LemonColorPicker'
 
-type Story = StoryObj<typeof LemonColorPicker>
-const meta: Meta<typeof LemonColorPicker> = {
+type Story = StoryObj<LemonColorPickerProps>
+const meta: Meta<LemonColorPickerProps> = {
     title: 'Lemon UI/Lemon Color/Lemon Color Picker',
     component: LemonColorPicker,
     tags: ['autodocs'],

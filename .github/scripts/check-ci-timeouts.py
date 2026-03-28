@@ -42,6 +42,11 @@ def check_timeouts() -> list[str]:
         for job_name, job_config in jobs.items():
             if not isinstance(job_config, dict):
                 continue
+            # Reusable workflow calls (jobs with `uses:`) don't support
+            # timeout-minutes at the job level — timeouts are set inside
+            # the called workflow.
+            if "uses" in job_config:
+                continue
             if "timeout-minutes" not in job_config:
                 errors.append(f"{workflow_file.name}: job '{job_name}' is missing timeout-minutes")
 

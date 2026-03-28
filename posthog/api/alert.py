@@ -6,13 +6,20 @@ from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import AlertCondition, AlertState, DetectorConfig, InsightThreshold, TrendsAlertConfig
+from posthog.schema import (
+    AlertCalculationInterval,
+    AlertCondition,
+    AlertState,
+    DetectorConfig,
+    InsightThreshold,
+    TrendsAlertConfig,
+)
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
@@ -136,7 +143,7 @@ class AlertSerializer(serializers.ModelSerializer):
     checks = AlertCheckSerializer(
         many=True,
         read_only=True,
-        help_text="The last 5 alert check results (only populated on retrieve).",
+        help_text="Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve.",
     )
     threshold = ThresholdSerializer(
         help_text="Threshold configuration with bounds and type for evaluating the alert.",
@@ -176,7 +183,6 @@ class AlertSerializer(serializers.ModelSerializer):
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        allow_null=True,
         help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
@@ -428,8 +434,13 @@ class AlertSerializer(serializers.ModelSerializer):
         elif self.instance and self.instance.threshold:
             threshold_config = self.instance.threshold.configuration
 
+        calculation_interval = attrs.get(
+            "calculation_interval",
+            self.instance.calculation_interval if self.instance else AlertCalculationInterval.DAILY,
+        )
+
         try:
-            validate_alert_config(query, condition, config, threshold_config)
+            validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         except ValueError as e:
             raise ValidationError(str(e))
 
@@ -527,9 +538,57 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
+    CHECKS_DEFAULT_LIMIT = 5
+    CHECKS_MAX_LIMIT = 500
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="checks_date_from",
+                type=str,
+                required=False,
+                description="Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.",
+            ),
+            OpenApiParameter(
+                name="checks_date_to",
+                type=str,
+                required=False,
+                description="Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified.",
+            ),
+            OpenApiParameter(
+                name="checks_limit",
+                type=int,
+                required=False,
+                description="Maximum number of check results to return (default 5, max 500). Applied after date filtering.",
+            ),
+        ],
+    )
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
+
+        checks_qs = instance.alertcheck_set.all().order_by("-created_at")
+
+        checks_date_from = request.query_params.get("checks_date_from")
+        if checks_date_from:
+            parsed_date = relative_date_parse(checks_date_from, ZoneInfo("UTC"))
+            checks_qs = checks_qs.filter(created_at__gte=parsed_date)
+
+        checks_date_to = request.query_params.get("checks_date_to")
+        if checks_date_to:
+            parsed_date = relative_date_parse(checks_date_to, ZoneInfo("UTC"))
+            checks_qs = checks_qs.filter(created_at__lte=parsed_date)
+
+        has_date_filter = checks_date_from or checks_date_to
+        raw_limit = request.query_params.get("checks_limit")
+        if raw_limit is not None:
+            try:
+                limit = max(1, min(int(raw_limit), self.CHECKS_MAX_LIMIT))
+            except (ValueError, TypeError):
+                limit = self.CHECKS_DEFAULT_LIMIT
+        else:
+            limit = self.CHECKS_MAX_LIMIT if has_date_filter else self.CHECKS_DEFAULT_LIMIT
+
+        instance.checks = checks_qs[:limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 

@@ -4,21 +4,31 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { cn } from 'lib/utils/css-classes'
-import { canAccessBilling } from 'scenes/billing/billing-utils'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
+import { superpowersLogic } from './Superpowers/superpowersLogic'
+
 export function BillingAlertsV2({ className }: { className?: string }): JSX.Element | null {
-    const { billingAlert } = useValues(billingLogic)
+    const { fakeBillingAlert } = useValues(superpowersLogic)
+    const { setFakeBillingAlert } = useActions(superpowersLogic)
+    const { billingAlert: realBillingAlert, canAccessBilling } = useValues(billingLogic)
+
+    const fakeBillingAlertConfig: BillingAlertConfig | null =
+        fakeBillingAlert !== 'none'
+            ? {
+                  status: fakeBillingAlert,
+                  title: `Fake ${fakeBillingAlert} billing alert`,
+                  message: 'This is a fake billing alert triggered via Superpowers for testing purposes.',
+              }
+            : null
+
+    const billingAlert = fakeBillingAlertConfig ?? realBillingAlert
     const { reportBillingAlertShown, reportBillingAlertActionClicked } = useActions(billingLogic)
     const { currentLocation } = useValues(router)
     const { sceneConfig } = useValues(sceneLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const [alertHidden, setAlertHidden] = useState(false)
-
-    const hasBillingAccess = canAccessBilling(currentOrganization)
 
     useEffect(() => {
         if (billingAlert?.pathName && currentLocation.pathname !== billingAlert?.pathName) {
@@ -26,7 +36,7 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
         } else {
             setAlertHidden(false)
         }
-        if (billingAlert) {
+        if (billingAlert && !fakeBillingAlertConfig) {
             reportBillingAlertShown(billingAlert)
         }
     }, [billingAlert, currentLocation]) // oxlint-disable-line react-hooks/exhaustive-deps
@@ -49,7 +59,7 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
                 children: billingAlert.buttonCTA || 'Contact support',
                 onClick: () => reportBillingAlertActionClicked(billingAlert),
             }
-          : hasBillingAccess
+          : canAccessBilling
             ? {
                   to: urls.organizationBilling(),
                   children: 'Manage billing',
@@ -63,11 +73,13 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
                 type={billingAlert.status}
                 action={showButton ? buttonProps : undefined}
                 onClose={
-                    billingAlert.status !== 'error'
-                        ? () => setAlertHidden(true)
-                        : billingAlert.onClose
-                          ? () => billingAlert.onClose?.()
-                          : undefined
+                    fakeBillingAlertConfig
+                        ? () => setFakeBillingAlert('none')
+                        : billingAlert.status !== 'error'
+                          ? () => setAlertHidden(true)
+                          : billingAlert.onClose
+                            ? () => billingAlert.onClose?.()
+                            : undefined
                 }
                 dismissKey={billingAlert.dismissKey}
             >

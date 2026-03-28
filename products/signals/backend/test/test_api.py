@@ -5,6 +5,7 @@ import pydantic
 import temporalio.exceptions
 
 from products.signals.backend.api import emit_signal
+from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 
@@ -83,7 +84,10 @@ class TestEmitSignalValidation:
             AsyncMock(),  # emitter start
         ]
 
-        with patch("products.signals.backend.api.async_connect", return_value=client):
+        with (
+            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
             await emit_signal(
                 team=team_stub,
                 source_product=source_product,
@@ -112,7 +116,10 @@ class TestEmitSignalValidation:
     async def test_emit_signal_rejects_invalid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
 
-        with patch("products.signals.backend.api.async_connect", return_value=client):
+        with (
+            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
             with pytest.raises(pydantic.ValidationError):
                 await emit_signal(
                     team=team_stub,

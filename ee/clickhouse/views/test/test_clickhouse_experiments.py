@@ -262,17 +262,35 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
         self.assertIsNotNone(mock_report_user_action.call_args.kwargs["request"])
 
-    def test_creating_experiment_with_ensure_experience_continuity(self):
-        ff_key = "test-continuity-flag"
+    @parameterized.expand(
+        [
+            ("explicit_true_team_false", False, True, True),
+            ("explicit_false_team_false", False, False, False),
+            ("omitted_team_false", False, None, False),
+            ("omitted_team_true", True, None, True),
+            ("explicit_false_overrides_team_true", True, False, False),
+        ]
+    )
+    def test_creating_experiment_ensure_experience_continuity(
+        self, _name, flags_persistence_default, params_value, expected
+    ):
+        self.team.flags_persistence_default = flags_persistence_default
+        self.team.save()
+
+        ff_key = f"test-continuity-{_name}"
+        parameters: dict = {}
+        if params_value is not None:
+            parameters["ensure_experience_continuity"] = params_value
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
-                "name": "Test Experiment with Continuity",
+                "name": f"Test Experiment {_name}",
                 "description": "",
-                "start_date": None,  # Draft experiment
+                "start_date": None,
                 "end_date": None,
                 "feature_flag_key": ff_key,
-                "parameters": {"ensure_experience_continuity": True},
+                "parameters": parameters,
                 "filters": {
                     "events": [{"order": 0, "id": "$pageview"}],
                     "properties": [],
@@ -281,56 +299,8 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment with Continuity")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        # Check that the feature flag was created with ensure_experience_continuity
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(created_ff.ensure_experience_continuity, True)
-
-        # Test with ensure_experience_continuity set to False
-        ff_key_false = "test-no-continuity-flag"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment without Continuity",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key_false,
-                "parameters": {"ensure_experience_continuity": False},
-                "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}],
-                    "properties": [],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        created_ff_false = FeatureFlag.objects.get(key=ff_key_false)
-        self.assertEqual(created_ff_false.ensure_experience_continuity, False)
-
-        # Test without specifying ensure_experience_continuity (should default to False)
-        ff_key_default = "test-default-continuity-flag"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment with Default Continuity",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key_default,
-                "parameters": {},
-                "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}],
-                    "properties": [],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        created_ff_default = FeatureFlag.objects.get(key=ff_key_default)
-        self.assertEqual(created_ff_default.ensure_experience_continuity, False)
+        self.assertEqual(created_ff.ensure_experience_continuity, expected)
 
     def test_creating_experiment_with_rollout_percentage(self):
         ff_key = "test-rollout-flag"
@@ -2198,6 +2168,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2219,8 +2190,8 @@ class TestExperimentCRUD(APILicensedTest):
                         },
                     ]
                 },
-                "aggregation_group_type_index": None,
                 "holdout": None,
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -2255,6 +2226,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2276,8 +2248,8 @@ class TestExperimentCRUD(APILicensedTest):
                         },
                     ]
                 },
-                "aggregation_group_type_index": None,
                 "holdout": None,
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -2323,6 +2295,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2344,8 +2317,8 @@ class TestExperimentCRUD(APILicensedTest):
                         },
                     ]
                 },
-                "aggregation_group_type_index": None,
                 "holdout": None,
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -2660,7 +2633,10 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(
             feature_flag.filters["groups"],
-            [{"properties": [], "rollout_percentage": 99}, {"properties": [], "rollout_percentage": 1}],
+            [
+                {"properties": [], "rollout_percentage": 99, "aggregation_group_type_index": 1},
+                {"properties": [], "rollout_percentage": 1, "aggregation_group_type_index": 1},
+            ],
         )
 
         # Test removing aggregation_group_type_index
@@ -3604,6 +3580,336 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(launch_response.json()["status"], "running")
+
+    def test_archive_experiment_endpoint(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Archive Endpoint Test",
+                "feature_flag_key": "archive-endpoint-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        self.assertFalse(response.json()["archived"])
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(archive_response.json()["archived"])
+
+    def test_archive_experiment_endpoint_not_ended(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Archive Running Endpoint",
+                "feature_flag_key": "archive-running-endpoint",
+                "start_date": "2024-01-01T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _create_running_experiment(self, name: str = "Running Test", flag_key: str = "running-flag") -> dict:
+        """Helper: create an experiment and launch it via the API."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": name,
+                "feature_flag_key": flag_key,
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        return launch_response.json()
+
+    def test_pause_experiment_endpoint(self):
+        data = self._create_running_experiment(name="Pause Endpoint", flag_key="pause-endpoint-flag")
+        experiment_id = data["id"]
+
+        # Flag should be active after launch
+        flag = FeatureFlag.objects.get(key="pause-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
+
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(pause_response.json()["status"], "running")
+        self.assertFalse(pause_response.json()["feature_flag"]["active"])
+
+        # Verify flag is now inactive
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+
+    def test_resume_experiment_endpoint(self):
+        data = self._create_running_experiment(name="Resume Endpoint", flag_key="resume-endpoint-flag")
+        experiment_id = data["id"]
+
+        # Pause first
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_200_OK)
+
+        # Resume
+        resume_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/resume/",
+        )
+        self.assertEqual(resume_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(resume_response.json()["status"], "running")
+        self.assertTrue(resume_response.json()["feature_flag"]["active"])
+
+        flag = FeatureFlag.objects.get(key="resume-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
+
+    def test_pause_experiment_already_paused_returns_400(self):
+        data = self._create_running_experiment(name="Double Pause", flag_key="double-pause-flag")
+        experiment_id = data["id"]
+
+        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/")
+
+        second_pause = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(second_pause.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_resume_experiment_not_paused_returns_400(self):
+        data = self._create_running_experiment(name="Resume Not Paused", flag_key="resume-not-paused-flag")
+        experiment_id = data["id"]
+
+        resume_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/resume/",
+        )
+        self.assertEqual(resume_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pause_draft_experiment_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Pause Draft",
+                "feature_flag_key": "pause-draft-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pause_ended_experiment_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Pause Ended",
+                "feature_flag_key": "pause-ended-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        pause_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
+        )
+        self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_end_experiment_endpoint(self):
+        data = self._create_running_experiment(name="End Endpoint", flag_key="end-endpoint-flag")
+        experiment_id = data["id"]
+
+        end_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            {"conclusion": "won", "conclusion_comment": "Test variant won"},
+            format="json",
+        )
+        self.assertEqual(end_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(end_response.json()["status"], "stopped")
+        self.assertIsNotNone(end_response.json()["end_date"])
+        self.assertEqual(end_response.json()["conclusion"], "won")
+        self.assertEqual(end_response.json()["conclusion_comment"], "Test variant won")
+        # Flag should remain active
+        self.assertTrue(end_response.json()["feature_flag"]["active"])
+
+    def test_end_experiment_invalid_conclusion_returns_400(self):
+        data = self._create_running_experiment(name="End Invalid Conclusion", flag_key="end-invalid-conclusion-flag")
+        experiment_id = data["id"]
+
+        end_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            {"conclusion": "amazing"},
+            format="json",
+        )
+        self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_end_experiment_draft_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "End Draft",
+                "feature_flag_key": "end-draft-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        end_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            format="json",
+        )
+        self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ship_variant_endpoint(self):
+        data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "conclusion": "won", "conclusion_comment": "Test won"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(ship_response.json()["status"], "stopped")
+        self.assertIsNotNone(ship_response.json()["end_date"])
+        self.assertEqual(ship_response.json()["conclusion"], "won")
+        self.assertEqual(ship_response.json()["conclusion_comment"], "Test won")
+
+        # Verify flag filters were rewritten
+        flag_filters = ship_response.json()["feature_flag"]["filters"]
+        variants = flag_filters["multivariate"]["variants"]
+        test_variant = next(v for v in variants if v["key"] == "test")
+        control_variant = next(v for v in variants if v["key"] == "control")
+        self.assertEqual(test_variant["rollout_percentage"], 100)
+        self.assertEqual(control_variant["rollout_percentage"], 0)
+
+        # Verify catch-all group prepended
+        self.assertEqual(flag_filters["groups"][0]["rollout_percentage"], 100)
+        self.assertEqual(flag_filters["groups"][0]["properties"], [])
+
+    def test_ship_variant_on_stopped_experiment(self):
+        data = self._create_running_experiment(name="Ship Stopped Endpoint", flag_key="ship-stopped-endpoint-flag")
+        experiment_id = data["id"]
+
+        # End the experiment first
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/end/",
+            {"conclusion": "inconclusive"},
+            format="json",
+        )
+
+        # Ship a variant on the already-ended experiment
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "conclusion": "won"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_200_OK)
+        # Conclusion updated
+        self.assertEqual(ship_response.json()["conclusion"], "won")
+
+        # Flag filters rewritten
+        variants = ship_response.json()["feature_flag"]["filters"]["multivariate"]["variants"]
+        test_variant = next(v for v in variants if v["key"] == "test")
+        self.assertEqual(test_variant["rollout_percentage"], 100)
+
+    def test_ship_variant_invalid_variant_key_returns_400(self):
+        data = self._create_running_experiment(
+            name="Ship Invalid Variant", flag_key="ship-invalid-variant-endpoint-flag"
+        )
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "nonexistent"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ship_variant_missing_variant_key_returns_400(self):
+        data = self._create_running_experiment(name="Ship Missing Key", flag_key="ship-missing-key-endpoint-flag")
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ship_variant_draft_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Ship Draft",
+                "feature_flag_key": "ship-draft-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ship_variant_invalid_conclusion_returns_400(self):
+        data = self._create_running_experiment(
+            name="Ship Invalid Conclusion", flag_key="ship-invalid-conclusion-endpoint-flag"
+        )
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "conclusion": "amazing"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):

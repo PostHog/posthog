@@ -9,6 +9,7 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { parseJSON } from '../../utils/json-parse'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { drop, ok, redirect } from '../pipelines/results'
@@ -386,7 +387,7 @@ describe('session-replay-pipeline', () => {
             mockCreateApplyEventRestrictionsStep.mockReturnValue(
                 (input: { message: Message; headers: Record<string, string> }) => {
                     if (input.message.offset === 2) {
-                        return Promise.resolve(redirect('overflow', 'overflow-topic', true, false))
+                        return Promise.resolve(redirect('overflow', OVERFLOW_OUTPUT, true, false))
                     }
                     return Promise.resolve(ok(input))
                 }

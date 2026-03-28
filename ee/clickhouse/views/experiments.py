@@ -17,9 +17,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.filters.filter import Filter
@@ -37,6 +37,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -241,9 +242,36 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return service.update_experiment(instance, validated_data, serializer_context=self.context)
 
 
+class EndExperimentSerializer(serializers.Serializer):
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="The conclusion of the experiment.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional comment about the experiment conclusion.",
+    )
+
+
+class ShipVariantSerializer(EndExperimentSerializer):
+    variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
+
+
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
-    ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+    # ApprovalHandlingMixin converts ApprovalRequired exceptions (raised by
+    # FeatureFlagSerializer in ship_variant) into 409 HTTP responses. The
+    # approval check itself lives in the service layer — this mixin is only
+    # responsible for exception-to-response formatting.
+    ApprovalHandlingMixin,
+    ForbidDestroyModel,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
@@ -301,8 +329,167 @@ class EnterpriseExperimentsViewSet(
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
-        launched_experiment = service.launch_experiment(experiment)
+        launched_experiment = service.launch_experiment(experiment, request=request)
         return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Archive an ended experiment.
+
+        Hides the experiment from the default list view. The experiment can be
+        restored at any time by updating archived=false. Returns 400 if the
+        experiment is already archived or has not ended yet.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        archived_experiment = service.archive_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=EndExperimentSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        End a running experiment without shipping a variant.
+
+        Sets end_date to now and marks the experiment as stopped. The feature
+        flag is NOT modified — users continue to see their assigned variants
+        and exposure events ($feature_flag_called) continue to be recorded.
+        However, only data up to end_date is included in experiment results.
+
+        Use this when:
+
+        - You want to freeze the results window without changing which variant
+          users see.
+        - A variant was already shipped manually via the feature flag UI and
+          the experiment just needs to be marked complete.
+
+        The end_date can be adjusted after ending via PATCH if it needs to be
+        backdated (e.g. to match when the flag was actually paused).
+
+        Other options:
+        - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+        - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+
+        Returns 400 if the experiment is not running.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = EndExperimentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        ended_experiment = service.end_experiment(
+            experiment,
+            conclusion=request_serializer.validated_data.get("conclusion"),
+            conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            request=request,
+        )
+        return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=ShipVariantSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
+    def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Ship a variant to 100% of users and (optionally) end the experiment.
+
+        Rewrites the feature flag so that the selected variant is served to everyone.
+        Existing release conditions (flag groups) are preserved so the change can be
+        rolled back by deleting the auto-added release condition in the feature flag UI.
+
+        Can be called on both running and stopped experiments. If the experiment is
+        still running, it will also be ended (end_date set and status marked as stopped).
+        If the experiment has already ended, only the flag is rewritten - this supports
+        the "end first, ship later" workflow.
+
+        If an approval policy requires review before changes on the flag take effect,
+        the API returns 409 with a change_request_id. The experiment is NOT ended until
+        the change request is approved and the user retries.
+
+        Returns 400 if the experiment is in draft state, the variant_key is not found
+        on the flag, or the experiment has no linked feature flag.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = ShipVariantSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        shipped_experiment = service.ship_variant(
+            experiment,
+            variant_key=request_serializer.validated_data["variant_key"],
+            conclusion=request_serializer.validated_data.get("conclusion"),
+            conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            request=request,
+        )
+        return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Pause a running experiment.
+
+        Deactivates the linked feature flag so it is no longer returned by the
+        /decide endpoint. Users fall back to the application default (typically
+        the control experience), and no new exposure events are recorded (i.e.
+        $feature_flag_called is not fired).
+        Returns 400 if the experiment is not running or is already paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        paused_experiment = service.pause_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(paused_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Resume a paused experiment.
+
+        Reactivates the linked feature flag so it is returned by /decide again.
+        Users are re-bucketed deterministically into the same variants they had
+        before the pause, and exposure tracking resumes.
+        Returns 400 if the experiment is not running or is not paused.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        resumed_experiment = service.resume_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def reset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reset an experiment back to draft state.
+
+        Clears start/end dates, conclusion, and archived flag. The feature
+        flag is left unchanged — users continue to see their assigned variants.
+
+        Previously collected events still exist but won't be included in
+        results unless the start date is manually adjusted after re-launch.
+
+        Returns 400 if the experiment is already in draft state.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        reset_experiment = service.reset_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(reset_experiment, context=self.get_serializer_context()).data)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -321,11 +508,13 @@ class EnterpriseExperimentsViewSet(
             )
 
         feature_flag_key = request.data.get("feature_flag_key")
+        name = request.data.get("name")
 
         service = ExperimentService(team=self.team, user=request.user)
         duplicate_experiment = service.duplicate_experiment(
             source_experiment,
             feature_flag_key=feature_flag_key,
+            name=name,
             serializer_context=self.get_serializer_context(),
         )
 
@@ -365,7 +554,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
-        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
+        - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -390,7 +579,7 @@ class EnterpriseExperimentsViewSet(
             created_by_id=request.query_params.get("created_by_id"),
             order=request.query_params.get("order"),
             evaluation_runtime=request.query_params.get("evaluation_runtime"),
-            has_evaluation_tags=request.query_params.get("has_evaluation_tags"),
+            has_evaluation_contexts=request.query_params.get("has_evaluation_contexts"),
         )
 
         # Serialize using the standard FeatureFlagSerializer

@@ -52,14 +52,30 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setEmailFromEmail: (value: string) => ({ value }),
         setEmailFromName: (value: string) => ({ value }),
         connectEmail: true,
-        connectEmailDone: (forwardingAddress: string | null) => ({ forwardingAddress }),
+        connectEmailDone: (forwardingAddress: string | null, dnsRecords: Record<string, any> | null) => ({
+            forwardingAddress,
+            dnsRecords,
+        }),
         disconnectEmail: true,
         loadEmailStatus: true,
         loadEmailStatusDone: (
-            status: { forwarding_address: string | null; from_email: string; from_name: string } | null
+            status: {
+                forwarding_address: string | null
+                from_email: string
+                from_name: string
+                domain_verified: boolean
+                dns_records: Record<string, any> | null
+            } | null
         ) => ({
             status,
         }),
+        verifyEmailDomain: true,
+        verifyEmailDomainDone: (verified: boolean, dnsRecords: Record<string, any> | null) => ({
+            verified,
+            dnsRecords,
+        }),
+        sendTestEmail: true,
+        sendTestEmailDone: (sentTo: string | null) => ({ sentTo }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -152,6 +168,37 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 connectEmailDone: (_, { forwardingAddress }) => forwardingAddress,
                 loadEmailStatusDone: (_, { status }) => status?.forwarding_address ?? null,
                 disconnectEmail: () => null,
+            },
+        ],
+        emailDomainVerified: [
+            false as boolean,
+            {
+                loadEmailStatusDone: (_, { status }) => status?.domain_verified ?? false,
+                verifyEmailDomainDone: (_, { verified }) => verified,
+                disconnectEmail: () => false,
+            },
+        ],
+        emailDnsRecords: [
+            null as Record<string, any> | null,
+            {
+                connectEmailDone: (_, { dnsRecords }) => dnsRecords,
+                loadEmailStatusDone: (_, { status }) => status?.dns_records ?? null,
+                verifyEmailDomainDone: (_, { dnsRecords }) => dnsRecords,
+                disconnectEmail: () => null,
+            },
+        ],
+        emailVerifying: [
+            false as boolean,
+            {
+                verifyEmailDomain: () => true,
+                verifyEmailDomainDone: () => false,
+            },
+        ],
+        emailSendingTest: [
+            false as boolean,
+            {
+                sendTestEmail: () => true,
+                sendTestEmailDone: () => false,
             },
         ],
         slackTicketEmojiValue: [
@@ -386,6 +433,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                         forwarding_address: response.forwarding_address,
                         from_email: response.from_email,
                         from_name: response.from_name,
+                        domain_verified: response.domain_verified,
+                        dns_records: response.dns_records,
                     })
                     actions.setEmailFromEmail(response.from_email || '')
                     actions.setEmailFromName(response.from_name || '')
@@ -400,7 +449,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             const { emailFromEmail, emailFromName } = values
             if (!emailFromEmail || !emailFromName) {
                 lemonToast.error('Please enter both an email address and display name')
-                actions.connectEmailDone(null)
+                actions.connectEmailDone(null, null)
                 return
             }
             try {
@@ -408,7 +457,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     from_email: emailFromEmail,
                     from_name: emailFromName,
                 })
-                actions.connectEmailDone(response.forwarding_address)
+                actions.connectEmailDone(response.forwarding_address, response.dns_records || null)
                 actions.updateCurrentTeam({
                     conversations_settings: {
                         ...values.currentTeam?.conversations_settings,
@@ -418,7 +467,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.success('Email channel connected')
             } catch {
                 lemonToast.error('Failed to connect email')
-                actions.connectEmailDone(null)
+                actions.connectEmailDone(null, null)
             }
         },
         disconnectEmail: async () => {
@@ -437,6 +486,30 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setEmailFromEmail('')
             actions.setEmailFromName('')
             lemonToast.success('Email channel disconnected')
+        },
+        verifyEmailDomain: async () => {
+            try {
+                const response = await api.create('api/conversations/v1/email/verify-domain', {})
+                actions.verifyEmailDomainDone(response.domain_verified, response.dns_records || null)
+                if (response.domain_verified) {
+                    lemonToast.success('Domain verified successfully! Outbound email is now active.')
+                } else {
+                    lemonToast.warning('Domain not yet verified. Please check your DNS records and try again.')
+                }
+            } catch {
+                lemonToast.error('Failed to verify domain')
+                actions.verifyEmailDomainDone(false, null)
+            }
+        },
+        sendTestEmail: async () => {
+            try {
+                const response = await api.create('api/conversations/v1/email/send-test', {})
+                actions.sendTestEmailDone(response.sent_to)
+                lemonToast.success(`Test email sent to ${response.sent_to}`)
+            } catch {
+                lemonToast.error('Failed to send test email. Check SMTP settings.')
+                actions.sendTestEmailDone(null)
+            }
         },
         disconnectSlack: async () => {
             try {

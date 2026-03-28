@@ -293,6 +293,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['ecod'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 preprocessing: zod
@@ -324,6 +330,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['copod'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_estimators: zod
@@ -359,6 +371,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['isolation_forest'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 method: zod.enum(['largest', 'mean', 'median']).nullish(),
@@ -395,6 +413,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['knn'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
@@ -427,6 +451,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['hbos'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_neighbors: zod
@@ -462,6 +492,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['lof'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
@@ -498,6 +534,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['ocsvm'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 preprocessing: zod
@@ -529,6 +571,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['pca'])
                                     .default(alertsCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                         ])
                     )
@@ -662,6 +710,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ecod']).default(alertsCreateBodyDetectorConfigOneSixTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 preprocessing: zod
@@ -684,6 +738,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['copod']).default(alertsCreateBodyDetectorConfigOneSevenTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_estimators: zod.number().nullish().describe('Number of trees in the forest (default: 100)'),
@@ -707,6 +767,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['isolation_forest']).default(alertsCreateBodyDetectorConfigOneEightTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 method: zod.enum(['largest', 'mean', 'median']).nullish(),
@@ -731,6 +797,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['knn']).default(alertsCreateBodyDetectorConfigOneNineTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
@@ -754,6 +826,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['hbos']).default(alertsCreateBodyDetectorConfigOneOnezeroTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_neighbors: zod.number().nullish().describe('Number of neighbors for LOF (default: 20)'),
@@ -777,6 +855,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['lof']).default(alertsCreateBodyDetectorConfigOneOneoneTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
@@ -801,6 +885,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ocsvm']).default(alertsCreateBodyDetectorConfigOneOnetwoTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 preprocessing: zod
@@ -823,18 +913,20 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['pca']).default(alertsCreateBodyDetectorConfigOneOnethreeTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
         ])
         .describe('Detector configuration types')
         .nullish(),
     calculation_interval: zod
-        .union([
-            zod
-                .enum(['hourly', 'daily', 'weekly', 'monthly'])
-                .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'),
-            zod.literal(null),
-        ])
-        .nullish()
+        .enum(['hourly', 'daily', 'weekly', 'monthly'])
+        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .optional()
         .describe(
             'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
@@ -854,6 +946,25 @@ export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    checks_date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days."
+        ),
+    checks_date_to: zod
+        .string()
+        .optional()
+        .describe(
+            "Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified."
+        ),
+    checks_limit: zod
+        .number()
+        .optional()
+        .describe('Maximum number of check results to return (default 5, max 500). Applied after date filtering.'),
 })
 
 export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -1132,6 +1243,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['ecod'])
                                     .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 preprocessing: zod
@@ -1163,6 +1280,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['copod'])
                                     .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_estimators: zod
@@ -1198,6 +1321,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['isolation_forest'])
                                     .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 method: zod.enum(['largest', 'mean', 'median']).nullish(),
@@ -1234,6 +1363,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['knn'])
                                     .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
@@ -1266,6 +1401,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['hbos'])
                                     .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_neighbors: zod
@@ -1303,6 +1444,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     .default(
                                         alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault
                                     ),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
@@ -1339,6 +1486,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['ocsvm'])
                                     .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 preprocessing: zod
@@ -1370,6 +1523,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['pca'])
                                     .default(alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                         ])
                     )
@@ -1503,6 +1662,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ecod']).default(alertsPartialUpdateBodyDetectorConfigOneSixTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 preprocessing: zod
@@ -1525,6 +1690,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['copod']).default(alertsPartialUpdateBodyDetectorConfigOneSevenTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_estimators: zod.number().nullish().describe('Number of trees in the forest (default: 100)'),
@@ -1548,6 +1719,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['isolation_forest']).default(alertsPartialUpdateBodyDetectorConfigOneEightTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 method: zod.enum(['largest', 'mean', 'median']).nullish(),
@@ -1572,6 +1749,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['knn']).default(alertsPartialUpdateBodyDetectorConfigOneNineTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
@@ -1595,6 +1778,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['hbos']).default(alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_neighbors: zod.number().nullish().describe('Number of neighbors for LOF (default: 20)'),
@@ -1618,6 +1807,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['lof']).default(alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
@@ -1642,6 +1837,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ocsvm']).default(alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 preprocessing: zod
@@ -1664,18 +1865,20 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['pca']).default(alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
         ])
         .describe('Detector configuration types')
         .nullish(),
     calculation_interval: zod
-        .union([
-            zod
-                .enum(['hourly', 'daily', 'weekly', 'monthly'])
-                .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'),
-            zod.literal(null),
-        ])
-        .nullish()
+        .enum(['hourly', 'daily', 'weekly', 'monthly'])
+        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .optional()
         .describe(
             'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
@@ -1919,6 +2122,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['ecod'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 preprocessing: zod
@@ -1950,6 +2159,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['copod'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_estimators: zod
@@ -1985,6 +2200,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['isolation_forest'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 method: zod.enum(['largest', 'mean', 'median']).nullish(),
@@ -2021,6 +2242,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['knn'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
@@ -2053,6 +2280,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 type: zod
                                     .enum(['hbos'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 n_neighbors: zod
@@ -2089,6 +2322,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .enum(['lof'])
                                     .default(
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault
+                                    ),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                             zod.object({
@@ -2128,6 +2367,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .default(
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault
                                     ),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                                    ),
                             }),
                             zod.object({
                                 preprocessing: zod
@@ -2160,6 +2405,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .enum(['pca'])
                                     .default(
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault
+                                    ),
+                                window: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                     ),
                             }),
                         ])
@@ -2294,6 +2545,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ecod']).default(alertsSimulateCreateBodyDetectorConfigOneSixTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 preprocessing: zod
@@ -2316,6 +2573,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['copod']).default(alertsSimulateCreateBodyDetectorConfigOneSevenTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_estimators: zod.number().nullish().describe('Number of trees in the forest (default: 100)'),
@@ -2339,6 +2602,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['isolation_forest']).default(alertsSimulateCreateBodyDetectorConfigOneEightTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 method: zod.enum(['largest', 'mean', 'median']).nullish(),
@@ -2363,6 +2632,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['knn']).default(alertsSimulateCreateBodyDetectorConfigOneNineTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_bins: zod.number().nullish().describe('Number of histogram bins (default: 10)'),
@@ -2386,6 +2661,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['hbos']).default(alertsSimulateCreateBodyDetectorConfigOneOnezeroTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 n_neighbors: zod.number().nullish().describe('Number of neighbors for LOF (default: 20)'),
@@ -2409,6 +2690,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['lof']).default(alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 kernel: zod.string().nullish().describe('SVM kernel type (default: "rbf")'),
@@ -2433,6 +2720,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['ocsvm']).default(alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
             zod.object({
                 preprocessing: zod
@@ -2455,6 +2748,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .nullish(),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
                 type: zod.enum(['pca']).default(alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault),
+                window: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
+                    ),
             }),
         ])
         .describe('Detector configuration types')

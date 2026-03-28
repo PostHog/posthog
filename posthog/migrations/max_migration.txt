@@ -1,1 +1,1 @@
-1061_add_session_recording_trigger_groups
+1075_team_snippet_config

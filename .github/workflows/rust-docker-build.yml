@@ -19,7 +19,6 @@ on:
 
 jobs:
     build-images:
-        timeout-minutes: 20
         uses: ./.github/workflows/_rust-build-images.yml
         with:
             tag-rules: |
@@ -28,7 +27,7 @@ jobs:
                 type=semver,pattern={{version}}
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
-            timeout-minutes: 15
+            timeout-minutes: 30
         secrets: inherit
         permissions:
             id-token: write

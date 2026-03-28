@@ -51,8 +51,18 @@ procs:
         ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, error_tracking, traces, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
+
+    ingestion-errortracking:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6740 ./bin/posthog-node'
+        capability: nodejs_error_tracking
+        ready_pattern: 'All systems go'
+
+    ingestion:
+        shell: 'bin/wait-for-docker && bin/check_ducklake_up && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
+        capability: event_ingestion
+        ready_pattern: 'All systems go'
 
     frontend:
         shell: './bin/start-frontend'
@@ -78,6 +88,11 @@ procs:
             fi
         capability: temporal_workflows
 
+    stripe-mock:
+        shell: 'bin/start-stripe-mock'
+        capability: stripe_mock
+        ready_pattern: 'Application startup complete'
+
     recording-rasterizer:
         shell: |-
             bin/wait-for-docker temporal && \
@@ -89,6 +104,7 @@ procs:
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
             AWS_ACCESS_KEY_ID: 'object_storage_root_user'
             AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SECRET_KEY: '<randomly generated secret key>'
 
     dagster:
         shell: |-

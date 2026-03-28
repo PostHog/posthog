@@ -1,0 +1,175 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Surveys
+feature: surveys
+url_prefix: /surveys
+tools:
+    surveys-get-all:
+        operation: surveys_list
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Get all surveys in the project with optional filtering.
+        description: |
+            Get all surveys in the project with optional filtering. Can filter by search term or use pagination.
+
+        ui_resource_uri: ui://posthog/survey-list.html
+    survey-get:
+        operation: surveys_retrieve
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get a specific survey by ID.
+        description: >
+            Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling
+            details.
+
+        ui_resource_uri: ui://posthog/survey.html
+    survey-create:
+        operation: surveys_create
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Creates a new survey in the project.
+        description: >
+            Creates a new survey in the project. Surveys can be popover or API-based and support various question types
+            including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if
+            they want to add the survey to their application code.
+        include_params:
+            - name
+            - description
+            - type
+            - questions
+            - appearance
+            - start_date
+            - responses_limit
+            - iteration_count
+            - iteration_frequency_days
+            - enable_partial_responses
+            - linked_flag_id
+            - targeting_flag_filters
+        ui_resource_uri: ui://posthog/survey.html
+    survey-update:
+        operation: surveys_partial_update
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update an existing survey by ID.
+        description: >
+            Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey
+            properties.
+        include_params:
+            - id
+            - name
+            - description
+            - type
+            - questions
+            - appearance
+            - conditions
+            - schedule
+            - start_date
+            - end_date
+            - archived
+            - responses_limit
+            - iteration_count
+            - iteration_frequency_days
+            - enable_partial_responses
+            - linked_flag_id
+            - targeting_flag_id
+            - targeting_flag_filters
+            - remove_targeting_flag
+        ui_resource_uri: ui://posthog/survey.html
+    survey-delete:
+        operation: surveys_destroy
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a survey by ID.
+        description: |
+            Delete a survey by ID (soft delete - marks as archived).
+        soft_delete: archived
+    survey-stats:
+        operation: surveys_stats_retrieve_2
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{survey_id}'
+        title: Get response statistics for a specific survey.
+        description: >
+            Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent),
+            unique respondents, conversion rates, and timing data. Supports optional date filtering.
+        ui_resource_uri: ui://posthog/survey-stats.html
+    surveys-global-stats:
+        operation: surveys_stats_retrieve
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get aggregated response statistics across all surveys.
+        description: >
+            Get aggregated response statistics across all surveys in the project. Includes event counts (shown,
+            dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.
+        ui_resource_uri: ui://posthog/survey-global-stats.html
+    surveys-update:
+        operation: surveys_update
+        enabled: false
+    surveys-activity-retrieve:
+        operation: surveys_activity_retrieve
+        enabled: false
+    surveys-archived-response-uuids-retrieve:
+        operation: surveys_archived_response_uuids_retrieve
+        enabled: false
+    surveys-duplicate-to-projects-create:
+        operation: surveys_duplicate_to_projects_create
+        enabled: false
+    surveys-responses-archive-create:
+        operation: surveys_responses_archive_create
+        enabled: false
+    surveys-responses-unarchive-create:
+        operation: surveys_responses_unarchive_create
+        enabled: false
+    surveys-summarize-responses-create:
+        operation: surveys_summarize_responses_create
+        enabled: false
+    surveys-summary-headline-create:
+        operation: surveys_summary_headline_create
+        enabled: false
+    surveys-responses-count-retrieve:
+        operation: surveys_responses_count_retrieve
+        enabled: false
