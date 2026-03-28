@@ -630,9 +630,7 @@ def _create_provisioned_pat(user: User, team: Team) -> str:
 
     api_key_value = generate_random_token_personal()
 
-    max_team_name_len = 40 - len(f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - ")
-    team_name = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
-    label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team_name}"
+    label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
 
     PersonalAPIKey.objects.create(
         user=user,
