@@ -126,7 +126,7 @@ export class HogFlowExecutorService {
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
         // Build lazy VM function providers — each resolves only when its precondition matches
-        const functionsProviders: FilterFunctionsProvider[] = [
+        const functionProviders: FilterFunctionsProvider[] = [
             buildCohortFunctionsProvider(
                 this.cohortMembershipResolver,
                 triggerGlobals.project.id,
@@ -142,7 +142,7 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals,
-                functionProviders: functionsProviders,
+                functionProviders,
             })
 
             // Add any generated metrics and logs to our collections
