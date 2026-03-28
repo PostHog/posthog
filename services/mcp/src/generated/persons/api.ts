@@ -183,7 +183,7 @@ export const PersonsUpdatePropertyCreateQueryParams = /* @__PURE__ */ zod.object
 
 export const PersonsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().describe('The property key to set.'),
-    value: zod.unknown().describe('The property value. Can be a string, number, boolean, or object.'),
+    value: zod.unknown().nullable().describe('The property value. Can be a string, number, boolean, object, or null.'),
 })
 
 /**

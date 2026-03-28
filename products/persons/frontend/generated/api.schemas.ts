@@ -232,8 +232,8 @@ export interface PersonDeletePropertyRequestApi {
 export interface PersonUpdatePropertyRequestApi {
     /** The property key to set. */
     key: string
-    /** The property value. Can be a string, number, boolean, or object. */
-    value: unknown
+    /** The property value. Can be a string, number, boolean, object, or null. */
+    value: unknown | null
 }
 
 export interface PersonBulkDeleteRequestApi {
