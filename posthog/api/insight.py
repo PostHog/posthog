@@ -1236,9 +1236,16 @@ class InsightViewSet(
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
                 feature_flag = request.GET["feature_flag"]
+                feature_flag_breakdown = f"$feature/{feature_flag}"
+                # Legacy insights store breakdown in `filters.breakdown` and reference
+                # the flag name in `filters.properties`. Query-based insights store
+                # breakdown config in the `query` JSON field (e.g. inside
+                # `breakdownFilter.breakdown`). The properties search uses the raw flag
+                # name because legacy filters reference it without the `$feature/` prefix.
                 queryset = queryset.filter(
-                    Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
+                    Q(filters__breakdown__icontains=feature_flag_breakdown)
                     | Q(filters__properties__icontains=feature_flag)
+                    | Q(query__icontains=feature_flag_breakdown)
                 )
             elif key == "events":
                 events_filter = request.GET["events"]

@@ -66,6 +66,7 @@ ActivityScope = Literal[
     "TaggedItem",
     "Subscription",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "User",
     "Action",
     "AlertConfiguration",
@@ -376,6 +377,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "ExperimentSavedMetric": [
         "experiments",
         "experimenttosavedmetric_set",
+    ],
+    "ProjectSecretAPIKey": [
+        "secure_value",
     ],
     "Person": [
         "distinct_ids",

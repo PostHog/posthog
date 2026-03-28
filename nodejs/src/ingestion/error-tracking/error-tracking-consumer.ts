@@ -26,6 +26,7 @@ import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-red
 import { RedisOverflowRepository } from '../utils/overflow-redirect/overflow-redis-repository'
 import { CymbalClient } from './cymbal'
 import {
+    ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
@@ -43,6 +44,7 @@ export interface ErrorTrackingConsumerOptions {
     outputTopic: string
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
+    cymbalMaxBodyBytes: number
     lane: IngestionLane
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
@@ -68,7 +70,7 @@ export interface ErrorTrackingHogTransformer {
  * These are services and clients that are injected.
  */
 export interface ErrorTrackingConsumerDeps {
-    kafkaProducer: KafkaProducerWrapper
+    outputs: ErrorTrackingOutputs
     kafkaMetricsProducer: KafkaProducerWrapper
     teamManager: TeamManager
     hogTransformer: ErrorTrackingHogTransformer
@@ -120,6 +122,7 @@ export class ErrorTrackingConsumer {
         this.cymbalClient = new CymbalClient({
             baseUrl: config.cymbalBaseUrl,
             timeoutMs: config.cymbalTimeoutMs,
+            maxBodyBytes: config.cymbalMaxBodyBytes,
         })
 
         this.promiseScheduler = new PromiseScheduler()
@@ -200,9 +203,7 @@ export class ErrorTrackingConsumer {
         this.topHog.start()
 
         this.pipeline = createErrorTrackingPipeline({
-            kafkaProducer: this.deps.kafkaProducer,
-            dlqTopic: this.config.dlqTopic,
-            outputTopic: this.config.outputTopic,
+            outputs: this.deps.outputs,
             groupId: this.config.groupId,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
@@ -212,8 +213,6 @@ export class ErrorTrackingConsumer {
             groupTypeManager: this.deps.groupTypeManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.overflowEnabled(),
-            overflowTopic: this.config.overflowTopic,
-            ingestionWarningProducer: this.deps.kafkaProducer,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             topHog: this.topHog,

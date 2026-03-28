@@ -175,6 +175,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    stripe_mock:
+        description: 'Local Stripe mock API for data warehouse import testing'
+        requires: []
+        docker_profiles: []
+
     duckgres:
         description: 'Duckgres query server (DuckDB with Postgres wire protocol)'
         requires: [core_infra]
@@ -297,6 +302,10 @@ intents:
     endpoints:
         description: 'Endpoints (the product)'
         capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, duckgres]
+
+    revenue_analytics:
+        description: 'Mock Stripe API with seed billing data for revenue analytics testing'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, stripe_mock]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

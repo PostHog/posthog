@@ -1009,7 +1009,6 @@ class BigQueryClient:
                     " of 24 hours. If this happens frequently, consider contacting Google Cloud support to increase your quota.",
                     backoff,
                     attempt,
-                    err,
                     attempt=attempt,
                     backoff=backoff,
                     error_code=err.code,

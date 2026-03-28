@@ -19,7 +19,7 @@ import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
-type RichMarkdownEditorProps = {
+export type RichMarkdownEditorProps = {
     value?: string
     onChange?: (value: string) => void
     minRows?: number
