@@ -8,7 +8,7 @@ export const HOG_TAGGER_EXAMPLES: HogTaggerExample[] = [
         label: 'Keyword matching',
         source: `// Tag based on keywords in the output
 // Globals: input, output, properties, event, tags
-let result = []
+let result := []
 if (output ilike '%billing%' or output ilike '%invoice%' or output ilike '%payment%') {
     result := arrayPushBack(result, 'billing')
 }
@@ -24,8 +24,8 @@ return result`,
     {
         label: 'Error detection',
         source: `// Tag generations that contain error patterns
-let result = []
-let patterns = [
+let result := []
+let patterns := [
     ['error', 'contains-error'],
     ['exception', 'contains-error'],
     ['traceback', 'contains-error'],
@@ -63,7 +63,7 @@ if (len == 0) {
         label: 'Model-based',
         source: `// Tag based on which model was used
 let model := ifNull(properties.$ai_model, 'unknown')
-let result = []
+let result := []
 if (model ilike '%gpt%') {
     result := arrayPushBack(result, 'openai')
 } else if (model ilike '%claude%') {
@@ -94,7 +94,7 @@ if (cost == 0) {
     {
         label: 'Language detection',
         source: `// Simple language detection based on common words
-let result = []
+let result := []
 if (output ilike '% the %' or output ilike '% is %' or output ilike '% and %') {
     result := arrayPushBack(result, 'english')
 }

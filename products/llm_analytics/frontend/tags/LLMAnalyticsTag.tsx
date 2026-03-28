@@ -35,7 +35,7 @@ import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
 // Available globals: input, output, properties, event, tags
-let result = []
+let result := []
 if (icontains(output, 'billing')) {
     result := arrayPushBack(result, 'billing')
 }
