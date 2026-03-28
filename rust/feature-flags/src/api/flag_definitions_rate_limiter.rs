@@ -7,6 +7,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::num::NonZeroU32;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 use tracing::{info, warn};
 
 /// Type alias for a keyed rate limiter
@@ -45,6 +46,10 @@ where
     /// Keys that bypass rate limiting entirely.
     /// Wrapped in Arc<RwLock<>> so the request handler can update it from the database.
     allowlist: Arc<RwLock<HashSet<K>>>,
+
+    /// Timestamp of the last allowlist refresh from the database.
+    /// Used to implement a TTL cache — only re-query when stale.
+    allowlist_last_refreshed: Arc<RwLock<Instant>>,
 
     /// Prometheus metric name for total requests
     request_counter: &'static str,
@@ -126,6 +131,10 @@ where
             default_limiter,
             custom_limiters,
             allowlist: Arc::new(RwLock::new(allowlist)),
+            // Start stale so the first request triggers a DB refresh
+            allowlist_last_refreshed: Arc::new(RwLock::new(
+                Instant::now() - std::time::Duration::from_secs(3600),
+            )),
             request_counter,
             limited_counter,
             bypassed_counter,
@@ -199,7 +208,7 @@ where
         self.allowlist.read().unwrap().len()
     }
 
-    /// Replace the allowlist with a new set of keys.
+    /// Replace the allowlist with a new set of keys and mark it as freshly refreshed.
     /// Called by the request handler when the cached DB value is stale.
     pub fn update_allowlist(&self, new_allowlist: HashSet<K>) {
         let mut allowlist = self.allowlist.write().unwrap();
@@ -213,6 +222,30 @@ where
                 "Rate limit allowlist updated"
             );
         }
+        // Mark as refreshed
+        *self.allowlist_last_refreshed.write().unwrap() = Instant::now();
+    }
+
+    /// Returns true if the allowlist cache is stale and should be refreshed from the database.
+    pub fn is_allowlist_stale(&self, ttl_secs: u64) -> bool {
+        self.allowlist_last_refreshed
+            .read()
+            .unwrap()
+            .elapsed()
+            .as_secs()
+            >= ttl_secs
+    }
+
+    /// Mark the allowlist refresh timestamp without changing the allowlist contents.
+    /// Used when the DB query fails — avoids retrying on every request.
+    pub fn mark_allowlist_refreshed(&self) {
+        *self.allowlist_last_refreshed.write().unwrap() = Instant::now();
+    }
+
+    /// Force the allowlist to be considered stale, triggering a DB refresh on the next request.
+    pub fn invalidate_allowlist(&self) {
+        *self.allowlist_last_refreshed.write().unwrap() =
+            Instant::now() - std::time::Duration::from_secs(3600);
     }
 
     /// Removes stale entries and reclaims memory across all limiters.
