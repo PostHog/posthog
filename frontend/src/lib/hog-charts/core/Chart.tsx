@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react'
+import React, { useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
@@ -6,6 +6,9 @@ import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { GoalLines } from '../overlays/GoalLines'
 import { Tooltip } from '../overlays/Tooltip'
 import { ChartContext } from './chart-context'
+import { useChartCanvas } from './hooks/use-chart-canvas'
+import { useChartDraw } from './hooks/use-chart-draw'
+import { useChartInteraction } from './hooks/use-chart-interaction'
 import { autoFormatYTick } from './scales'
 import type {
     ChartConfig,
@@ -19,8 +22,6 @@ import type {
     Series,
     TooltipContext,
 } from './types'
-import { useChartCanvas } from './use-chart-canvas'
-import { useChartInteraction } from './use-chart-interaction'
 
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return (
@@ -128,32 +129,16 @@ export function Chart({
         resolveValue,
     })
 
-    useEffect(() => {
-        if (!ctx || !dimensions || !scales) {
-            return
-        }
-
-        const id = requestAnimationFrame(() => {
-            const dpr = window.devicePixelRatio || 1
-            ctx.save()
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-            ctx.clearRect(0, 0, dimensions.width, dimensions.height)
-
-            draw({
-                ctx,
-                dimensions,
-                scales,
-                series: coloredSeries,
-                labels,
-                hoverIndex,
-                theme,
-            })
-
-            ctx.restore()
-        })
-
-        return () => cancelAnimationFrame(id)
-    }, [ctx, dimensions, scales, coloredSeries, labels, theme, hoverIndex, draw])
+    useChartDraw({
+        ctx,
+        dimensions,
+        scales,
+        series: coloredSeries,
+        labels,
+        hoverIndex,
+        theme,
+        draw,
+    })
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
 

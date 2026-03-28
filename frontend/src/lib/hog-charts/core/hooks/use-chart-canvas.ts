@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import type { ChartDimensions, ChartMargins } from './types'
+import type { ChartDimensions, ChartMargins } from '../types'
 
 interface UseChartCanvasOptions {
     margins: ChartMargins

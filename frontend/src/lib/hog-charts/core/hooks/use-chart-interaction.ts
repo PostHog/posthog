@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react'
 
-import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from './interaction'
-import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Series, TooltipContext } from './types'
+import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from '../interaction'
+import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Series, TooltipContext } from '../types'
 
 const defaultResolveValue: ResolveValueFn = (series, dataIndex) => series.data[dataIndex] ?? 0
 

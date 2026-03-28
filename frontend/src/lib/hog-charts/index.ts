@@ -1,6 +1,6 @@
 // Components
-export { LineChart } from './components/LineChart'
-export type { LineChartProps } from './components/LineChart'
+export { LineChart } from './charts/LineChart'
+export type { LineChartProps } from './charts/LineChart'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'

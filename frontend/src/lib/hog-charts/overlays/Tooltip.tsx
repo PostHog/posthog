@@ -36,7 +36,6 @@ export function Tooltip({ context, component: Component }: TooltipProps): React.
                 top,
                 pointerEvents: 'none',
                 zIndex: 10,
-                // Hide until measured to prevent flicker
                 visibility: measuredWidth === null ? 'hidden' : 'visible',
             }}
         >

@@ -14,6 +14,7 @@ const ChartContext = createContext<BaseChartContext | null>(null)
 
 export function useChart<T extends BaseChartContext = BaseChartContext>(): T {
     const ctx = useContext(ChartContext)
+
     if (!ctx) {
         throw new Error('useChart must be used inside a chart component (e.g. <LineChart>)')
     }
