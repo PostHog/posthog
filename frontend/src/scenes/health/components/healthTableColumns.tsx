@@ -7,7 +7,7 @@ import { severityToTagType } from '../healthUtils'
 import type { HealthIssue } from '../types'
 import { SEVERITY_ORDER } from '../types'
 
-export function severityColumn(): LemonTableColumn<HealthIssue, undefined> {
+export function severityColumn(): LemonTableColumn<HealthIssue, keyof HealthIssue | undefined> {
     return {
         title: 'Severity',
         key: 'severity',
@@ -26,7 +26,7 @@ export function severityColumn(): LemonTableColumn<HealthIssue, undefined> {
 export function dismissActionColumn(
     onDismiss: (id: string) => void,
     onUndismiss: (id: string) => void
-): LemonTableColumn<HealthIssue, undefined> {
+): LemonTableColumn<HealthIssue, keyof HealthIssue | undefined> {
     return {
         key: 'actions',
         width: 40,

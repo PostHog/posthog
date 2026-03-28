@@ -67,7 +67,12 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
 
                     const queryString = new URLSearchParams(params).toString()
                     const url = `api/environments/${values.currentTeamIdStrict}/health_issues/?${queryString}`
-                    return await api.get(url)
+                    try {
+                        return await api.get(url)
+                    } catch {
+                        lemonToast.error('Failed to load health issues')
+                        return values.healthIssues
+                    }
                 },
             },
         ],

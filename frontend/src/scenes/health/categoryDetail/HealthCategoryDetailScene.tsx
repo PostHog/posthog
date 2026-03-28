@@ -49,7 +49,7 @@ function HealthCategoryDetailScene(): JSX.Element {
                 resourceType={{ type: 'health' }}
             />
 
-            {healthIssuesLoading && !healthIssues ? (
+            {!healthIssues ? (
                 <LoadingSkeleton />
             ) : ContentComponent ? (
                 <ContentComponent
