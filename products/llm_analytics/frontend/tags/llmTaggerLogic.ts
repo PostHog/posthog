@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -210,10 +211,11 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 return
             }
             try {
-                const response = await api.create('api/environments/@current/taggers/test_hog/', {
+                const teamId = teamLogic.values.currentTeamId
+                const response = await api.create(`/api/environments/${teamId}/taggers/test_hog/`, {
                     source,
                     sample_count: 5,
-                    tags: config.tags.filter((t) => t.name.trim()),
+                    tags: config.tags.filter((t: { name: string }) => t.name.trim()),
                 })
                 actions.testHogTaggerSuccess(response.results || [])
             } catch (error) {
