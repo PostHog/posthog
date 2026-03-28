@@ -1,22 +1,33 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTable,
+    LemonTabs,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
-import { llmTaggerLogic } from './llmTaggerLogic'
+import { TagRun, llmTaggerLogic } from './llmTaggerLogic'
 import { TaggerConditionSet } from './types'
 
 export const scene: SceneExport = {
@@ -406,20 +417,141 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
     )
 }
 
+function TagRunsTable({ id }: { id: string }): JSX.Element {
+    const { tagRuns, tagRunsLoading } = useValues(llmTaggerLogic({ id }))
+    const { loadTagRuns } = useActions(llmTaggerLogic({ id }))
+
+    const columns: LemonTableColumns<TagRun> = [
+        {
+            title: 'Timestamp',
+            key: 'timestamp',
+            render: (_, run) => <TZLabel time={run.timestamp} />,
+            sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, run) => (
+                <div className="flex flex-wrap gap-1">
+                    {run.tags.length > 0 ? (
+                        run.tags.map((tag: string) => (
+                            <LemonTag key={tag} type="highlight">
+                                {tag}
+                            </LemonTag>
+                        ))
+                    ) : (
+                        <span className="text-muted text-sm">No tags</span>
+                    )}
+                </div>
+            ),
+        },
+        {
+            title: 'Reasoning',
+            key: 'reasoning',
+            render: (_, run) => (
+                <div className="max-w-md text-sm truncate" title={run.reasoning}>
+                    {run.reasoning || '-'}
+                </div>
+            ),
+        },
+        {
+            title: 'Generation',
+            key: 'generation',
+            render: (_, run) =>
+                run.trace_id && run.target_event_id ? (
+                    <Link
+                        to={urls.llmAnalyticsTrace(run.trace_id, { event: run.target_event_id })}
+                        className="font-mono text-sm"
+                    >
+                        {run.target_event_id.slice(0, 12)}...
+                    </Link>
+                ) : (
+                    <span className="text-muted text-sm">-</span>
+                ),
+        },
+    ]
+
+    return (
+        <div className="space-y-4">
+            <div className="flex justify-between items-center">
+                <p className="text-muted text-sm m-0">Recent tag runs for this tagger.</p>
+                <LemonButton type="secondary" size="small" onClick={loadTagRuns}>
+                    Refresh
+                </LemonButton>
+            </div>
+            <LemonTable
+                columns={columns}
+                dataSource={tagRuns}
+                loading={tagRunsLoading}
+                rowKey="timestamp"
+                pagination={{ pageSize: 20 }}
+                nouns={['run', 'runs']}
+                emptyState={
+                    <div className="text-center py-8 text-muted">
+                        No tag runs yet. Enable this tagger and send some generations to see results.
+                    </div>
+                }
+            />
+        </div>
+    )
+}
+
 export function LLMAnalyticsTagScene({ id }: { id?: string }): JSX.Element {
     const taggerId = id || 'new'
     const isNew = taggerId === 'new'
+    const { tagger, taggerLoading, activeTab } = useValues(llmTaggerLogic({ id: taggerId }))
+    const { setActiveTab } = useActions(llmTaggerLogic({ id: taggerId }))
+
+    if (taggerLoading) {
+        return (
+            <SceneContent>
+                <LemonSkeleton className="w-full h-96" />
+            </SceneContent>
+        )
+    }
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={isNew ? 'New tagger' : 'Edit tagger'}
-                description={isNew ? 'Create a new AI-powered tagger.' : 'Edit tagger configuration.'}
-                resourceType={{
-                    type: 'llm_taggers',
-                }}
-            />
-            <LLMAnalyticsTaggerForm id={taggerId} />
+            <div className="space-y-6">
+                {/* Header */}
+                <div className="flex justify-between items-start pb-4 border-b">
+                    <div className="space-y-2">
+                        <h1 className="text-2xl font-semibold">{isNew ? 'New tagger' : tagger?.name || 'Tagger'}</h1>
+                        {!isNew && tagger && (
+                            <div className="flex items-center gap-2">
+                                <LemonTag type={tagger.enabled ? 'success' : 'default'}>
+                                    {tagger.enabled ? 'Enabled' : 'Disabled'}
+                                </LemonTag>
+                            </div>
+                        )}
+                    </div>
+                    <LemonButton type="secondary" icon={<IconArrowLeft />} to={urls.llmAnalyticsTags()}>
+                        Back
+                    </LemonButton>
+                </div>
+
+                <LemonTabs
+                    activeKey={isNew ? 'configuration' : activeTab}
+                    onChange={(key) => setActiveTab(key as 'runs' | 'configuration')}
+                    data-attr="llma-tagger-tabs"
+                    tabs={[
+                        !isNew && {
+                            key: 'runs',
+                            label: 'Runs',
+                            content: (
+                                <div className="max-w-6xl">
+                                    <TagRunsTable id={taggerId} />
+                                </div>
+                            ),
+                        },
+                        {
+                            key: 'configuration',
+                            label: 'Configuration',
+                            content: <LLMAnalyticsTaggerForm id={taggerId} />,
+                        },
+                    ]}
+                />
+            </div>
         </SceneContent>
     )
 }

@@ -6,10 +6,21 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
 import { ModelConfiguration, Tagger, TaggerConditionSet, TaggerConfig } from './types'
+
+export interface TagRun {
+    timestamp: string
+    tags: string[]
+    reasoning: string
+    trace_id: string
+    target_event_id: string
+    tagger_name: string
+}
 
 export interface LLMTaggerLogicProps {
     id: string | 'new'
@@ -67,6 +78,9 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
         updateTag: (index: number, field: 'name' | 'description', value: string) => ({ index, field, value }),
         addCondition: true,
         removeCondition: (index: number) => ({ index }),
+        setActiveTab: (tab: 'runs' | 'configuration') => ({ tab }),
+        loadTagRuns: true,
+        loadTagRunsSuccess: (runs: TagRun[]) => ({ runs }),
     }),
 
     reducers({
@@ -95,6 +109,25 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             {
                 selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
                 loadTaggerSuccess: (_, { tagger }) => tagger?.model_configuration?.provider_key_id || null,
+            },
+        ],
+        activeTab: [
+            'runs' as string,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        tagRuns: [
+            [] as TagRun[],
+            {
+                loadTagRunsSuccess: (_, { runs }) => runs,
+            },
+        ],
+        tagRunsLoading: [
+            false,
+            {
+                loadTagRuns: () => true,
+                loadTagRunsSuccess: () => false,
             },
         ],
     }),
@@ -140,6 +173,43 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     })),
 
     listeners(({ props, actions, values }) => ({
+        loadTagRuns: async () => {
+            if (props.id === 'new') {
+                actions.loadTagRunsSuccess([])
+                return
+            }
+            const query: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: `
+                    SELECT
+                        timestamp,
+                        properties.$ai_tags as tags,
+                        properties.$ai_tag_reasoning as reasoning,
+                        properties.$ai_trace_id as trace_id,
+                        properties.$ai_target_event_id as target_event_id,
+                        properties.$ai_tagger_name as tagger_name
+                    FROM events
+                    WHERE event = '$ai_tag'
+                      AND properties.$ai_tagger_id = '${props.id}'
+                    ORDER BY timestamp DESC
+                    LIMIT 100
+                `,
+            }
+            try {
+                const response = await api.query(query)
+                const runs = (response.results || []).map((row: any[]) => ({
+                    timestamp: row[0],
+                    tags: typeof row[1] === 'string' ? JSON.parse(row[1]) : row[1] || [],
+                    reasoning: row[2] || '',
+                    trace_id: row[3] || '',
+                    target_event_id: row[4] || '',
+                    tagger_name: row[5] || '',
+                }))
+                actions.loadTagRunsSuccess(runs)
+            } catch {
+                actions.loadTagRunsSuccess([])
+            }
+        },
         loadTagger: async () => {
             if (props.id === 'new') {
                 return
@@ -239,6 +309,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     afterMount(({ actions, props }) => {
         if (props.id !== 'new') {
             actions.loadTagger()
+            actions.loadTagRuns()
         }
     }),
 ])
