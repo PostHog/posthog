@@ -12,6 +12,7 @@ import {
     LemonTag,
     LemonTextArea,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -448,11 +449,14 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
         {
             title: 'Reasoning',
             key: 'reasoning',
-            render: (_, run) => (
-                <div className="max-w-md text-sm truncate" title={run.reasoning}>
-                    {run.reasoning || '-'}
-                </div>
-            ),
+            render: (_, run) =>
+                run.reasoning ? (
+                    <Tooltip title={run.reasoning} placement="top">
+                        <div className="max-w-md text-sm truncate cursor-default">{run.reasoning}</div>
+                    </Tooltip>
+                ) : (
+                    <span className="text-muted text-sm">-</span>
+                ),
         },
         {
             title: 'Generation',
