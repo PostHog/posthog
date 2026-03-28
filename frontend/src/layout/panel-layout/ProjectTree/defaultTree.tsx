@@ -3,7 +3,6 @@ import React, { CSSProperties } from 'react'
 import {
     IconApp,
     IconApps,
-    IconBadge,
     IconBook,
     IconBug,
     IconCircleDashed,
@@ -26,6 +25,7 @@ import {
     IconHogQL,
     IconHome,
     IconLifecycle,
+    IconList,
     IconListCheck,
     IconListTree,
     IconLive,
@@ -320,7 +320,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-llm-evaluations-light)'],
     },
     llm_tags: {
-        icon: <IconBadge />,
+        icon: <IconList />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     llm_datasets: {
