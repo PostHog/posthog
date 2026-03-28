@@ -5,7 +5,7 @@ from typing import Any
 
 import structlog
 import temporalio
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
@@ -48,6 +48,23 @@ class TagResult(BaseModel):
 
     tags: list[str]
     reasoning: str
+
+
+def build_tag_result_schema(tag_names: list[str]) -> type[TagResult]:
+    """Build a TagResult schema with valid tag names in the field description.
+
+    This ensures the JSON schema sent to the LLM provider includes the allowed
+    tag values, improving structured output reliability.
+    """
+    tag_list = ", ".join(f'"{name}"' for name in tag_names)
+
+    class DynamicTagResult(TagResult):
+        tags: list[str] = Field(description=f"Tags to apply. Valid values: [{tag_list}]")
+        reasoning: str = Field(description="Brief explanation for why these tags were selected")
+
+    DynamicTagResult.__name__ = "TagResult"
+    DynamicTagResult.__qualname__ = "TagResult"
+    return DynamicTagResult
 
 
 def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags: int, max_tags: int | None) -> str:
@@ -228,6 +245,8 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     output_data = extract_text_from_messages(output_raw)
 
     system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags)
+    tag_names = [tag["name"] for tag in tags]
+    response_format = build_tag_result_schema(tag_names)
 
     user_prompt = f"""Input: {input_data}
 
@@ -248,7 +267,7 @@ Output: {output_data}"""
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
                 provider=provider,
-                response_format=TagResult,
+                response_format=response_format,
             )
         )
     except AuthenticationError:
