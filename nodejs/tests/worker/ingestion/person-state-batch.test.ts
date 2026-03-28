@@ -2760,7 +2760,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             const state: PersonMergeService = personMergeService({}, hub)
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             const result = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
@@ -2780,7 +2780,7 @@ describe('PersonState.processEvent()', () => {
                 is_identified: true,
             })
             expect(personRepository.updatePerson).not.toHaveBeenCalled()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
         })
 
         it(`postgres and clickhouse get updated`, async () => {
@@ -2793,7 +2793,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             const mergeService: PersonMergeService = personMergeService({}, hub, personRepository)
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             const result = await mergeService.mergePeople({
                 mergeInto: first,
                 mergeIntoDistinctId: firstUserDistinctId,
@@ -2821,7 +2821,7 @@ describe('PersonState.processEvent()', () => {
 
             // Batch mode uses updatePersonsBatch instead of updatePerson
             expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
-            expect(hub.kafkaProducer.queueMessages).toHaveBeenCalledTimes(2)
+            expect(hub.kafkaProducer.produce).toHaveBeenCalledTimes(2)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -2980,7 +2980,7 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(hub.postgres, 'transaction').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             await expect(
                 state.mergePeople({
                     mergeInto: first,
@@ -2993,7 +2993,7 @@ describe('PersonState.processEvent()', () => {
 
             expect(hub.postgres.transaction).toHaveBeenCalledTimes(1)
             jest.spyOn(hub.postgres, 'transaction').mockRestore()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3031,7 +3031,7 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             await expect(state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)).rejects.toThrow(
                 error
             )
@@ -3040,7 +3040,7 @@ describe('PersonState.processEvent()', () => {
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3087,13 +3087,13 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             await state.handleIdentifyOrAlias()
             await hub.kafkaProducer.flush()
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3139,7 +3139,6 @@ describe('PersonState.processEvent()', () => {
                 return originalMoveDistinctIds.call(personRepository, ...args)
             })
 
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             jest.spyOn(personRepository, 'fetchPerson')
 
             // Should succeed after retry
@@ -3197,7 +3196,6 @@ describe('PersonState.processEvent()', () => {
             })
 
             jest.spyOn(personRepository, 'fetchPerson')
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
             // Should succeed after retry
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3271,8 +3269,6 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Should not retry when person no longer exists')
             })
 
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
-
             // Should return target person without error
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
@@ -3333,8 +3329,6 @@ describe('PersonState.processEvent()', () => {
                 // Should not reach here since person lookup returns null
                 throw new Error('Should not retry when person no longer exists')
             })
-
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
             // Should return target person without error
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3571,7 +3565,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 5,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3623,7 +3616,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 2,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3679,7 +3671,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 1,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3729,7 +3720,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: undefined,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
