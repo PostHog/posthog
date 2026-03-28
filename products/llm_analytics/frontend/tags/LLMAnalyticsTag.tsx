@@ -110,7 +110,7 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="bg-bg-light border rounded p-6">
-            <h3 className="text-lg font-semibold mb-2">Classification model</h3>
+            <h3 className="text-lg font-semibold mb-2">Model</h3>
             <p className="text-muted text-sm mb-4">
                 Select which LLM provider and model to use for running this tagger.
             </p>
@@ -323,7 +323,7 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                     </div>
 
                     <div className="border-t pt-4 space-y-4">
-                        <h3 className="text-lg font-semibold">Classification config</h3>
+                        <h3 className="text-lg font-semibold">Tag config</h3>
 
                         <div>
                             <label className="font-semibold">Prompt</label>

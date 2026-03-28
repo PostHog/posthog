@@ -34,8 +34,8 @@ class TagDefinitionSerializer(serializers.Serializer):
 
 
 class TaggerConfigSerializer(serializers.Serializer):
-    prompt = serializers.CharField(min_length=1, help_text="Classification prompt for the LLM")
-    tags = TagDefinitionSerializer(many=True, help_text="Available tags for classification")
+    prompt = serializers.CharField(min_length=1, help_text="Prompt instructing the LLM how to tag generations")
+    tags = TagDefinitionSerializer(many=True, help_text="Available tags the LLM can assign")
     min_tags = serializers.IntegerField(default=0, min_value=0, help_text="Minimum number of tags to apply")
     max_tags = serializers.IntegerField(
         required=False, allow_null=True, min_value=1, help_text="Maximum number of tags to apply (null = no limit)"
