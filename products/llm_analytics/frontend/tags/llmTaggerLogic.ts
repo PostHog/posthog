@@ -13,6 +13,16 @@ import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKey
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
 import { ModelConfiguration, Tagger, TaggerConditionSet, TaggerConfig, TaggerType } from './types'
 
+export interface HogTestResult {
+    event_uuid: string
+    trace_id?: string | null
+    input_preview: string
+    output_preview: string
+    tags: string[]
+    reasoning: string
+    error: string | null
+}
+
 export interface TagRun {
     timestamp: string
     tags: string[]
@@ -84,6 +94,9 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
         setActiveTab: (tab: 'runs' | 'configuration') => ({ tab }),
         loadTagRuns: true,
         loadTagRunsSuccess: (runs: TagRun[]) => ({ runs }),
+        testHogTagger: true,
+        testHogTaggerSuccess: (results: HogTestResult[]) => ({ results }),
+        clearHogTestResults: true,
     }),
 
     reducers({
@@ -133,6 +146,20 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 loadTagRunsSuccess: () => false,
             },
         ],
+        hogTestResults: [
+            null as HogTestResult[] | null,
+            {
+                testHogTaggerSuccess: (_, { results }) => results,
+                clearHogTestResults: () => null,
+            },
+        ],
+        hogTestLoading: [
+            false,
+            {
+                testHogTagger: () => true,
+                testHogTaggerSuccess: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -176,6 +203,24 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     })),
 
     listeners(({ props, actions, values }) => ({
+        testHogTagger: async () => {
+            const config = values.taggerForm.tagger_config
+            const source = 'source' in config ? config.source : ''
+            if (!source) {
+                return
+            }
+            try {
+                const response = await api.create('api/environments/@current/taggers/test_hog/', {
+                    source,
+                    sample_count: 5,
+                    tags: config.tags.filter((t) => t.name.trim()),
+                })
+                actions.testHogTaggerSuccess(response.results || [])
+            } catch (error) {
+                console.error('Hog tagger test failed:', error)
+                actions.testHogTaggerSuccess([])
+            }
+        },
         loadTagRuns: async () => {
             if (props.id === 'new') {
                 actions.loadTagRunsSuccess([])

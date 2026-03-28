@@ -6,6 +6,7 @@ import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -306,3 +307,116 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
     @monitor(feature=None, endpoint="llma_taggers_partial_update", method="PATCH")
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return super().partial_update(request, *args, **kwargs)
+
+    @action(detail=False, methods=["post"], url_path="test_hog")
+    def test_hog(self, request: Request, **kwargs) -> Response:
+        """Test Hog tagger code against sample events without saving."""
+        import json
+
+        from posthog.hogql import ast
+        from posthog.hogql.query import execute_hogql_query
+
+        from posthog.cdp.validation import compile_hog
+        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+        from posthog.models.team import Team
+        from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+        from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
+        from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
+
+        test_serializer = TestHogTaggerRequestSerializer(data=request.data)
+        if not test_serializer.is_valid():
+            return Response({"error": test_serializer.errors}, status=400)
+
+        source = test_serializer.validated_data["source"]
+        sample_count = test_serializer.validated_data["sample_count"]
+        tags = test_serializer.validated_data.get("tags", [])
+        valid_tag_names = {tag["name"] for tag in tags}
+
+        try:
+            bytecode = compile_hog(source, "destination")
+        except serializers.ValidationError as e:
+            return Response({"error": f"Compilation error: {e.detail}"}, status=400)
+        except Exception:
+            logger.exception("Unexpected error compiling Hog source")
+            return Response({"error": "Compilation failed due to an unexpected error"}, status=400)
+
+        team = Team.objects.get(id=self.team_id)
+
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=["$ai_generation"]),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
+                ),
+            ),
+        ]
+
+        query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["uuid"]),
+                ast.Field(chain=["event"]),
+                ast.Field(chain=["properties"]),
+                ast.Field(chain=["distinct_id"]),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=where_exprs),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            limit=ast.Constant(value=sample_count),
+        )
+
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        response = execute_hogql_query(query=query, team=team, limit_context=None)
+
+        if not response.results:
+            return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
+
+        results = []
+        for row in response.results:
+            event_uuid = str(row[0])
+            event_type = row[1]
+            properties = row[2]
+            distinct_id = row[3]
+
+            if isinstance(properties, str):
+                properties = json.loads(properties)
+
+            event_data = {
+                "uuid": event_uuid,
+                "event": event_type,
+                "properties": properties,
+                "distinct_id": distinct_id or "",
+            }
+
+            result = run_hog_tagger(bytecode, event_data, valid_tag_names)
+
+            input_raw, output_raw = extract_event_io(event_type, properties)
+            input_preview = extract_text_from_messages(input_raw)[:200]
+            output_preview = extract_text_from_messages(output_raw)[:200]
+
+            results.append(
+                {
+                    "event_uuid": event_uuid,
+                    "trace_id": properties.get("$ai_trace_id"),
+                    "input_preview": input_preview,
+                    "output_preview": output_preview,
+                    "tags": result["tags"],
+                    "reasoning": result["reasoning"],
+                    "error": result["error"],
+                }
+            )
+
+        return Response({"results": results})
+
+
+class TestHogTaggerRequestSerializer(serializers.Serializer):
+    source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
+    sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
+    tags = serializers.ListField(child=serializers.DictField(), required=False, default=list)
