@@ -26,9 +26,9 @@ export const scene: SceneExport = {
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
-function TagDefinitionsEditor(): JSX.Element {
-    const { taggerForm } = useValues(llmTaggerLogic({ id: '' }))
-    const { addTag, removeTag, updateTag } = useActions(llmTaggerLogic({ id: '' }))
+function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
+    const { taggerForm } = useValues(llmTaggerLogic({ id }))
+    const { addTag, removeTag, updateTag } = useActions(llmTaggerLogic({ id }))
 
     return (
         <div className="space-y-2">
@@ -330,7 +330,7 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                             />
                         </div>
 
-                        <TagDefinitionsEditor />
+                        <TagDefinitionsEditor id={id} />
 
                         <div className="flex gap-4">
                             <div>
