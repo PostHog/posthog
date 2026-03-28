@@ -382,6 +382,120 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.computeBlastRadiusPercentage(5, 'C')).toEqual(0)
         })
 
+        it('sends condition-level aggregation_group_type_index to blast radius API', async () => {
+            logic?.unmount()
+
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
+                users_affected: 50,
+                total_users: 500,
+                groups_affected: 10,
+                total_groups: 100,
+            })
+
+            try {
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'condition-agg-test',
+                    filters: {
+                        ...generateFeatureFlagFilters([
+                            {
+                                properties: [
+                                    {
+                                        key: 'plan',
+                                        value: 'pro',
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                rollout_percentage: 100,
+                                variant: null,
+                                sort_key: 'A',
+                                aggregation_group_type_index: 1,
+                            },
+                            {
+                                properties: [
+                                    {
+                                        key: 'email',
+                                        value: 'test',
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                rollout_percentage: 50,
+                                variant: null,
+                                sort_key: 'B',
+                            },
+                        ]),
+                        aggregation_group_type_index: 0,
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                }).toFinishAllListeners()
+
+                // Condition A has its own aggregation_group_type_index=1, should override flag-level 0
+                expect(createSpy).toHaveBeenCalledWith(
+                    expect.stringContaining('user_blast_radius'),
+                    expect.objectContaining({ group_type_index: 1 })
+                )
+                // Condition B has no condition-level override, should fall back to flag-level 0
+                expect(createSpy).toHaveBeenCalledWith(
+                    expect.stringContaining('user_blast_radius'),
+                    expect.objectContaining({ group_type_index: 0 })
+                )
+            } finally {
+                createSpy.mockRestore()
+            }
+        })
+
+        it('stores group counts from mixed blast radius response', async () => {
+            logic?.unmount()
+
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
+                users_affected: 60,
+                total_users: 500,
+                groups_affected: 15,
+                total_groups: 80,
+            })
+
+            try {
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'group-counts-test',
+                    filters: {
+                        ...generateFeatureFlagFilters([
+                            {
+                                properties: [
+                                    {
+                                        key: 'plan',
+                                        value: 'pro',
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                rollout_percentage: 100,
+                                variant: null,
+                                sort_key: 'A',
+                            },
+                        ]),
+                        aggregation_group_type_index: 0,
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                })
+                    .toDispatchActions(['setAffectedUsers', 'setAffectedGroups', 'setTotalGroups'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.affectedUsers).toEqual({ A: 60 })
+                expect(logic.values.totalUsers).toEqual(500)
+                expect(logic.values.affectedGroups).toEqual({ A: 15 })
+                expect(logic.values.totalGroups).toEqual({ A: 80 })
+            } finally {
+                createSpy.mockRestore()
+            }
+        })
+
         describe('API calls', () => {
             it('doesnt make extra API calls when rollout percentage or variants change', async () => {
                 logic?.unmount()

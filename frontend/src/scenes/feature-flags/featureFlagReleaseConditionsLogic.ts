@@ -113,10 +113,23 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             count,
         }),
         setTotalUsers: (count: number) => ({ count }),
+        setAffectedGroups: (sortKey: string, count?: number) => ({
+            sortKey,
+            count,
+        }),
+        setTotalGroups: (sortKey: string, count?: number) => ({
+            sortKey,
+            count,
+        }),
         calculateBlastRadius: true,
-        calculateBlastRadiusForCondition: (sortKey: string, properties: AnyPropertyFilter[] | undefined) => ({
+        calculateBlastRadiusForCondition: (
+            sortKey: string,
+            properties: AnyPropertyFilter[] | undefined,
+            groupTypeIndex: number | null
+        ) => ({
             sortKey,
             properties,
+            groupTypeIndex,
         }),
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
         setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
@@ -281,6 +294,24 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 setTotalUsers: (_, { count }) => count,
             },
         ],
+        affectedGroups: [
+            {} as Record<string, number | undefined>,
+            {
+                setAffectedGroups: (state, { sortKey, count }) => ({
+                    ...state,
+                    [sortKey]: count,
+                }),
+            },
+        ],
+        totalGroups: [
+            {} as Record<string, number | undefined>,
+            {
+                setTotalGroups: (state, { sortKey, count }) => ({
+                    ...state,
+                    [sortKey]: count,
+                }),
+            },
+        ],
         flagKeyCache: [
             {} as Record<string, string>,
             {
@@ -338,6 +369,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             if (newProperties) {
                 // properties have changed, so we'll have to re-fetch affected users
                 actions.setAffectedUsers(sortKey, undefined)
+                actions.setAffectedGroups(sortKey, undefined)
+                actions.setTotalGroups(sortKey, undefined)
 
                 // Add any new flag IDs from the updated properties
                 const newFlagIds = newProperties.flatMap((property) =>
@@ -355,22 +388,32 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
 
             await breakpoint(1000) // in ms
-            const response = await api.create(
+            const groupTypeIndex =
+                group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+            const response: UserBlastRadiusType = await api.create(
                 `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                 {
                     condition: { properties: newProperties },
-                    group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                    group_type_index: groupTypeIndex,
                 }
             )
 
             actions.setAffectedUsers(sortKey, response.users_affected)
             actions.setTotalUsers(response.total_users)
+            if (response.groups_affected !== undefined) {
+                actions.setAffectedGroups(sortKey, response.groups_affected)
+            }
+            if (response.total_groups !== undefined) {
+                actions.setTotalGroups(sortKey, response.total_groups)
+            }
         },
         addConditionSet: async () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
                 actions.openCondition(newGroup.sort_key)
-                actions.calculateBlastRadiusForCondition(newGroup.sort_key, newGroup.properties)
+                const groupTypeIndex =
+                    newGroup.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                actions.calculateBlastRadiusForCondition(newGroup.sort_key, newGroup.properties, groupTypeIndex)
             }
         },
         removeConditionSet: () => {
@@ -405,8 +448,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setOpenConditions(newOpenConditions)
             }
         },
-        calculateBlastRadiusForCondition: async ({ sortKey, properties }) => {
+        calculateBlastRadiusForCondition: async ({ sortKey, properties, groupTypeIndex }) => {
             actions.setAffectedUsers(sortKey, undefined)
+            actions.setAffectedGroups(sortKey, undefined)
+            actions.setTotalGroups(sortKey, undefined)
 
             let response: UserBlastRadiusType
             if (!properties || properties.some(isEmptyProperty)) {
@@ -418,7 +463,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                         {
                             condition: { properties },
-                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                            group_type_index: groupTypeIndex,
                         }
                     )
                 } catch {
@@ -430,10 +475,18 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             if (response.total_users !== -1) {
                 actions.setTotalUsers(response.total_users)
             }
+            if (response.groups_affected !== undefined) {
+                actions.setAffectedGroups(sortKey, response.groups_affected)
+            }
+            if (response.total_groups !== undefined) {
+                actions.setTotalGroups(sortKey, response.total_groups)
+            }
         },
         calculateBlastRadius: () => {
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {
-                actions.calculateBlastRadiusForCondition(condition.sort_key, condition.properties)
+                const groupTypeIndex =
+                    condition.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                actions.calculateBlastRadiusForCondition(condition.sort_key, condition.properties, groupTypeIndex)
             })
         },
         loadAllFlagKeys: async ({ flagIds }) => {
