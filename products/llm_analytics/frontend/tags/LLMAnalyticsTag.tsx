@@ -30,6 +30,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
 import { TagRun, llmTaggerLogic } from './llmTaggerLogic'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
@@ -382,6 +383,25 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                                     Return a list of tag names. Available globals: input, output, properties, event,
                                     tags.
                                 </p>
+                                <div className="flex flex-wrap gap-1.5 mb-3">
+                                    {HOG_TAGGER_EXAMPLES.map((example) => (
+                                        <LemonButton
+                                            key={example.label}
+                                            type="secondary"
+                                            size="xsmall"
+                                            onClick={() =>
+                                                setTaggerFormValues({
+                                                    tagger_config: {
+                                                        ...taggerForm.tagger_config,
+                                                        source: example.source,
+                                                    },
+                                                })
+                                            }
+                                        >
+                                            {example.label}
+                                        </LemonButton>
+                                    ))}
+                                </div>
                                 <CodeEditorResizeable
                                     language="hog"
                                     value={'source' in taggerForm.tagger_config ? taggerForm.tagger_config.source : ''}
