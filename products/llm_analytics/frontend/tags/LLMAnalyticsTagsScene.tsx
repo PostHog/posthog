@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -92,11 +92,13 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
             title: 'Prompt',
             key: 'prompt',
             render: (_, tagger) => (
-                <div className="max-w-md">
-                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {tagger.tagger_config.prompt || '(empty)'}
+                <Tooltip title={tagger.tagger_config.prompt} placement="top">
+                    <div className="max-w-md">
+                        <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate cursor-default">
+                            {tagger.tagger_config.prompt || '(empty)'}
+                        </div>
                     </div>
-                </div>
+                </Tooltip>
             ),
         },
         {
