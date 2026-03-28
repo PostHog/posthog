@@ -603,7 +603,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGGERS_TAB]) {
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]) {
         tabs.push({
             key: 'taggers',
             label: (

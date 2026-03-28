@@ -309,7 +309,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsTaggers(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGGERS,
+            flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
             tags: ['alpha'],
             sceneKey: 'LLMAnalyticsTaggers',
         },
