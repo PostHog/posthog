@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -7,49 +7,48 @@ import { AvailableFeature } from '~/types'
 
 import { SlackIntegration } from './SlackIntegration'
 
-const meta: Meta<typeof SlackIntegration> = {
+type StoryArgs = { instanceConfigured?: boolean; integrated?: boolean }
+
+const meta: Meta<StoryArgs> = {
     title: 'Components/Integrations/Slack',
     component: SlackIntegration,
     parameters: {},
+    render: ({ instanceConfigured = true, integrated = false }) => {
+        useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
+
+        useStorybookMocks({
+            get: {
+                '/api/projects/:id/integrations': { results: integrated ? [mockIntegration] : [] },
+                '/api/instance_settings': {
+                    results: instanceConfigured
+                        ? [
+                              {
+                                  key: 'SLACK_APP_CLIENT_ID',
+                                  value: '910200304849.3676478528614',
+                              },
+                              {
+                                  key: 'SLACK_APP_CLIENT_SECRET',
+                                  value: '*****',
+                              },
+                          ]
+                        : [],
+                },
+            },
+        })
+
+        return <SlackIntegration />
+    },
 }
 export default meta
 
-const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }): JSX.Element => {
-    const { instanceConfigured = true, integrated = false } = args
+type Story = StoryObj<StoryArgs>
 
-    useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
+export const SlackIntegration_: Story = {}
 
-    useStorybookMocks({
-        get: {
-            '/api/projects/:id/integrations': { results: integrated ? [mockIntegration] : [] },
-            '/api/instance_settings': {
-                results: instanceConfigured
-                    ? [
-                          {
-                              key: 'SLACK_APP_CLIENT_ID',
-                              value: '910200304849.3676478528614',
-                          },
-                          {
-                              key: 'SLACK_APP_CLIENT_SECRET',
-                              value: '*****',
-                          },
-                      ]
-                    : [],
-            },
-        },
-    })
-
-    return <SlackIntegration />
+export const SlackIntegrationInstanceNotConfigured: Story = {
+    args: { instanceConfigured: false },
 }
 
-export const SlackIntegration_ = (): JSX.Element => {
-    return <Template />
-}
-
-export const SlackIntegrationInstanceNotConfigured = (): JSX.Element => {
-    return <Template instanceConfigured={false} />
-}
-
-export const SlackIntegrationAdded = (): JSX.Element => {
-    return <Template integrated />
+export const SlackIntegrationAdded: Story = {
+    args: { integrated: true },
 }

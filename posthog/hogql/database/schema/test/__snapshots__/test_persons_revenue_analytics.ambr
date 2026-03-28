@@ -46,8 +46,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                          ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
            FROM events
@@ -250,8 +249,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                          ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
            FROM events
@@ -2158,8 +2156,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                          ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
            FROM events
@@ -2378,8 +2375,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                          ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
            FROM events
@@ -3064,8 +3060,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events__pdi__person.id AS person_id
                     FROM events
@@ -3304,8 +3299,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events.person_id AS person_id
                     FROM events
@@ -3523,8 +3517,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
                     FROM events
@@ -3770,8 +3763,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events__person.id AS person_id
                     FROM events
@@ -4019,8 +4011,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events__pdi__person.id AS person_id
                     FROM events
@@ -4309,8 +4300,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events.person_id AS person_id
                     FROM events
@@ -4578,8 +4568,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
                     FROM events
@@ -4875,8 +4864,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
-                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events__person.id AS person_id
                     FROM events

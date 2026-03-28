@@ -1,120 +1,269 @@
-import { buildCaptureConfig } from '../capture/capture'
-import { RasterizeRecordingInput } from '../types'
+import * as fs from 'fs/promises'
+import * as os from 'os'
+import * as path from 'path'
 
-function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
+import { capturePlayback } from '../capture/capture'
+import { PlayerController } from '../capture/player'
+import { RasterizationError } from '../errors'
+import { CaptureConfig } from '../types'
+
+jest.mock(
+    'puppeteer-capture',
+    () => {
+        const recorder = {
+            start: jest.fn().mockResolvedValue(undefined),
+            stop: jest.fn().mockResolvedValue(undefined),
+            waitForTimeout: jest.fn().mockResolvedValue(undefined),
+            on: jest.fn(),
+        }
+        return {
+            __mockRecorder: recorder,
+            PuppeteerCaptureFormat: { MP4: jest.fn().mockReturnValue('mp4-format') },
+            capture: jest.fn().mockResolvedValue(recorder),
+        }
+    },
+    { virtual: true }
+)
+
+jest.mock('../logger', () => ({
+    createLogger: () => ({
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+        debug: jest.fn(),
+        child: jest.fn().mockReturnThis(),
+    }),
+}))
+
+const { __mockRecorder: mockRecorder } = require('puppeteer-capture')
+
+function baseCaptureConfig(overrides: Partial<CaptureConfig> = {}): CaptureConfig {
     return {
-        session_id: 'test-session',
-        team_id: 1,
-        s3_bucket: 'test-bucket',
-        s3_key_prefix: 'test-prefix',
+        captureFps: 24,
+        outputFps: 3,
+        playbackSpeed: 8,
+        trimFrameLimit: Infinity,
+        captureTimeoutMs: Infinity,
+        ffmpegOutputOpts: [],
+        ffmpegVideoFilters: [],
+        screenshotFormat: 'jpeg',
+        screenshotQuality: 80,
         ...overrides,
     }
 }
 
-describe('buildCaptureConfig', () => {
-    describe('fps calculation', () => {
-        it.each([
-            { speed: 4, fps: 24, expectedCapture: 96 },
-            { speed: 8, fps: 3, expectedCapture: 24 },
-            { speed: 1, fps: 24, expectedCapture: 24 },
-            { speed: 16, fps: 6, expectedCapture: 96 },
-        ])('captureFps = $fps * $speed = $expectedCapture', ({ speed, fps, expectedCapture }) => {
-            const config = buildCaptureConfig(baseInput({ playback_speed: speed, recording_fps: fps }))
-            expect(config.captureFps).toBe(expectedCapture)
-            expect(config.outputFps).toBe(fps)
-        })
+const mockPage = {
+    viewport: jest.fn().mockReturnValue({ width: 1920, height: 1080 }),
+    on: jest.fn(),
+} as any
 
-        it('defaults to 4x speed and 24fps', () => {
-            const config = buildCaptureConfig(baseInput())
-            expect(config.playbackSpeed).toBe(4)
-            expect(config.outputFps).toBe(24)
-            expect(config.captureFps).toBe(96)
-        })
+function mockPlayer(overrides: Partial<Record<keyof PlayerController, any>> = {}): PlayerController {
+    return {
+        page: mockPage,
+        prepareBrowserForCapture: jest.fn(),
+        startPlayback: jest.fn().mockResolvedValue(undefined),
+        isEnded: jest.fn().mockReturnValue(false),
+        getError: jest.fn().mockReturnValue(null),
+        getInactivityPeriods: jest.fn().mockReturnValue([]),
+        waitForSettled: jest.fn().mockResolvedValue(undefined),
+        ...overrides,
+    } as unknown as PlayerController
+}
+
+describe('capturePlayback', () => {
+    let outputPath: string
+
+    beforeEach(async () => {
+        jest.clearAllMocks()
+        outputPath = path.join(os.tmpdir(), `test-capture-${Date.now()}.mp4`)
+        // Create a dummy file so fs.stat succeeds
+        await fs.writeFile(outputPath, Buffer.alloc(64))
+
+        // Reset recorder behavior
+        mockRecorder.start.mockResolvedValue(undefined)
+        mockRecorder.stop.mockResolvedValue(undefined)
+        mockRecorder.on.mockImplementation(() => {})
+        mockRecorder.waitForTimeout.mockResolvedValue(undefined)
     })
 
-    describe('trim', () => {
-        it('sets trimFrameLimit based on trim and outputFps', () => {
-            const config = buildCaptureConfig(baseInput({ trim: 40, recording_fps: 3 }))
-            expect(config.trim).toBe(40)
-            expect(config.trimFrameLimit).toBe(120) // 40 * 3
-        })
-
-        it('defaults trimFrameLimit to Infinity when no trim', () => {
-            const config = buildCaptureConfig(baseInput())
-            expect(config.trim).toBeUndefined()
-            expect(config.trimFrameLimit).toBe(Infinity)
-        })
-
-        it('adds -t to ffmpeg output opts when trim is set', () => {
-            const config = buildCaptureConfig(baseInput({ trim: 60 }))
-            expect(config.ffmpegOutputOpts).toContain('-t 60')
-        })
-
-        it('does not add -t when trim is not set', () => {
-            const config = buildCaptureConfig(baseInput())
-            expect(config.ffmpegOutputOpts.some((o) => o.startsWith('-t '))).toBe(false)
-        })
+    afterEach(async () => {
+        await fs.rm(outputPath, { force: true })
     })
 
-    describe('capture timeout', () => {
-        it('converts capture_timeout seconds to ms', () => {
-            const config = buildCaptureConfig(baseInput({ capture_timeout: 300 }))
-            expect(config.captureTimeoutMs).toBe(300_000)
+    function simulateFrames(count: number): void {
+        // Find the frameCaptured callback and call it count times
+        const onCall = mockRecorder.on.mock.calls.find(([event]: [string]) => event === 'frameCaptured')
+        if (onCall) {
+            const callback = onCall[1]
+            for (let i = 0; i < count; i++) {
+                callback()
+            }
+        }
+    }
+
+    it('stops when player signals ended', async () => {
+        let iteration = 0
+        const player = mockPlayer({
+            isEnded: jest.fn().mockImplementation(() => {
+                iteration++
+                return iteration >= 3
+            }),
         })
 
-        it('defaults to Infinity when no capture_timeout', () => {
-            const config = buildCaptureConfig(baseInput())
-            expect(config.captureTimeoutMs).toBe(Infinity)
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            simulateFrames(3)
         })
+
+        const result = await capturePlayback(player, baseCaptureConfig(), outputPath)
+
+        expect(mockRecorder.start).toHaveBeenCalledWith(outputPath)
+        expect(mockRecorder.stop).toHaveBeenCalled()
+        expect(player.startPlayback).toHaveBeenCalled()
+        expect(result.capture_duration_s).toBeGreaterThanOrEqual(0)
     })
 
-    describe('ffmpeg filters', () => {
-        it('adds setpts and fps filters when playback speed > 1', () => {
-            const config = buildCaptureConfig(baseInput({ playback_speed: 8 }))
-            expect(config.ffmpegVideoFilters).toEqual(['setpts=8*PTS', 'fps=24'])
+    it('stops when trim frame limit is reached', async () => {
+        const player = mockPlayer()
+
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            simulateFrames(50)
         })
 
-        it('no video filters at 1x speed', () => {
-            const config = buildCaptureConfig(baseInput({ playback_speed: 1 }))
-            expect(config.ffmpegVideoFilters).toEqual([])
-        })
+        const config = baseCaptureConfig({ trim: 10, trimFrameLimit: 30, outputFps: 3 })
+        const result = await capturePlayback(player, config, outputPath)
 
-        it('always includes baseline output opts', () => {
-            const config = buildCaptureConfig(baseInput())
-            expect(config.ffmpegOutputOpts).toContain('-crf 23')
-            expect(config.ffmpegOutputOpts).toContain('-pix_fmt yuv420p')
-            expect(config.ffmpegOutputOpts).toContain('-movflags +faststart')
-        })
-
-        it.each([
-            { speed: 1.5, expected: ['setpts=1.5*PTS', 'fps=24'] },
-            { speed: 2.5, expected: ['setpts=2.5*PTS', 'fps=24'] },
-        ])('adds setpts and fps filters for fractional speed $speed', ({ speed, expected }) => {
-            const config = buildCaptureConfig(baseInput({ playback_speed: speed }))
-            expect(config.ffmpegVideoFilters).toEqual(expected)
-        })
+        expect(mockRecorder.stop).toHaveBeenCalled()
+        expect(result.capture_duration_s).toBeLessThanOrEqual(10)
     })
 
-    describe('edge cases', () => {
-        it.each([
-            { speed: 1.5, fps: 24, expectedCapture: 36 },
-            { speed: 0.5, fps: 24, expectedCapture: 12 },
-            { speed: 2.5, fps: 10, expectedCapture: 25 },
-        ])('handles fractional playback_speed=$speed with fps=$fps', ({ speed, fps, expectedCapture }) => {
-            const config = buildCaptureConfig(baseInput({ playback_speed: speed, recording_fps: fps }))
-            expect(config.captureFps).toBe(expectedCapture)
-            expect(config.playbackSpeed).toBe(speed)
+    it('stops when capture timeout is reached', async () => {
+        const player = mockPlayer()
+
+        mockRecorder.waitForTimeout.mockImplementation(() => {})
+
+        const config = baseCaptureConfig({ captureTimeoutMs: 3000 })
+        await capturePlayback(player, config, outputPath)
+
+        expect(mockRecorder.stop).toHaveBeenCalled()
+    })
+
+    it('calls recorder.stop even if loop throws', async () => {
+        const player = mockPlayer({
+            startPlayback: jest.fn().mockRejectedValue(new Error('playback failed')),
         })
 
-        it('handles very high playback speed', () => {
-            const config = buildCaptureConfig(baseInput({ playback_speed: 100, recording_fps: 3 }))
-            expect(config.captureFps).toBe(300)
-            expect(config.ffmpegVideoFilters).toEqual(['setpts=100*PTS', 'fps=3'])
+        await expect(capturePlayback(player, baseCaptureConfig(), outputPath)).rejects.toThrow('playback failed')
+        expect(mockRecorder.stop).toHaveBeenCalled()
+    })
+
+    it('handles recorder.stop failure gracefully', async () => {
+        const player = mockPlayer({ isEnded: jest.fn().mockReturnValue(true) })
+        mockRecorder.stop.mockRejectedValue(new Error('ffmpeg crashed'))
+
+        // Should not throw — the stop error is swallowed
+        const result = await capturePlayback(player, baseCaptureConfig(), outputPath)
+        expect(result).toBeDefined()
+    })
+
+    it('returns inactivity periods from player', async () => {
+        const periods = [
+            { ts_from_s: 0, ts_to_s: 5, active: true },
+            { ts_from_s: 5, ts_to_s: 10, active: false },
+        ]
+        const player = mockPlayer({
+            isEnded: jest.fn().mockReturnValue(true),
+            getInactivityPeriods: jest.fn().mockReturnValue(periods),
         })
 
-        it('trim=1 produces trimFrameLimit equal to outputFps', () => {
-            const config = buildCaptureConfig(baseInput({ trim: 1, recording_fps: 24 }))
-            expect(config.trimFrameLimit).toBe(24)
+        const result = await capturePlayback(player, baseCaptureConfig(), outputPath)
+        expect(result.inactivity_periods).toEqual(periods)
+    })
+
+    it('computes duration from frame count and outputFps', async () => {
+        const player = mockPlayer()
+        let iteration = 0
+
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            simulateFrames(9) // 9 frames per iteration
+            iteration++
+            if (iteration >= 2) {
+                ;(player.isEnded as jest.Mock).mockReturnValue(true)
+            }
         })
+
+        const config = baseCaptureConfig({ outputFps: 3 })
+        const result = await capturePlayback(player, config, outputPath)
+
+        // 18 frames / 3 fps = 6 seconds
+        expect(result.capture_duration_s).toBe(6)
+    })
+
+    it('returns truncated=false when recording ends normally', async () => {
+        const player = mockPlayer({ isEnded: jest.fn().mockReturnValue(true) })
+        const result = await capturePlayback(player, baseCaptureConfig(), outputPath)
+        expect(result.truncated).toBe(false)
+    })
+
+    it('returns truncated=true when capture timeout is reached', async () => {
+        const player = mockPlayer()
+        mockRecorder.waitForTimeout.mockImplementation(() => {})
+
+        const config = baseCaptureConfig({ captureTimeoutMs: 3000 })
+        const result = await capturePlayback(player, config, outputPath)
+        expect(result.truncated).toBe(true)
+    })
+
+    it('calls onProgress at progressInterval frame boundaries', async () => {
+        const player = mockPlayer()
+        const onProgress = jest.fn()
+        let iteration = 0
+
+        // captureFps=24, so progressInterval = max(10, 24) = 24
+        // Simulate 72 frames over 3 iterations (24 per iteration)
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            simulateFrames(24)
+            iteration++
+            if (iteration >= 3) {
+                ;(player.isEnded as jest.Mock).mockReturnValue(true)
+            }
+        })
+
+        const config = baseCaptureConfig({ captureFps: 24 })
+        await capturePlayback(player, config, outputPath, undefined, onProgress)
+
+        // 72 frames / 24 interval = 3 calls
+        expect(onProgress).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not call onProgress before progressInterval is reached', async () => {
+        const player = mockPlayer({ isEnded: jest.fn().mockReturnValue(true) })
+        const onProgress = jest.fn()
+
+        // Only 5 frames — below progressInterval of max(10, 24) = 24
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            simulateFrames(5)
+        })
+
+        const config = baseCaptureConfig({ captureFps: 24 })
+        await capturePlayback(player, config, outputPath, undefined, onProgress)
+
+        expect(onProgress).not.toHaveBeenCalled()
+    })
+
+    it('throws when player reports an error during capture', async () => {
+        const player = mockPlayer()
+        let iteration = 0
+
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            iteration++
+            if (iteration >= 2) {
+                ;(player.getError as jest.Mock).mockReturnValue(
+                    new RasterizationError('[PLAYBACK_ERROR] something broke', true)
+                )
+            }
+        })
+
+        await expect(capturePlayback(player, baseCaptureConfig(), outputPath)).rejects.toThrow('something broke')
+        expect(mockRecorder.stop).toHaveBeenCalled()
     })
 })

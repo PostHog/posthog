@@ -76,7 +76,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
-from posthog.utils import format_query_params_absolute_url, is_anonymous_id
+from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -626,7 +626,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PropertyValuesQueryResponse,
             PropertyValuesQueryRunner,
         )
-        from posthog.hogql_queries.query_runner import ExecutionMode
+        from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
         with tracer.start_as_current_span("person_api_property_values") as span:
             key = request.GET.get("key")
@@ -642,7 +642,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resp["Cache-Control"] = "max-age=10"
                 return resp
 
-            force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+            refresh = refresh_requested_by_client(request)
             runner = PropertyValuesQueryRunner(
                 team=self.team,
                 query=PropertyValuesQuery(
@@ -651,11 +651,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     search_value=value,
                 ),
             )
-            execution_mode = (
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-                if force_refresh
-                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            )
+            execution_mode = execution_mode_from_refresh(refresh)
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
+                execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (

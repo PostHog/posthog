@@ -6,6 +6,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { CommonConfig } from '../common/config'
 import { buildIntegerMatcher } from '../config/config'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
+import { OverflowOutput } from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
@@ -88,7 +89,8 @@ export class SessionRecordingIngester {
     private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
-        { message: Message }
+        { message: Message },
+        OverflowOutput
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly kafkaMessageProducer: KafkaProducerWrapper
