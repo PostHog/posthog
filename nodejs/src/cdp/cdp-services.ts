@@ -3,6 +3,7 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginsServerConfig } from '../types'
+import { CohortMembershipResolver } from '../utils/cohort-membership-resolver'
 import { PostgresRouter } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
@@ -143,6 +144,7 @@ export function createCdpCoreServices(
         config.SITE_URL
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const cohortMembershipResolver = new CohortMembershipResolver(deps.postgres)
 
     const hogExecutor = new HogExecutorService(
         {
@@ -155,7 +157,8 @@ export function createCdpCoreServices(
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
         emailService,
-        recipientTokensService
+        recipientTokensService,
+        cohortMembershipResolver
     )
 
     const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(deps.postgres)
@@ -167,7 +170,11 @@ export function createCdpCoreServices(
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
-    const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
+    const hogFlowExecutor = new HogFlowExecutorService(
+        hogFlowFunctionsService,
+        recipientPreferencesService,
+        cohortMembershipResolver
+    )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         deps.kafkaProducer,

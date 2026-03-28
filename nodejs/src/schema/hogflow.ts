@@ -36,6 +36,7 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             events: z.array(z.any()).optional(),
             properties: z.array(z.any()).optional(),
             actions: z.array(z.any()).optional(),
+            bytecode: z.array(z.union([z.string(), z.number()])).optional(),
         }),
     }),
     z.object({

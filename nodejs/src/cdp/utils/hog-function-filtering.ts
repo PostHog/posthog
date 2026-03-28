@@ -5,11 +5,13 @@ import { ExecResult } from '@posthog/hogvm'
 
 import { HogFlow } from '../../schema/hogflow'
 import { RawClickHouseEvent } from '../../types'
+import { CohortMembershipResolver } from '../../utils/cohort-membership-resolver'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { createTrackedRE2 } from '../../utils/tracked-re2'
 import { UUIDT, clickHouseTimestampToISO } from '../../utils/utils'
 import {
+    HogBytecode,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionType,
@@ -339,6 +341,54 @@ function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: Hog
 }
 
 /**
+ * Provider for lazily resolving additional VM functions during filter execution.
+ * The `shouldResolve` check runs against the bytecode before any async work,
+ * and `resolve` is only called when the bytecode actually needs execution.
+ */
+export type FilterFunctionsProvider = {
+    shouldResolve: (bytecode: any[] | null | undefined) => boolean
+    resolve: () => Promise<Record<string, (...args: any[]) => any>>
+}
+
+/**
+ * Builds a FilterFunctionsProvider that lazily resolves cohort membership.
+ */
+export function buildCohortFunctionsProvider(
+    resolver: CohortMembershipResolver,
+    projectId: number,
+    personId: string | undefined
+): FilterFunctionsProvider {
+    return {
+        shouldResolve: (bytecode) =>
+            bytecode?.includes('inCohort') === true || bytecode?.includes('notInCohort') === true,
+        resolve: async () => {
+            const cohortIds = personId !== undefined ? await resolver.getPersonCohortIds(projectId, personId) : []
+            return {
+                inCohort: (cohortId: number) => cohortIds.includes(cohortId),
+                notInCohort: (cohortId: number) => !cohortIds.includes(cohortId),
+            }
+        },
+    }
+}
+
+/**
+ * Returns an array of sync hog functions for all input functionProviders which pass their shouldResolve prechecks
+ */
+async function resolveLazyHogFunctionProviders(
+    functionProviders: FilterFunctionsProvider[] | undefined,
+    bytecode: HogBytecode
+) {
+    if (!functionProviders || !functionProviders.length) {
+        return undefined
+    }
+    const matching = functionProviders.filter((p) => p.shouldResolve(bytecode))
+    if (!matching.length) {
+        return undefined
+    }
+    const resolved = await Promise.all(matching.map((p) => p.resolve()))
+    return Object.assign({}, ...resolved)
+}
+/**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
  */
@@ -347,6 +397,8 @@ export async function filterFunctionInstrumented(options: {
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
+    /** Optional providers for lazily resolved VM functions (e.g. cohort membership) */
+    functionProviders?: FilterFunctionsProvider[]
 }): Promise<HogFilterResult> {
     const { fn, filters, filterGlobals } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
@@ -393,8 +445,12 @@ export async function filterFunctionInstrumented(options: {
         if (!filters?.bytecode) {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
+        const hogFunctions = await resolveLazyHogFunctionProviders(options.functionProviders, filters.bytecode)
 
-        const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
+        const execHogOutcome = await execHog(filters.bytecode, {
+            globals: filterGlobals,
+            functions: hogFunctions,
+        })
 
         if (execHogOutcome) {
             hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
