@@ -621,26 +621,24 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
-def _create_provisioned_pat(user: User, team: Team) -> str:
+def _create_provisioned_pat(user: User, team: Team) -> str | None:
     """Create a Personal API Key for a Stripe-provisioned user and return the raw key value."""
-    PersonalAPIKey.objects.filter(
-        user=user,
-        label__startswith=STRIPE_PROVISIONED_PAT_LABEL_PREFIX,
-    ).delete()
+    try:
+        api_key_value = generate_random_token_personal()
+        label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
 
-    api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=user,
+            label=label,
+            secure_value=hash_key_value(api_key_value),
+            mask_value=mask_key_value(api_key_value),
+            scopes=[],
+        )
 
-    label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
-
-    PersonalAPIKey.objects.create(
-        user=user,
-        label=label,
-        secure_value=hash_key_value(api_key_value),
-        mask_value=mask_key_value(api_key_value),
-        scopes=[],
-    )
-
-    return api_key_value
+        return api_key_value
+    except Exception:
+        capture_exception(additional_properties={"user_id": user.id, "team_id": team.id})
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -690,17 +688,20 @@ def provisioning_resources_create(request: Request) -> Response:
 
     personal_api_key = _create_provisioned_pat(user, team)
 
+    access_configuration: dict[str, str] = {
+        "api_key": team.api_token,
+        "host": host,
+    }
+    if personal_api_key:
+        access_configuration["personal_api_key"] = personal_api_key
+
     return Response(
         {
             "status": "complete",
             "id": str(team_id),
             "service_id": resolved_service_id,
             "complete": {
-                "access_configuration": {
-                    "api_key": team.api_token,
-                    "personal_api_key": personal_api_key,
-                    "host": host,
-                },
+                "access_configuration": access_configuration,
             },
         }
     )
@@ -771,17 +772,20 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
+    access_configuration: dict[str, str] = {
+        "api_key": team.api_token,
+        "host": host,
+    }
+    if personal_api_key:
+        access_configuration["personal_api_key"] = personal_api_key
+
     return Response(
         {
             "status": "complete",
             "id": resource_id,
             "service_id": service_id,
             "complete": {
-                "access_configuration": {
-                    "api_key": team.api_token,
-                    "personal_api_key": personal_api_key,
-                    "host": host,
-                },
+                "access_configuration": access_configuration,
             },
         }
     )

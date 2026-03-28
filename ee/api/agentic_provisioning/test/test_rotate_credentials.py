@@ -95,7 +95,7 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
         personal_api_key = res.json()["complete"]["access_configuration"]["personal_api_key"]
         assert personal_api_key.startswith("phx_")
 
-    def test_rotate_deletes_old_stripe_pat_and_creates_new(self):
+    def test_rotate_preserves_existing_pats(self):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -109,10 +109,8 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,
         )
-        assert not PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
-        new_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
-        assert new_pat is not None
-        assert new_pat.id != initial_pat.id
+        assert PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
+        assert PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").count() == 2
 
     @patch("posthog.models.team.team.Team.reset_token_and_save", side_effect=Exception("db error"))
     def test_rotate_returns_500_when_reset_token_fails(self, _mock_reset):
