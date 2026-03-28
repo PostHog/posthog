@@ -12,6 +12,8 @@ jobs:
     update-browserslist-database:
         runs-on: ubuntu-latest
         timeout-minutes: 10
+        env:
+            HUSKY: 0
         steps:
             - name: Get app token
               id: app-token

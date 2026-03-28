@@ -13,6 +13,7 @@ import type {
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertsListParams,
+    AlertsRetrieveParams,
     PaginatedAlertListApi,
     PatchedAlertApi,
 } from './api.schemas'
@@ -78,12 +79,29 @@ export const alertsCreate = async (
     })
 }
 
-export const getAlertsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/alerts/${id}/`
+export const getAlertsRetrieveUrl = (projectId: string, id: string, params?: AlertsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/alerts/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/alerts/${id}/`
 }
 
-export const alertsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<AlertApi> => {
-    return apiMutator<AlertApi>(getAlertsRetrieveUrl(projectId, id), {
+export const alertsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AlertsRetrieveParams,
+    options?: RequestInit
+): Promise<AlertApi> => {
+    return apiMutator<AlertApi>(getAlertsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

@@ -14,6 +14,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
+from products.growth.backend.constants import github_sdk_versions_key, team_sdk_versions_key
 from products.growth.dags.github_sdk_versions import SDK_TYPES
 from products.growth.dags.team_sdk_versions import get_and_cache_team_sdk_versions
 
@@ -69,7 +70,7 @@ def sdk_doctor(request: Request) -> Response:
 
 def get_team_data(team_id: int, force_refresh: bool) -> dict[str, Any] | None:
     redis_client = get_client()
-    cache_key = f"sdk_versions:team:{team_id}"
+    cache_key = team_sdk_versions_key(team_id)
 
     if not force_refresh:
         cached_data = redis_client.get(cache_key)
@@ -106,7 +107,7 @@ def get_github_sdk_data() -> dict[str, Any]:
 
     data: dict[str, Any] = {}
     for sdk_type in SDK_TYPES:
-        cache_key = f"github:sdk_versions:{sdk_type}"
+        cache_key = github_sdk_versions_key(sdk_type)
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:

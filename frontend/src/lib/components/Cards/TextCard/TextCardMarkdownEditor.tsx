@@ -2,7 +2,7 @@ import { Placeholder } from '@tiptap/extension-placeholder'
 import { Extensions } from '@tiptap/react'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { RichMarkdownEditor } from 'lib/components/MarkdownEditor/RichMarkdownEditor'
+import { RichMarkdownEditor } from 'lib/components/MarkdownEditor/rich/RichMarkdownEditor'
 
 import { markdownToTextCardDoc, textCardDocToMarkdown, TEXT_CARD_MARKDOWN_EXTENSIONS } from './textCardMarkdown'
 
@@ -34,6 +34,7 @@ export function TextCardMarkdownEditor({
             markdownToDoc={markdownToTextCardDoc}
             docToMarkdown={textCardDocToMarkdown}
             renderPreview={(markdown) => <TextContent text={markdown} className="LemonTextArea--preview" />}
+            autoFocus
         />
     )
 }

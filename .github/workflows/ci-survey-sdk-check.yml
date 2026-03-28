@@ -53,7 +53,6 @@ jobs:
 
     check-docs-generated:
         name: Check SDK docs are up to date
-        timeout-minutes: 5
         uses: ./.github/workflows/ci-docs-check.yml
         with:
             source_file: frontend/src/scenes/surveys/surveyVersionRequirements.ts

@@ -6,12 +6,18 @@ import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNumeric, pluralize } from 'lib/utils'
+import { TriggerGroupsEditor } from 'scenes/settings/environment/replayTriggers/TriggerGroupsEditor'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
+
+// TODO: Update once the SDK version supporting trigger groups v2 is released
+const TRIGGER_GROUPS_MIN_SDK_VERSION = 'X'
 
 function TriggerPanelHeader({
     title,
@@ -290,7 +296,10 @@ export function ReplayTriggers(): JSX.Element {
     const { selectPlatform } = useActions(replayTriggersLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const statuses = useHeaderStatuses(currentTeam)
+
+    const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
 
     const tabs: LemonTab<'web' | 'mobile'>[] = [
         {
@@ -298,6 +307,46 @@ export function ReplayTriggers(): JSX.Element {
             label: 'Web',
             content: (
                 <div className="flex flex-col gap-y-4">
+                    {isV2TriggersEnabled && (
+                        <>
+                            <LemonBanner type="warning">
+                                <strong>SDK version compatibility</strong>
+                                <ul className="list-disc ml-4 mt-2 space-y-1">
+                                    <li>
+                                        Older SDK versions (&lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION}) will use the legacy
+                                        recording conditions below
+                                    </li>
+                                    <li>
+                                        Newer SDK versions (&gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION}) will use trigger
+                                        groups if configured, otherwise will fallback to the legacy recording conditions
+                                    </li>
+                                    <li>
+                                        Both configurations are sent to ensure backward compatibility with all SDK
+                                        versions
+                                    </li>
+                                </ul>
+                            </LemonBanner>
+
+                            <div>
+                                <h3 className="text-base font-semibold mb-1">Trigger groups</h3>
+                                <p className="text-xs text-muted mb-2">
+                                    Used by SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION}. Configure custom
+                                    recording triggers with individual sampling rates per group.
+                                </p>
+                            </div>
+
+                            <div className="border rounded p-4 bg-bg-light">
+                                <TriggerGroupsEditor />
+                            </div>
+
+                            <h3 className="text-base font-semibold">Legacy recording conditions</h3>
+                            <LemonBanner type="warning">
+                                Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for newer
+                                versions if trigger groups are not configured.
+                            </LemonBanner>
+                        </>
+                    )}
+
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}

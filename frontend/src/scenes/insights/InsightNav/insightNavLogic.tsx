@@ -363,6 +363,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
     const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache
 
+    // Preserve explicit removals for global filters when merging with the existing cache.
+    newCache.properties = query.properties === undefined ? undefined : JSON.parse(JSON.stringify(query.properties))
+
     // // set series (first two entries) from retention target and returning entity
     // if (isRetentionQuery(query)) {
     //     const { targetEntity, returningEntity } = query.retentionFilter || {}

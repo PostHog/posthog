@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -61,6 +63,14 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
 
     return (
         <div className="LivePageviews mt-4">
+            <LemonBanner
+                type="info"
+                className="mb-2"
+                dismissKey="live-web-analytics-alpha-banner"
+                action={{ children: 'Send feedback', id: 'live-web-analytics-feedback-button' }}
+            >
+                The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
+            </LemonBanner>
             <div className="flex flex-wrap items-center gap-4 md:gap-6 mb-6">
                 <LiveStatCard label="Users online" value={liveUserCount} />
                 <LiveStatDivider />
