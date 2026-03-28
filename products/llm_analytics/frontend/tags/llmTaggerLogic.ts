@@ -11,7 +11,7 @@ import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
-import { ModelConfiguration, Tagger, TaggerConditionSet, TaggerConfig } from './types'
+import { ModelConfiguration, Tagger, TaggerConditionSet, TaggerConfig, TaggerType } from './types'
 
 export interface TagRun {
     timestamp: string
@@ -44,6 +44,7 @@ export interface TaggerForm {
     name: string
     description: string
     enabled: boolean
+    tagger_type: TaggerType
     tagger_config: TaggerConfig
     conditions: TaggerConditionSet[]
     model_configuration: ModelConfiguration | null
@@ -53,6 +54,7 @@ const DEFAULT_FORM: TaggerForm = {
     name: '',
     description: '',
     enabled: false,
+    tagger_type: 'llm',
     tagger_config: DEFAULT_TAGGER_CONFIG,
     conditions: [DEFAULT_CONDITION],
     model_configuration: null,
@@ -223,6 +225,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 name: tagger.name,
                 description: tagger.description || '',
                 enabled: tagger.enabled,
+                tagger_type: tagger.tagger_type || 'llm',
                 tagger_config: tagger.tagger_config,
                 conditions: tagger.conditions.length > 0 ? tagger.conditions : [DEFAULT_CONDITION],
                 model_configuration: tagger.model_configuration,

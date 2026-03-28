@@ -5,6 +5,7 @@ import { IconArrowLeft, IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
+    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTable,
@@ -20,6 +21,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -29,6 +31,14 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { TagRun, llmTaggerLogic } from './llmTaggerLogic'
+
+const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
+// Available globals: input, output, properties, event, tags
+let result = []
+if (icontains(output, 'billing')) {
+    result := arrayPushBack(result, 'billing')
+}
+return result`
 import { TaggerConditionSet } from './types'
 
 export const scene: SceneExport = {
@@ -326,67 +336,137 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                         <h3 className="text-lg font-semibold">Tag config</h3>
 
                         <div>
-                            <label className="font-semibold">Prompt</label>
-                            <p className="text-muted text-sm mb-1">
-                                Instructions for the LLM on how to tag generations.
-                            </p>
-                            <LemonTextArea
-                                placeholder="e.g. Which product features were discussed or used in this generation?"
-                                value={taggerForm.tagger_config.prompt}
-                                onChange={(value) =>
-                                    setTaggerFormValues({
-                                        tagger_config: { ...taggerForm.tagger_config, prompt: value },
-                                    })
-                                }
-                                minRows={3}
+                            <label className="font-semibold">Method</label>
+                            <LemonSelect
+                                value={taggerForm.tagger_type}
+                                onChange={(value) => {
+                                    setTaggerFormValues({ tagger_type: value })
+                                    // Reset config when switching types
+                                    if (value === 'hog') {
+                                        setTaggerFormValues({
+                                            tagger_type: value,
+                                            tagger_config: {
+                                                source: DEFAULT_HOG_SOURCE,
+                                                tags: taggerForm.tagger_config.tags,
+                                            },
+                                        })
+                                    } else {
+                                        setTaggerFormValues({
+                                            tagger_type: value,
+                                            tagger_config: {
+                                                prompt: '',
+                                                tags: taggerForm.tagger_config.tags,
+                                                min_tags: 0,
+                                                max_tags: null,
+                                            },
+                                        })
+                                    }
+                                }}
+                                options={[
+                                    { value: 'llm', label: 'LLM' },
+                                    { value: 'hog', label: 'Hog code' },
+                                ]}
+                                fullWidth
                             />
+                            <p className="text-muted text-sm mt-1">
+                                {taggerForm.tagger_type === 'hog'
+                                    ? 'Run deterministic Hog code against each generation. No LLM cost, instant results.'
+                                    : 'Use an LLM to intelligently tag each generation based on a prompt.'}
+                            </p>
                         </div>
+
+                        {taggerForm.tagger_type === 'hog' ? (
+                            <div>
+                                <label className="font-semibold">Hog code</label>
+                                <p className="text-muted text-sm mb-2">
+                                    Return a list of tag names. Available globals: input, output, properties, event,
+                                    tags.
+                                </p>
+                                <CodeEditorResizeable
+                                    language="hog"
+                                    value={'source' in taggerForm.tagger_config ? taggerForm.tagger_config.source : ''}
+                                    onChange={(value) =>
+                                        setTaggerFormValues({
+                                            tagger_config: { ...taggerForm.tagger_config, source: value ?? '' },
+                                        })
+                                    }
+                                    height={200}
+                                />
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="font-semibold">Prompt</label>
+                                <p className="text-muted text-sm mb-1">
+                                    Instructions for the LLM on how to tag generations.
+                                </p>
+                                <LemonTextArea
+                                    placeholder="e.g. Which product features were discussed or used in this generation?"
+                                    value={'prompt' in taggerForm.tagger_config ? taggerForm.tagger_config.prompt : ''}
+                                    onChange={(value) =>
+                                        setTaggerFormValues({
+                                            tagger_config: { ...taggerForm.tagger_config, prompt: value },
+                                        })
+                                    }
+                                    minRows={3}
+                                />
+                            </div>
+                        )}
 
                         <TagDefinitionsEditor id={id} />
 
-                        <div className="flex gap-4">
-                            <div>
-                                <label className="font-semibold">Min tags</label>
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    value={taggerForm.tagger_config.min_tags}
-                                    onChange={(value) =>
-                                        setTaggerFormValues({
-                                            tagger_config: {
-                                                ...taggerForm.tagger_config,
-                                                min_tags: value ?? 0,
-                                            },
-                                        })
-                                    }
-                                    size="small"
-                                    className="w-24"
-                                />
+                        {taggerForm.tagger_type !== 'hog' && (
+                            <div className="flex gap-4">
+                                <div>
+                                    <label className="font-semibold">Min tags</label>
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        value={
+                                            'min_tags' in taggerForm.tagger_config
+                                                ? taggerForm.tagger_config.min_tags
+                                                : 0
+                                        }
+                                        onChange={(value) =>
+                                            setTaggerFormValues({
+                                                tagger_config: {
+                                                    ...taggerForm.tagger_config,
+                                                    min_tags: value ?? 0,
+                                                },
+                                            })
+                                        }
+                                        size="small"
+                                        className="w-24"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="font-semibold">Max tags</label>
+                                    <LemonInput
+                                        type="number"
+                                        min={1}
+                                        value={
+                                            'max_tags' in taggerForm.tagger_config
+                                                ? (taggerForm.tagger_config.max_tags ?? undefined)
+                                                : undefined
+                                        }
+                                        onChange={(value) =>
+                                            setTaggerFormValues({
+                                                tagger_config: {
+                                                    ...taggerForm.tagger_config,
+                                                    max_tags: value ?? null,
+                                                },
+                                            })
+                                        }
+                                        size="small"
+                                        className="w-24"
+                                        placeholder="No limit"
+                                    />
+                                </div>
                             </div>
-                            <div>
-                                <label className="font-semibold">Max tags</label>
-                                <LemonInput
-                                    type="number"
-                                    min={1}
-                                    value={taggerForm.tagger_config.max_tags ?? undefined}
-                                    onChange={(value) =>
-                                        setTaggerFormValues({
-                                            tagger_config: {
-                                                ...taggerForm.tagger_config,
-                                                max_tags: value ?? null,
-                                            },
-                                        })
-                                    }
-                                    size="small"
-                                    className="w-24"
-                                    placeholder="No limit"
-                                />
-                            </div>
-                        </div>
+                        )}
                     </div>
 
-                    {/* Model Configuration */}
-                    <TaggerModelPicker id={id} />
+                    {/* Model Configuration (LLM only) */}
+                    {taggerForm.tagger_type !== 'hog' && <TaggerModelPicker id={id} />}
 
                     {/* Trigger Configuration */}
                     <div className="border-t pt-4 space-y-4">
