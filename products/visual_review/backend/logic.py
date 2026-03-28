@@ -669,6 +669,7 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
         # During migration VR is observational — always green so drift doesn't block PRs.
         # Flip to "failure" when VR becomes the gate.
         _post_commit_status(run, repo, "success", f"Visual changes detected: {', '.join(parts)}")
+        _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
 
@@ -996,6 +997,43 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
         raise GitHubCommitError(f"Failed to commit baseline: {result.get('error')}")
 
     return result
+
+
+def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
+    """
+    Post a PR comment prompting reviewers to approve visual changes in PostHog.
+
+    Best-effort and never raises.
+    """
+    if not repo.repo_full_name or run.pr_number is None:
+        return
+
+    from django.conf import settings
+
+    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    comment = (
+        "👋 Visual changes were detected for this PR.\n\n"
+        f"Please review and approve this run in PostHog: {run_url}"
+    )
+
+    try:
+        response = _github_api_request(
+            method="POST",
+            repo=repo,
+            path=f"issues/{run.pr_number}/comments",
+            json={"body": comment},
+            timeout=10,
+        )
+        if response.status_code != 201:
+            logger.warning(
+                "visual_review.pr_comment_failed",
+                run_id=str(run.id),
+                pr_number=run.pr_number,
+                status_code=response.status_code,
+                response=response.text[:200],
+            )
+    except Exception:
+        logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
 def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:

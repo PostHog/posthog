@@ -600,6 +600,42 @@ class TestCommitStatusChecks:
         assert statuses[-1]["state"] == "success"
         assert "1 changed" in statuses[-1]["description"]
         assert "1 new" in statuses[-1]["description"]
+        assert len(mock_github_api.review_comments) == 1
+        comment = mock_github_api.review_comments[0]["body"]
+        assert "Please review and approve this run in PostHog" in comment
+        assert f"/visual_review/runs/{run.id}" in comment
+
+    def test_complete_run_does_not_comment_when_pr_missing(self, github_repo, mock_github_api):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+            baseline_hashes={"changed": "old_h"},
+        )
+
+        logic.mark_run_completed(run.id)
+
+        assert len(mock_github_api.review_comments) == 0
+
+    def test_complete_run_does_not_comment_when_no_changes(self, github_repo, mock_github_api):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+        )
+
+        logic.mark_run_completed(run.id)
+
+        assert len(mock_github_api.review_comments) == 0
 
     def test_complete_run_posts_error_on_failure(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
@@ -618,6 +654,7 @@ class TestCommitStatusChecks:
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "error"
         assert "failed" in statuses[-1]["description"].lower()
+        assert len(mock_github_api.review_comments) == 0
 
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")

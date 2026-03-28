@@ -178,11 +178,17 @@ def mock_github_api(local_git_repo):
 
         # Track status check calls for assertions
         status_checks = []
+        review_comments = []
 
         def status_callback(request):
             data = json.loads(request.body)
             status_checks.append(data)
             return (201, {}, json.dumps({"id": 1, "state": data["state"]}))
+
+        def review_comment_callback(request):
+            data = json.loads(request.body)
+            review_comments.append(data)
+            return (201, {}, json.dumps({"id": 123, "body": data["body"]}))
 
         rsps.add_callback(
             responses.GET,
@@ -204,8 +210,14 @@ def mock_github_api(local_git_repo):
             re.compile(r"https://api\.github\.com/repos/.+/statuses/.+"),
             callback=status_callback,
         )
+        rsps.add_callback(
+            responses.POST,
+            re.compile(r"https://api\.github\.com/repos/.+/issues/\d+/comments"),
+            callback=review_comment_callback,
+        )
 
         rsps.status_checks = status_checks  # type: ignore[attr-defined]
+        rsps.review_comments = review_comments  # type: ignore[attr-defined]
         yield rsps
 
 
