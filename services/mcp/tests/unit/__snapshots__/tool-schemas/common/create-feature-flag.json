@@ -5,8 +5,8 @@
             "description": "Whether the feature flag is active.",
             "type": "boolean"
         },
-        "evaluation_tags": {
-            "description": "Evaluation context tags. Must be a subset of `tags`.",
+        "evaluation_contexts": {
+            "description": "Evaluation contexts that control where this flag evaluates at runtime.",
             "items": {
                 "type": "string"
             },
@@ -26,10 +26,32 @@
                     ],
                     "description": "Group type index for group-based feature flags."
                 },
+                "feature_enrollment": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}."
+                },
                 "groups": {
                     "description": "Release condition groups for the feature flag.",
                     "items": {
                         "properties": {
+                            "aggregation_group_type_index": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Group type index for this condition set. None means person-level aggregation."
+                            },
                             "properties": {
                                 "description": "Property conditions for this release condition group.",
                                 "items": {

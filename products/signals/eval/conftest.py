@@ -13,6 +13,8 @@ from posthoganalytics import Posthog
 from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import AsyncOpenAI
 
+from posthog.models import Organization, Team
+
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 logging.getLogger("google_genai").setLevel(logging.ERROR)
@@ -42,6 +44,10 @@ def pytest_addoption(parser):
     parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
     parser.addoption("--no-capture", action="store_true", default=False, help="Skip emitting eval results to PostHog")
     parser.addoption("--online", action="store_true", default=False, help="Capture as online eval")
+    parser.addoption("--strategy", default="example_strategy", help="Strategy module name (default: example_strategy)")
+    parser.addoption(
+        "--safe", action="store_true", default=False, help="Filter to safe signals only, skip safety_filter step"
+    )
 
 
 @pytest.fixture
@@ -60,8 +66,16 @@ def online(request):
 
 
 @pytest.fixture
-def posthog_client(no_capture):
+def posthog_client(no_capture, db):
     api_key = os.environ.get("POSTHOG_PROJECT_API_KEY", "")
+    if not api_key:
+        last_team = Team.objects.order_by("-pk").first()
+        if last_team:
+            api_key = last_team.api_token
+        elif not no_capture:
+            org = Organization.objects.create(name="Eval Org", is_ai_data_processing_approved=True)
+            team = Team.objects.create(organization=org, name="Eval Team")
+            api_key = team.api_token
     if not api_key and not no_capture:
         raise ValueError("POSTHOG_PROJECT_API_KEY needs to be set (or pass --no-capture).")
     host = os.environ.get("POSTHOG_HOST", "http://localhost:8010")
@@ -73,8 +87,10 @@ def posthog_client(no_capture):
 
 
 @pytest.fixture
-def openai_client(posthog_client):
-    return AsyncOpenAI(posthog_client=posthog_client)
+async def openai_client(posthog_client):
+    client = AsyncOpenAI(posthog_client=posthog_client)
+    yield client
+    await client.close()
 
 
 @pytest.fixture

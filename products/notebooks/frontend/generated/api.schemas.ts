@@ -67,10 +67,16 @@ export interface UserBasicApi {
 }
 
 export interface NotebookMinimalApi {
+    /** UUID of the notebook. */
     readonly id: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id: string
-    /** @nullable */
+    /**
+     * Title of the notebook.
+     * @nullable
+     */
     readonly title: string | null
+    /** Whether the notebook has been soft-deleted. */
     readonly deleted: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -94,21 +100,30 @@ export interface PaginatedNotebookMinimalListApi {
 }
 
 export interface NotebookApi {
+    /** UUID of the notebook. */
     readonly id: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id: string
     /**
+     * Title of the notebook.
      * @maxLength 256
      * @nullable
      */
     title?: string | null
+    /** Notebook content as a ProseMirror JSON document structure. */
     content?: unknown | null
-    /** @nullable */
+    /**
+     * Plain text representation of the notebook content for search.
+     * @nullable
+     */
     text_content?: string | null
     /**
+     * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     version?: number
+    /** Whether the notebook has been soft-deleted. */
     deleted?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -123,21 +138,30 @@ export interface NotebookApi {
 }
 
 export interface PatchedNotebookApi {
+    /** UUID of the notebook. */
     readonly id?: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id?: string
     /**
+     * Title of the notebook.
      * @maxLength 256
      * @nullable
      */
     title?: string | null
+    /** Notebook content as a ProseMirror JSON document structure. */
     content?: unknown | null
-    /** @nullable */
+    /**
+     * Plain text representation of the notebook content for search.
+     * @nullable
+     */
     text_content?: string | null
     /**
+     * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     version?: number
+    /** Whether the notebook has been soft-deleted. */
     deleted?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi

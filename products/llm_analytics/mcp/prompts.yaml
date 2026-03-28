@@ -66,3 +66,17 @@ tools:
         title: Update prompt
         description: >
             Publish a new version of an existing LLM prompt by name. Name is immutable after creation.
+    prompt-duplicate:
+        operation: llm_prompts_name_duplicate_create
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate prompt
+        description: >
+            Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create
+            a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are
+            immutable after creation.

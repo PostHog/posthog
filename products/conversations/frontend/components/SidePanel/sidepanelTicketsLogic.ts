@@ -280,6 +280,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         restoreFromUrlToken: async () => {
             const conversations = posthog.conversations as any
             if (!conversations?.restoreFromUrlToken) {
+                removeRestoreTokenFromUrl()
+                actions.loadTickets()
                 return
             }
             try {
@@ -291,12 +293,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                             `Restored ${count} ticket${count === 1 ? '' : 's'} from your previous session.`
                         )
                     }
-                    actions.loadTickets()
                 }
             } catch (e) {
                 console.error('Failed to restore from URL token:', e)
             } finally {
                 removeRestoreTokenFromUrl()
+                actions.loadTickets()
             }
         },
     })),
@@ -309,8 +311,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         if (values.isEnabled) {
-            actions.loadTickets()
-            actions.restoreFromUrlToken()
+            const hasRestoreToken = new URL(window.location.href).searchParams.has('ph_conv_restore')
+            if (hasRestoreToken) {
+                actions.restoreFromUrlToken()
+            } else {
+                actions.loadTickets()
+            }
         }
 
         // Set up visibility change listener (only if feature is enabled)

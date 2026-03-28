@@ -17,35 +17,6 @@ export interface ExplainRequestApi {
 }
 
 /**
- * * `above` - Above
- * `below` - Below
- */
-export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
-
-export const ThresholdOperatorEnumApi = {
-    Above: 'above',
-    Below: 'below',
-} as const
-
-/**
- * * `not_firing` - Not firing
- * `firing` - Firing
- * `pending_resolve` - Pending resolve
- * `errored` - Errored
- * `snoozed` - Snoozed
- */
-export type LogsAlertConfigurationStateEnumApi =
-    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
-
-export const LogsAlertConfigurationStateEnumApi = {
-    NotFiring: 'not_firing',
-    Firing: 'firing',
-    PendingResolve: 'pending_resolve',
-    Errored: 'errored',
-    Snoozed: 'snoozed',
-} as const
-
-/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -104,6 +75,82 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+/**
+ * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+ */
+export type LogsViewApiFilters = { [key: string]: unknown }
+
+export interface LogsViewApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+    filters?: LogsViewApiFilters
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsViewApi[]
+}
+
+/**
+ * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+ */
+export type PatchedLogsViewApiFilters = { [key: string]: unknown }
+
+export interface PatchedLogsViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+    filters?: PatchedLogsViewApiFilters
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `above` - Above
+ * `below` - Below
+ */
+export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+
+export const ThresholdOperatorEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+/**
+ * * `not_firing` - Not firing
+ * `firing` - Firing
+ * `pending_resolve` - Pending resolve
+ * `errored` - Errored
+ * `snoozed` - Snoozed
+ */
+export type LogsAlertConfigurationStateEnumApi =
+    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
+
+export const LogsAlertConfigurationStateEnumApi = {
+    NotFiring: 'not_firing',
+    Firing: 'firing',
+    PendingResolve: 'pending_resolve',
+    Errored: 'errored',
+    Snoozed: 'snoozed',
+} as const
+
 export interface LogsAlertConfigurationApi {
     readonly id: string
     /** @maxLength 255 */
@@ -129,13 +176,15 @@ export interface LogsAlertConfigurationApi {
     readonly check_interval_minutes: number
     readonly state: LogsAlertConfigurationStateEnumApi
     /**
-     * Total number of check periods in the sliding evaluation window (M in N-of-M).
+     * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
      * @minimum 1
+     * @maximum 10
      */
     evaluation_periods?: number
     /**
-     * How many periods within the evaluation window must breach the threshold to trigger (N in N-of-M).
+     * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
      * @minimum 1
+     * @maximum 10
      */
     datapoints_to_alarm?: number
     /**
@@ -192,13 +241,15 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly check_interval_minutes?: number
     readonly state?: LogsAlertConfigurationStateEnumApi
     /**
-     * Total number of check periods in the sliding evaluation window (M in N-of-M).
+     * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
      * @minimum 1
+     * @maximum 10
      */
     evaluation_periods?: number
     /**
-     * How many periods within the evaluation window must breach the threshold to trigger (N in N-of-M).
+     * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
      * @minimum 1
+     * @maximum 10
      */
     datapoints_to_alarm?: number
     /**
@@ -270,6 +321,17 @@ export interface PaginatedPluginLogEntryListApi {
     /** @nullable */
     previous?: string | null
     results: PluginLogEntryApi[]
+}
+
+export type LogsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type LogsAlertsListParams = {

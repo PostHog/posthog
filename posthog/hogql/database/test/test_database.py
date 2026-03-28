@@ -216,6 +216,29 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.type == "string"
         assert field.schema_valid is True
 
+    def test_serialize_database_warehouse_table_s3_with_legacy_column_shape(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": "Nullable(String)"},
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+
+        field = table.fields.get("id")
+        assert field is not None
+        assert field.name == "id"
+        assert field.type == "string"
+        assert field.schema_valid is True
+
     def test_warehouse_table_names_do_not_leak_between_database_instances(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(
@@ -2101,6 +2124,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert table_name in existing_posthog_table_names, (
                 f"Table {table_name} should not be added to ROOT_TABLES__DO_NOT_ADD_ANY_MORE. Add the table to the `posthog` TableNode"
             )
+
+    def test_posthog_qualified_table_names_are_resolvable(self):
+        database = Database.create_for(team=self.team)
+
+        for table_name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys():
+            qualified_name = f"posthog.{table_name}"
+            assert database.has_table(qualified_name), f"Table {qualified_name} should be resolvable"
+
+            table = database.get_table(qualified_name)
+            assert table is not None, f"Table {qualified_name} should return a valid table"
+
+    def test_posthog_qualified_table_names_resolve_in_select(self):
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=database,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+
+        prepare_and_print_ast(parse_select("select * from posthog.events"), context, dialect="clickhouse")
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""

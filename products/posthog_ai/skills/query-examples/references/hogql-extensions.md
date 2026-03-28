@@ -112,6 +112,27 @@ FROM events
 WHERE event = '$pageview'
 ```
 
+## Embeddings
+
+### `embedText(text, model_name)`
+
+Converts a text string into an embedding vector at query compile time. Both arguments must be string literals — you cannot pass column references.
+
+```sql
+SELECT cosineDistance(
+    embedding,
+    embedText('users seeing checkout errors', 'text-embedding-3-small-1536')
+) as distance
+FROM document_embeddings
+WHERE
+    model_name = 'text-embedding-3-small-1536'
+    AND timestamp >= now() - INTERVAL 30 DAY
+ORDER BY distance ASC
+LIMIT 10
+```
+
+Available models: `'text-embedding-3-small-1536'`, `'text-embedding-3-large-3072'`.
+
 ## Text effects
 
 Special tags for visual effects in table output.

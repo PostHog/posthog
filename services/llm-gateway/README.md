@@ -38,7 +38,7 @@ The gateway supports two authentication methods:
 
 ### Local development key
 
-When running via mprocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
+When running via phrocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
 The key is deterministic and survives database resets:
 
 ```text

@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
@@ -42,6 +43,7 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
         fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason", "release"]
         read_only_fields = ["team_id"]
 
+    @extend_schema_field(serializers.DictField(allow_null=True, help_text="Release associated with this symbol set"))
     def get_release(self, obj):
         from products.error_tracking.backend.api.releases import ErrorTrackingReleaseSerializer
 
@@ -112,6 +114,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.storage_ptr = storage_ptr
         symbol_set.content_hash = content_hash
         symbol_set.failure_reason = None
+        symbol_set.last_used = timezone.now()
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -227,6 +230,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         if not symbol_set.content_hash:
             symbol_set.content_hash = content_hash
+            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
@@ -319,7 +323,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 content_hash = content_hashes[str(symbol_set.id)]
                 symbol_set.content_hash = content_hash
-            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
+                symbol_set.last_used = timezone.now()
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash", "last_used"])
         except Exception as e:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
@@ -374,6 +379,7 @@ def create_symbol_set(
                 raise ValidationError(f"Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
+            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         except ErrorTrackingSymbolSet.DoesNotExist:
@@ -383,6 +389,7 @@ def create_symbol_set(
                 release=release,
                 storage_ptr=storage_ptr,
                 content_hash=content_hash,
+                last_used=timezone.now(),
             )
 
         # Delete any existing frames associated with this symbol set
@@ -448,6 +455,7 @@ def bulk_create_symbol_sets(
                 ref=chunk_id,
                 storage_ptr=storage_ptr,
                 release_id=new_symbol_set_map[chunk_id].release_id,
+                last_used=timezone.now(),
             )
             symbol_sets_to_be_created.append(to_create)
 

@@ -41,6 +41,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { projectLogic } from 'scenes/projectLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -297,6 +298,7 @@ export function PageHeaderCustom(): JSX.Element {
         isExperimentStopped,
         isCreatingExperimentDashboard,
         experimentLoading,
+        launchExperimentLoading,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -307,6 +309,7 @@ export function PageHeaderCustom(): JSX.Element {
         setHogfettiTrigger,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
@@ -357,6 +360,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     type="primary"
                                     data-attr="launch-experiment"
                                     onClick={() => launchExperiment()}
+                                    loading={launchExperimentLoading}
                                     size="small"
                                 >
                                     Launch
@@ -402,6 +406,18 @@ export function PageHeaderCustom(): JSX.Element {
                             <IconCopy />
                             Duplicate
                         </ButtonPrimitive>
+
+                        {canCopyToProject && experiment?.id != null && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => router.actions.push(urls.resourceTransfer('Experiment', experiment.id))}
+                                data-attr="experiment-copy-to-project"
+                                tooltip="Copy this experiment to another project"
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </ButtonPrimitive>
+                        )}
 
                         {isExperimentLaunched && (
                             <>

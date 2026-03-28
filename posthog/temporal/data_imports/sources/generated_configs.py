@@ -238,6 +238,12 @@ class ConvertKitSourceConfig(config.Config):
 
 
 @config.config
+class ConvexSourceConfig(config.Config):
+    deploy_url: str
+    deploy_key: str
+
+
+@config.config
 class CopperSourceConfig(config.Config):
     pass
 
@@ -366,8 +372,21 @@ class HelpScoutSourceConfig(config.Config):
 
 
 @config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class HubspotSourceConfig(config.Config):
     hubspot_integration_id: int = config.value(converter=config.str_to_int)
+    custom_properties: HubspotCustomPropertiesConfig | None = None
 
 
 @config.config
@@ -690,7 +709,7 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class SlackSourceConfig(config.Config):
-    pass
+    slack_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -776,7 +795,10 @@ class TwitterAdsSourceConfig(config.Config):
 
 @config.config
 class TypeformSourceConfig(config.Config):
-    pass
+    auth_token: str
+    api_base_url: (
+        Literal["https://api.typeform.com", "https://api.eu.typeform.com", "https://api.typeform.eu"] | None
+    ) = config.value(default="https://api.typeform.com")
 
 
 @config.config
@@ -872,6 +894,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
         ExternalDataSourceType.CONFLUENCE: ConfluenceSourceConfig,
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
+        ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,

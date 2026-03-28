@@ -1633,7 +1633,7 @@ describe('Hogflow Executor', () => {
         }
 
         it('should record billing metrics for both regular hog functions and email functions', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,

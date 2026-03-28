@@ -639,7 +639,9 @@ import {
 }
 
 resource "posthog_insight" "subscription_delivery_success_rate" {
-  name = "Subscription delivery success rate"
+  for_each = toset(["US", "EU"])
+
+  name = "Subscription delivery success rate (${each.key})"
   query_json = jsonencode({
     "kind": "InsightVizNode",
     "source": {
@@ -649,13 +651,29 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
           "kind": "EventsNode",
           "math": "total",
           "event": "subscription_delivery_started",
-          "custom_name": "Started"
+          "custom_name": "Started",
+          "properties": [
+            {
+              "key": "region",
+              "type": "event",
+              "value": [each.key],
+              "operator": "exact"
+            }
+          ]
         },
         {
           "kind": "EventsNode",
           "math": "total",
           "event": "subscription_delivery_exhausted",
-          "custom_name": "Exhausted (failed)"
+          "custom_name": "Exhausted (failed)",
+          "properties": [
+            {
+              "key": "region",
+              "type": "event",
+              "value": [each.key],
+              "operator": "exact"
+            }
+          ]
         }
       ],
       "version": 2,

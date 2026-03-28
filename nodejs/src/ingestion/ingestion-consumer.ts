@@ -8,7 +8,13 @@ import { CommonConfig } from '../common/config'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { HealthCheckResult, HealthCheckResultError, PluginServerService, RedisPool } from '../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    RedisPool,
+} from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
@@ -29,14 +35,15 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
+import { AiEventOutput, AsyncOutput, EventOutput, HeatmapsOutput } from './analytics/outputs'
+import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
+import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createContext } from './pipelines/helpers'
-import { ok } from './pipelines/results'
+import { createOkContext } from './pipelines/helpers'
 import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
@@ -51,6 +58,16 @@ export interface IngestionConsumerDeps {
     redisPool: RedisPool
     kafkaProducer: KafkaProducerWrapper
     kafkaMetricsProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<
+        | EventOutput
+        | AiEventOutput
+        | HeatmapsOutput
+        | IngestionWarningsOutput
+        | DlqOutput
+        | OverflowOutput
+        | AsyncOutput
+        | GroupsOutput
+    >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -71,8 +88,6 @@ export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
-    protected dlqTopic: string
-    protected overflowTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
@@ -94,7 +109,8 @@ export class IngestionConsumer {
         JoinedIngestionPipelineInput,
         void,
         JoinedIngestionPipelineContext,
-        JoinedIngestionPipelineContext
+        JoinedIngestionPipelineContext,
+        OverflowOutput | AsyncOutput
     >
 
     constructor(
@@ -113,8 +129,6 @@ export class IngestionConsumer {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? config.INGESTION_CONSUMER_GROUP_ID
         this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? config.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokenDistinctIdsToDrop = config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToSkipPersons = config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
@@ -168,7 +182,7 @@ export class IngestionConsumer {
         })
 
         this.groupStore = new BatchWritingGroupStore(
-            this.deps.kafkaProducer,
+            this.deps.outputs,
             this.deps.groupRepository,
             this.deps.clickhouseGroupRepository,
             {
@@ -213,23 +227,19 @@ export class IngestionConsumer {
 
         this.topHog.start()
 
-        // Initialize pipeline
-        const outputs = new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
-            [AI_EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
-        })
+        const outputs = this.deps.outputs
+
+        // Verify all output topics exist. When auto_create_topics_enabled=true
+        // (hobby/dev), this ensures topics are created before first produce.
+        // When auto-create is off (production), this catches misconfigurations early.
+        const topicFailures = await outputs.checkTopics()
+        if (topicFailures.length > 0) {
+            throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
+        }
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
-            overflowTopic: this.overflowTopic || '',
-            dlqTopic: this.dlqTopic,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
@@ -240,11 +250,9 @@ export class IngestionConsumer {
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
             ),
             perDistinctIdOptions: {
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
-                PERSON_MERGE_ASYNC_TOPIC: this.config.PERSON_MERGE_ASYNC_TOPIC,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
@@ -299,11 +307,24 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy(): HealthCheckResult {
+    public async isHealthy(): Promise<HealthCheckResult> {
         if (!this.kafkaConsumer) {
             return new HealthCheckResultError('Kafka consumer not initialized', {})
         }
-        return this.kafkaConsumer.isHealthy()
+
+        const consumerHealth = this.kafkaConsumer.isHealthy()
+        if (consumerHealth.isError()) {
+            return consumerHealth
+        }
+
+        if (process.env.INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK === 'true') {
+            const failures = await this.deps.outputs.checkHealth()
+            if (failures.length > 0) {
+                return new HealthCheckResultError('Kafka producer(s) unhealthy', { failedProducers: failures })
+            }
+        }
+
+        return new HealthCheckResultOk()
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
@@ -361,7 +382,7 @@ export class IngestionConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message }), { message }))
+        const batch = messages.map((message) => createOkContext({ message }, { message }))
 
         this.joinedPipeline.feed(batch)
 

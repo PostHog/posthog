@@ -3,6 +3,8 @@ from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
 
+import re2
+
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
@@ -13,7 +15,7 @@ from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQue
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -45,6 +47,16 @@ from posthog.models.utils import UUIDT
 USE_GLOBAL_JOINS = False
 
 EMPTY_SCOPE = ast.SelectQueryType()
+
+type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
+
+POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
+    "current_date": ast.DateType,
+    "current_time": ast.DateTimeType,
+    "current_timestamp": ast.DateTimeType,
+    "localtime": ast.DateTimeType,
+    "localtimestamp": ast.DateTimeType,
+}
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -113,6 +125,16 @@ class AliasCollector(TraversingVisitor):
         return node
 
 
+class FieldCollector(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.fields: list[ast.Field] = []
+
+    def visit_field(self, node: ast.Field):
+        self.fields.append(node)
+        return node
+
+
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
@@ -131,6 +153,14 @@ class Resolver(CloningVisitor):
         self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
+        self._scope_table_names: dict[int, dict[str, str]] = {}
+        self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
+
+    def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
+        return self._scope_table_names.setdefault(id(scope), {})
+
+    def _get_scope_table_column_aliases(self, scope: ast.SelectQueryType) -> dict[str, list[str]]:
+        return self._scope_table_column_aliases.setdefault(id(scope), {})
 
     def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
@@ -142,6 +172,9 @@ class Resolver(CloningVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
+
+        if node.limit_with_ties and self.dialect == "postgres":
+            raise QueryError("WITH TIES is not supported in postgres dialect")
 
         initial = self.visit(node.initial_select_query)
 
@@ -161,6 +194,10 @@ class Resolver(CloningVisitor):
             end=node.end,
             initial_select_query=initial,
             subsequent_select_queries=subsequent,
+            limit=self.visit(node.limit) if node.limit is not None else None,
+            offset=self.visit(node.offset) if node.offset is not None else None,
+            limit_percent=node.limit_percent,
+            limit_with_ties=node.limit_with_ties,
         )
         result.type = ast.SelectSetQueryType(
             types=[result.initial_select_query.type, *(x.select_query.type for x in result.subsequent_select_queries)]  # type: ignore
@@ -169,6 +206,292 @@ class Resolver(CloningVisitor):
         self.ctes = parent_ctes
 
         return result
+
+    def visit_values_query(self, node: ast.ValuesQuery):
+        resolved_rows: list[list[ast.Expr]] = []
+        for row in node.rows:
+            resolved_rows.append([self.visit(expr) for expr in row])
+
+        if resolved_rows:
+            expected_len = len(resolved_rows[0])
+            for i, row in enumerate(resolved_rows):
+                if len(row) != expected_len:
+                    raise QueryError(f"VALUES row {i + 1} has {len(row)} columns, expected {expected_len}")
+
+        columns: dict[str, ast.Type] = {}
+        if resolved_rows:
+            for j, expr in enumerate(resolved_rows[0]):
+                col_name = f"col{j}"
+                columns[col_name] = expr.type or ast.UnknownType()
+
+        result = ast.ValuesQuery(
+            start=node.start,
+            end=node.end,
+            rows=resolved_rows,
+        )
+        result.type = ast.SelectQueryType(columns=columns)
+        return result
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr):
+        if self.dialect != "postgres":
+            raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
+
+        node = cast(ast.UnpivotExpr, clone_expr(node))
+
+        # Resolve the source table in an isolated scope so we can use its columns.
+        temp_scope = ast.SelectQueryType()
+        self.scopes.append(temp_scope)
+        try:
+            if isinstance(node.table, ast.JoinExpr):
+                temp_join = self.visit_join_expr(node.table)
+                node.table = temp_join
+            else:
+                temp_join = self.visit_join_expr(ast.JoinExpr(table=cast(ast.Field, node.table)))
+                node.table = cast(ast.Expr, temp_join.table)
+            base_type = temp_join.type
+
+            resolved_columns: list[ast.UnpivotColumn] = []
+            unpivoted_names: set[str] = set()
+
+            def _extract_unpivot_field(expr: ast.Expr) -> ast.Field | None:
+                if isinstance(expr, ast.Field):
+                    return expr
+                if isinstance(expr, ast.Alias) and isinstance(expr.expr, ast.Field):
+                    return expr.expr
+                return None
+
+            def resolve_unpivot_value(expr: ast.Expr) -> ast.Expr:
+                resolved = self.visit(expr)
+                field = _extract_unpivot_field(resolved)
+                if field and field.chain:
+                    unpivoted_names.add(str(field.chain[-1]))
+                return field if field is not None else resolved
+
+            for col in node.columns:
+                resolved_values = [resolve_unpivot_value(val) for val in col.unpivot_values]
+                resolved_columns.append(
+                    ast.UnpivotColumn(
+                        value_columns=clone_expr(col.value_columns),
+                        name_columns=clone_expr(col.name_columns),
+                        unpivot_values=resolved_values,
+                    )
+                )
+
+            node.columns = resolved_columns
+
+            for col in node.columns:
+                value_is_tuple = isinstance(col.value_columns, ast.Tuple)
+                name_is_tuple = isinstance(col.name_columns, ast.Tuple)
+                value_len = len(cast(ast.Tuple, col.value_columns).exprs) if value_is_tuple else 1
+                name_len = len(cast(ast.Tuple, col.name_columns).exprs) if name_is_tuple else 1
+
+                if value_is_tuple != name_is_tuple:
+                    raise QueryError("UNPIVOT value and name columns must both be tuples or both be single columns")
+                if value_len != name_len:
+                    raise QueryError(f"UNPIVOT value/name column tuple lengths must match ({value_len} vs {name_len})")
+
+                for value in col.unpivot_values:
+                    value_is_value_tuple = isinstance(value, ast.Tuple)
+                    if value_is_tuple:
+                        if not value_is_value_tuple:
+                            raise QueryError(f"UNPIVOT IN values must be tuples of length {value_len}")
+                        if len(cast(ast.Tuple, value).exprs) != value_len:
+                            raise QueryError(f"UNPIVOT IN values must be tuples of length {value_len}")
+                    else:
+                        if value_is_value_tuple:
+                            raise QueryError("UNPIVOT IN values must be single columns")
+
+            columns: dict[str, ast.Type] = {}
+
+            def add_column(name: str, column_type: ast.Type | None) -> None:
+                if name in columns:
+                    return
+                columns[name] = column_type or ast.UnknownType()
+
+            base_field_names: set[str] = set()
+            if isinstance(base_type, ast.SelectQueryAliasType):
+                base_type = base_type.select_query_type
+
+            if isinstance(base_type, ast.SelectSetQueryType):
+                base_type = base_type.types[0]
+
+            if isinstance(base_type, ast.SelectQueryType):
+                base_field_names = set(base_type.columns.keys())
+                for name, col_type in base_type.columns.items():
+                    if name not in unpivoted_names:
+                        add_column(name, col_type)
+            elif isinstance(base_type, ast.BaseTableType):
+                base_field_names = set(base_type.resolve_database_table(self.context).get_asterisk().keys())
+                for name in base_field_names:
+                    if name not in unpivoted_names:
+                        add_column(name, None)
+
+            # Ensure unpivoted columns are not exposed from the base table.
+            fallback_unpivoted: set[str] = set()
+            for col in node.columns:
+                for value in col.unpivot_values:
+                    if isinstance(value, ast.Field) and value.chain:
+                        fallback_unpivoted.add(str(value.chain[-1]))
+            for name in unpivoted_names.union(fallback_unpivoted):
+                columns.pop(name, None)
+
+            def normalize_output_columns(expr: ast.Expr) -> tuple[ast.Expr, list[str]]:
+                if isinstance(expr, ast.Tuple):
+                    exprs = expr.exprs
+                else:
+                    exprs = [expr]
+                names: list[str] = []
+                normalized: list[ast.Expr] = []
+                for item in exprs:
+                    if isinstance(item, ast.Field) and len(item.chain) == 1:
+                        name = str(item.chain[0])
+                        names.append(name)
+                        field = cast(ast.Field, clone_expr(item))
+                        field.type = field.type or ast.UnknownType()
+                        normalized.append(field)
+                    else:
+                        raise QueryError("UNPIVOT columns must be identifiers")
+                if isinstance(expr, ast.Tuple):
+                    return ast.Tuple(exprs=normalized), names
+                return normalized[0], names
+
+            def ensure_unpivot_value_valid(expr: ast.Expr) -> None:
+                field = _extract_unpivot_field(expr)
+                if not field or not field.chain:
+                    return
+                name = str(field.chain[-1])
+                if base_field_names and name not in base_field_names:
+                    raise QueryError(f'UNPIVOT value column "{name}" was not found in the source table')
+
+            normalized_columns: list[ast.UnpivotColumn] = []
+            for col in node.columns:
+                value_expr, value_names = normalize_output_columns(col.value_columns)
+                name_expr, name_names = normalize_output_columns(col.name_columns)
+                for name in value_names:
+                    add_column(name, None)
+                for name in name_names:
+                    add_column(name, None)
+                for value in col.unpivot_values:
+                    ensure_unpivot_value_valid(value)
+                normalized_columns.append(
+                    ast.UnpivotColumn(
+                        value_columns=value_expr,
+                        name_columns=name_expr,
+                        unpivot_values=col.unpivot_values,
+                    )
+                )
+
+            node.columns = normalized_columns
+
+            select_query_type = ast.SelectQueryType(columns=columns)
+            node.type = select_query_type
+
+            # Final safety: ensure unpivoted value columns are removed from output columns.
+            to_remove: set[str] = set()
+            for col in node.columns:
+                for value in col.unpivot_values:
+                    field = _extract_unpivot_field(value)
+                    if field and field.chain:
+                        to_remove.add(str(field.chain[-1]))
+            for name in to_remove:
+                select_query_type.columns.pop(name, None)
+
+            # Remove unpivoted columns by name from the original source list as well.
+            for col in node.columns:
+                for value in col.unpivot_values:
+                    field = _extract_unpivot_field(value)
+                    if field and field.chain:
+                        select_query_type.columns.pop(str(field.chain[-1]), None)
+
+            def attach_unpivot_types(expr: ast.Expr) -> None:
+                if isinstance(expr, ast.Tuple):
+                    for item in expr.exprs:
+                        attach_unpivot_types(item)
+                    return
+                if isinstance(expr, ast.Field) and len(expr.chain) == 1:
+                    name = str(expr.chain[0])
+                    expr.type = ast.FieldType(name=name, table_type=select_query_type)
+
+            for col in node.columns:
+                attach_unpivot_types(col.value_columns)
+                attach_unpivot_types(col.name_columns)
+            return node
+        finally:
+            self.scopes.pop()
+
+    def visit_pivot_expr(self, node: ast.PivotExpr):
+        if self.dialect != "postgres":
+            raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
+
+        node = cast(ast.PivotExpr, clone_expr(node))
+
+        # Resolve the source table in an isolated scope so we can use its columns.
+        temp_scope = ast.SelectQueryType()
+        self.scopes.append(temp_scope)
+        try:
+            if isinstance(node.table, ast.JoinExpr):
+                temp_join = self.visit_join_expr(node.table)
+                node.table = temp_join
+            else:
+                temp_join = self.visit_join_expr(ast.JoinExpr(table=cast(ast.Field, node.table)))
+                node.table = cast(ast.Expr, temp_join.table)
+            base_type = temp_join.type
+
+            node.aggregates = [self.visit(expr) for expr in node.aggregates]
+            node.columns = [self.visit(col) for col in node.columns]
+            if node.group_by:
+                node.group_by = [self.visit(expr) for expr in node.group_by]
+
+            columns: dict[str, ast.Type] = {}
+            base_field_names: set[str] = set()
+            if isinstance(base_type, ast.SelectQueryAliasType):
+                base_type = base_type.select_query_type
+            if isinstance(base_type, ast.SelectSetQueryType):
+                base_type = base_type.types[0]
+
+            if isinstance(base_type, ast.SelectQueryType):
+                columns = dict(base_type.columns)
+                base_field_names = set(base_type.columns.keys())
+            elif isinstance(base_type, ast.BaseTableType):
+                base_field_names = set(base_type.resolve_database_table(self.context).get_asterisk().keys())
+                for name in base_field_names:
+                    columns[name] = ast.UnknownType()
+            allowed_prefixes: set[str] = set()
+            if isinstance(temp_join, ast.JoinExpr):
+                if temp_join.alias is not None:
+                    allowed_prefixes.add(temp_join.alias)
+                if isinstance(temp_join.table, ast.Field) and temp_join.table.chain:
+                    allowed_prefixes.add(str(temp_join.table.chain[0]))
+
+            def ensure_pivot_column_valid(expr: ast.Expr) -> None:
+                collector = FieldCollector()
+                collector.visit(expr)
+                for field in collector.fields:
+                    if not field.chain:
+                        raise QueryError("PIVOT columns must be identifiers")
+                    if field.chain == ["*"]:
+                        continue
+                    if len(field.chain) == 1:
+                        column_name = str(field.chain[0])
+                    elif len(field.chain) == 2 and str(field.chain[0]) in allowed_prefixes:
+                        column_name = str(field.chain[1])
+                    else:
+                        raise QueryError("PIVOT columns must be identifiers")
+                    if base_field_names and column_name not in base_field_names:
+                        raise QueryError(f'PIVOT column "{column_name}" was not found in the source table')
+
+            for col in node.columns:
+                ensure_pivot_column_valid(col.column)
+            for agg in node.aggregates:
+                ensure_pivot_column_valid(agg)
+            if node.group_by:
+                for expr in node.group_by:
+                    ensure_pivot_column_valid(expr)
+
+            node.type = ast.SelectQueryType(columns=columns)
+            return node
+        finally:
+            self.scopes.pop()
 
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
@@ -271,6 +594,8 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
+        if node.limit_with_ties and self.dialect == "postgres":
+            raise QueryError("WITH TIES is not supported in postgres dialect")
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -308,6 +633,18 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
+        if node.limit_percent and self.dialect != "postgres":
+            if self.dialect == "clickhouse":
+                if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
+                    raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
+            else:
+                raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+        # TODO: Consider constant folding to catch out-of-range percent expressions.
+        if node.limit_percent and isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float)):
+            limit_value = float(node.limit.value)
+            if limit_value < 0 or limit_value > 100:
+                raise QueryError("Limit percent must be between 0 and 100")
+
         # Array joins (pass 1 - so we can use aliases from the array join in columns)
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()
@@ -324,6 +661,14 @@ class Resolver(CloningVisitor):
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
         for expr in node.select or []:
+            if isinstance(expr, ast.SpreadExpr):
+                raise QueryError("*COLUMNS(...) is not valid as a top-level SELECT item. Use COLUMNS(...) instead.")
+            if isinstance(expr, ast.ColumnsExpr):
+                expanded = self._columns_expr_exprs(expr)
+                for col in expanded:
+                    visited_col = self.visit(col)
+                    select_nodes.append(visited_col)
+                continue
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
@@ -379,13 +724,16 @@ class Resolver(CloningVisitor):
         new_node.where = self.visit(node.where)
         new_node.prewhere = self.visit(node.prewhere)
         new_node.having = self.visit(node.having)
+        new_node.qualify = self.visit(node.qualify)
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
+        new_node.group_by_mode = node.group_by_mode
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
         new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
+        new_node.limit_percent = node.limit_percent
         new_node.offset = self.visit(node.offset)
         new_node.distinct = node.distinct
         new_node.window_exprs = (
@@ -430,6 +778,198 @@ class Resolver(CloningVisitor):
         else:
             raise QueryError(f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}")
 
+    def _columns_expr_exprs(self, node: ast.ColumnsExpr) -> list[ast.Expr]:
+        """Expand a COLUMNS() expression into individual fields or expressions."""
+        if node.all_columns:
+            scope = self.scopes[-1]
+            table_names = self._get_scope_table_names(scope)
+            table_column_aliases = self._get_scope_table_column_aliases(scope)
+            table_fields: list[tuple[Optional[str], ast.Expr]] = []
+            excluded_entries: list[tuple[Optional[str], str]] = []
+
+            for alias, table_type in scope.tables.items():
+                asterisk_type = ast.AsteriskType(table_type=table_type)
+                try:
+                    raw_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+                except QueryError:
+                    continue
+                column_aliases = table_column_aliases.get(alias)
+                resolved_fields: list[ast.Expr] = list(raw_fields)
+                if column_aliases:
+                    resolved_fields = self._apply_column_aliases(resolved_fields, column_aliases)
+                for field in resolved_fields:
+                    table_fields.append((alias, field))
+
+            for table_type in scope.anonymous_tables:
+                asterisk_type = ast.AsteriskType(table_type=table_type)
+                try:
+                    all_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+                except QueryError:
+                    continue
+                for field in all_fields:
+                    table_fields.append((None, field))
+
+            if node.exclude:
+                remaining_fields = list(table_fields)
+                for raw_name in node.exclude:
+                    name = str(raw_name)
+                    parts = name.split(".")
+                    column_name = parts[-1]
+                    qualifier = ".".join(parts[:-1]) if len(parts) > 1 else None
+                    excluded_entries.append((qualifier, column_name))
+
+                    if len(parts) > 1:
+                        qualifier = ".".join(parts[:-1])
+                        candidate_aliases = [
+                            alias
+                            for alias in scope.tables.keys()
+                            if alias == qualifier or table_names.get(alias) == qualifier
+                        ]
+
+                        if not candidate_aliases:
+                            raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {qualifier}')
+
+                        found = False
+                        filtered_fields: list[tuple[Optional[str], ast.Expr]] = []
+                        for tbl_alias, tbl_field in remaining_fields:
+                            field_name = str(tbl_field.chain[-1]) if isinstance(tbl_field, ast.Field) else None
+                            if tbl_alias in candidate_aliases and field_name == column_name:
+                                found = True
+                                continue
+                            filtered_fields.append((tbl_alias, tbl_field))
+
+                        if not found:
+                            raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {qualifier}')
+
+                        remaining_fields = filtered_fields
+                        continue
+
+                    unqualified_filtered: list[tuple[Optional[str], ast.Expr]] = []
+                    found = False
+                    for tbl_alias, tbl_field in remaining_fields:
+                        field_name = str(tbl_field.chain[-1]) if isinstance(tbl_field, ast.Field) else None
+                        if field_name == column_name:
+                            found = True
+                            continue
+                        unqualified_filtered.append((tbl_alias, tbl_field))
+
+                    if not found:
+                        if len(scope.tables) == 1 and len(scope.anonymous_tables) == 0:
+                            [only_alias] = list(scope.tables.keys())
+                            table_label = table_names.get(only_alias, only_alias)
+                        else:
+                            table_label = "the selected tables"
+                        raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {table_label}')
+
+                    remaining_fields = unqualified_filtered
+
+                table_fields = remaining_fields
+
+            if node.replace:
+                excluded_column_names = {column_name for _, column_name in excluded_entries}
+                for replace_name in node.replace.keys():
+                    if replace_name in excluded_column_names:
+                        raise QueryError(f'Column "{replace_name}" cannot occur in both EXCLUDE and REPLACE list')
+
+                def matches_excluded(field: ast.Field) -> Optional[str]:
+                    if not all(isinstance(part, str) for part in field.chain):
+                        return None
+                    column_name = cast(str, field.chain[-1])
+                    qualifier = ".".join(cast(list[str], field.chain[:-1])) if len(field.chain) > 1 else None
+                    for excluded_qualifier, excluded_column in excluded_entries:
+                        if excluded_column != column_name:
+                            continue
+                        if excluded_qualifier is None:
+                            return column_name
+                        candidate_aliases = [
+                            alias
+                            for alias in scope.tables.keys()
+                            if alias == excluded_qualifier or table_names.get(alias) == excluded_qualifier
+                        ]
+                        if qualifier in candidate_aliases:
+                            return column_name
+                    return None
+
+                for replace_name, replace_expr in node.replace.items():
+                    collector = FieldCollector()
+                    collector.visit(replace_expr)
+                    for field in collector.fields:
+                        excluded_match = matches_excluded(field)
+                        if excluded_match is not None:
+                            raise QueryError(
+                                f'Replace expression for "{replace_name}" cannot reference excluded column "{excluded_match}"'
+                            )
+
+                replace_match_counts = dict.fromkeys(node.replace.keys(), 0)
+                replaced_fields: list[tuple[Optional[str], ast.Expr]] = []
+                for tbl_alias, tbl_field in table_fields:
+                    field_name = str(tbl_field.chain[-1]) if isinstance(tbl_field, ast.Field) else None
+                    if field_name is not None and field_name in node.replace:
+                        replacement = clone_expr(node.replace[field_name])
+                        replace_match_counts[field_name] += 1
+                        replaced_fields.append((tbl_alias, ast.Alias(expr=replacement, alias=field_name)))
+                    else:
+                        replaced_fields.append((tbl_alias, tbl_field))
+
+                missing = [name for name, count in replace_match_counts.items() if count == 0]
+                if missing:
+                    if len(scope.tables) == 1 and len(scope.anonymous_tables) == 0:
+                        [only_alias] = list(scope.tables.keys())
+                        table_label = table_names.get(only_alias, only_alias)
+                    else:
+                        table_label = "the selected tables"
+                    raise QueryError(f'Column "{missing[0]}" in REPLACE list was not found in {table_label}')
+
+                table_fields = replaced_fields
+
+            matched_fields = [field for _, field in table_fields]
+            if not matched_fields:
+                raise QueryError("No columns matched the EXCLUDE list")
+            return matched_fields
+
+        if node.columns is not None:
+            return list(node.columns)
+
+        regex = node.regex or ""
+        try:
+            pattern = re2.compile(regex)
+        except re2.error as e:
+            raise QueryError(f"COLUMNS() has an invalid regex pattern: {e}")
+        scope = self.scopes[-1]
+        all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
+        regex_matched_fields: list[ast.Expr] = []
+        for table_type in all_table_types:
+            asterisk_type = ast.AsteriskType(table_type=table_type)
+            try:
+                all_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+            except QueryError:
+                continue
+            for field in all_fields:
+                col_name = field.chain[-1] if isinstance(field.chain[-1], str) else str(field.chain[-1])
+                if pattern.search(col_name):
+                    regex_matched_fields.append(field)
+        if not regex_matched_fields:
+            raise QueryError(f"No columns matched the COLUMNS('{node.regex}') expression")
+        return regex_matched_fields
+
+    def _apply_column_aliases(self, fields: list[ast.Expr], column_aliases: list[str]) -> list[ast.Expr]:
+        if not column_aliases:
+            return fields
+
+        aliased_fields: list[ast.Expr] = []
+        for index, field in enumerate(fields):
+            if index >= len(column_aliases):
+                aliased_fields.append(field)
+                continue
+            if not isinstance(field, ast.Field):
+                aliased_fields.append(field)
+                continue
+            aliased = cast(ast.Field, clone_expr(field))
+            aliased.chain = [*aliased.chain[:-1], column_aliases[index]]
+            aliased_fields.append(aliased)
+
+        return aliased_fields
+
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
@@ -464,10 +1004,15 @@ class Resolver(CloningVisitor):
                     node.constraint = self.visit_join_constraint(node.constraint)
 
                 scope.tables[table_alias or cte_table.name] = node_type
+                scope_table_names = self._get_scope_table_names(scope)
+                scope_table_names[table_alias or cte_table.name] = cte_table.name
+                if node.column_aliases:
+                    scope_table_column_aliases = self._get_scope_table_column_aliases(scope)
+                    scope_table_column_aliases[table_alias or cte_table.name] = node.column_aliases
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node.type = node_type
-                node.table = cast(ast.Field, clone_expr(node.table))
+                node.table = clone_expr(cast(ast.Field, node.table))
                 node.table.type = cte_table_type
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
@@ -517,6 +1062,11 @@ class Resolver(CloningVisitor):
                 node.constraint = self.visit_join_constraint(node.constraint)
 
             scope.tables[table_alias] = node_type
+            scope_table_names = self._get_scope_table_names(scope)
+            scope_table_names[table_alias] = ".".join(table_name_chain)
+            if node.column_aliases:
+                scope_table_column_aliases = self._get_scope_table_column_aliases(scope)
+                scope_table_column_aliases[table_alias] = node.column_aliases
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.type = node_type
@@ -577,6 +1127,38 @@ class Resolver(CloningVisitor):
                 node.constraint = self.visit_join_constraint(node.constraint)
 
             node.table = cast(ast.SelectQuery, super().visit(node.table))
+
+            # Remap column names if column_aliases is provided (e.g. AS v(id, name))
+            if node.column_aliases and node.table.type:
+                # Find the SelectQuery to count columns from the select list
+                inner_select: ast.SelectQuery | ast.SelectSetQuery = node.table
+                if isinstance(inner_select, ast.SelectSetQuery):
+                    inner = inner_select.initial_select_query
+                    while isinstance(inner, ast.SelectSetQuery):
+                        inner = inner.initial_select_query
+                    inner_select = inner
+
+                num_cols = len(cast(ast.SelectQuery, inner_select).select)
+                if len(node.column_aliases) != num_cols:
+                    raise QueryError(
+                        f"Subquery has {num_cols} column(s) but {len(node.column_aliases)} column name(s) were provided"
+                    )
+
+                # Remap the SelectQueryType columns dict
+                select_query_type = cast(ast.SelectQueryType, node.table.type)
+                if isinstance(node.table.type, ast.SelectSetQueryType):
+                    first_type = node.table.type.types[0]
+                    while isinstance(first_type, ast.SelectSetQueryType):
+                        first_type = first_type.types[0]
+                    select_query_type = cast(ast.SelectQueryType, first_type)
+
+                # Build new columns from the select list's types, keyed by the alias column names
+                select_list = cast(ast.SelectQuery, inner_select).select
+                select_query_type.columns = {
+                    new_name: (expr.type if expr.type is not None else ast.UnknownType())
+                    for new_name, expr in zip(node.column_aliases, select_list)
+                }
+
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
                     raise QueryError(
@@ -602,6 +1184,103 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(cast(ast.SelectQueryType | ast.SelectSetQueryType, node.type))
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+            node.next_join = self.visit(node.next_join)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
+
+        elif isinstance(node.table, ast.ValuesQuery):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            node.table = cast(ast.ValuesQuery, self.visit(node.table))
+
+            # Auto-generate alias and column_aliases when omitted so the
+            # printed SQL contains column names that match the resolved
+            # SelectQueryType (sugar syntax like DuckDB's col0, col1, ...).
+            if not node.column_aliases and node.table.type:
+                node.column_aliases = list(node.table.type.columns.keys())
+                if node.alias is None:
+                    node.alias = "values"
+
+            # Remap column names if column_aliases is provided
+            if node.column_aliases and node.table.type:
+                num_cols = len(node.table.type.columns)
+                if len(node.column_aliases) != num_cols:
+                    raise QueryError(
+                        f"VALUES has {num_cols} column(s) but {len(node.column_aliases)} column name(s) were provided"
+                    )
+                original_columns = node.table.type.columns
+                node.table.type.columns = {
+                    new_name: list(original_columns.values())[i] for i, new_name in enumerate(node.column_aliases)
+                }
+
+            if node.alias is not None:
+                if node.alias in scope.tables:
+                    raise QueryError(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[node.alias] = node.type
+            else:
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
+
+            node.next_join = self.visit(node.next_join)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
+
+        elif isinstance(node.table, ast.UnpivotExpr):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                node.constraint = self.visit_join_constraint(node.constraint)
+
+            node.table = cast(ast.UnpivotExpr, self.visit(node.table))
+
+            if node.alias is not None:
+                if node.alias in scope.tables:
+                    raise QueryError(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[node.alias] = node.type
+            else:
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
+
+            node.next_join = self.visit(node.next_join)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
+        elif isinstance(node.table, ast.PivotExpr):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                node.constraint = self.visit_join_constraint(node.constraint)
+
+            node.table = cast(ast.PivotExpr, self.visit(node.table))
+
+            if node.alias is not None:
+                if node.alias in scope.tables:
+                    raise QueryError(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[node.alias] = node.type
+            else:
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
+
             node.next_join = self.visit(node.next_join)
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -662,6 +1341,25 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+
+        # Expand *COLUMNS(...) in function arguments
+        expanded_args: list[ast.Expr] = []
+        has_spread = False
+        for arg in node.args:
+            if isinstance(arg, ast.SpreadExpr) and isinstance(arg.expr, ast.ColumnsExpr):
+                expanded_args.extend(self._columns_expr_exprs(arg.expr))
+                has_spread = True
+            else:
+                expanded_args.append(arg)
+        if has_spread:
+            node = ast.Call(
+                name=node.name,
+                args=expanded_args,
+                params=node.params,
+                distinct=node.distinct,
+                start=node.start,
+                end=node.end,
+            )
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
@@ -735,8 +1433,10 @@ class Resolver(CloningVisitor):
         elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
-        if node.name.lower() in ("nullif", "toNullable") or node.name.lower().endswith("OrNull"):
+        if node.name.lower() in ("nullif", "tonullable") or node.name.lower().endswith("ornull"):
             return_type.nullable = True
+        elif node.name.lower() == "assumenotnull":
+            return_type.nullable = False
 
         node.type = ast.CallType(
             name=node.name,
@@ -754,7 +1454,6 @@ class Resolver(CloningVisitor):
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
-
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
         node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
@@ -772,25 +1471,62 @@ class Resolver(CloningVisitor):
 
         return new_node
 
+    def visit_try_cast(self, node: ast.TryCast):
+        if self.dialect != "postgres":
+            raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
+        node = cast(ast.TryCast, clone_expr(node))
+        node.expr = self.visit(node.expr)
+        return node
+
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        if self.dialect != "postgres":
+            raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
+        node = cast(ast.PositionalRef, clone_expr(node))
+        node.type = ast.UnknownType()
+        return node
+
+    def visit_array_slice(self, node: ast.ArraySlice):
+        if self.dialect not in {"postgres", "clickhouse"}:
+            raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
+        node = cast(ast.ArraySlice, clone_expr(node))
+        node.array = self.visit(node.array)
+        if node.start_expr is not None:
+            node.start_expr = self.visit(node.start_expr)
+        if node.end_expr is not None:
+            node.end_expr = self.visit(node.end_expr)
+        return node
+
     def visit_field(self, node: ast.Field):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
         if len(node.chain) == 0:
             raise ResolutionError("Invalid field access with empty chain")
 
+        scope = self._get_scope()
+        name = str(node.chain[0])
+
+        if self.dialect == "postgres" and len(node.chain) == 1:
+            keyword = name.lower()
+            if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
+                keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
+                return ast.Keyword(
+                    name=keyword,
+                    type=keyword_type(nullable=False),
+                    start=node.start,
+                    end=node.end,
+                )
+
         # Apply virtual property mapping before field resolution
         node = map_virtual_properties(node)
 
         node = super().visit_field(node)
+        name = str(node.chain[0])
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
-        scope = self._get_scope()
-
         type: Optional[ast.Type] = None
-        name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
         type = lookup_table_by_name(scope, self.ctes, node)
@@ -808,6 +1544,15 @@ class Resolver(CloningVisitor):
             type = ast.AsteriskType(table_type=table_type)
 
         # Field in scope
+        if (
+            not type
+            and len(node.chain) == 1
+            and self.dialect == "postgres"
+            and name.lower() in POSTGRES_KEYWORD_TYPES
+            and name in scope.columns
+        ):
+            type = scope.get_child(name, self.context)
+
         if not type:
             type = lookup_field_by_name(scope, name, self.context)
 
@@ -895,6 +1640,7 @@ class Resolver(CloningVisitor):
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
+        resolved_chain: list[str] = [str(node.chain[0])]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
@@ -910,10 +1656,16 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            # TODO: This will never return None, it always raises an exception
-            # once it finds the unsupported field/type
-            # There's no reason to have the `if loop_type is None` check here
-            loop_type = loop_type.get_child(str(next_chain), self.context)
+            try:
+                loop_type = loop_type.get_child(str(next_chain), self.context)
+            except NotImplementedError:
+                raise QueryError(
+                    f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
+                    f"This can happen when a column alias shadows a table field. Try renaming the alias."
+                )
+            resolved_chain.append(str(next_chain))
+            # Note: get_child currently always raises rather than returning None,
+            # but this guard is kept for safety in case that contract changes.
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
@@ -1025,6 +1777,13 @@ class Resolver(CloningVisitor):
         node.type = ast.BooleanType(nullable=False)
         return node
 
+    def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
+        node = super().visit_is_distinct_from(node)
+        if node is None:
+            return None
+        node.type = ast.BooleanType(nullable=False)
+        return node
+
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
         if node is None:
@@ -1052,8 +1811,6 @@ class Resolver(CloningVisitor):
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 

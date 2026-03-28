@@ -96,6 +96,17 @@ class HogQLPrinter(Visitor[str]):
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
 
+    def _get_connection_supported_functions(self) -> set[str]:
+        metadata = self.context.direct_postgres_connection_metadata
+        if not isinstance(metadata, dict):
+            return set()
+
+        available_functions = metadata.get("available_functions")
+        if not isinstance(available_functions, list):
+            return set()
+
+        return {function_name.lower() for function_name in available_functions if isinstance(function_name, str)}
+
     def visit(self, node: AST | None):
         if node is None:
             return ""
@@ -119,6 +130,10 @@ class HogQLPrinter(Visitor[str]):
             return f"{self._print_identifier(node.name)} AS {self.visit(node.expr)}"
         return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
+    def visit_grouping_set(self, node: ast.GroupingSet):
+        inner = ", ".join(self.visit(e) for e in node.exprs)
+        return f"({inner})"
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
@@ -137,9 +152,40 @@ class HogQLPrinter(Visitor[str]):
                     ret += f" {expr.set_operator} "
             ret += query
         self._indent += 1
+        if node.limit is not None:
+            limit_str = self.visit(node.limit)
+            if node.limit_percent:
+                if self.dialect == "clickhouse":
+                    if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, (int, float)):
+                        raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
+                    limit_str = str(node.limit.value / 100)
+                elif self.dialect == "postgres":
+                    limit_str += " %"
+                else:
+                    raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+
+            if node.limit_with_ties:
+                limit_str += " WITH TIES"
+            if self.pretty:
+                ret = ret.rstrip() + f"\n{self.indent(1)}LIMIT {limit_str}"
+            else:
+                ret += f" LIMIT {limit_str}"
+        if node.offset is not None:
+            offset_str = self.visit(node.offset)
+            if self.pretty:
+                ret = ret.rstrip() + f"\n{self.indent(1)}OFFSET {offset_str}"
+            else:
+                ret += f" OFFSET {offset_str}"
         if len(self.stack) > 1:
             return f"({ret.strip()})"
         return ret
+
+    def visit_values_query(self, node: ast.ValuesQuery):
+        rows = []
+        for row in node.rows:
+            values = ", ".join(self.visit(expr) for expr in row)
+            rows.append(f"({values})")
+        return f"(VALUES {', '.join(rows)})"
 
     def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
         return [self.visit(column) for column in columns]
@@ -202,8 +248,16 @@ class HogQLPrinter(Visitor[str]):
         )
         prewhere = self.visit(node.prewhere) if node.prewhere else None
         where = self.visit(where) if where else None
-        group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
+        group_by: list[str] | None = None
+        if node.group_by:
+            if node.group_by_mode == "grouping_sets":
+                group_by = [self.visit(gs) for gs in node.group_by]
+            else:
+                group_by = [self.visit(column) for column in node.group_by]
         having = self.visit(node.having) if node.having else None
+        if node.qualify is not None and self.dialect != "postgres":
+            raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.dialect))
+        qualify = self.visit(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         array_join = ""
@@ -229,22 +283,37 @@ class HogQLPrinter(Visitor[str]):
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
-            f"GROUP BY{space}{comma.join(group_by)}" if group_by and len(group_by) > 0 else None,
+            (
+                f"GROUP BY ALL"
+                if node.group_by_mode == "all"
+                else f"GROUP BY{space}GROUPING SETS ({comma.join(group_by or [])})"
+                if node.group_by_mode == "grouping_sets"
+                else f"GROUP BY{space}CUBE({comma.join(group_by or [])})"
+                if node.group_by_mode == "cube"
+                else f"GROUP BY{space}ROLLUP({comma.join(group_by or [])})"
+                if node.group_by_mode == "rollup"
+                else f"GROUP BY{space}{comma.join(group_by or [])}"
+            )
+            if node.group_by_mode == "all" or (group_by and len(group_by) > 0)
+            else None,
             f"HAVING{space}" + having if having else None,
+            f"QUALIFY{space}" + qualify if qualify else None,
             f"WINDOW{space}" + window if window else None,
             f"ORDER BY{space}{comma.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
 
         limit = node.limit
-        if self.context.limit_top_select and is_top_level_query:
+        # TODO: We skip the 50k limit guard when LIMIT % is present. Revisit if we can cap percent limits safely.
+        if self.context.limit_top_select and is_top_level_query and not node.limit_percent:
             max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+            min_function = "least" if self.dialect == "postgres" else "min2"
 
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, max_limit)
                 else:
                     limit = ast.Call(
-                        name="min2",
+                        name=min_function,
                         args=[ast.Constant(value=max_limit), limit],
                     )
             else:
@@ -256,7 +325,22 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if limit is not None:
-            clauses.append(f"LIMIT {self.visit(limit)}")
+            if node.limit_percent and self.dialect != "postgres":
+                if self.dialect == "clickhouse":
+                    if not isinstance(limit, ast.Constant) or not isinstance(limit.value, (int, float)):
+                        raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
+                else:
+                    raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+            if node.limit_with_ties and self.dialect == "postgres":
+                raise QueryError("WITH TIES is not supported in postgres dialect")
+            if node.limit_percent and self.dialect == "clickhouse":
+                assert isinstance(limit, ast.Constant)
+                limit_str = f"LIMIT {limit.value / 100}"
+            else:
+                limit_str = f"LIMIT {self.visit(limit)}"
+                if node.limit_percent:
+                    limit_str += " %"
+            clauses.append(limit_str)
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
 
@@ -313,7 +397,6 @@ class HogQLPrinter(Visitor[str]):
         team_id_for_on_clause: ast.Expr | None = None
 
         join_strings = []
-
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
@@ -383,7 +466,11 @@ class HogQLPrinter(Visitor[str]):
 
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
-            join_strings.append(f"AS {self._print_identifier(node.alias)}")
+            alias_str = f"AS {self._print_identifier(node.alias)}"
+            if node.column_aliases and self.dialect == "postgres":
+                col_names = ", ".join(self._print_identifier(c) for c in node.column_aliases)
+                alias_str += f" ({col_names})"
+            join_strings.append(alias_str)
 
         elif isinstance(node.type, ast.LazyTableType):
             if self.dialect == "hogql":
@@ -399,6 +486,12 @@ class HogQLPrinter(Visitor[str]):
             raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
             )
+
+        if node.column_aliases and not isinstance(node.type, ast.SelectQueryAliasType):
+            if self.dialect != "postgres":
+                raise QueryError(f"Table column aliases are not allowed in {self.dialect} dialect")
+            col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)
+            join_strings.append(f"({col_aliases})")
 
         if node.table_final:
             raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
@@ -449,6 +542,57 @@ class HogQLPrinter(Visitor[str]):
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
 
+    def visit_named_argument(self, node: ast.NamedArgument):
+        return f"{self._print_identifier(node.name)} := {self.visit(node.value)}"
+
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        if not isinstance(node.index, int) or node.index < 1:
+            raise QueryError(f"Positional reference must be a positive integer, got {node.index}")
+        return f"#{node.index}"
+
+    def _print_join_expr_chain(self, node: ast.JoinExpr) -> str:
+        parts: list[str] = []
+        next_join: ast.JoinExpr | None = node
+        while isinstance(next_join, ast.JoinExpr):
+            visited = self.visit_join_expr(next_join)
+            if visited.where is not None:
+                raise QueryError("JOIN PIVOT/UNPIVOT cannot apply extra WHERE constraints")
+            parts.append(visited.printed_sql)
+            next_join = next_join.next_join
+        return " ".join(parts)
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr):
+        if isinstance(node.table, ast.JoinExpr):
+            table = self._print_join_expr_chain(node.table)
+        else:
+            table_expr = self.visit(node.table)
+            table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
+        columns = " ".join(self.visit(col) for col in node.columns)
+        include_nulls = "INCLUDE NULLS " if node.include_nulls else ""
+        return f"{table} UNPIVOT {include_nulls}({columns})"
+
+    def visit_unpivot_column(self, node: ast.UnpivotColumn):
+        value_cols = self.visit(node.value_columns)
+        name_cols = self.visit(node.name_columns)
+        values = ", ".join(self.visit(val) for val in node.unpivot_values)
+        return f"{value_cols} FOR {name_cols} IN ({values})"
+
+    def visit_pivot_expr(self, node: ast.PivotExpr):
+        if isinstance(node.table, ast.JoinExpr):
+            table = self._print_join_expr_chain(node.table)
+        else:
+            table_expr = self.visit(node.table)
+            table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
+        aggregates = ", ".join(self.visit(agg) for agg in node.aggregates)
+        columns = " ".join(self.visit(col) for col in node.columns)
+        group_by = f" GROUP BY {', '.join(self.visit(g) for g in node.group_by)}" if node.group_by else ""
+        return f"{table} PIVOT ({aggregates} FOR {columns}{group_by})"
+
+    def visit_pivot_column(self, node: ast.PivotColumn):
+        column = self.visit(node.column)
+        values = ", ".join(self.visit(val) for val in node.values)
+        return f"{column} IN ({values})"
+
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))
@@ -464,6 +608,9 @@ class HogQLPrinter(Visitor[str]):
         symbol = "?." if self.dialect == "hogql" and node.nullish else ""
         return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
 
+    def visit_array_slice(self, node: ast.ArraySlice):
+        raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
+
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
@@ -474,11 +621,14 @@ class HogQLPrinter(Visitor[str]):
             str += f", {self.visit(key)}, {self.visit(value)}"
         return str + ")"
 
+    def visit_try_cast(self, node: ast.TryCast):
+        raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
+
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
         if len(identifiers) == 0:
             raise ValueError("Lambdas require at least one argument")
-        elif len(identifiers) == 1:
+        if len(identifiers) == 1:
             return f"{identifiers[0]} -> {self.visit(node.expr)}"
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
@@ -545,15 +695,35 @@ class HogQLPrinter(Visitor[str]):
 
         return op
 
+    def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        not_kw = " NOT" if node.negated else ""
+        return f"{left} IS{not_kw} DISTINCT FROM {right}"
+
     def visit_constant(self, node: ast.Constant):
         # Inline everything in HogQL
         return self._print_escaped_string(node.value)
+
+    def visit_keyword(self, node: ast.Keyword):
+        if not node.name.isidentifier():
+            raise QueryError(f"Invalid keyword name: {node.name}")
+        return node.name
 
     def visit_field(self, node: ast.Field):
         if node.chain == ["*"]:
             return "*"
         # When printing HogQL, we print the properties out as a chain as they are.
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+
+    def visit_columns_expr(self, node: ast.ColumnsExpr):
+        raise ImpossibleASTError("Unexpected ast.ColumnsExpr. This should have been expanded by the resolver.")
+
+    def visit_spread_expr(self, node: ast.SpreadExpr):
+        raise ImpossibleASTError(
+            "*COLUMNS(...) can only be used to unpack columns inside function call arguments. "
+            "Use COLUMNS(...) for top-level column selection."
+        )
 
     def visit_call(self, node: ast.Call):
         func_meta = (
@@ -605,6 +775,11 @@ class HogQLPrinter(Visitor[str]):
                 )
             )
         elif func_meta := find_hogql_aggregation(node.name):
+            if func_meta.requires_within_group and node.within_group is None:
+                raise QueryError(f"Aggregation '{node.name}' requires WITHIN GROUP")
+            if node.within_group is not None and self.dialect == "clickhouse":
+                raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
+
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -635,11 +810,26 @@ class HogQLPrinter(Visitor[str]):
 
             arg_strings = [self.visit(arg) for arg in node.args]
             params = [self.visit(param) for param in node.params] if node.params is not None else None
+            within_group = (
+                f" WITHIN GROUP (ORDER BY {', '.join(self.visit(expr) for expr in node.within_group)})"
+                if node.within_group
+                else ""
+            )
 
             params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+            args_body = f"{'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)}{order_by_part}"
+            args_part = (
+                ""
+                if node.within_group is not None and len(arg_strings) == 0 and not node.distinct and not node.order_by
+                else f"({args_body})"
+            )
 
-            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
+            if node.within_group is not None and not func_meta.requires_within_group:
+                raise QueryError(f"Aggregation '{node.name}' does not support WITHIN GROUP")
+
+            filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}{within_group}{filter_part}"
 
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(
@@ -790,10 +980,14 @@ class HogQLPrinter(Visitor[str]):
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
                 params_part = f"({', '.join(params)})" if params is not None else ""
-                args_part = f"({', '.join(args)})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
+                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+                args_part = f"({', '.join(args)}{order_by_part})"
+                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+                return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])}{order_by_part}){filter_part}"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(
                 node.args,
@@ -849,6 +1043,9 @@ class HogQLPrinter(Visitor[str]):
             # If hogql dialect, just keep it as is
             return f"{node.name}({', '.join(args)})"
         else:
+            if self.dialect == "hogql" and node.name.lower() in self._get_connection_supported_functions():
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
                 raise QueryError(
@@ -1152,6 +1349,9 @@ class HogQLPrinter(Visitor[str]):
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)
 
+    def visit_expression_field_type(self, type: ast.ExpressionFieldType):
+        return self.visit(type.expr)
+
     def visit_virtual_table_type(self, type: ast.VirtualTableType):
         return self.visit(type.table_type)
 
@@ -1264,10 +1464,14 @@ class HogQLPrinter(Visitor[str]):
             return f"{identifier}({', '.join(exprs)}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
-        if node.frame_type == "PRECEDING":
-            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} PRECEDING"
-        elif node.frame_type == "FOLLOWING":
-            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} FOLLOWING"
+        if node.frame_type in ("PRECEDING", "FOLLOWING"):
+            if node.frame_value is None:
+                value_str = "UNBOUNDED"
+            elif isinstance(node.frame_value, int):
+                value_str = str(node.frame_value)
+            else:
+                value_str = self.visit(node.frame_value)
+            return f"{value_str} {node.frame_type}"
         elif node.frame_type == "CURRENT ROW":
             return "CURRENT ROW"
         else:

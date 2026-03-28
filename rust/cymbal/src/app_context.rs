@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
+    signals::{MaybeSignalClient, SignalClient},
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
         apple::AppleProvider,
@@ -56,6 +57,7 @@ pub struct AppContext {
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
+    pub signal_client: MaybeSignalClient,
 }
 
 impl AppContext {
@@ -244,6 +246,16 @@ impl AppContext {
             _ => panic!("Invalid filter mode"),
         };
 
+        let signal_client = if config.signals_api_base_url.is_empty() {
+            MaybeSignalClient::disabled()
+        } else {
+            info!(
+                "Signal emission enabled, base_url={}",
+                config.signals_api_base_url
+            );
+            MaybeSignalClient::enabled(SignalClient::new(config))
+        };
+
         let symbol_resolver = Arc::new(LocalSymbolResolver::new(
             config,
             catalog.clone(),
@@ -266,6 +278,7 @@ impl AppContext {
             issue_buckets_redis_client,
             filtered_teams,
             filter_mode,
+            signal_client,
             symbol_resolver,
         })
     }

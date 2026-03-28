@@ -57,7 +57,7 @@ describe('createProcessPersonlessStep', () => {
         hub = await createHub()
         const organizationId = await createOrganization(hub.postgres)
         teamId = await createTeam(hub.postgres, organizationId)
-        team = (await getTeam(hub, teamId))!
+        team = (await getTeam(hub.postgres, teamId))!
 
         const personRepository = new PostgresPersonRepository(hub.postgres)
         personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)

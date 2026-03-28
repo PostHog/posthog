@@ -1476,11 +1476,69 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(
-            results[0]["data"],
-            [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        assert len(results) == 2
+
+        cohort_result = next(r for r in results if r["breakdown_value"] == "test_cohort")
+        not_in_cohort_result = next(r for r in results if r["breakdown_value"] == "Not in test_cohort")
+
+        # user_one and user_two are in the cohort and both convert
+        assert cohort_result["data"] == [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # user_three is not in the cohort and converts on day 3
+        assert not_in_cohort_result["data"] == [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    def test_funnel_trend_cohort_breakdown_empty_not_in_cohort(self):
+        _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
+        _create_person(distinct_ids=["user_two"], team=self.team, properties={"key": "value"})
+
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                ],
+            },
+            self.team,
         )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 23:59:59",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "breakdown_type": "cohort",
+            "breakdown": [cohort.pk],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # Even though everyone is in the cohort, the "not in cohort" group should still appear
+        assert len(results) == 2
+
+        breakdown_values = {r["breakdown_value"] for r in results}
+        assert "test_cohort" in breakdown_values
+        assert "Not in test_cohort" in breakdown_values
+
+        not_in_cohort_result = next(r for r in results if r["breakdown_value"] == "Not in test_cohort")
+        assert all(v == 0 for v in not_in_cohort_result["data"])
 
     @snapshot_clickhouse_queries
     def test_timezones_trends(self):

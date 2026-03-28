@@ -1,6 +1,7 @@
 from posthog.test.base import FuzzyInt
 
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team
@@ -22,6 +23,16 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_create_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+        # Ensure project-creation limits don't block this test
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "limit": 10,
+            }
+        ]
+        self.organization.save()
         self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(Project.objects.count(), 1)
         response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
@@ -46,6 +57,17 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
 
         current_org, _, _ = Organization.objects.bootstrap(self.user, name="other_org")
         other_org = self.organization  # Bootstrapping above sets it to the current org
+
+        # Ensure project-creation limits don't block this test for both orgs we create under
+        for org in (current_org, other_org):
+            org.available_product_features = [
+                {
+                    "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                    "name": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                    "limit": 10,
+                }
+            ]
+            org.save()
         assert Team.objects.count() == 2
         assert Project.objects.count() == 2
 
@@ -66,6 +88,16 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_user_cannot_create_project_in_org_without_access(self):
         _, _, _ = Organization.objects.bootstrap(self.user, name="other_org")
         other_org = self.organization  # Bootstrapping above sets it to the current org
+
+        # Ensure project-creation limits don't block this test (we want to assert on access control)
+        other_org.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "limit": 10,
+            }
+        ]
+        other_org.save()
 
         assert other_org.id != self.user.current_organization_id
         response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Via path org"})
@@ -118,7 +150,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(14, 17)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, 200)
@@ -163,6 +195,16 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
 
     def test_cannot_create_project_in_org_without_access(self):
         self.organization_membership.delete()
+
+        # Ensure project-creation limits don't block this test (we want to assert on access control)
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "limit": 10,
+            }
+        ]
+        self.organization.save()
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/projects/", {"name": "Test"})
 

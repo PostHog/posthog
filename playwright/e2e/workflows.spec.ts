@@ -179,6 +179,8 @@ test.describe('Workflows', () => {
             // Click on Invocations tab
             await page.getByRole('tab', { name: /Invocations/ }).click()
             await page.waitForSelector('[data-attr="workflow-logs"]', { timeout: 10000 })
+            // Wait for the loading spinner to disappear before taking a screenshot
+            await expect(page.locator('[data-attr="workflow-logs"] svg.Spinner')).not.toBeVisible({ timeout: 10000 })
 
             await expect(page).toHaveScreenshot('workflow-view-logs.png', { fullPage: true })
         })

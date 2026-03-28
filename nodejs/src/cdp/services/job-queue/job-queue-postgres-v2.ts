@@ -1,4 +1,5 @@
 import { chunk } from 'lodash'
+import { Gauge } from 'prom-client'
 
 import { parseJSON } from '~/utils/json-parse'
 
@@ -8,6 +9,11 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
+
+const pendingJobsGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_pending_jobs',
+    help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/retry',
+})
 
 /**
  * State blob stored in the single `state` BYTEA column.
@@ -74,9 +80,11 @@ export class CyclotronJobQueuePostgresV2 {
                 invocations.push(v2JobToInvocation(job))
             }
 
+            pendingJobsGauge.set(this.pendingJobs.size)
+
             await consumeBatch(invocations)
 
-            // TODO: Some sanity check that all pending jobs are acked or failed
+            pendingJobsGauge.set(this.pendingJobs.size)
         })
     }
 

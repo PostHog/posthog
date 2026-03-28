@@ -19,13 +19,18 @@ impl CohortStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "check_cohort_membership".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "check_cohort_membership".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
 
@@ -38,7 +43,7 @@ impl CohortStorage for PostgresStorage {
             person_id,
             &cohort_ids_i32
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
         let member_set: HashSet<i64> = member_ids.into_iter().map(|id| id as i64).collect();

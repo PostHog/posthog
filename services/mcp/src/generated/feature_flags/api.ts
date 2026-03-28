@@ -3,10 +3,31 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
+    organization_id: zod.string(),
+})
+
+export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
+
+export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
+
+export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
+    from_project: zod.number().describe('Source project ID to copy the flag from'),
+    target_project_ids: zod
+        .array(zod.number())
+        .max(featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to copy the flag to'),
+    copy_schedule: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyCopyScheduleDefault)
+        .describe('Whether to also copy scheduled changes for this flag'),
+})
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
@@ -32,11 +53,11 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('JSON-encoded list of feature flag keys to exclude from the results.'),
-    has_evaluation_tags: zod
+    has_evaluation_contexts: zod
         .enum(['false', 'true'])
         .optional()
         .describe(
-            "Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags."
+            "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -296,6 +317,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for this condition set. None means person-level aggregation.'),
                     })
                 )
                 .optional()
@@ -326,15 +351,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
-    evaluation_tags: zod
+    evaluation_contexts: zod
         .array(zod.string())
         .optional()
-        .describe('Evaluation context tags. Must be a subset of `tags`.'),
+        .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
 })
 
 /**
@@ -603,6 +634,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for this condition set. None means person-level aggregation.'),
                     })
                 )
                 .optional()
@@ -633,15 +668,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(zod.record(zod.string(), zod.unknown()))
                 .optional()
                 .describe('Additional super condition groups used by experiments.'),
+            feature_enrollment: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
-    evaluation_tags: zod
+    evaluation_contexts: zod
         .array(zod.string())
         .optional()
-        .describe('Evaluation context tags. Must be a subset of `tags`.'),
+        .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
 })
 
 /**
@@ -649,6 +690,263 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
  */
 export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsActivityRetrieve2QueryLimitDefault = 10
+
+export const featureFlagsActivityRetrieve2QueryPageDefault = 1
+
+export const FeatureFlagsActivityRetrieve2QueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .default(featureFlagsActivityRetrieve2QueryLimitDefault)
+        .describe('Number of items per page'),
+    page: zod.number().min(1).default(featureFlagsActivityRetrieve2QueryPageDefault).describe('Page number'),
+})
+
+/**
+ * Get other active flags that depend on this flag.
+ */
+export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsEvaluationReasonsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault = `{}`
+
+export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    distinct_id: zod.string().min(1).describe('User distinct ID'),
+    groups: zod
+        .string()
+        .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)
+        .describe('Groups for feature flag evaluation (JSON object string)'),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsUserBlastRadiusCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const FeatureFlagsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
+    condition: zod.record(zod.string(), zod.unknown()).describe('The release condition to evaluate'),
+    group_type_index: zod
+        .number()
+        .nullish()
+        .describe('Group type index for group-based flags (null for person-based flags)'),
+})
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const ScheduledChangesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ScheduledChangesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    model_name: zod
+        .string()
+        .optional()
+        .describe('Filter by model type. Use "FeatureFlag" to see feature flag schedules.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    record_id: zod.string().optional().describe('Filter by the ID of a specific feature flag.'),
+})
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const ScheduledChangesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const scheduledChangesCreateBodyRecordIdMax = 200
+
+export const scheduledChangesCreateBodyIsRecurringDefault = false
+
+export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
+    record_id: zod
+        .string()
+        .max(scheduledChangesCreateBodyRecordIdMax)
+        .describe('The ID of the record to modify (e.g. the feature flag ID).'),
+    model_name: zod
+        .enum(['FeatureFlag'])
+        .describe('* `FeatureFlag` - feature flag')
+        .describe(
+            'The type of record to modify. Currently only "FeatureFlag" is supported.\n\n* `FeatureFlag` - feature flag'
+        ),
+    payload: zod
+        .unknown()
+        .describe(
+            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
+        ),
+    scheduled_at: zod.iso
+        .datetime({})
+        .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
+    is_recurring: zod
+        .boolean()
+        .default(scheduledChangesCreateBodyIsRecurringDefault)
+        .describe("Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules."),
+    recurrence_interval: zod
+        .union([
+            zod
+                .enum(['daily', 'weekly', 'monthly', 'yearly'])
+                .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
+        ),
+    end_date: zod.iso
+        .datetime({})
+        .nullish()
+        .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
+})
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const ScheduledChangesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this scheduled change.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const ScheduledChangesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this scheduled change.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const scheduledChangesPartialUpdateBodyRecordIdMax = 200
+
+export const scheduledChangesPartialUpdateBodyIsRecurringDefault = false
+
+export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    record_id: zod
+        .string()
+        .max(scheduledChangesPartialUpdateBodyRecordIdMax)
+        .optional()
+        .describe('The ID of the record to modify (e.g. the feature flag ID).'),
+    model_name: zod
+        .enum(['FeatureFlag'])
+        .describe('* `FeatureFlag` - feature flag')
+        .optional()
+        .describe(
+            'The type of record to modify. Currently only "FeatureFlag" is supported.\n\n* `FeatureFlag` - feature flag'
+        ),
+    payload: zod
+        .unknown()
+        .optional()
+        .describe(
+            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
+        ),
+    scheduled_at: zod.iso
+        .datetime({})
+        .optional()
+        .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
+    is_recurring: zod
+        .boolean()
+        .default(scheduledChangesPartialUpdateBodyIsRecurringDefault)
+        .describe("Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules."),
+    recurrence_interval: zod
+        .union([
+            zod
+                .enum(['daily', 'weekly', 'monthly', 'yearly'])
+                .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
+        ),
+    end_date: zod.iso
+        .datetime({})
+        .nullish()
+        .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
+})
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const ScheduledChangesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this scheduled change.'),
     project_id: zod
         .string()
         .describe(

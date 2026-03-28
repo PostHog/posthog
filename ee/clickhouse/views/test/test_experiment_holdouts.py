@@ -1,7 +1,8 @@
 from rest_framework import status
 
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.api.test.base import APILicensedTest
 
@@ -68,10 +69,6 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_id, "exclusion_percentage": 20},
         )
@@ -102,10 +99,6 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_id, "exclusion_percentage": 30},
         )
@@ -116,7 +109,6 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(created_ff.filters["holdout_groups"], None)
         self.assertEqual(created_ff.filters["holdout"], None)
 
         # and same for experiment

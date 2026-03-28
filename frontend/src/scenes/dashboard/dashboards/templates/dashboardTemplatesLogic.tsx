@@ -58,7 +58,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     })),
     listeners(({ actions }) => ({
         setTemplateFilter: async (_, breakpoint) => {
-            await breakpoint(100)
+            await breakpoint(400)
             actions.getAllTemplates()
         },
     })),

@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
@@ -24,12 +24,22 @@ class KlaviyoResumeConfig:
     next_url: str
 
 
+def _format_datetime_z(dt: datetime) -> str:
+    """Format a datetime as ISO 8601 with Z suffix, which Klaviyo's API requires.
+
+    Klaviyo rejects the +00:00 UTC offset format produced by isoformat(),
+    so we must use the Z suffix instead.
+    """
+    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
 def _format_incremental_value(value: Any) -> str:
-    """Format incremental field value as ISO string for Klaviyo API filters."""
+    """Format incremental field value for Klaviyo API filters."""
     if isinstance(value, datetime):
-        return value.isoformat()
+        return _format_datetime_z(value)
     if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time()).isoformat()
+        return _format_datetime_z(datetime.combine(value, datetime.min.time(), tzinfo=UTC))
     return str(value)
 
 
@@ -99,6 +109,10 @@ def _build_initial_params(
 
     if config.page_size is not None and config.page_size > 0:
         params["page[size]"] = config.page_size
+
+    # On first sync/full refresh, apply a lookback window to avoid fetching the entire history
+    if should_use_incremental_field and not db_incremental_field_last_value and config.default_lookback_days:
+        db_incremental_field_last_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
 
     formatted_last_value = (
         _format_incremental_value(db_incremental_field_last_value)

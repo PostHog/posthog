@@ -39,7 +39,6 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
@@ -63,6 +62,7 @@ from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
@@ -612,6 +612,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
+                    "survey_count": 0,
                     "survey_responses_count_in_period": 1,
                     "query_app_bytes_read": 0,
                     "query_app_rows_read": 0,
@@ -681,6 +682,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
+                            "survey_count": 0,
                             "survey_responses_count_in_period": 1,
                             "query_app_bytes_read": 0,
                             "query_app_rows_read": 0,
@@ -744,6 +746,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
+                            "survey_count": 0,
                             "survey_responses_count_in_period": 0,
                             "query_app_bytes_read": 0,
                             "query_app_rows_read": 0,
@@ -830,6 +833,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
+                    "survey_count": 0,
                     "survey_responses_count_in_period": 0,
                     "query_app_bytes_read": 0,
                     "query_app_rows_read": 0,
@@ -899,6 +903,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
+                            "survey_count": 0,
                             "survey_responses_count_in_period": 0,
                             "query_app_bytes_read": 0,
                             "query_app_rows_read": 0,
@@ -1664,6 +1669,47 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         )
         assert report["organization_name"] == "Org 1"
         assert report["event_count_in_period"] == 0
+
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_capture_report_sets_org_group_properties(self, mock_client: MagicMock) -> None:
+        from posthog.tasks.usage_report import capture_report
+
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        org = Organization.objects.create(name="Test Org")
+
+        full_report_dict = {
+            "organization_user_count": 5,
+            "team_count": 2,
+            "dashboard_count": 3,
+            "ff_count": 1,
+            "survey_count": 2,
+        }
+
+        capture_report(
+            organization_id=str(org.id),
+            full_report_dict=full_report_dict,
+        )
+
+        mock_posthog.group_identify.assert_called_once_with(
+            group_type="organization",
+            group_key=str(org.id),
+            properties={
+                "member_count": 5,
+                "project_count": 2,
+                "dashboard_count": 3,
+                "ff_count": 1,
+                "survey_count": 2,
+            },
+        )
 
 
 @freeze_time("2022-01-10T00:01:00Z")

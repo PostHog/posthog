@@ -24,35 +24,35 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
     } = defaults ?? {}
 
     return (
-        <div className="space-y-4">
-            <div className="p-3 bg-surface-primary rounded border border-border flex flex-row justify-between items-center">
-                <div>
-                    <h4 className="mb-0 font-semibold flex items-center gap-2">
-                        <span className="text-lg flex items-center">
-                            <IconHome />
-                        </span>
-                        Default access to this project
-                    </h4>
-                    <p className="text-xs text-muted-alt mb-0">
-                        This is the default level of access for everyone in your organization
-                    </p>
+        <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+            <div className="space-y-4">
+                <div className="p-3 bg-surface-primary rounded border border-border flex flex-row justify-between items-center">
+                    <div>
+                        <h4 className="mb-0 font-semibold flex items-center gap-2">
+                            <span className="text-lg flex items-center">
+                                <IconHome />
+                            </span>
+                            Default access to this project
+                        </h4>
+                        <p className="text-xs text-muted-alt mb-0">
+                            This is the default level of access for everyone in your organization
+                        </p>
+                    </div>
+                    <div className="max-w-sm">
+                        <LemonSelect
+                            dropdownPlacement="bottom-start"
+                            value={defaults?.project_access_level ?? null}
+                            disabledReason={loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined}
+                            size="small"
+                            className="w-36"
+                            onChange={(newValue) => {
+                                updateAccessControlDefault(newValue as AccessControlLevel)
+                            }}
+                            options={getLevelOptionsForResource(projectLevels)}
+                        />
+                    </div>
                 </div>
-                <div className="max-w-sm">
-                    <LemonSelect
-                        dropdownPlacement="bottom-start"
-                        value={defaults?.project_access_level ?? null}
-                        disabledReason={loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined}
-                        size="small"
-                        className="w-36"
-                        onChange={(newValue) => {
-                            updateAccessControlDefault(newValue as AccessControlLevel)
-                        }}
-                        options={getLevelOptionsForResource(projectLevels)}
-                    />
-                </div>
-            </div>
 
-            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                 <LemonTable
                     dataSource={resourceKeys}
                     loading={loading}
@@ -170,7 +170,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                         },
                     ]}
                 />
-            </PayGateMini>
-        </div>
+            </div>
+        </PayGateMini>
     )
 }

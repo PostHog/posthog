@@ -216,7 +216,7 @@ describe('CookielessManager', () => {
                 [mode, teamId],
                 'set team to cookieless'
             )
-            team = (await getTeam(hub, teamId))!
+            team = (await getTeam(hub.postgres, teamId))!
         }
 
         const clearRedis = async () => {
@@ -229,7 +229,7 @@ describe('CookielessManager', () => {
             await clearRedis()
             hub.cookielessManager.deleteAllLocalSalts()
             teamId = await createTeam(hub.postgres, organizationId)
-            team = (await getTeam(hub, teamId))!
+            team = (await getTeam(hub.postgres, teamId))!
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,

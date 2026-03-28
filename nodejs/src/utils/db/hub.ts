@@ -5,11 +5,15 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
 import { defaultConfig } from '../../config/config'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+    createPosthogRedisConnectionConfig,
+} from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { isTestEnv } from '../env-utils'
@@ -50,24 +54,12 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
     logger.info('👍', `Kafka ready`)
 
-    const postgres = new PostgresRouter(serverConfig)
+    const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
     logger.info('👍', `Postgres Router ready`)
 
     logger.info('🤔', `Connecting to ingestion Redis...`)
     const redisPool = createRedisPoolFromConfig({
-        connection: serverConfig.INGESTION_REDIS_HOST
-            ? {
-                  url: serverConfig.INGESTION_REDIS_HOST,
-                  options: { port: serverConfig.INGESTION_REDIS_PORT },
-                  name: 'ingestion-redis',
-              }
-            : serverConfig.POSTHOG_REDIS_HOST
-              ? {
-                    url: serverConfig.POSTHOG_REDIS_HOST,
-                    options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
-                    name: 'ingestion-redis',
-                }
-              : { url: serverConfig.REDIS_URL, name: 'ingestion-redis' },
+        connection: createIngestionRedisConnectionConfig(serverConfig),
         poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
         poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
     })
@@ -75,13 +67,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
 
     logger.info('🤔', `Connecting to cookieless Redis...`)
     const cookielessRedisPool = createRedisPoolFromConfig({
-        connection: serverConfig.COOKIELESS_REDIS_HOST
-            ? {
-                  url: serverConfig.COOKIELESS_REDIS_HOST,
-                  options: { port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379 },
-                  name: 'cookieless-redis',
-              }
-            : { url: serverConfig.REDIS_URL, name: 'cookieless-redis' },
+        connection: createCookielessRedisConnectionConfig(serverConfig),
         poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
         poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
     })
@@ -90,13 +76,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const teamManager = new TeamManager(postgres)
     logger.info('🤔', `Connecting to PostHog Redis...`)
     const posthogRedisPool = createRedisPoolFromConfig({
-        connection: serverConfig.POSTHOG_REDIS_HOST
-            ? {
-                  url: serverConfig.POSTHOG_REDIS_HOST,
-                  options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
-                  name: 'posthog-redis',
-              }
-            : { url: serverConfig.REDIS_URL, name: 'posthog-redis' },
+        connection: createPosthogRedisConnectionConfig(serverConfig),
         poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
         poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
     })
@@ -113,7 +93,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     }
     const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
 
-    const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
@@ -136,7 +115,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         groupTypeManager,
         teamManager,
         groupRepository,
-        clickhouseGroupRepository,
         personRepository,
         geoipService,
         encryptedFields,

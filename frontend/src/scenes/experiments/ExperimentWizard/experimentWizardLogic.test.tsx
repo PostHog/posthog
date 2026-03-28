@@ -79,12 +79,12 @@ const mockEligibleFlags: Partial<FeatureFlagType>[] = [
 
 const apiMocks = {
     get: {
-        '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+        '/api/projects/:team_id/experiments/eligible_feature_flags/': () => [
             200,
             { results: mockEligibleFlags, count: mockEligibleFlags.length },
         ],
-        '/api/projects/@current/feature_flags/': () => [200, { results: [], count: 0 }],
-        '/api/projects/@current/experiments': () => [200, { results: [], count: 0 }],
+        '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
+        '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
     },
 }
 
@@ -665,7 +665,7 @@ describe('experimentWizardLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/@current/add_product_intent/': () => [200, {}],
+                    '/api/environments/:team_id/add_product_intent/': () => [200, {}],
                 },
             })
             initKeaTests()

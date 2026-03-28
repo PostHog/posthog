@@ -2,7 +2,6 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
-use health::HealthStrategy;
 use tracing::Level;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -195,9 +194,6 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub s3_fallback_prefix: String,
-
-    #[envconfig(default = "ALL")]
-    pub healthcheck_strategy: HealthStrategy,
 
     #[envconfig(default = "false")]
     pub is_mirror_deploy: bool,

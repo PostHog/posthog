@@ -58,7 +58,11 @@ export class DashboardPage {
         const modal = this.page.locator('.LemonModal').filter({ hasText: 'Create a dashboard' })
         await expect(modal).toBeVisible()
 
-        const templateOption = this.page.getByTestId('create-dashboard-from-template').first()
+        // Pick a template with no variables — `.first()` can hit e.g. AARRR or Product Analytics,
+        // which open the variable picker instead of creating and never leave #newDashboard=modal.
+        const templateOption = this.page
+            .getByTestId('create-dashboard-from-template')
+            .filter({ hasText: 'Website Metrics' })
         await expect(templateOption).toBeVisible()
         await templateOption.click()
 
@@ -76,15 +80,25 @@ export class DashboardPage {
     }
 
     async addTextCard(text: string): Promise<void> {
-        await this.page.getByTestId('add-text-tile-to-dashboard').click()
+        await this.page.getByTestId('dashboard-add-tile').click()
+        const addTextTileButton = this.page.getByTestId('dashboard-add-text-tile')
+        await expect(addTextTileButton).toBeVisible()
+        await addTextTileButton.click()
 
-        const modal = this.page.locator('.LemonModal')
+        await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
+
+        // Text card edit UI uses DialogPrimitive, not LemonModal (see TextCardModal.tsx).
+        const modal = this.page.getByTestId('text-card-modal')
         await expect(modal).toBeVisible()
 
-        const textArea = modal.locator('textarea')
-        await expect(textArea).toBeVisible()
-        await textArea.fill(text)
-        await this.page.getByTestId('save-new-text-tile').click()
+        const textEditor = modal
+            .locator(
+                'textarea[data-attr="text-card-edit-area"], [data-attr="text-card-edit-area"][contenteditable="true"], [data-attr="text-card-edit-area"] [contenteditable="true"]'
+            )
+            .first()
+        await expect(textEditor).toBeVisible()
+        await textEditor.fill(text)
+        await modal.getByTestId('save-new-text-tile').click()
 
         await expect(this.textCards.filter({ hasText: text })).toBeVisible()
     }
@@ -115,7 +129,10 @@ export class DashboardPage {
     }
 
     async closeInfoPanel(): Promise<void> {
-        await this.page.getByTestId('context-panel-close-button').click()
+        const closeButton = this.page.getByTestId('context-panel-close-button')
+        if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await closeButton.click()
+        }
     }
 
     async duplicate(): Promise<void> {

@@ -1,1 +1,1 @@
-0024_ticket_channel_detail
+0027_slack_config_unique_slack_team_id

@@ -10,8 +10,6 @@ import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.hogql import ast
 
 from posthog.models import Team
@@ -31,10 +29,9 @@ from products.signals.backend.temporal.summarize_signals import (
     summarize_signals_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.utils import EMBEDDING_MODEL
 
 logger = structlog.get_logger(__name__)
-
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 
 @temporalio.workflow.defn(name="signal-report-summary")

@@ -8,7 +8,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { Experiment as ExperimentType } from '~/types'
+import { ExperimentStatus, type Experiment as ExperimentType } from '~/types'
 
 import { NEW_EXPERIMENT } from './constants'
 import { Experiment } from './Experiment'
@@ -134,29 +134,33 @@ describe('Experiment component', () => {
             description: 'draft',
             expectLaunchButton: true,
             expectWarningBanner: false,
+            tabId: 'test-tab-draft-no-metrics',
         },
         {
-            experimentOverrides: { start_date: '2024-01-01T00:00:00Z' },
+            experimentOverrides: {
+                start_date: '2024-01-01T00:00:00Z',
+                status: ExperimentStatus.Running,
+            },
             description: 'running experiment',
             expectLaunchButton: false,
             expectWarningBanner: true,
+            tabId: 'test-tab-running-no-metrics',
         },
     ])(
         '$description without metrics shows add metric buttons',
-        async ({ experimentOverrides, expectLaunchButton, expectWarningBanner }) => {
+        async ({ experimentOverrides, expectLaunchButton, expectWarningBanner, tabId }) => {
             const experimentData: ExperimentType = { ...DRAFT_EXPERIMENT, ...experimentOverrides }
             localStorage.clear()
             sessionStorage.clear()
             useMocks(mockApiForExperiment(experimentData))
             mountKeaLogics()
 
-            const tabId = 'test-tab-view'
             const { sceneLogic } = renderExperimentViewPage(tabId, experimentData)
 
             await waitFor(() => {
-                expect(screen.getByText('Add primary metric')).toBeInTheDocument()
+                screen.getAllByText('Add primary metric')
             })
-            expect(screen.getByText('Add secondary metric')).toBeInTheDocument()
+            screen.getAllByText('Add secondary metric')
 
             // No creation form should be shown in view mode
             expect(screen.queryByTestId('experiment-wizard')).not.toBeInTheDocument()
@@ -164,7 +168,8 @@ describe('Experiment component', () => {
             if (expectLaunchButton) {
                 const launchButton = document.querySelector('[data-attr="launch-experiment"]')
                 expect(launchButton).toBeInTheDocument()
-                expect(launchButton).not.toHaveAttribute('aria-disabled')
+                // LemonButton sets aria-disabled={disabled}; React omits the attribute when false, or "false" when present
+                expect(launchButton?.getAttribute('aria-disabled')).not.toBe('true')
             } else {
                 expect(document.querySelector('[data-attr="launch-experiment"]')).not.toBeInTheDocument()
             }

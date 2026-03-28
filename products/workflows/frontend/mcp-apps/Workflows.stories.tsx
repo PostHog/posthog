@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { WorkflowListView, type WorkflowData, type WorkflowListData, WorkflowView } from './index'
 
@@ -14,6 +14,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const activeWorkflow: WorkflowData = {
     id: 'wf-1',
@@ -49,14 +51,20 @@ const archivedWorkflow: WorkflowData = {
     created_by: { first_name: 'Alex' },
 }
 
-export const Active: StoryFn = () => <WorkflowView workflow={activeWorkflow} />
-Active.storyName = 'Active workflow'
+export const Active: Story = {
+    render: () => <WorkflowView workflow={activeWorkflow} />,
+    storyName: 'Active workflow',
+}
 
-export const DraftState: StoryFn = () => <WorkflowView workflow={draftWorkflow} />
-DraftState.storyName = 'Draft workflow'
+export const DraftState: Story = {
+    render: () => <WorkflowView workflow={draftWorkflow} />,
+    storyName: 'Draft workflow',
+}
 
-export const Archived: StoryFn = () => <WorkflowView workflow={archivedWorkflow} />
-Archived.storyName = 'Archived workflow'
+export const Archived: Story = {
+    render: () => <WorkflowView workflow={archivedWorkflow} />,
+    storyName: 'Archived workflow',
+}
 
 const sampleListData: WorkflowListData = {
     count: 3,
@@ -64,5 +72,7 @@ const sampleListData: WorkflowListData = {
     _posthogUrl: 'https://us.posthog.com/project/1/pipeline/destinations',
 }
 
-export const List: StoryFn = () => <WorkflowListView data={sampleListData} />
-List.storyName = 'Workflow list'
+export const List: Story = {
+    render: () => <WorkflowListView data={sampleListData} />,
+    storyName: 'Workflow list',
+}

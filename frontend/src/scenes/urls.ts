@@ -65,6 +65,7 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        dashboard,
     }: {
         query?: string
         view_id?: string
@@ -74,6 +75,7 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        dashboard?: number
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -97,6 +99,10 @@ export const urls = {
 
         if (source) {
             params.set('source', source)
+        }
+
+        if (dashboard) {
+            params.set('dashboard', String(dashboard))
         }
 
         const queryString = params.toString()
@@ -233,11 +239,25 @@ export const urls = {
     wizard: (): string => `/wizard`,
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
-    dataWarehouseSourceNew: (kind?: string): string => `/data-warehouse/new-source${kind ? `?kind=${kind}` : ''}`,
+    dataWarehouseSourceNew: (kind?: string, returnUrl?: string, returnLabel?: string): string => {
+        const params = new URLSearchParams()
+        if (kind) {
+            params.set('kind', kind)
+        }
+        if (returnUrl) {
+            params.set('returnUrl', returnUrl)
+        }
+        if (returnLabel) {
+            params.set('returnLabel', returnLabel)
+        }
+        const queryString = params.toString()
+        return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
+    },
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,

@@ -1,5 +1,6 @@
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -45,17 +46,17 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub) // This team has data_pipelines feature by default (legacy addon)
+        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
-        team2 = (await getTeam(hub, team2Id))! // This team does NOT have data_pipelines
+        team2 = (await getTeam(hub.postgres, team2Id))! // This team does NOT have data_pipelines
 
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new CdpDatawarehouseEventsConsumer(hub, hub)
+        processor = new CdpDatawarehouseEventsConsumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -284,7 +285,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject(
                 [
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -298,7 +299,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                     },
                     // Billing is per-event, not per-destination
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',

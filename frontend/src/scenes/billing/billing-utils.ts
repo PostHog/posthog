@@ -6,9 +6,9 @@ import Papa from 'papaparse'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { compactNumber, dateStringToDayJs, wordPluralize } from 'lib/utils'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { Params } from 'scenes/sceneTypes'
 
-import { OrganizationType } from '~/types'
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
@@ -423,15 +423,21 @@ export const currencyFormatter = (value: number): string => {
 }
 
 /**
- * Determines if the user has sufficient permissions to read billing information based on their organization membership level.
+ * Returns the minimum membership level required to access billing.
+ * When ownerOnlyBilling is true (via the owner-only-billing feature flag), only org owners can access billing.
  */
-export function canAccessBilling(
-    currentOrganization: Pick<OrganizationType, 'membership_level'> | null | undefined
-): boolean {
-    if (!currentOrganization || !currentOrganization.membership_level) {
+export function getMinimumBillingAccessLevel(ownerOnlyBilling: boolean): OrganizationMembershipLevel {
+    return ownerOnlyBilling ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin
+}
+
+/**
+ * Determines if the user has sufficient permissions to access billing based on their org membership level.
+ */
+export function canAccessBilling(membershipLevel: number | null | undefined, ownerOnlyBilling: boolean): boolean {
+    if (!membershipLevel) {
         return false
     }
-    return currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
+    return membershipLevel >= getMinimumBillingAccessLevel(ownerOnlyBilling)
 }
 
 /**
@@ -635,7 +641,8 @@ export function getUsageLimitConsequence(productName: string): string {
  */
 export function buildUsageLimitExceededMessage(
     products: Array<{ name: string; subscribed: boolean | null }>,
-    hasBillingAccess: boolean = true
+    hasBillingAccess: boolean = true,
+    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): {
     title: string
     message: string
@@ -657,9 +664,10 @@ export function buildUsageLimitExceededMessage(
     if (hasBillingAccess) {
         actionText = allSubscribed ? 'increase your billing limit' : 'upgrade your plan'
     } else {
+        const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
         actionText = allSubscribed
-            ? 'ask an organization admin to increase the billing limit'
-            : 'ask an organization admin to upgrade the plan'
+            ? `ask an organization ${roleName} to increase the billing limit`
+            : `ask an organization ${roleName} to upgrade the plan`
     }
 
     return {
@@ -672,8 +680,13 @@ export function buildUsageLimitExceededMessage(
  * Build a consolidated message for products approaching their usage limits
  */
 export function buildUsageLimitApproachingMessage(
-    products: Array<{ name: string; percentage_usage: number; usage_key?: string | null }>,
-    hasBillingAccess: boolean = true
+    products: Array<{
+        name: string
+        percentage_usage: number
+        usage_key?: string | null
+    }>,
+    hasBillingAccess: boolean = true,
+    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): { title: string; message: string } {
     if (products.length === 0) {
         return { title: '', message: '' }
@@ -685,7 +698,8 @@ export function buildUsageLimitApproachingMessage(
         return `${percentage}% of your ${usageKey} allocation`
     })
 
-    const adminSuffix = hasBillingAccess ? '' : ' Please ask an organization admin to increase the billing limit.'
+    const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
+    const adminSuffix = hasBillingAccess ? '' : ` Please ask an organization ${roleName} to increase the billing limit.`
 
     const message =
         products.length === 1

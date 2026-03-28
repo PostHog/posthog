@@ -31,6 +31,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -68,7 +69,7 @@ const SourceEditorAction = ({
     </AccessControlAction>
 )
 
-interface SchemasProps {
+export interface SchemasProps {
     id: string
 }
 
@@ -76,9 +77,16 @@ const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const logicProps = { id, availableSources: {} }
     const logic = dataWarehouseSourceSettingsLogic(logicProps)
-    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly, syncingNow, refreshingSchemas } =
-        useValues(logic)
-    const { setShowEnabledSchemasOnly, syncNow, refreshSchemas } = useActions(logic)
+    const {
+        source,
+        sourceLoading,
+        filteredSchemas,
+        showEnabledSchemasOnly,
+        schemaNameFilter,
+        syncingNow,
+        refreshingSchemas,
+    } = useValues(logic)
+    const { setShowEnabledSchemasOnly, setSchemaNameFilter, syncNow, refreshSchemas } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -93,6 +101,13 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                         checked={showEnabledSchemasOnly}
                         onChange={setShowEnabledSchemasOnly}
                         label={isDirectQuerySource ? 'Show queryable only' : 'Show enabled only'}
+                    />
+                    <LemonInput
+                        type="search"
+                        placeholder="Filter schemas"
+                        size="small"
+                        value={schemaNameFilter}
+                        onChange={setSchemaNameFilter}
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
@@ -212,7 +227,10 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
         }
     }, [isLoading, initialLoad])
 
-    const getPreviewQuery = useCallback((tableName: string): string => `SELECT * FROM ${tableName} LIMIT 100`, [])
+    const getPreviewQuery = useCallback(
+        (tableName: string): string => `SELECT * FROM ${escapePropertyAsHogQLIdentifier(tableName)} LIMIT 100`,
+        []
+    )
 
     return (
         <>
@@ -225,15 +243,24 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                         title: 'Schema Name',
                         key: 'name',
                         render: function RenderName(_, schema) {
-                            if (isDirectQuerySource && schema.table) {
-                                return (
+                            const nameContent =
+                                isDirectQuerySource && schema.table ? (
                                     <Link to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}>
-                                        {schema.name}
+                                        {schema.label ?? schema.name}
                                     </Link>
+                                ) : (
+                                    <span>{schema.label ?? schema.name}</span>
                                 )
-                            }
-
-                            return <span>{schema.name}</span>
+                            return (
+                                <div className="flex items-center gap-1">
+                                    {nameContent}
+                                    {schema.description && (
+                                        <Tooltip title={schema.description}>
+                                            <IconInfo className="text-muted-alt text-base" />
+                                        </Tooltip>
+                                    )}
+                                </div>
+                            )
                         },
                     },
                     {
@@ -288,7 +315,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                             })
                                         }
                                         options={[
-                                            { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
+                                            { value: '15min' as DataWarehouseSyncInterval, label: '15 mins' },
                                             { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },
                                             { value: '1hour' as DataWarehouseSyncInterval, label: '1 hour' },
                                             { value: '6hour' as DataWarehouseSyncInterval, label: '6 hours' },
@@ -618,18 +645,21 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         <LemonModal
             title={
                 <>
-                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                    Sync method for{' '}
+                    <span className="font-mono">
+                        {currentSyncMethodModalSchema.label ?? currentSyncMethodModalSchema.name}
+                    </span>
                 </>
             }
             isOpen={syncMethodModalIsOpen}
             onClose={closeSyncMethodModal}
             footer={
-                schemaLoading && (
+                schemaLoading ? (
                     <>
                         <LemonSkeleton.Button />
                         <LemonSkeleton.Button />
                     </>
-                )
+                ) : null
             }
         >
             {schemaLoading && (
@@ -644,6 +674,8 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                     schema={{
                         table: currentSyncMethodModalSchema.name,
                         should_sync: currentSyncMethodModalSchema.should_sync,
+                        description: currentSyncMethodModalSchema.description,
+                        should_sync_default: currentSyncMethodModalSchema.should_sync_default ?? true,
                         sync_type: currentSyncMethodModalSchema.sync_type,
                         sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
@@ -651,31 +683,21 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         incremental_available: schemaIncrementalFields.incremental_available,
                         append_available: schemaIncrementalFields.append_available,
                         incremental_fields: schemaIncrementalFields.incremental_fields,
+                        supports_webhooks: schemaIncrementalFields?.supports_webhooks ?? false,
                     }}
                     onClose={() => {
                         resetSchemaIncrementalFields()
                         closeSyncMethodModal()
                     }}
                     onSave={(syncType, incrementalField, incrementalFieldType) => {
-                        if (syncType === 'full_refresh') {
-                            updateSchema({
-                                ...currentSyncMethodModalSchema,
-                                should_sync: true,
-                                sync_type: syncType,
-                                incremental_field: null,
-                                incremental_field_type: null,
-                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
-                            })
-                        } else {
-                            updateSchema({
-                                ...currentSyncMethodModalSchema,
-                                should_sync: true,
-                                sync_type: syncType,
-                                incremental_field: incrementalField,
-                                incremental_field_type: incrementalFieldType,
-                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
-                            })
-                        }
+                        updateSchema({
+                            ...currentSyncMethodModalSchema,
+                            should_sync: true,
+                            sync_type: syncType,
+                            incremental_field: syncType === 'full_refresh' ? null : incrementalField,
+                            incremental_field_type: syncType === 'full_refresh' ? null : incrementalFieldType,
+                            sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
+                        })
                     }}
                 />
             )}

@@ -17,8 +17,7 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use health::HealthRegistry;
-use integration_utils::DEFAULT_TEST_TIME;
+use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -111,7 +110,8 @@ fn make_test_client(sink: &CapturingSink) -> TestClient {
 }
 
 fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOptions) -> TestClient {
-    let liveness = HealthRegistry::new("otel_test");
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
             .expect("Invalid fixed time format")
@@ -131,8 +131,9 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
 
     let app = router(
         timesource,
+        readiness,
         liveness,
-        sink.clone(),
+        Arc::new(sink.clone()),
         redis,
         None, // global_rate_limiter_token_distinctid
         None, // global_rate_limiter_token

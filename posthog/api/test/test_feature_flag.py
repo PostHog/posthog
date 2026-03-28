@@ -24,25 +24,29 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.constants import AvailableFeature
+from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
-from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
 from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import Person
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.surveys.survey import Survey
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestExtractEtagFromHeader:
@@ -425,6 +429,48 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
+
+    def test_saving_flag_strips_legacy_holdout_groups(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+                "holdout": {"id": 1, "exclusion_percentage": 10},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
+        self.assertEqual(flag.filters["holdout"], {"id": 1, "exclusion_percentage": 10})
+
+    def test_saving_flag_strips_legacy_holdout_groups_without_holdout_key(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test-legacy",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
 
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -1323,8 +1369,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                                 }
                                             ],
                                             "rollout_percentage": 65,
+                                            "aggregation_group_type_index": None,
                                         }
-                                    ]
+                                    ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -1620,10 +1668,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         }
                                     ],
                                     "rollout_percentage": 100,
+                                    "aggregation_group_type_index": None,
                                 }
                             ],
                             "payloads": {},
                             "multivariate": None,
+                            "aggregation_group_type_index": None,
                         },
                     },
                     "version": original_version,
@@ -2067,8 +2117,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                                 }
                                             ],
                                             "rollout_percentage": 65,
+                                            "aggregation_group_type_index": None,
                                         }
-                                    ]
+                                    ],
+                                    "aggregation_group_type_index": None,
                                 },
                             },
                             {
@@ -2456,7 +2508,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "action": "created",
                                 "field": "filters",
                                 "before": None,
-                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [],
+                                            "rollout_percentage": 74,
+                                            "aggregation_group_type_index": None,
+                                        }
+                                    ],
+                                    "aggregation_group_type_index": None,
+                                },
                             },
                             {
                                 "action": "changed",
@@ -2568,7 +2629,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "action": "created",
                                 "field": "filters",
                                 "before": None,
-                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [],
+                                            "rollout_percentage": 74,
+                                            "aggregation_group_type_index": None,
+                                        }
+                                    ],
+                                    "aggregation_group_type_index": None,
+                                },
                             },
                             {
                                 "action": "changed",
@@ -3891,6 +3961,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 100,
+                            "aggregation_group_type_index": None,
                         },
                         {
                             "variant": "test",
@@ -3903,6 +3974,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 100,
+                            "aggregation_group_type_index": None,
                         },
                     ],
                     "multivariate": {
@@ -3911,6 +3983,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {"key": "test", "name": "", "rollout_percentage": 0},
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4002,6 +4075,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     "value": cohort_valid_for_ff.pk,
                                 }
                             ],
+                            "aggregation_group_type_index": None,
                         }
                     ],
                     "multivariate": {
@@ -4023,6 +4097,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4238,6 +4313,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {
                             "rollout_percentage": 20,
                             "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
+                            "aggregation_group_type_index": None,
                         }
                     ],
                     "multivariate": {
@@ -4259,6 +4335,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                         ]
                     },
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -4282,8 +4359,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 }
                             ],
                             "rollout_percentage": 20,
+                            "aggregation_group_type_index": None,
                         },
                     ],
+                    "aggregation_group_type_index": None,
                 },
                 "deleted": False,
                 "active": True,
@@ -5001,7 +5080,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use group properties)",
+                "detail": "Filters are not valid (group properties must match the condition set's group type)",
                 "attr": "filters",
             },
         )
@@ -5024,10 +5103,112 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use group properties)",
+                "detail": "Filters are not valid (group-aggregated conditions can only use group properties)",
                 "attr": "filters",
             },
         )
+
+    def test_validation_mixed_aggregation_types_rejected(self):
+        """Test that mixed aggregation types across condition sets are rejected"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Mixed aggregation flag",
+                "key": "mixed-aggregation-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 50,
+                            "aggregation_group_type_index": None,  # Person aggregation
+                        },
+                        {
+                            "properties": [],
+                            "rollout_percentage": 50,
+                            "aggregation_group_type_index": 0,  # Group aggregation
+                        },
+                    ]
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Mixed aggregation types across condition sets are not yet supported. All condition sets must use the same aggregation type.",
+                "attr": "filters",
+            },
+        )
+
+    def test_per_condition_aggregation_normalization(self):
+        """Test that flag-level aggregation is distributed to condition sets without one"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Normalized aggregation flag",
+                "key": "normalized-aggregation-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        result = response.json()
+        # Flag-level should be preserved
+        self.assertEqual(result["filters"]["aggregation_group_type_index"], 0)
+        # Condition set should have inherited the flag-level value
+        self.assertEqual(result["filters"]["groups"][0]["aggregation_group_type_index"], 0)
+
+    def test_per_condition_aggregation_roundtrip(self):
+        """Test that per-condition aggregation values persist through create/read"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create with explicit per-condition value
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Per-condition aggregation flag",
+                "key": "per-condition-aggregation-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "aggregation_group_type_index": 0,
+                        },
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        # Read it back
+        get_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        result = get_response.json()
+
+        # Both flag-level and condition-level should be present and consistent
+        self.assertEqual(result["filters"]["aggregation_group_type_index"], 0)
+        self.assertEqual(result["filters"]["groups"][0]["aggregation_group_type_index"], 0)
 
     def test_validation_empty_groups(self):
         """Test that creating a flag with empty groups raises validation error"""
@@ -5131,6 +5312,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         activity_response = self._get_feature_flag_activity(flag_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
         self.maxDiff = None
         assert activity == expected
 
@@ -5356,6 +5539,198 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         filtered_deleted = self.client.get(f"/api/projects/@current/feature_flags?search=deleted_unique_experiment")
         response = filtered_deleted.json()
         assert len(response["results"]) == 0
+
+    def test_get_flags_with_search_word_boundaries(self):
+        """Test that search handles word boundaries correctly (spaces, hyphens, underscores)."""
+        # Create flags with different word separators
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="feature-flag-test", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="feature_flag_experiment", active=True)
+        FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="my_feature_button", active=True, name="Feature Button Display"
+        )
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated-item", active=True)
+
+        # Test searching for "feature flag" should match hyphenated and underscored versions
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=feature flag")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+
+        # Full-text search should find flags where "feature" and "flag" appear as separate words
+        # This should match hyphenated and underscored versions
+        expected_matches = {"feature-flag-test", "feature_flag_experiment"}
+        assert expected_matches.issubset(matched_keys), f"Expected {expected_matches} to be found in {matched_keys}"
+        assert "unrelated-item" not in matched_keys
+
+        # Test searching by name (which has spaces)
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=Feature Button")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+
+        # Should match flag by name
+        assert "my_feature_button" in matched_keys, f"Expected to find flag by name, got {matched_keys}"
+
+        # Test searching for "feature" should match all flags containing that word
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=feature")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+
+        # Should match all flags containing "feature"
+        expected_matches = {"feature-flag-test", "feature_flag_experiment", "my_feature_button"}
+        assert expected_matches.issubset(matched_keys), f"Expected {expected_matches} to be found in {matched_keys}"
+
+    def test_get_flags_with_search_partial_word_matching(self):
+        """Test that search handles partial word matching using regex patterns."""
+        # Create flags to test different word separators
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="web-analytics", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="web_dashboard", active=True)
+        FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="web analytics", name="Web Analytics Feature", active=True
+        )
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="mobile-analytics", active=True)
+
+        # Test searching for "web ana" should match various separators
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=web ana")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+
+        # Should match web-analytics and "web analytics" (by name)
+        assert "web-analytics" in matched_keys, f"Expected 'web-analytics' in {matched_keys}"
+        assert "web analytics" in matched_keys, f"Expected 'web analytics' in {matched_keys}"
+        assert "mobile-analytics" not in matched_keys, "Should not match mobile-analytics"
+
+        # Test different word separators
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=web dash")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "web_dashboard" in matched_keys, f"Expected 'web_dashboard' in {matched_keys}"
+
+        # Test single word still works
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=web")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+
+        # Should match all web flags
+        web_flags = {"web-analytics", "web_dashboard", "web analytics"}
+        assert web_flags.issubset(matched_keys), f"Expected {web_flags} in {matched_keys}"
+        assert "mobile-analytics" not in matched_keys
+
+    def test_get_flags_with_search_exact_api_case(self):
+        """Test the exact case from the user's API call: web%20ana should match web-analytics."""
+        # Create the exact flag mentioned by the user
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="web-analytics", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-flag", active=True)
+
+        # Test the exact API call pattern: search=web%20ana (which becomes "web ana")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/?search=web ana&page=1&limit=100&offset=0"
+        )
+        data = response.json()
+
+        # The search should find web-analytics
+        assert response.status_code == 200
+        assert "results" in data
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "web-analytics" in matched_keys, f"Expected 'web-analytics' in {matched_keys}"
+
+    def test_get_flags_with_search_trailing_space(self):
+        """Test that search handles trailing spaces correctly by trimming them."""
+        # Create flags to test with
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="web-analytics", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="mobile-app", active=True)
+
+        # Test search with trailing space (URL encoded as "web%20")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=web ")
+        data = response.json()
+
+        assert response.status_code == 200
+        assert "results" in data
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "web-analytics" in matched_keys, (
+            f"Expected 'web-analytics' with trailing space search, got {matched_keys}"
+        )
+        assert "mobile-app" not in matched_keys
+
+        # Test search with leading space
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search= web")
+        data = response.json()
+
+        assert response.status_code == 200
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "web-analytics" in matched_keys, (
+            f"Expected 'web-analytics' with leading space search, got {matched_keys}"
+        )
+
+        # Test search with both leading and trailing spaces
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search= web ")
+        data = response.json()
+
+        assert response.status_code == 200
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "web-analytics" in matched_keys, f"Expected 'web-analytics' with surrounding spaces, got {matched_keys}"
+
+    def test_get_flags_with_search_regex_metacharacters(self):
+        """Test that search handles regex metacharacters safely by escaping them."""
+        # Create flags to test regex escaping
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test.period.flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-hyphen-flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test+plus+flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test*asterisk*flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test[bracket]flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test(paren)flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test?question?flag", active=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated-flag", active=True)
+
+        # Test that periods are treated as literal characters, not regex wildcards
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test.period")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test.period.flag" in matched_keys, "Should find exact period match"
+        assert "test-hyphen-flag" not in matched_keys, "Should not match hyphen when searching for period"
+
+        # Test that plus signs are escaped (URL encode + as %2B)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%2Bplus")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test+plus+flag" in matched_keys, "Should find exact plus match"
+
+        # Test that asterisks are escaped (URL encode * as %2A)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%2Aasterisk")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test*asterisk*flag" in matched_keys, "Should find exact asterisk match"
+
+        # Test that brackets are escaped (URL encode [ and ] as %5B and %5D)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%5Bbracket%5D")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test[bracket]flag" in matched_keys, "Should find exact bracket match"
+
+        # Test that parentheses are escaped (URL encode ( and ) as %28 and %29)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%28paren%29")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test(paren)flag" in matched_keys, "Should find exact parentheses match"
+
+        # Test that question marks are escaped (URL encode ? as %3F)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search=test%3Fquestion")
+        data = response.json()
+        matched_keys = {result["key"] for result in data["results"]}
+        assert "test?question?flag" in matched_keys, "Should find exact question mark match"
+
+    def test_get_flags_with_search_length_limit(self):
+        """Test that search terms longer than 200 characters are rejected."""
+        # Test with exactly 200 characters (should work)
+        search_200 = "a" * 200
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search={search_200}")
+        assert response.status_code == 200, "200-character search should be allowed"
+
+        # Test with 201 characters (should fail)
+        search_201 = "a" * 201
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?search={search_201}")
+        assert response.status_code == 400, "201-character search should be rejected"
+
+        data = response.json()
+        assert "Search term cannot exceed 200 characters" in str(data), "Should return appropriate error message"
 
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
@@ -7468,6 +7843,34 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="body")._value.get(), before_body
         )
 
+    def test_feature_flag_detail_actions_respect_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="secret flag",
+            key="secret-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(user2)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        activity_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/activity/")
+        self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
+        self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -9375,7 +9778,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["total_users"], 5)
 
 
-class TestFeatureFlagEvaluationTags(APIBaseTest):
+class TestFeatureFlagEvaluationContexts(APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
@@ -9390,15 +9793,15 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         super().tearDown()
 
     @pytest.mark.ee
-    def test_create_feature_flag_with_evaluation_tags(self):
+    def test_create_feature_flag_with_evaluation_contexts(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Flag with evaluation tags",
+                "name": "Flag with evaluation contexts",
                 "key": "flag-with-eval-tags",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": ["app", "marketing", "docs"],
-                "evaluation_tags": ["app", "docs"],
+                "evaluation_contexts": ["app", "docs"],
             },
             format="json",
         )
@@ -9420,7 +9823,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(eval_context_names, ["app", "docs"])
 
     @pytest.mark.ee
-    def test_update_feature_flag_evaluation_tags(self):
+    def test_update_feature_flag_evaluation_contexts(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -9429,12 +9832,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Add initial tags and evaluation tags
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing"],
-                "evaluation_tags": ["app"],
+                "evaluation_contexts": ["app"],
             },
             format="json",
         )
@@ -9448,12 +9850,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         assert first_context is not None
         self.assertEqual(first_context.evaluation_context.name, "app")
 
-        # Update evaluation tags
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing", "docs"],
-                "evaluation_tags": ["marketing", "docs"],
+                "evaluation_contexts": ["marketing", "docs"],
             },
             format="json",
         )
@@ -9465,7 +9866,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(eval_context_names, ["docs", "marketing"])
 
     @pytest.mark.ee
-    def test_remove_all_evaluation_tags(self):
+    def test_remove_all_evaluation_contexts(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -9474,12 +9875,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Add initial tags and evaluation tags
         self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing"],
-                "evaluation_tags": ["app", "marketing"],
+                "evaluation_contexts": ["app", "marketing"],
             },
             format="json",
         )
@@ -9488,12 +9888,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
 
         self.assertEqual(FeatureFlagEvaluationContext.objects.filter(feature_flag=flag).count(), 2)
 
-        # Remove all evaluation tags but keep regular tags
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "marketing"],
-                "evaluation_tags": [],
+                "evaluation_contexts": [],
             },
             format="json",
         )
@@ -9507,7 +9906,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(tagged_items.count(), 2)
 
     @pytest.mark.ee
-    def test_evaluation_tags_in_minimal_serializer(self):
+    def test_evaluation_contexts_in_minimal_serializer(self):
         from posthog.api.feature_flag import MinimalFeatureFlagSerializer
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
@@ -9519,7 +9918,6 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Create evaluation contexts (using new model)
         app_context = EvaluationContext.objects.create(name="app", team=self.team)
         docs_context = EvaluationContext.objects.create(name="docs", team=self.team)
 
@@ -9529,8 +9927,8 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         serializer = MinimalFeatureFlagSerializer(flag)
         data = serializer.data
 
-        self.assertIn("evaluation_tags", data)
-        self.assertEqual(sorted(data["evaluation_tags"]), ["app", "docs"])
+        self.assertIn("evaluation_contexts", data)
+        self.assertEqual(sorted(data["evaluation_contexts"]), ["app", "docs"])
 
     @pytest.mark.ee
     def test_evaluation_contexts_independent_from_tags(self):
@@ -9543,12 +9941,11 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
                 "key": "independent-contexts",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": ["app", "docs"],
-                "evaluation_tags": ["production", "staging"],
+                "evaluation_contexts": ["production", "staging"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(sorted(response.json()["evaluation_tags"]), ["production", "staging"])
         self.assertEqual(sorted(response.json()["evaluation_contexts"]), ["production", "staging"])
 
         # Contexts without any tags
@@ -9559,7 +9956,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
                 "key": "contexts-no-tags",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": [],
-                "evaluation_tags": ["production"],
+                "evaluation_contexts": ["production"],
             },
             format="json",
         )
@@ -9567,59 +9964,50 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(response.json()["evaluation_contexts"], ["production"])
 
     @pytest.mark.ee
-    def test_evaluation_tags_hidden_when_feature_flag_disabled(self):
-        """Test that evaluation tags are hidden when FLAG_EVALUATION_TAGS feature flag is disabled"""
-        # Override the default mock to disable the feature flag
+    def test_evaluation_contexts_hidden_when_feature_flag_disabled(self):
         self.mock_feature_enabled.return_value = False
 
-        # Create a flag with evaluation tags
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Flag with evaluation tags",
+                "name": "Flag with evaluation contexts",
                 "key": "flag-with-eval-tags-disabled",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": ["web", "mobile"],
-                "evaluation_tags": ["web"],
+                "evaluation_contexts": ["web"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # Verify the flag was created but WITHOUT evaluation tags (feature flag disabled)
         flag = FeatureFlag.objects.get(key="flag-with-eval-tags-disabled")
-        self.assertEqual(len(flag.evaluation_tags.all()), 0)  # No evaluation tags created
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
-        # Verify evaluation tags are hidden in API response (due to feature flag being disabled)
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], [])  # Hidden due to feature flag
+        self.assertEqual(response.data["evaluation_contexts"], [])
 
-        # Test that evaluation tags can't be created when feature flag is disabled
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "name": "Updated flag with disabled feature flag",
-                "evaluation_tags": ["web", "mobile"],  # Should be ignored
+                "evaluation_contexts": ["web", "mobile"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Verify evaluation tags were not created (feature flag disabled)
         flag.refresh_from_db()
-        self.assertEqual(len(flag.evaluation_tags.all()), 0)  # Still no evaluation tags
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
-        # Now enable the feature flag
         self.mock_feature_enabled.return_value = True
 
-        # Verify evaluation tags are still empty (feature flag was disabled during creation)
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], [])  # Still empty because none were created
+        self.assertEqual(response.data["evaluation_contexts"], [])
 
     @pytest.mark.ee
-    def test_evaluation_tags_in_cache(self):
+    def test_evaluation_contexts_in_cache(self):
         from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
         from posthog.models.feature_flag import set_feature_flags_for_team_in_cache
 
@@ -9651,9 +10039,7 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
 
     @pytest.mark.ee
-    def test_evaluation_tags_cache_invalidation(self):
-        """Test that cache is invalidated when evaluation tags are updated"""
-
+    def test_evaluation_contexts_cache_invalidation(self):
         from posthog.models.feature_flag import get_feature_flags_for_team_in_cache, set_feature_flags_for_team_in_cache
 
         flag = FeatureFlag.objects.create(
@@ -9664,22 +10050,19 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Set initial cache
         set_feature_flags_for_team_in_cache(self.team.project_id)
 
-        # Verify flag is in cache without evaluation tags
         cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
         assert cached_flags is not None
         cached_flag = next((f for f in cached_flags if f.key == "cache-invalidation-test"), None)
         assert cached_flag is not None
         self.assertEqual(cached_flag.evaluation_tag_names, [])
 
-        # Update flag with evaluation tags via API
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {
                 "tags": ["app", "docs"],
-                "evaluation_tags": ["app"],
+                "evaluation_contexts": ["app"],
             },
             format="json",
         )
@@ -9718,7 +10101,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(
             response.status_code,
-            status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+            status.HTTP_200_OK,
         )
         response_data = response.json()
         self.assertEqual(response_data.get("status"), expected_status)
@@ -9798,46 +10181,32 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for flag that has holdout group rolled out to <100%
-        fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
+        # Request status for flag with holdout at <100% exclusion
+        holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="50 percent holdout group flag",
-            key="50-percent-holdout-group-flag",
+            name="50 percent holdout flag",
+            key="50-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+            filters={"holdout": {"id": 1, "exclusion_percentage": 50}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
-        self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
+        self.assert_expected_response(holdout_flag.id, FeatureFlagStatus.ACTIVE)
 
-        # Request status for flag that has holdout group rolled out to 100% and specific properties
-        fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+        # Request status for flag with holdout at 100% exclusion
+        fully_excluded_holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="100 percent holdout group with properties flag",
-            key="100-percent-holdout-group-with-properties-flag",
+            name="100 percent holdout flag",
+            key="100-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={
-                "holdout_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["Smith"],
-                                "operator": "contains",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
+            filters={"holdout": {"id": 2, "exclusion_percentage": 100}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
-            fully_rolled_out_holdout_group_flag_with_properties.id,
+            fully_excluded_holdout_flag.id,
             FeatureFlagStatus.ACTIVE,
         )
 

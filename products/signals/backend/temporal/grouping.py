@@ -51,10 +51,10 @@ from products.signals.backend.temporal.types import (
     SpecificityMetadata,
     TeamSignalGroupingInput,
 )
+from products.signals.backend.utils import EMBEDDING_MODEL, soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
 
@@ -806,7 +806,8 @@ class AssignAndEmitSignalOutput:
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool, datetime]:
+    def do_assign_and_emit() -> tuple[str, bool, datetime, bool]:
+        """Returns (report_id, promoted, timestamp, matched_deleted_report)."""
         with transaction.atomic():
             promoted = False
 
@@ -817,7 +818,11 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # if a report is deleted while a signal that would match it is in-flight,
                 # this can happen. In these cases we skip the weight/count update and skip
                 # promotion, but we still emit the signal to ClickHouse, marked as deleted
-                # in metadata
+                # in metadata.
+                #
+                # We also soft-delete all stale signals for the deleted report (outside the
+                # transaction) so they stop showing up in semantic search and attracting
+                # future signals to the dead report.
                 if report.status == SignalReport.Status.DELETED:
                     report_id = str(report.id)
                     ts = input.timestamp or timezone.now()
@@ -842,7 +847,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         timestamp=ts,
                         metadata=metadata,
                     )
-                    return report_id, False, ts
+                    return report_id, False, ts, True
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
@@ -899,10 +904,30 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 metadata=metadata,
             )
 
-            return report_id, promoted, ts
+            return report_id, promoted, ts, False
 
     try:
-        report_id, promoted, ts = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
+        report_id, promoted, ts, matched_deleted = await database_sync_to_async(
+            do_assign_and_emit, thread_sensitive=False
+        )()
+
+        # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
+        # This prevents data corruption where non-deleted signals for a deleted report
+        # keep attracting new signals into the dead group.
+        if matched_deleted:
+            team = await Team.objects.aget(pk=input.team_id)
+            await database_sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
+                report_id=report_id,
+                team_id=input.team_id,
+                team=team,
+            )
+            logger.info(
+                "Soft-deleted stale signals for deleted report encountered during grouping",
+                report_id=report_id,
+                team_id=input.team_id,
+                signal_id=input.signal_id,
+            )
+
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",
             report_id=report_id,
@@ -941,21 +966,23 @@ WAIT_POLL_INTERVAL_SECONDS = 10
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
     """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
 
-    Filters on inserted_at >= (now - 1 minute) rather than on the deleted flag, so we
-    confirm that *this specific ingestion* landed — regardless of whether the signal is
-    deleted — and don't mistake an older row for the one we just emitted.
+    Filters on inserted_at >= (now - 30 minutes) to avoid matching stale rows from a
+    previous emission of the same document_id (e.g. deleted then reingested). The window
+    is generous because signals are emitted during the sequential phase before this
+    activity starts, so early signals may already be minutes old.
     """
     if not input.signals:
         return
 
     team = await Team.objects.aget(pk=input.team_id)
-    inserted_at_threshold = timezone.now() - timedelta(minutes=1)
+    inserted_at_threshold = timezone.now() - timedelta(minutes=30)
     max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
 
     signal_ids = [s.signal_id for s in input.signals]
     timestamps = [s.timestamp for s in input.signals]
-    min_timestamp = min(timestamps)
-    max_timestamp = max(timestamps)
+    # Widen the timestamp range to account for precision loss (Python microseconds vs ClickHouse DateTime64(3) milliseconds)
+    min_timestamp = min(timestamps) - timedelta(minutes=2)
+    max_timestamp = max(timestamps) + timedelta(minutes=2)
 
     query = """
         SELECT count(DISTINCT document_id)
@@ -991,6 +1018,11 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             heartbeat_fn=temporalio.activity.heartbeat,
         )
 
+        # Heartbeat immediately after the query completes — the query itself runs in
+        # sync_to_async and can't heartbeat during execution, so this ensures we don't
+        # hit the heartbeat timeout when queries are slow.
+        temporalio.activity.heartbeat(attempt)
+
         if result.results and result.results[0][0] >= expected_count:
             logger.debug(
                 f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
@@ -999,7 +1031,13 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             )
             return
 
-        await asyncio.sleep(WAIT_POLL_INTERVAL_SECONDS)
+        # Sleep in chunks so we keep heartbeating during the poll interval
+        remaining = WAIT_POLL_INTERVAL_SECONDS
+        while remaining > 0:
+            chunk = min(remaining, 5)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
+            temporalio.activity.heartbeat(attempt)
 
     logger.warning(
         f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
@@ -1353,7 +1391,7 @@ async def _process_signal_batch(
                 max_wait_time_seconds=3600,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
-            heartbeat_timeout=timedelta(seconds=30),
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 

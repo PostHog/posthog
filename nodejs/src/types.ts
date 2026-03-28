@@ -14,15 +14,15 @@ import { InternalCaptureService } from './common/services/internal-capture'
 import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import { KafkaProducerWrapper } from './kafka/producer'
-import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
@@ -46,6 +46,7 @@ export {
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
+export { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
 export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
@@ -115,6 +116,8 @@ export interface PluginsServerConfig
         CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
+        TracesIngestionConsumerConfig,
+        ErrorTrackingConsumerConfig,
         SessionRecordingConfig,
         SessionRecordingApiConfig {}
 
@@ -127,7 +130,6 @@ export interface HubServices {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
-    clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
     geoipService: GeoIPService
     encryptedFields: EncryptedFields
@@ -147,6 +149,8 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     logsIngestion?: boolean
+    tracesIngestion?: boolean
+    errorTrackingIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean

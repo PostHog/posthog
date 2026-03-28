@@ -16,7 +16,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -35,6 +35,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
+from posthog.event_usage import groups
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import (
@@ -716,21 +717,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             team_id = self.context["team_id"]
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "databricks-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("The Databricks destination is not enabled for this team.")
 
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
             integration: Integration | None = destination_attrs.get("integration")
@@ -746,23 +732,17 @@ class BatchExportSerializer(serializers.ModelSerializer):
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
 
+        if destination_type == BatchExportDestination.Destination.BIGQUERY:
+            team_id = self.context["team_id"]
+            integration = destination_attrs.get("integration")
+            if integration is not None:
+                if integration.team_id != team_id:
+                    raise serializers.ValidationError("Integration does not belong to this team.")
+                if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+                    raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
+
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
             team_id = self.context["team_id"]
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "azure-blob-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Azure Blob Storage batch exports are not enabled for this team.")
 
             # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
             integration = destination_attrs.get("integration")
@@ -1121,7 +1101,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         # if we have an integration, add its config and sensitive_config to test_configuration
         integration: Integration | None = serializer.validated_data["destination"].get("integration")
         if integration:
-            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+            test_configuration = {
+                **test_configuration,
+                **integration.config,
+                **integration.sensitive_config,
+                "integration": integration,
+            }
 
         destination_test.configure(**test_configuration)
 
@@ -1155,7 +1140,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         # if we have an integration, add its config and sensitive_config to test_configuration
         integration: Integration | None = serializer.validated_data["destination"].get("integration")
         if integration:
-            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+            test_configuration = {
+                **test_configuration,
+                **integration.config,
+                **integration.sensitive_config,
+                "integration": integration,
+            }
 
         destination_test.configure(**test_configuration)
 
@@ -1183,6 +1173,17 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         model = BatchExportBackfill
         fields = "__all__"
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "total_runs": {"type": "integer", "nullable": True},
+                "finished_runs": {"type": "integer", "nullable": True},
+                "progress": {"type": "number", "nullable": True},
+            },
+        }
+    )
     def get_progress(self, obj: BatchExportBackfill) -> BatchExportBackfillProgress | None:
         """Return progress information containing total runs, finished runs, and progress percentage.
 
@@ -1327,18 +1328,40 @@ class BatchExportBackfillViewSet(
     def create(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Create a new backfill for a BatchExport."""
         try:
-            batch_export = BatchExport.objects.get(
+            batch_export = BatchExport.objects.select_related("destination").get(
                 id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
             )
         except BatchExport.DoesNotExist:
             raise NotFound("BatchExport not found.")
 
+        start_at = request.data.get("start_at")
+        end_at = request.data.get("end_at")
+
         backfill_id = create_backfill(
             self.team,
             batch_export,
-            request.data.get("start_at"),
-            request.data.get("end_at"),
+            start_at,
+            end_at,
         )
+
+        if isinstance(request.user, User):
+            try:
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event="batch export backfill created",
+                    properties={
+                        "backfill_id": backfill_id,
+                        "batch_export_id": str(batch_export.pk),
+                        "destination_type": batch_export.destination.type,
+                        "has_start_at": start_at is not None,
+                        "has_end_at": end_at is not None,
+                        "team_id": self.team_id,
+                    },
+                    groups=groups(self.team.organization, self.team),
+                )
+            except Exception:
+                logger.exception("Failed to capture batch export backfill created event")
+
         return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])

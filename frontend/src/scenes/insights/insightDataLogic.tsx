@@ -5,12 +5,14 @@ import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -107,22 +109,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     loaders(({ values }) => ({
-        generatedInsightName: [
-            null as string | null,
+        generatedInsightMetadata: [
+            null as { name: string; description: string } | null,
             {
-                generateInsightName: async () => {
+                generateInsightMetadata: async () => {
                     const insightQuery = values.insightQuery
                     if (!insightQuery) {
                         return null
                     }
+
                     try {
-                        const response = await api.insights.generateName({
+                        const response = await api.insights.generateMetadata({
                             kind: NodeKind.InsightVizNode,
                             source: insightQuery,
                         })
-                        return response.name
+
+                        eventUsageLogic.actions.reportInsightMetadataAiGenerated(insightQuery.kind)
+
+                        return { name: response.name, description: response.description }
                     } catch (e) {
-                        lemonToast.error('Failed to generate name')
+                        eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
+                        lemonToast.error('Failed to generate name and description')
                         throw e
                     }
                 },
@@ -245,9 +252,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        generateInsightNameSuccess: ({ generatedInsightName }) => {
-            if (generatedInsightName) {
-                actions.setInsightMetadata({ name: generatedInsightName })
+        generateInsightMetadataSuccess: ({ generatedInsightMetadata }) => {
+            if (generatedInsightMetadata) {
+                actions.setInsightMetadata({
+                    name: generatedInsightMetadata.name,
+                    description: generatedInsightMetadata.description,
+                })
+                if (generatedInsightMetadata.description && !sceneLayoutLogic.values.showDescription) {
+                    sceneLayoutLogic.actions.toggleShowDescription()
+                }
             }
         },
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {

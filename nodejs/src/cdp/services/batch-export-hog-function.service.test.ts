@@ -11,6 +11,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_
 import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -41,9 +42,9 @@ describe('BatchExportHogFunctionService', () => {
 
     beforeAll(async () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
-        api = new CdpApi(hub, hub)
+        api = new CdpApi(hub, createCdpConsumerDeps(hub))
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})

@@ -29,3 +29,13 @@ const outputHtml = html.replace('<!-- INLINE_JS -->', () => `<script>${js}</scri
 
 mkdirSync(resolve(__dirname, 'dist'), { recursive: true })
 writeFileSync(resolve(__dirname, 'dist/player.html'), outputHtml)
+
+// Build protocol module as CJS for nodejs consumers (e.g. recording-rasterizer)
+await build({
+    entryPoints: [resolve(__dirname, 'src/protocol.ts')],
+    bundle: false,
+    outfile: resolve(__dirname, 'dist/protocol.js'),
+    format: 'cjs',
+    platform: 'node',
+    target: 'es2020',
+})

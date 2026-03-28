@@ -17,7 +17,7 @@ Optional: Issues (R/W), Workflows (R/W).
 Steps:
 
 1. GitHub -> Settings -> Developer Settings -> GitHub Apps -> New GitHub App
-2. Set the **Setup URL** to `http://localhost:8010/integrations/github/callback`
+2. Set the **Setup URL** (NOT the Callback URL or the Homepage URL) to `http://localhost:8010/integrations/github/callback`
 3. Set the permissions above
 4. Generate and download a private key
 5. Install the app on your test repositories
@@ -66,7 +66,7 @@ GITHUB_APP_CLIENT_ID=your_app_id
 GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 
-# Optional: for local agent development (see step 7)
+# Optional: for local agent development (see step 8)
 # LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 ```
 
@@ -81,9 +81,19 @@ Create a `tasks` feature flag at 100% rollout:
 
 This is the feature flag used on the endpoints and in the temporal worker.
 
-## 5. Temporal worker
+## 5. Skills
 
-Temporal and the temporal-django-worker start automatically via mprocs when you run `./bin/start`.
+In order to populate the skills folder for the sandbox, run the following command in the flox activated environment:
+
+```shell
+hogli build:skills
+```
+
+This performs the same skill build as the CI/CD system and correctly creates and populates the `dist/skills` directory.
+
+## 6. Temporal worker
+
+Temporal and the temporal-django-worker start automatically via phrocs when you run `./bin/start`.
 
 The `process-task` workflow defined in `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox, starts an agent inside it, and waits for the agent to finish. The workflow orchestrates these activities:
 
@@ -95,7 +105,7 @@ The `process-task` workflow defined in `products/tasks/backend/temporal/process_
 
 The activities live in `products/tasks/backend/temporal/process_task/activities/`.
 
-## 6. Running via the UI
+## 7. Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what is happening with a background cloud run.
 
@@ -104,16 +114,20 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## 7. Testing with local agent packages
+## 8. Testing with local agent packages
 
 To test changes to `@posthog/agent` before publishing:
 
 ```bash
-# Set the PostHog Code monorepo root
-export LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
+# Set this as an environment variable in the PostHog monorepo root (in your .env)
+LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 
-# Build the packages first
+# Build the @posthog/agent package OR run pnpm dev in Posthog Code
 cd /path/to/posthog-code/packages/agent && pnpm build
+
+OR
+
+pnpm dev
 
 # Run a task from the UI
 ```

@@ -49,7 +49,6 @@ export type HogFunctionMonitoringMessage = {
     topic: string
     value: LogEntrySerialized | AppMetricType
     headers?: Record<string, string>
-    key: string
 }
 
 // Check if the result is of type CyclotronJobInvocationHogFunction
@@ -96,7 +95,7 @@ export class HogFunctionMonitoringService {
                 return this.kafkaProducer
                     .produce({
                         topic: x.topic,
-                        key: x.key ? Buffer.from(x.key) : null,
+                        key: null,
                         value,
                         headers: x.headers,
                     })
@@ -107,7 +106,6 @@ export class HogFunctionMonitoringService {
                             error: String(error),
                             messageLength: value?.length,
                             topic: x.topic,
-                            key: x.key,
                             headers: x.headers,
                         })
 
@@ -125,7 +123,13 @@ export class HogFunctionMonitoringService {
                       this.warehouseKafkaProducer!.produce({
                           topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
                           key: Buffer.from(`${payload.team_id}:${payload.schema_id}`),
-                          value: Buffer.from(JSON.stringify(payload.payload)),
+                          value: Buffer.from(
+                              JSON.stringify({
+                                  schema_id: payload.schema_id,
+                                  team_id: payload.team_id,
+                                  payload: JSON.stringify(payload.payload),
+                              })
+                          ),
                       }).catch((error) => {
                           logger.error('Error producing warehouse webhook payload', { error })
                           captureException(error)
@@ -147,7 +151,6 @@ export class HogFunctionMonitoringService {
         this.messagesToProduce.push({
             topic: this.appMetricsTopic,
             value: appMetric,
-            key: appMetric.app_source_id,
         })
         hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
     }
@@ -168,7 +171,6 @@ export class HogFunctionMonitoringService {
             this.messagesToProduce.push({
                 topic: this.logEntriesTopic,
                 value: logEntry,
-                key: logEntry.instance_id,
             })
         })
         hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)

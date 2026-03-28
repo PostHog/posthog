@@ -41,6 +41,28 @@ impl Deref for FlexBool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceMode {
+    All,         // default — both fleets (current behavior)
+    Flags,       // /flags and /decide only
+    Definitions, // /flags/definitions only
+}
+
+impl FromStr for ServiceMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "all" => Ok(ServiceMode::All),
+            "flags" => Ok(ServiceMode::Flags),
+            "definitions" => Ok(ServiceMode::Definitions),
+            _ => Err(format!(
+                "Invalid SERVICE_MODE: '{s}'. Expected 'all', 'flags', or 'definitions'"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamIdCollection {
     All,
     None,
@@ -202,6 +224,13 @@ pub struct Config {
     // When empty, realtime cohort evaluation is disabled (graceful degradation).
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
+
+    // Feature gate for realtime cohort evaluation. When false (default), the realtime
+    // cohort block in prepare_flag_evaluation_state is skipped entirely, even if the
+    // behavioral cohorts DB is configured and cohorts with CohortType::Realtime exist.
+    // Set to true to enable realtime cohort membership lookups on the hot path.
+    #[envconfig(from = "ENABLE_REALTIME_COHORT_EVALUATION", default = "false")]
+    pub enable_realtime_cohort_evaluation: bool,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
@@ -396,6 +425,12 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
+    pub group_type_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
+    pub group_type_cache_max_entries: u64,
+
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -576,8 +611,25 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
     pub team_negative_cache_capacity: u64,
 
-    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
+
+    // TTL for the Redis-backed per-token auth cache (positive hits).
+    // Starts at 5 minutes as a conservative default; increase once invalidation
+    // signals are proven reliable in production.
+    #[envconfig(from = "AUTH_TOKEN_CACHE_TTL_SECONDS", default = "300")]
+    pub auth_token_cache_ttl_seconds: u64,
+
+    // When true, skip the PostgreSQL fallback for team token lookups.
+    // HyperCache (Redis/S3) is treated as the source of truth — a cache
+    // miss means the token is invalid. Transient errors (Redis/S3 timeouts)
+    // bypass the fallback entirely and are not negative-cached.
+    // Gated for safe rollout.
+    #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
+    pub skip_pg_team_fallback: FlexBool,
+
+    #[envconfig(from = "SERVICE_MODE", default = "all")]
+    pub service_mode: ServiceMode,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -712,6 +764,7 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            enable_realtime_cohort_evaluation: false,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
@@ -738,6 +791,8 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
+            group_type_cache_ttl_seconds: 300,
+            group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
@@ -778,7 +833,10 @@ impl Config {
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
-            team_negative_cache_ttl_seconds: 300,
+            team_negative_cache_ttl_seconds: 30,
+            skip_pg_team_fallback: FlexBool(false),
+            service_mode: ServiceMode::All,
+            auth_token_cache_ttl_seconds: 300,
         }
     }
 
@@ -1188,6 +1246,40 @@ mod tests {
 
         assert_eq!(zero_config.redis_response_timeout_ms, 0);
         assert_eq!(zero_config.redis_connection_timeout_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod service_mode_tests {
+    use super::*;
+
+    #[test]
+    fn test_service_mode_from_str() {
+        assert_eq!("all".parse::<ServiceMode>().unwrap(), ServiceMode::All);
+        assert_eq!("flags".parse::<ServiceMode>().unwrap(), ServiceMode::Flags);
+        assert_eq!(
+            "definitions".parse::<ServiceMode>().unwrap(),
+            ServiceMode::Definitions
+        );
+        // case insensitive
+        assert_eq!("ALL".parse::<ServiceMode>().unwrap(), ServiceMode::All);
+        assert_eq!("Flags".parse::<ServiceMode>().unwrap(), ServiceMode::Flags);
+        assert_eq!(
+            "DEFINITIONS".parse::<ServiceMode>().unwrap(),
+            ServiceMode::Definitions
+        );
+    }
+
+    #[test]
+    fn test_service_mode_invalid() {
+        assert!("invalid".parse::<ServiceMode>().is_err());
+        assert!("".parse::<ServiceMode>().is_err());
+    }
+
+    #[test]
+    fn test_service_mode_default() {
+        let config = Config::default_test_config();
+        assert_eq!(config.service_mode, ServiceMode::All);
     }
 }
 

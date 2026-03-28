@@ -1,4 +1,4 @@
-import { BreakdownType, FunnelMathType, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
+import { BreakdownType, FunnelMathType, IntervalType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     ActionsNode,
@@ -11,6 +11,7 @@ import {
     NodeKind,
     RetentionFilterLegacy,
     TrendsFilterLegacy,
+    TrendsFormulaNode,
 } from './schema-general'
 import { integer } from './type-utils'
 
@@ -149,7 +150,73 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
     group_type_index: integer
 }
 
-export type AssistantPropertyFilter = AssistantGenericPropertyFilter | AssistantGroupPropertyFilter
+export interface AssistantCohortPropertyFilter {
+    /**
+     * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
+     * Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     */
+    type: PropertyFilterType.Cohort
+    key: 'id'
+    /** The cohort ID to filter by. */
+    value: integer
+    /** @default in */
+    operator: PropertyOperator.In
+}
+
+export type AssistantElementPropertyFilter = AssistantBasePropertyFilter & {
+    /**
+     * Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`).
+     * Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`
+     */
+    type: PropertyFilterType.Element
+    /**
+     * The element property to filter on.
+     * `tag_name` — HTML tag (e.g., `button`, `a`, `input`).
+     * `text` — visible text content of the element.
+     * `href` — the `href` attribute for links.
+     * `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).
+     */
+    key: 'tag_name' | 'text' | 'href' | 'selector'
+}
+
+export interface AssistantHogQLPropertyFilter {
+    /**
+     * Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.
+     */
+    type: PropertyFilterType.HogQL
+    /**
+     * A HogQL boolean expression used as a filter condition.
+     *
+     * Examples:
+     * - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`
+     * - Filter with string matching: `properties.$current_url LIKE '%/pricing%'`
+     * - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`
+     */
+    key: string
+}
+
+export interface AssistantFlagPropertyFilter {
+    /**
+     * Filter events by feature flag state — only include events where a specific flag evaluated to a given value.
+     * Examples:
+     * - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }`
+     * - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }`
+     */
+    type: PropertyFilterType.Flag
+    /** The feature flag key. */
+    key: string
+    operator: PropertyOperator.FlagEvaluatesTo
+    /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+    value: boolean | string
+}
+
+export type AssistantPropertyFilter =
+    | AssistantGenericPropertyFilter
+    | AssistantGroupPropertyFilter
+    | AssistantCohortPropertyFilter
+    | AssistantElementPropertyFilter
+    | AssistantHogQLPropertyFilter
+    | AssistantFlagPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /**
@@ -175,6 +242,11 @@ export interface AssistantInsightsQueryBase {
      * Sampling rate from 0 to 1 where 1 is 100% of the data.
      */
     samplingFactor?: number | null
+
+    /**
+     * Groups aggregation
+     */
+    aggregation_group_type_index?: integer | null
 }
 
 /**
@@ -192,6 +264,19 @@ export interface AssistantTrendsEventsNode extends Omit<
     | 'math_property_revenue_currency'
 > {
     properties?: AssistantPropertyFilter[]
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
 }
 
 /**
@@ -214,6 +299,19 @@ export interface AssistantTrendsActionsNode extends Omit<
      * Action name from the plan.
      */
     name: string
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
 }
 
 export interface AssistantBaseMultipleBreakdownFilter {
@@ -262,7 +360,8 @@ export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 
 
 export interface AssistantTrendsFilter {
     /**
-     * If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
+     * Use custom formulas to perform mathematical operations like calculating percentages or metrics.
+     * Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
      * When using a formula, you must:
      * - Identify and specify **all** events and actions needed to solve the formula.
      * - Carefully review the list of available events and actions to find appropriate entities for each part of the formula.
@@ -270,7 +369,13 @@ export interface AssistantTrendsFilter {
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
      */
-    formulas?: string[]
+    formulaNodes?: TrendsFormulaNode[]
+
+    /**
+     * Smoothing intervals for the trend line.
+     * @default 1
+     */
+    smoothingIntervals?: integer
 
     /**
      * Visualization type. Available values:
@@ -337,6 +442,24 @@ export interface AssistantTrendsFilter {
      * @default linear
      */
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+
+    /**
+     * Whether to show alert threshold lines on the chart.
+     * @default false
+     */
+    showAlertThresholdLines?: boolean
+
+    /**
+     * Whether to show labels on each series.
+     * @default false
+     */
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+
+    /**
+     * Whether to show multiple y-axes for different series.
+     * @default false
+     */
+    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
@@ -482,6 +605,20 @@ export interface AssistantFunnelsFilter {
      * @default null
      */
     funnelAggregateByHogQL?: 'properties.$session_id' | null
+    /**
+     * Controls how the breakdown value is attributed to a specific step.
+     * `first_touch` - the breakdown value is the first property value found in the entire funnel.
+     * `last_touch` - the breakdown value is the last property value found in the entire funnel.
+     * `all_events` - the breakdown value must be present in all steps of the funnel.
+     * `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.
+     * @default first_touch
+     */
+    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    /**
+     * When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.
+     * @asType integer
+     */
+    breakdownAttributionValue?: integer
 }
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
@@ -576,10 +713,12 @@ export interface AssistantRetentionFilter {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /**
-     * How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).
-     * @default 11
+     * How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort).
+     * @default 8
      */
     totalIntervals?: integer
+    /** Minimum number of times an event must occur to count towards retention. */
+    minimumOccurrences?: integer
     /** Retention event (event marking the user coming back). */
     returningEntity: AssistantRetentionEntity
     /** Activation event (event putting the actor into the initial cohort). */
@@ -596,12 +735,132 @@ export interface AssistantRetentionFilter {
      * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.
      */
     cumulative?: RetentionFilterLegacy['cumulative']
+    /**
+     * The time window mode to use for retention calculations.
+     */
+    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+    /** Custom brackets for retention calculations. */
+    retentionCustomBrackets?: number[]
+    /**
+     * The aggregation type to use for retention.
+     * @default count
+     */
+    aggregationType?: 'count' | 'sum' | 'avg'
+    /** The event or person property to aggregate when aggregationType is sum or avg. */
+    aggregationProperty?: string
+    /**
+     * The type of property to aggregate on (event or person). Defaults to event.
+     * @default event
+     */
+    aggregationPropertyType?: 'event' | 'person'
 }
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter: AssistantRetentionFilter
+}
+
+/**
+ * Defines a regex-based path cleaning rule to normalize dynamic path components.
+ * Path cleaning rules replace matching URL patterns with a readable alias,
+ * which helps group similar paths together (e.g., `/user/123/profile` and `/user/456/profile` become `/user/:id/profile`).
+ */
+export interface AssistantPathCleaningFilter {
+    /**
+     * A human-readable alias that replaces matched path patterns in the visualization.
+     * For example, `/user/:id/profile` to replace `/user/123/profile`.
+     * Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\1` for capture group back-references.
+     */
+    alias: string
+    /**
+     * A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias.
+     * For example, `\/user\/\d+\/profile` to match any user profile URL.
+     */
+    regex: string
+}
+
+export interface AssistantPathsFilter {
+    /**
+     * Which event types to include in the path analysis. Available values:
+     * `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped.
+     * `$screen` - mobile screen views. Path values are screen names (from `$screen_name`).
+     * `custom_event` - custom events (any event not starting with `$`). Path values are event names.
+     * `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression.
+     * You can combine multiple types. If not specified, all events are included without type filtering.
+     */
+    includeEventTypes?: PathType[]
+    /**
+     * A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`.
+     * For example, `properties.$current_url` to use the current URL as the path item.
+     */
+    pathsHogQLExpression?: string
+    /**
+     * Filter to only show paths that start from this specific step.
+     * The value format depends on the included event types:
+     * For `$pageview` paths, use page URLs like `/login` or `/dashboard`.
+     * For `$screen` paths, use screen names.
+     * For `custom_event` paths, use event names.
+     */
+    startPoint?: string
+    /**
+     * Filter to only show paths that end at this specific step.
+     * Same format as `startPoint`.
+     */
+    endPoint?: string
+    /**
+     * Event names or URLs to exclude from the path analysis entirely.
+     * Excluded events are filtered out before building the path visualization.
+     * Useful for removing noise from common but uninteresting events.
+     * @default []
+     */
+    excludeEvents?: string[]
+    /**
+     * Glob-like patterns to group multiple path items into a single step.
+     * Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning.
+     * For example, `/product/*` to group all product pages into one node.
+     * @default []
+     */
+    pathGroupings?: string[]
+    /**
+     * Maximum number of steps (path depth) to show in the visualization.
+     * Controls how deep the path analysis goes from the start.
+     * @default 5
+     */
+    stepLimit?: integer
+    /**
+     * Maximum number of path edges (connections between steps) to return.
+     * Higher values show more detail but can make the visualization harder to read.
+     * @default 50
+     */
+    edgeLimit?: integer
+    /**
+     * ClickHouse regex-based rules to clean and normalize path values at the query level.
+     * Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence.
+     * Useful for removing dynamic IDs or parameters from URLs.
+     * @default []
+     */
+    localPathCleaningFilters?: AssistantPathCleaningFilter[]
+    /**
+     * Minimum number of users who traversed an edge for it to be displayed.
+     * Filters out low-traffic paths to reduce visual noise.
+     */
+    minEdgeWeight?: integer
+    /**
+     * Maximum number of users who traversed an edge for it to be displayed.
+     * Filters out high-traffic paths to focus on less common journeys.
+     */
+    maxEdgeWeight?: integer
+}
+
+export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.PathsQuery
+    /**
+     * Properties specific to the paths insight.
+     * Paths show the most common sequences of events or pages that users navigate through,
+     * helping identify popular user flows and drop-off points.
+     */
+    pathsFilter: AssistantPathsFilter
 }
 
 export interface AssistantHogQLQuery {

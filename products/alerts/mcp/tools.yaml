@@ -1,0 +1,145 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Alerts
+feature: alerts
+url_prefix: /insights
+tools:
+    alerts-list:
+        operation: alerts_list
+        enabled: true
+        scopes:
+            - alert:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List alerts
+        description: >
+            List all insight alerts in the project. Returns alerts with their current state, threshold or detector
+            configuration, timing information, and firing check history. Supports filtering by insight ID via query
+            parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase,
+            relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
+
+    alert-get:
+        operation: alerts_retrieve
+        enabled: true
+        scopes:
+            - alert:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get alert
+        description: >
+            Get a specific alert by ID. Returns the full alert configuration including check results,
+            threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results
+            include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts.
+            By default returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d')
+            to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500).
+            When date filters are provided without checks_limit, up to 500 checks are returned.
+            Check history is retained for 14 days.
+
+    alert-create:
+        operation: alerts_create
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create alert
+        description: >
+            Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection.
+            For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold
+            configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad,
+            iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold
+            (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
+            logic. Requires an insight ID and at least one subscribed user.
+        exclude_params:
+            - state
+            - last_notified_at
+            - last_checked_at
+            - next_check_at
+            - last_value
+    alert-update:
+        operation: alerts_partial_update
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update alert
+        description: >
+            Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed
+            users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly
+            detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a
+            relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
+        exclude_params:
+            - state
+            - last_notified_at
+            - last_checked_at
+            - next_check_at
+            - last_value
+    alerts-update:
+        operation: alerts_update
+        enabled: false
+    alert-delete:
+        operation: alerts_destroy
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete alert
+        description: >
+            Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will
+            no longer receive notifications.
+    alert-simulate:
+        operation: alerts_simulate_create
+        enabled: true
+        scopes:
+            - alert:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Simulate detector on insight
+        description: >
+            Run an anomaly detector on an insight's historical data without creating any alert or check records.
+            Use this to preview how a detector configuration would perform before saving it as an alert.
+            Requires an insight ID and a detector_config object with a type (zscore, mad, iqr, copod, ecod, hbos,
+            isolation_forest, knn, lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d')
+            to control how far back to simulate, and series_index to pick which series to analyze.
+            Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble detectors,
+            per-sub-detector score breakdowns.
+    logs-alerts-list:
+        operation: logs_alerts_list
+        enabled: false
+    logs-alerts-create:
+        operation: logs_alerts_create
+        enabled: false
+    logs-alerts-retrieve:
+        operation: logs_alerts_retrieve
+        enabled: false
+    logs-alerts-update:
+        operation: logs_alerts_update
+        enabled: false
+    logs-alerts-partial-update:
+        operation: logs_alerts_partial_update
+        enabled: false
+    logs-alerts-destroy:
+        operation: logs_alerts_destroy
+        enabled: false
+    alerts-simulate-create:
+        operation: alerts_simulate_create
+        enabled: false

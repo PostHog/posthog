@@ -57,8 +57,14 @@ from posthog.schema import (
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.auth import (
+    ExportRendererAuthentication,
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SharingAccessTokenAuthentication,
+)
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
@@ -67,7 +73,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -110,7 +116,7 @@ SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
     "When calling the API and providing a concrete snapshot type to load.",
-    labelnames=["source", "is_personal_api_key"],
+    labelnames=["source", "is_personal_api_key", "auth_type"],
 )
 
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
@@ -137,17 +143,33 @@ FETCH_BLOCKS_HISTOGRAM = Histogram(
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
-    "session_snapshots_loading_v2_lts_counter", "Count of times we loaded a v2 recording from the lts path"
+    "session_snapshots_loading_v2_lts_counter",
+    "Count of times we loaded a v2 recording from the lts path",
+    labelnames=["auth_type"],
 )
 
 SESSION_RECORDING_THROTTLED = Counter(
     "session_recording_api_throttled_total",
     "Throttled responses from the session recording API",
-    labelnames=["location", "is_personal_api_key"],
+    labelnames=["location", "auth_type"],
 )
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _request_auth_type(request) -> str:
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return "personal_api_key"
+    if isinstance(authenticator, SharingAccessTokenAuthentication):
+        return "shared"
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return "oauth"
+    if isinstance(authenticator, JwtAuthentication):
+        return "jwt"
+    return "logged_in"
+
 
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
 BlockList = list[Any]
@@ -240,6 +262,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     viewed = serializers.SerializerMethodField()
     viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
+    has_summary = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -255,6 +278,29 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
 
+    def get_has_summary(self, obj: SessionRecording) -> bool:
+        preloaded_has_summary = getattr(obj, "has_summary", None)
+        if preloaded_has_summary is not None:
+            return bool(preloaded_has_summary)
+
+        # Skip loading in list views to prevent N+1 queries.
+        # List endpoints should preload this field in batch.
+        view = self.context.get("view")
+        if view and getattr(view, "action", None) == "list":
+            return False
+
+        try:
+            from ee.models.session_summaries import SingleSessionSummary
+        except ImportError:
+            return False
+
+        return SingleSessionSummary.objects.filter(
+            team_id=obj.team_id,
+            session_id=str(obj.session_id),
+            # Keep this aligned with summarize() default behavior (no extra context).
+            extra_summary_context__isnull=True,
+        ).exists()
+
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
         """Load external references (linked issues) for this recording"""
 
@@ -267,9 +313,13 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             SessionRecordingExternalReferenceSerializer,
         )
 
+        external_references_manager = getattr(obj, "external_references", None)
+        if external_references_manager is None:
+            return []
+
         return list(
             SessionRecordingExternalReferenceSerializer(
-                obj.external_references.select_related("integration").all(),
+                external_references_manager.select_related("integration").all(),
                 many=True,
                 context=self.context,
             ).data
@@ -302,6 +352,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_library",
             "ongoing",
             "activity_score",
+            "has_summary",
             "external_references",
         ]
 
@@ -478,12 +529,14 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-SNAPSHOTS_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
+REPLAY_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
+# backward compat alias
+SNAPSHOTS_TIER_CACHE_TTL_SECONDS = REPLAY_TIER_CACHE_TTL_SECONDS
 
 SNAPSHOT_DEFAULT_TIER = "free"
 
 
-def _snapshot_rates() -> dict[str, dict[str, str]]:
+def snapshot_rates() -> dict[str, dict[str, str]]:
     return {
         "free": {
             "snapshots_burst": settings.SNAPSHOT_RATE_FREE_BURST,
@@ -500,12 +553,32 @@ def _snapshot_rates() -> dict[str, dict[str, str]]:
     }
 
 
-SNAPSHOT_RATES = _snapshot_rates()
+SNAPSHOT_RATES = snapshot_rates()
+
+
+def listing_rates() -> dict[str, dict[str, str]]:
+    return {
+        "free": {
+            "listing_burst": settings.LISTING_RATE_FREE_BURST,
+            "listing_sustained": settings.LISTING_RATE_FREE_SUSTAINED,
+        },
+        "paid": {
+            "listing_burst": settings.LISTING_RATE_PAID_BURST,
+            "listing_sustained": settings.LISTING_RATE_PAID_SUSTAINED,
+        },
+        "enterprise": {
+            "listing_burst": settings.LISTING_RATE_ENTERPRISE_BURST,
+            "listing_sustained": settings.LISTING_RATE_ENTERPRISE_SUSTAINED,
+        },
+    }
+
+
+LISTING_RATES = listing_rates()
 
 _ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
 
 
-def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
+def org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
     if not features:
         return "free"
     feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
@@ -515,31 +588,34 @@ def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
 
 
 def get_cached_org_tier(team_id: int) -> str:
-    cache_key = f"snapshots_org_tier_{team_id}"
+    cache_key = f"replay_org_tier_{team_id}"
     tier = cache.get(cache_key)
     if tier is not None:
         return tier
 
     features = Organization.objects.filter(team=team_id).values_list("available_product_features", flat=True).first()
 
-    tier = _org_tier_from_features(features)
-    cache.set(cache_key, tier, SNAPSHOTS_TIER_CACHE_TTL_SECONDS)
+    tier = org_tier_from_features(features)
+    cache.set(cache_key, tier, REPLAY_TIER_CACHE_TTL_SECONDS)
     return tier
 
 
-class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
+class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        raise NotImplementedError("Subclasses must implement _get_rates")
+
     def _apply_tier_rates(self, tier: str) -> None:
         if self.scope is None:
-            raise ValueError("_TierAwareSnapshotThrottle subclasses must set scope")
+            raise ValueError("_TierAwareReplayThrottle subclasses must set scope")
         base_scope = self.scope
-        rates = _snapshot_rates()
+        rates = self._get_rates()
         resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
         self.rate = rates[resolved_tier][base_scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
         self.scope = f"{base_scope}_{resolved_tier}"
 
     def _is_personal_api_key_request(self, request) -> bool:
-        return isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication)
+        return _request_auth_type(request) == "personal_api_key"
 
     def allow_request(self, request, view):
         if self._is_personal_api_key_request(request):
@@ -548,19 +624,41 @@ class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
                 tier = get_cached_org_tier(team_id) if team_id else SNAPSHOT_DEFAULT_TIER
                 self._apply_tier_rates(tier)
             except Exception:
-                logger.exception("snapshot_throttle_tier_lookup_failed")
+                logger.exception("replay_throttle_tier_lookup_failed")
                 self._apply_tier_rates(SNAPSHOT_DEFAULT_TIER)
         return super().allow_request(request, view)
 
 
-class SnapshotsBurstRateThrottle(_TierAwareSnapshotThrottle):
+class SnapshotsBurstRateThrottle(_TierAwareReplayThrottle):
     scope = "snapshots_burst"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
 
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return snapshot_rates()
 
-class SnapshotsSustainedRateThrottle(_TierAwareSnapshotThrottle):
+
+class SnapshotsSustainedRateThrottle(_TierAwareReplayThrottle):
     scope = "snapshots_sustained"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_sustained"]
+
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return snapshot_rates()
+
+
+class ListingBurstRateThrottle(_TierAwareReplayThrottle):
+    scope = "listing_burst"
+    rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_burst"]
+
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return listing_rates()
+
+
+class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
+    scope = "listing_sustained"
+    rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_sustained"]
+
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return listing_rates()
 
 
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
@@ -605,6 +703,7 @@ def clean_referer_url(current_url: str | None) -> str:
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -623,20 +722,22 @@ class SessionRecordingViewSet(
     def safely_get_object(self, queryset) -> SessionRecording:
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
+    def get_throttles(self):
+        if self.action == "list":
+            return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
+        return super().get_throttles()
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         user_distinct_id = cast(User, request.user).distinct_id
-        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        auth_type = _request_auth_type(request)
 
         try:
             with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
                 try:
                     trace.get_current_span().set_attribute("team_id", self.team_id)
                     trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
-                    trace.get_current_span().set_attribute(
-                        "is_personal_api_key",
-                        is_personal_api_key,
-                    )
+                    trace.get_current_span().set_attribute("auth_type", auth_type)
                 except Exception as e:
                     # if this fails, we don't want to fail the request
                     # so we log it and continue
@@ -672,18 +773,14 @@ class SessionRecordingViewSet(
 
                     return response
         except CHQueryErrorTooManySimultaneousQueries:
-            SESSION_RECORDING_THROTTLED.labels(
-                location="too_many_simultaneous_queries", is_personal_api_key=str(is_personal_api_key).lower()
-            ).inc()
+            SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
             if isinstance(e, exceptions.ValidationError):
                 raise
 
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                SESSION_RECORDING_THROTTLED.labels(
-                    location="query_timeout_exceeded", is_personal_api_key=str(is_personal_api_key).lower()
-                ).inc()
+                SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
@@ -707,7 +804,7 @@ class SessionRecordingViewSet(
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
 
@@ -744,7 +841,7 @@ class SessionRecordingViewSet(
     )
     @action(methods=["GET"], detail=True)
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         recording: SessionRecording = self.get_object()
 
         if not request.user.is_anonymous:
@@ -758,7 +855,7 @@ class SessionRecordingViewSet(
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
 
         with tracer.start_as_current_span("retrieve_recording", kind=trace.SpanKind.SERVER):
             with tracer.start_as_current_span("get_recording_object"):
@@ -785,7 +882,7 @@ class SessionRecordingViewSet(
                 return Response(serializer.data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         recording = self.get_object()
         loaded = recording.load_metadata()
 
@@ -1045,7 +1142,12 @@ class SessionRecordingViewSet(
         methods=["GET"],
         detail=True,
         renderer_classes=[SurrogatePairSafeJSONRenderer],
-        throttle_classes=[SnapshotsBurstRateThrottle, SnapshotsSustainedRateThrottle],
+        throttle_classes=[
+            ClickHouseBurstRateThrottle,
+            ClickHouseSustainedRateThrottle,
+            SnapshotsBurstRateThrottle,
+            SnapshotsSustainedRateThrottle,
+        ],
     )
     def snapshots(self, request: request.Request, **kwargs):
         """
@@ -1054,7 +1156,7 @@ class SessionRecordingViewSet(
         And then once for each source in the returned list to get the actual snapshots.
         """
 
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         timer = ServerTimingsGathered()
 
         with timer("get_recording"):
@@ -1063,7 +1165,8 @@ class SessionRecordingViewSet(
         trace.get_current_span().set_attribute("team_id", self.team_id)
         trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
-        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        auth_type = _request_auth_type(request)
+        is_personal_api_key = auth_type == "personal_api_key"
         serializer = SessionRecordingSnapshotsRequestSerializer(
             data=request.GET.dict(),
             context={"is_personal_api_key": is_personal_api_key, "if_none_match": request.headers.get("If-None-Match")},
@@ -1082,7 +1185,7 @@ class SessionRecordingViewSet(
             raise exceptions.NotFound("Recording not found")
 
         SNAPSHOT_SOURCE_REQUESTED.labels(
-            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower()
+            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower(), auth_type=auth_type
         ).inc()
 
         if is_personal_api_key:
@@ -1130,7 +1233,7 @@ class SessionRecordingViewSet(
                     raise exceptions.NotFound("Recording not found")
                 response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress)
             else:
-                response = self._gather_session_recording_sources(recording, timer)
+                response = self._gather_session_recording_sources(recording, timer, auth_type=auth_type)
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
@@ -1222,6 +1325,7 @@ class SessionRecordingViewSet(
         self,
         recording: SessionRecording,
         timer: ServerTimingsGathered,
+        auth_type: str = "unknown",
     ) -> Response:
         sources: list[dict] = []
 
@@ -1237,7 +1341,7 @@ class SessionRecordingViewSet(
                         "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
                     }
                 )
-                LOADING_V2_LTS_COUNTER.inc()
+                LOADING_V2_LTS_COUNTER.labels(auth_type=auth_type).inc()
             else:
                 with timer("list_blocks__gather_session_recording_sources"):
                     blocks = list_blocks(recording)
@@ -1317,17 +1421,17 @@ class SessionRecordingViewSet(
     def summarize(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
 
         user = cast(User, request.user)
 
-        cache_key = f"summarize_recording_{self.team.pk}_{self.kwargs['pk']}"
+        recording = self.get_object()
+
+        cache_key = f"summarize_recording_{self.team.pk}_{recording.session_id}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:
             return Response(cached_response)
-
-        recording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
@@ -1769,39 +1873,35 @@ def list_recordings_from_query(
     with timer("load_other_viewers_by_recording"), tracer.start_as_current_span("load_other_viewers_by_recording"):
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
-    with timer("load_persons"), tracer.start_as_current_span("load_persons"):
-        # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        # Use prefetch_related with explicit Person filter to include team_id in Person query
-        from django.db.models import Prefetch
-
-        from posthog.models.person.person import Person
-
-        person_distinct_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(distinct_id__in=distinct_ids, team=team)
-            .prefetch_related(
-                Prefetch(
-                    "person",
-                    queryset=Person.objects.filter(team_id=team.id),
+    default_summary_session_ids: set[str] = set()
+    if recording_ids_in_list:
+        try:
+            from ee.models.session_summaries import SingleSessionSummary
+        except ImportError:
+            default_summary_session_ids = set()
+        else:
+            with timer("load_summary_existence"), tracer.start_as_current_span("load_summary_existence"):
+                default_summary_session_ids = set(
+                    SingleSessionSummary.objects.filter(
+                        team_id=team.id,
+                        session_id__in=recording_ids_in_list,
+                        # Keep this aligned with summarize() default behavior (no extra context).
+                        extra_summary_context__isnull=True,
+                    ).values_list("session_id", flat=True)
                 )
-            )
-        )
+
+    with timer("load_persons"), tracer.start_as_current_span("load_persons"):
+        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
+        distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
-        distinct_id_to_person = {}
-        for person_distinct_id in person_distinct_ids:
-            person_distinct_id.person._distinct_ids = [
-                person_distinct_id.distinct_id
-            ]  # Stop the person from loading all distinct ids
-            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
-            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
-            if person:
-                recording.person = person
+            recording.has_summary = recording.session_id in default_summary_session_ids
+            matched_person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
+            if matched_person:
+                recording.person = matched_person
 
     return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
 
