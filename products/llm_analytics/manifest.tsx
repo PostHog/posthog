@@ -102,7 +102,7 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
-            iconType: 'llm_analytics',
+            iconType: 'llm_tags',
         },
         LLMAnalyticsTag: {
             import: () => import('./frontend/tags/LLMAnalyticsTag'),
@@ -111,7 +111,7 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
-            iconType: 'llm_analytics',
+            iconType: 'llm_tags',
         },
         LLMAnalyticsPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
@@ -324,8 +324,8 @@ export const manifest: ProductManifest = {
             path: 'Tags',
             intents: [ProductKey.LLM_ANALYTICS],
             category: 'AI engineering',
-            type: 'llm_taggers',
-            iconType: 'llm_analytics' as FileSystemIconType,
+            type: 'llm_tags',
+            iconType: 'llm_tags' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsTags(),
             flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,

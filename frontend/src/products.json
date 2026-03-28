@@ -131,7 +131,7 @@
             "path": "Tags",
             "category": "AI engineering",
             "iconType": null,
-            "type": "llm_taggers",
+            "type": "llm_tags",
             "intents": ["llm_analytics"]
         },
         {

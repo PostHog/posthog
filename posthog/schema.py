@@ -2189,6 +2189,7 @@ class FileSystemIconType(StrEnum):
     SDK_DOCTOR = "sdk_doctor"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
+    LLM_TAGS = "llm_tags"
     LLM_DATASETS = "llm_datasets"
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"

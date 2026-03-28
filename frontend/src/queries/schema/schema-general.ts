@@ -3088,6 +3088,7 @@ export type FileSystemIconType =
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
+    | 'llm_tags'
     | 'llm_datasets'
     | 'llm_playground'
     | 'llm_prompts'
