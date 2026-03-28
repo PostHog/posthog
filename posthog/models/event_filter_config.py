@@ -202,11 +202,11 @@ def evaluate_filter_tree(node: dict, event: dict) -> bool:
     node_type = node.get("type")
 
     if node_type == "condition":
-        field_value = event.get(node["field"])
+        field_value = event.get(node.get("field", ""))
         if field_value is None:
             return False
-        operator = node["operator"]
-        target = node["value"]
+        operator = node.get("operator")
+        target = node.get("value", "")
         if operator == "exact":
             return field_value == target
         elif operator == "contains":
@@ -214,12 +214,14 @@ def evaluate_filter_tree(node: dict, event: dict) -> bool:
         return False
 
     elif node_type == "and":
-        return len(node["children"]) > 0 and all(evaluate_filter_tree(child, event) for child in node["children"])
+        children = node.get("children", [])
+        return len(children) > 0 and all(evaluate_filter_tree(child, event) for child in children)
 
     elif node_type == "or":
-        return any(evaluate_filter_tree(child, event) for child in node["children"])
+        return any(evaluate_filter_tree(child, event) for child in node.get("children", []))
 
     elif node_type == "not":
-        return not evaluate_filter_tree(node["child"], event)
+        child = node.get("child")
+        return not evaluate_filter_tree(child, event) if child is not None else False
 
     return False
