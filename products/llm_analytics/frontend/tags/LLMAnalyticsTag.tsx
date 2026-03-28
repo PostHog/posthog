@@ -430,6 +430,23 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
+            title: 'Generation',
+            key: 'generation',
+            render: (_, run) =>
+                run.trace_id && run.target_event_id ? (
+                    <div className="font-mono text-sm">
+                        <Link
+                            to={urls.llmAnalyticsTrace(run.trace_id, { event: run.target_event_id })}
+                            className="text-primary"
+                        >
+                            {run.target_event_id.slice(0, 12)}...
+                        </Link>
+                    </div>
+                ) : (
+                    <span className="text-muted text-sm">-</span>
+                ),
+        },
+        {
             title: 'Tags',
             key: 'tags',
             render: (_, run) => (
@@ -454,21 +471,6 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
                     <Tooltip title={run.reasoning} placement="top">
                         <div className="max-w-md text-sm truncate cursor-default">{run.reasoning}</div>
                     </Tooltip>
-                ) : (
-                    <span className="text-muted text-sm">-</span>
-                ),
-        },
-        {
-            title: 'Generation',
-            key: 'generation',
-            render: (_, run) =>
-                run.trace_id && run.target_event_id ? (
-                    <Link
-                        to={urls.llmAnalyticsTrace(run.trace_id, { event: run.target_event_id })}
-                        className="font-mono text-sm"
-                    >
-                        {run.target_event_id.slice(0, 12)}...
-                    </Link>
                 ) : (
                     <span className="text-muted text-sm">-</span>
                 ),
