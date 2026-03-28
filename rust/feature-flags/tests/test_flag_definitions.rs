@@ -1961,7 +1961,10 @@ static ALLOWLIST_TEST_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_
 #[case::allowlisted(true, 200)]
 #[case::not_allowlisted(false, 429)]
 #[tokio::test]
-async fn test_db_allowlist_rate_limit_bypass(#[case] in_allowlist: bool, #[case] expected_status: u16) {
+async fn test_db_allowlist_rate_limit_bypass(
+    #[case] in_allowlist: bool,
+    #[case] expected_status: u16,
+) {
     let _lock = ALLOWLIST_TEST_MUTEX.lock().await;
     use feature_flags::{
         api::flag_definitions::invalidate_allowlist_cache, config::Config,
@@ -2094,7 +2097,11 @@ async fn test_db_allowlist_only_listed_team_bypasses() {
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), 200, "Allowlisted team1 request {i} should succeed");
+        assert_eq!(
+            response.status(),
+            200,
+            "Allowlisted team1 request {i} should succeed"
+        );
     }
 
     // Team2 (not allowlisted) should eventually be rate limited
@@ -2114,7 +2121,10 @@ async fn test_db_allowlist_only_listed_team_bypasses() {
             break;
         }
     }
-    assert!(saw_rate_limit, "Non-allowlisted team2 should eventually be rate limited");
+    assert!(
+        saw_rate_limit,
+        "Non-allowlisted team2 should eventually be rate limited"
+    );
 
     context
         .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")

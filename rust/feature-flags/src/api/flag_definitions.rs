@@ -45,7 +45,10 @@ const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
 /// Invalidate the cached allowlist, forcing the next request to re-read from the database.
 pub async fn invalidate_allowlist_cache() {
     let mut cache = ALLOWLIST_CACHE.write().await;
-    *cache = (HashSet::new(), Instant::now() - std::time::Duration::from_secs(ALLOWLIST_TTL_SECS + 1));
+    *cache = (
+        HashSet::new(),
+        Instant::now() - std::time::Duration::from_secs(ALLOWLIST_TTL_SECS + 1),
+    );
 }
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
