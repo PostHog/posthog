@@ -48,6 +48,12 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                 setTaggersFilter: (_, { filter }) => filter,
             },
         ],
+        hasSeededDefaults: [
+            false,
+            {
+                loadTaggersSuccess: () => true,
+            },
+        ],
     }),
 
     selectors({
@@ -68,11 +74,11 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadTaggers: async () => {
             const response = await api.get('api/environments/@current/taggers/')
-            if (response.results.length === 0) {
-                // Seed default taggers on first visit
+            if (response.results.length === 0 && !values.hasSeededDefaults) {
+                // Seed default taggers on first visit (once per logic instance)
                 for (const template of defaultTaggerTemplates) {
                     await api.create('api/environments/@current/taggers/', {
                         name: template.name,
