@@ -100,11 +100,12 @@ def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags
     else:
         constraint = "Select as many tags as apply."
 
-    return f"""You are a tagger. Given the following AI generation, select which of these tags apply:
-
-{tag_list}
+    return f"""You are a tagger. Given the following AI generation, select which of these tags apply.
 
 {prompt}
+
+Available tags:
+{tag_list}
 
 {constraint} Only use tags from the list above. If no tags apply, return an empty list."""
 
