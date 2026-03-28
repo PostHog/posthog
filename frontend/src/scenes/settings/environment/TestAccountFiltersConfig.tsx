@@ -91,7 +91,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                         <br /><br />
 
                         Note: Cohorts cannot currently be used in CDP destinations. For CDP filters, please use inline expressions instead.
-                    <>    
+                    </>    
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
