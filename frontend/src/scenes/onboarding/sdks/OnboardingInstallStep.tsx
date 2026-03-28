@@ -6,7 +6,6 @@ import {
     LemonBanner,
     LemonButton,
     LemonCard,
-    LemonDivider,
     LemonInput,
     LemonModal,
     LemonTabs,
@@ -456,13 +455,6 @@ function WizardTabVariant({
                             </p>
                         </div>
                         <WizardCommandBlock />
-                        <LemonDivider />
-                        <div className="flex items-center gap-2">
-                            <RealtimeCheckIndicator
-                                teamPropertyToVerify={teamPropertyToVerify}
-                                listeningForName={listeningForName}
-                            />
-                        </div>
                     </div>
                 ) : (
                     <div className="mt-4">
@@ -489,6 +481,12 @@ function WizardOnlyVariant({
     header,
 }: VariantProps): JSX.Element {
     const [manualModalOpen, setManualModalOpen] = useState(false)
+    const [sdkInstructionsOpen, setSdkInstructionsOpen] = useState(false)
+
+    const handleWizardOnlySDKClick = (sdk: SDK): void => {
+        sdkGridProps.onSDKClick(sdk)
+        setSdkInstructionsOpen(true)
+    }
 
     return (
         <OnboardingStep
@@ -534,14 +532,17 @@ function WizardOnlyVariant({
                 width="80vw"
             >
                 <div className="p-4">
-                    <SDKGrid {...sdkGridProps} showTopControls />
+                    <SDKGrid {...{ ...sdkGridProps, onSDKClick: handleWizardOnlySDKClick }} showTopControls />
                 </div>
             </LemonModal>
 
-            {selectedSDK && sdkGridProps.onSDKClick && (
+            {selectedSDK && (
                 <SDKInstructionsModal
-                    isOpen={!!selectedSDK && !manualModalOpen}
-                    onClose={() => setManualModalOpen(true)}
+                    isOpen={sdkInstructionsOpen && !manualModalOpen}
+                    onClose={() => {
+                        setSdkInstructionsOpen(false)
+                        setManualModalOpen(true)
+                    }}
                     sdk={selectedSDK}
                     sdkInstructionMap={sdkInstructionMap}
                     adblockResult={adblockResult}
@@ -572,8 +573,6 @@ interface VariantProps {
     installationComplete: boolean
     listeningForName: string
     teamPropertyToVerify: string
-    showSkipAtBottom: boolean
-    showTopSkipButton: boolean
     selectedSDK: SDK | undefined
     header?: React.ReactNode
 }
@@ -635,8 +634,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         installationComplete,
         listeningForName,
         teamPropertyToVerify,
-        showSkipAtBottom,
-        showTopSkipButton,
         selectedSDK,
         header,
     }
