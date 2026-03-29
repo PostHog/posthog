@@ -759,31 +759,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
+    @parameterized.expand(
+        [
+            ("string_property", "foo", "bar", {"foo": "bar"}),
+            ("null_property", "existing_prop", None, {"existing_prop": None}),
+        ]
+    )
     @mock.patch("posthog.api.person.capture_internal")
-    def test_update_person_property_by_numeric_id(self, mock_capture) -> None:
-        person = _create_person(
-            team=self.team,
-            distinct_ids=["some_distinct_id"],
-            properties={"$browser": "whatever", "$os": "Mac OS X"},
-            immediate=True,
-        )
-
-        self.client.post(f"/api/person/{person.id}/update_property", {"key": "foo", "value": "bar"})
-
-        mock_capture.assert_called_once_with(
-            token=self.team.api_token,
-            event_name="$set",
-            event_source="person_viewset",
-            distinct_id="some_distinct_id",
-            timestamp=mock.ANY,
-            properties={
-                "$set": {"foo": "bar"},
-            },
-            process_person_profile=True,
-        )
-
-    @mock.patch("posthog.api.person.capture_internal")
-    def test_update_person_property_to_null(self, mock_capture) -> None:
+    def test_update_person_property(
+        self, _name, key: str, value: object, expected_set: dict[str, object], mock_capture
+    ) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -793,7 +778,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(
             f"/api/person/{person.uuid}/update_property",
-            {"key": "existing_prop", "value": None},
+            {"key": key, "value": value},
             content_type="application/json",
         )
 
@@ -805,7 +790,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="some_distinct_id",
             timestamp=mock.ANY,
             properties={
-                "$set": {"existing_prop": None},
+                "$set": expected_set,
             },
             process_person_profile=True,
         )

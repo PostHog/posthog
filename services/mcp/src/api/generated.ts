@@ -25183,7 +25183,7 @@ export namespace Schemas {
     export interface PersonUpdatePropertyRequest {
       /** The property key to set. */
       key: string;
-      /** The property value. Can be a string, number, boolean, object, or null. */
+      /** The property value. Can be a string, number, boolean, object, array, or null. */
       value: unknown | null;
     }
 
