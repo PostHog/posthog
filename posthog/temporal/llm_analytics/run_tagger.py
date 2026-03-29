@@ -420,8 +420,11 @@ def run_hog_tagger(bytecode: list, event_data: dict[str, Any], valid_tag_names: 
             "error": f"Must return a list of tag names, got {type(result).__name__}: {result}",
         }
 
-    # Filter to valid tags only
-    tags = [str(t) for t in result if str(t) in valid_tag_names]
+    # Filter to valid tags only (skip filtering when no whitelist is defined — Hog code is user-controlled)
+    if valid_tag_names:
+        tags = [str(t) for t in result if str(t) in valid_tag_names]
+    else:
+        tags = [str(t) for t in result]
 
     return {"tags": tags, "reasoning": reasoning, "error": None}
 
@@ -618,8 +621,8 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         )
                 raise
 
-        # Increment trial counter if using PostHog key
-        if not result.get("is_byok"):
+        # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost)
+        if tagger_type != "hog" and not result.get("is_byok"):
             from posthog.temporal.llm_analytics.run_evaluation import increment_trial_eval_count_activity
 
             await temporalio.workflow.execute_activity(

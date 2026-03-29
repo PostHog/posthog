@@ -12,6 +12,7 @@ import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
+import { llmTaggersLogic } from './llmTaggersLogic'
 import { ModelConfiguration, Tagger, TaggerConditionSet, TaggerConfig, TaggerType } from './types'
 
 export interface HogTestResult {
@@ -172,15 +173,24 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             defaults: DEFAULT_FORM,
             errors: (values: TaggerForm) => ({
                 name: !values.name ? 'Name is required' : undefined,
-                tagger_config: {
-                    prompt: !values.tagger_config.prompt ? 'Prompt is required' : undefined,
-                    tags:
-                        values.tagger_config.tags.length === 0
-                            ? 'At least one tag is required'
-                            : values.tagger_config.tags.some((t) => !t.name.trim())
-                              ? 'All tags must have a name'
-                              : undefined,
-                },
+                tagger_config:
+                    values.tagger_type === 'hog'
+                        ? {
+                              source: !('source' in values.tagger_config && values.tagger_config.source?.trim())
+                                  ? 'Hog source code is required'
+                                  : undefined,
+                          }
+                        : {
+                              prompt: !('prompt' in values.tagger_config && values.tagger_config.prompt)
+                                  ? 'Prompt is required'
+                                  : undefined,
+                              tags:
+                                  values.tagger_config.tags.length === 0
+                                      ? 'At least one tag is required'
+                                      : values.tagger_config.tags.some((t) => !t.name.trim())
+                                        ? 'All tags must have a name'
+                                        : undefined,
+                          },
             }),
             submit: async (values: TaggerForm) => {
                 const payload = {
@@ -198,6 +208,8 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                     await api.update(`api/environments/@current/taggers/${props.id}/`, payload)
                     lemonToast.success('Tagger updated')
                 }
+                // Reload list before navigating so the new/updated tagger is visible
+                llmTaggersLogic.findMounted()?.actions.loadTaggers()
                 router.actions.push(urls.llmAnalyticsTags())
             },
         },

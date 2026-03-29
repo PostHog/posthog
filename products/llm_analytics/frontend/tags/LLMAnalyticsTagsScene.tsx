@@ -77,13 +77,19 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
             key: 'tags',
             render: (_, tagger) => (
                 <div className="flex flex-wrap gap-1">
-                    {tagger.tagger_config.tags.slice(0, 5).map((tag) => (
-                        <Tooltip key={tag.name} title={tag.description || tag.name} placement="top">
-                            <LemonTag type="option">{tag.name}</LemonTag>
-                        </Tooltip>
-                    ))}
-                    {tagger.tagger_config.tags.length > 5 && (
-                        <LemonTag type="muted">+{tagger.tagger_config.tags.length - 5}</LemonTag>
+                    {tagger.tagger_config.tags.length === 0 ? (
+                        <span className="text-muted italic">Dynamic</span>
+                    ) : (
+                        <>
+                            {tagger.tagger_config.tags.slice(0, 5).map((tag) => (
+                                <Tooltip key={tag.name} title={tag.description || tag.name} placement="top">
+                                    <LemonTag type="option">{tag.name}</LemonTag>
+                                </Tooltip>
+                            ))}
+                            {tagger.tagger_config.tags.length > 5 && (
+                                <LemonTag type="muted">+{tagger.tagger_config.tags.length - 5}</LemonTag>
+                            )}
+                        </>
                     )}
                 </div>
             ),

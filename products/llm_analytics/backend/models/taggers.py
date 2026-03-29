@@ -61,7 +61,7 @@ class HogTaggerConfig(BaseModel):
 
     source: str = Field(..., min_length=1, description="Hog source code")
     bytecode: list[Any] = Field(default_factory=list, description="Compiled bytecode (set automatically on save)")
-    tags: list[TagDefinition] = Field(..., min_length=1, description="Available tags")
+    tags: list[TagDefinition] = Field(default_factory=list, description="Optional tag whitelist (empty = allow all)")
 
     @field_validator("source")
     @classmethod

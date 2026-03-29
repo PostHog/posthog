@@ -92,6 +92,27 @@ if (cost == 0) {
 }`,
     },
     {
+        label: 'Roles found',
+        source: `// Tag which message roles and features appear in the conversation
+let result := []
+let combined := concat(input, ' ', output)
+let roles := ['system', 'user', 'assistant', 'tool', 'function']
+for (let i, role in roles) {
+    if (combined ilike concat('%"role": "', role, '"%') or combined ilike concat('%"role":"', role, '"%')) {
+        result := arrayPushBack(result, concat('has-', role))
+        print(concat('Found role: ', role))
+    }
+}
+if (combined ilike '%"tool_calls"%' or combined ilike '%"function_call"%') {
+    result := arrayPushBack(result, 'has-tool-calls')
+    print('Found tool calls')
+}
+if (length(result) == 0) {
+    result := arrayPushBack(result, 'no-roles')
+}
+return result`,
+    },
+    {
         label: 'Language detection',
         source: `// Simple language detection based on common words
 let result := []

@@ -511,7 +511,7 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                             </div>
                         )}
 
-                        <TagDefinitionsEditor id={id} />
+                        {taggerForm.tagger_type !== 'hog' && <TagDefinitionsEditor id={id} />}
 
                         {taggerForm.tagger_type !== 'hog' && (
                             <div className="flex gap-4">
