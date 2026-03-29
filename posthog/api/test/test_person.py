@@ -797,7 +797,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 202)
+        assert response.status_code == 202
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
             event_name="$set",
@@ -809,6 +809,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             process_person_profile=True,
         )
+
+    def test_update_person_property_missing_value_returns_400(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"existing_prop": "some_value"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"key": "foo"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["attr"] == "value"
 
     @mock.patch("posthog.api.person.capture_internal")
     def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
