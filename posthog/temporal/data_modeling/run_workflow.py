@@ -595,6 +595,14 @@ async def materialize_model(
             raise CannotCoerceColumnException(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
+        elif "is not supported for conversion into Arrow" in error_message:
+            error_message = "Column type not supported for Arrow export. Ensure all columns use supported data types, or cast unsupported columns to strings."
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+            raise CannotCoerceColumnException(
+                f"Arrow conversion unsupported type in model {model_label}: {error_message}"
+            ) from e
         elif (
             "Decimal value does not fit in precision" in error_message
             or "Rescaling Decimal128 value would cause data loss" in error_message
@@ -873,13 +881,17 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                 column_name = split_arr[0]
                 ch_type = split_arr[1]
 
-                # Skip array types from conversion - they are already properly typed by ClickHouse
-                # and attempting to convert them causes errors like:
-                # "Illegal type Array(DateTime) of argument of function toTimezone"
                 is_array_type = ch_type.lower().startswith("array(")
 
+                # Only skip array types whose inner type is natively Arrow-compatible (not in
+                # arrow_type_conversion), e.g. Array(String) or Array(Int64).
+                # Array(UUID), Array(IPv4), Array(DateTime), etc. are converted via arrayMap.
+                is_skippable_array = is_array_type and not any(
+                    uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()
+                )
+
                 # Does the clickhouse type exist in our mapping of types to convert?
-                if any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()) and not is_array_type:
+                if any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()) and not is_skippable_array:
                     # Find which type we need to convert
                     call_tuples = [
                         call_tuple

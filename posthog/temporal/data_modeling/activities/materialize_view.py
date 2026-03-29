@@ -289,6 +289,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     }
 
     has_type_to_convert = lambda ch_type: any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+    # Returns True for array types whose inner type IS Arrow-compatible (safe to skip, e.g. Array(String))
+    # Returns False for Array(UUID), Array(IPv4), etc. — these need arrayMap conversion
+    is_skippable_array = lambda ch_type: ch_type.lower().startswith("array(") and not any(
+        uat.lower() in ch_type.lower() for uat in arrow_type_conversion
+    )
     get_call_tuple = lambda ch_type: next(
         iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
     )
@@ -301,7 +306,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
             table_describe_response = await ch_response.content.read()
             for line in table_describe_response.decode("utf-8").splitlines():
                 column_name, ch_type = line.strip().split("\t")
-                if has_type_to_convert(ch_type):
+                if has_type_to_convert(ch_type) and not is_skippable_array(ch_type):
                     query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
                 else:
                     query_typings.append((column_name, ch_type, None))
@@ -311,15 +316,32 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
             if call_tuple is not None:
-                await logger.adebug(
-                    f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
-                )
-                select_fields.append(
-                    ast.Alias(
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
-                        alias=column_name,
+                is_array = ch_type.lower().startswith("array(")
+                if is_array:
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} using arrayMap with {call_tuple[0]}(..)"
                     )
-                )
+                    # Use arrayMap to apply the conversion function to each array element
+                    lambda_expr = ast.Lambda(
+                        args=["x"],
+                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=["x"]), *call_tuple[1]]),
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name="arrayMap", args=[lambda_expr, ast.Field(chain=[column_name])]),
+                            alias=column_name,
+                        )
+                    )
+                else:
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                            alias=column_name,
+                        )
+                    )
             else:
                 select_fields.append(ast.Field(chain=[column_name]))
         query_node = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=query_node))
