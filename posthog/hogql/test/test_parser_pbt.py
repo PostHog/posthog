@@ -10,6 +10,7 @@ string is parsed with both the Python and C++ backends and the results are
 compared.
 """
 
+import os
 import math
 from typing import Any
 
@@ -27,9 +28,12 @@ from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr
 
-# These tests are too slow for CI (~2 min). Run manually with:
-#   pytest posthog/hogql/test/test_parser_pbt.py -p no:skip
-pytestmark = pytest.mark.skip(reason="PBT tests are slow (~2 min); run manually")
+# These tests are too slow for CI (~8 min). Run manually with:
+#   RUN_PBT=1 pytest posthog/hogql/test/test_parser_pbt.py
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("RUN_PBT"),
+    reason="PBT tests are slow (~8 min); set RUN_PBT=1 to run",
+)
 
 # ---------------------------------------------------------------------------
 # AST generation strategies
@@ -101,6 +105,23 @@ _LAMBDA_FUNCTIONS: list[str] = [
     "arrayExists",
 ]
 
+# Aggregations that accept DISTINCT: count is the most common and roundtrips
+# cleanly. Others like sum/avg also work but count is the canonical case.
+_DISTINCT_AGGREGATIONS: list[tuple[str, int]] = [
+    ("count", 1),
+    ("sum", 1),
+    ("avg", 1),
+    ("min", 1),
+    ("max", 1),
+]
+
+# Parametric aggregations: function(params)(args). These roundtrip cleanly.
+_PARAMETRIC_AGGREGATIONS: list[tuple[str, int, int]] = [
+    # (name, n_params, n_args)
+    ("quantile", 1, 1),
+    ("quantiles", 2, 1),
+]
+
 # Comparison ops that the HogQL printer can round-trip.
 # Cohort ops and global ops require special context; regex ops
 # get rewritten to match()/concat() calls that don't round-trip
@@ -140,10 +161,10 @@ def _make_call(name_nargs: tuple[str, int], args: list[ast.Expr]) -> ast.Call:
     return ast.Call(name=name_nargs[0], args=args)
 
 
-def _make_lambda_call(fn_name: str, lambda_arg: str, body: ast.Expr, array: ast.Expr) -> ast.Call:
+def _make_lambda_call(fn_name: str, lambda_args: list[str], body: ast.Expr, array: ast.Expr) -> ast.Call:
     return ast.Call(
         name=fn_name,
-        args=[ast.Lambda(args=[lambda_arg], expr=body), array],
+        args=[ast.Lambda(args=lambda_args, expr=body), array],
     )
 
 
@@ -195,11 +216,28 @@ def _expr_strategy() -> st.SearchStrategy[ast.Expr]:
             negated=st.booleans(),
         )
 
-        # Array access: expr[expr]
+        # Array access: expr[expr], optionally nullish (expr?.[expr])
         array_access = st.builds(
             ast.ArrayAccess,
             array=children,
             property=children,
+            nullish=st.booleans(),
+        )
+
+        # Tuple access: expr.N — restricted to Field/Tuple/Call bases because
+        # other base types get over-parenthesized on first print (e.g.
+        # ArithmeticOperation prints as (plus(a, 1)).1 → normalises to
+        # plus(a, 1).1 on re-print). Includes nullish variant (expr?.N).
+        _tuple_access_base = st.one_of(
+            _field_strategy(),
+            st.lists(children, min_size=1, max_size=4).map(lambda exprs: ast.Tuple(exprs=exprs)),
+            st.sampled_from(_SIMPLE_FUNCTIONS).flatmap(_call_strategy),
+        )
+        tuple_access = st.builds(
+            ast.TupleAccess,
+            tuple=_tuple_access_base,
+            index=st.integers(min_value=1, max_value=5),
+            nullish=st.booleans(),
         )
 
         # IS [NOT] DISTINCT FROM
@@ -210,11 +248,33 @@ def _expr_strategy() -> st.SearchStrategy[ast.Expr]:
             negated=st.booleans(),
         )
 
-        # Lambda inside array higher-order functions: arrayMap(x -> body, arr)
+        # count(DISTINCT expr), sum(DISTINCT expr), etc.
+        def _distinct_call_strategy(name_nargs: tuple[str, int]) -> st.SearchStrategy[ast.Call]:
+            return st.lists(children, min_size=name_nargs[1], max_size=name_nargs[1]).map(
+                lambda args: ast.Call(name=name_nargs[0], args=args, distinct=True)
+            )
+
+        distinct_call = st.sampled_from(_DISTINCT_AGGREGATIONS).flatmap(_distinct_call_strategy)
+
+        # Parametric aggregations: quantile(0.95)(expr)
+        def _parametric_call_strategy(spec: tuple[str, int, int]) -> st.SearchStrategy[ast.Call]:
+            name, n_params, n_args = spec
+            return st.tuples(
+                st.lists(
+                    st.floats(min_value=0.01, max_value=0.99, allow_nan=False, allow_infinity=False),
+                    min_size=n_params,
+                    max_size=n_params,
+                ),
+                st.lists(children, min_size=n_args, max_size=n_args),
+            ).map(lambda pa: ast.Call(name=name, args=pa[1], params=[ast.Constant(value=p) for p in pa[0]]))
+
+        parametric_call = st.sampled_from(_PARAMETRIC_AGGREGATIONS).flatmap(_parametric_call_strategy)
+
+        # Lambda with 1-3 args inside array higher-order functions
         lambda_call = st.builds(
             _make_lambda_call,
             fn_name=st.sampled_from(_LAMBDA_FUNCTIONS),
-            lambda_arg=_SAFE_IDENTIFIER,
+            lambda_args=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3, unique=True),
             body=children,
             array=children,
         )
@@ -231,7 +291,10 @@ def _expr_strategy() -> st.SearchStrategy[ast.Expr]:
             alias,
             between,
             array_access,
+            tuple_access,
             is_distinct_from,
+            distinct_call,
+            parametric_call,
             lambda_call,
         )
 
@@ -290,7 +353,7 @@ class TestExprRoundTrip:
     """Print → parse → print yields the same HogQL string."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=500, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def test_print_parse_print_idempotent(self, expr: ast.Expr) -> None:
         _roundtrip_check(expr)
 
@@ -299,7 +362,7 @@ class TestParserBackendEquivalence:
     """Both parser backends produce equivalent ASTs for generated HogQL strings."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=500, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def test_python_and_cpp_backends_agree(self, expr: ast.Expr) -> None:
         try:
             hogql_string = _print_hogql(expr)
@@ -338,17 +401,17 @@ class TestConstantRoundTrip:
     """Focused round-trip tests for constant values (strings, numbers, booleans, null)."""
 
     @given(s=_SAFE_STRING)
-    @settings(max_examples=500)
+    @settings(max_examples=1000)
     def test_string_constant_roundtrip(self, s: str) -> None:
         _roundtrip_check(ast.Constant(value=s))
 
     @given(n=_SAFE_INTEGER)
-    @settings(max_examples=500)
+    @settings(max_examples=1000)
     def test_integer_constant_roundtrip(self, n: int) -> None:
         _roundtrip_check(ast.Constant(value=n))
 
     @given(f=_SAFE_FLOAT)
-    @settings(max_examples=500)
+    @settings(max_examples=1000)
     def test_float_constant_roundtrip(self, f: float) -> None:
         node = ast.Constant(value=f)
         printed = _print_hogql(node)
@@ -458,13 +521,13 @@ class TestLambdaRoundTrip:
 
     @given(
         fn_name=st.sampled_from(_LAMBDA_FUNCTIONS),
-        arg_name=_SAFE_IDENTIFIER,
+        lambda_args=st.lists(_SAFE_IDENTIFIER, min_size=1, max_size=3, unique=True),
     )
-    def test_lambda_in_array_function_roundtrip(self, fn_name: str, arg_name: str) -> None:
+    def test_lambda_in_array_function_roundtrip(self, fn_name: str, lambda_args: list[str]) -> None:
         node = ast.Call(
             name=fn_name,
             args=[
-                ast.Lambda(args=[arg_name], expr=ast.Field(chain=[arg_name])),
+                ast.Lambda(args=lambda_args, expr=ast.Field(chain=[lambda_args[0]])),
                 ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2)]),
             ],
         )
