@@ -23,7 +23,14 @@ export interface TaggerRunStats {
     runs_count: number
 }
 
+export interface TaggerTagCount {
+    tagger_id: string
+    tag_name: string
+    count: number
+}
+
 type RawStatsRow = [tagger_id: string, runs_count: number]
+type RawTagCountRow = [tagger_id: string, tag_name: string, count: number]
 
 function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
     if (!dateFrom) {
@@ -126,6 +133,46 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                 },
             },
         ],
+        tagCounts: [
+            [] as TaggerTagCount[],
+            {
+                loadTagCounts: async () => {
+                    const dateFrom = values.dateFilter.dateFrom || '-7d'
+                    const dateTo = values.dateFilter.dateTo || null
+
+                    const query: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: `
+                            SELECT
+                                properties.$ai_tagger_id as tagger_id,
+                                arrayJoin(JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)')) as tag_name,
+                                count() as cnt
+                            FROM events
+                            WHERE event = '$ai_tag' AND {filters}
+                            GROUP BY tagger_id, tag_name
+                            ORDER BY tagger_id, cnt DESC
+                        `,
+                        filters: {
+                            dateRange: {
+                                date_from: dateFrom,
+                                date_to: dateTo,
+                            },
+                        },
+                    }
+
+                    try {
+                        const response = await api.query(query)
+                        return (response.results || []).map((row: RawTagCountRow) => ({
+                            tagger_id: row[0],
+                            tag_name: row[1],
+                            count: row[2],
+                        }))
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -153,6 +200,28 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                     map[stat.tagger_id] = stat.runs_count
                 }
                 return map
+            },
+        ],
+
+        tagDistributionMap: [
+            (s) => [s.tagCounts],
+            (tagCounts: TaggerTagCount[]): Record<string, Array<{ name: string; percent: number }>> => {
+                const byTagger: Record<string, TaggerTagCount[]> = {}
+                for (const tc of tagCounts) {
+                    if (!byTagger[tc.tagger_id]) {
+                        byTagger[tc.tagger_id] = []
+                    }
+                    byTagger[tc.tagger_id].push(tc)
+                }
+                const result: Record<string, Array<{ name: string; percent: number }>> = {}
+                for (const [taggerId, counts] of Object.entries(byTagger)) {
+                    const total = counts.reduce((sum, c) => sum + c.count, 0)
+                    result[taggerId] = counts.map((c) => ({
+                        name: c.tag_name,
+                        percent: total > 0 ? Math.round((c.count / total) * 100) : 0,
+                    }))
+                }
+                return result
             },
         ],
 
@@ -220,6 +289,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
         },
         loadTaggersSuccess: () => {
             actions.loadRunStats()
+            actions.loadTagCounts()
         },
         toggleTaggerEnabled: async ({ id }, breakpoint) => {
             const response = await api.get(`api/environments/@current/taggers/${id}/`)
@@ -229,6 +299,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
         },
         setDates: () => {
             actions.loadRunStats()
+            actions.loadTagCounts()
         },
     })),
 

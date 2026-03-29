@@ -95,7 +95,8 @@ function TaggerMetrics({ tabId }: { tabId?: string }): JSX.Element {
 
 function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
     const taggersLogic = llmTaggersLogic({ tabId })
-    const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap } = useValues(taggersLogic)
+    const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap, tagDistributionMap } =
+        useValues(taggersLogic)
     const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates } = useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -151,24 +152,22 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
         {
             title: 'Tags',
             key: 'tags',
-            render: (_, tagger) => (
-                <div className="flex flex-wrap gap-1">
-                    {tagger.tagger_config.tags.length === 0 ? (
-                        <span className="text-muted italic">Dynamic</span>
-                    ) : (
-                        <>
-                            {tagger.tagger_config.tags.slice(0, 5).map((tag) => (
-                                <Tooltip key={tag.name} title={tag.description || tag.name} placement="top">
-                                    <LemonTag type="option">{tag.name}</LemonTag>
-                                </Tooltip>
+            render: (_, tagger) => {
+                const dist = tagDistributionMap[tagger.id]
+                if (dist && dist.length > 0) {
+                    return (
+                        <div className="flex flex-wrap gap-1">
+                            {dist.slice(0, 5).map((t) => (
+                                <LemonTag key={t.name} type="option">
+                                    {t.name} ({t.percent}%)
+                                </LemonTag>
                             ))}
-                            {tagger.tagger_config.tags.length > 5 && (
-                                <LemonTag type="muted">+{tagger.tagger_config.tags.length - 5}</LemonTag>
-                            )}
-                        </>
-                    )}
-                </div>
-            ),
+                            {dist.length > 5 && <LemonTag type="muted">+{dist.length - 5}</LemonTag>}
+                        </div>
+                    )
+                }
+                return <span className="text-muted italic">No data</span>
+            },
         },
         {
             title: 'Method',
