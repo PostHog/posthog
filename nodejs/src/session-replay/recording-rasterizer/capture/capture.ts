@@ -17,6 +17,7 @@ export async function capturePlayback(
     Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
 > {
     const captureStart = process.hrtime()
+    const ffmpegStderr: string[] = []
     let frameCount = 0
 
     // Install CDP guards before captureVideo — it wraps createCDPSession
@@ -36,8 +37,8 @@ export async function capturePlayback(
                 ffmpeg.videoFilters(filter)
             }
             ffmpeg.on('start', (cmd: string) => log.info({ cmd }, 'ffmpeg started'))
-            ffmpeg.on('stderr', (line: string) => log.debug({ ffmpeg: line }, 'ffmpeg'))
-            ffmpeg.on('error', (err: Error) => log.error({ err }, 'ffmpeg error'))
+            ffmpeg.on('stderr', (line: string) => ffmpegStderr.push(line))
+            ffmpeg.on('error', (err: Error) => log.error({ err, stderr: ffmpegStderr.slice(-20) }, 'ffmpeg error'))
         },
         ffmpeg: process.env.FFMPEG_PATH || undefined,
     })
@@ -63,6 +64,7 @@ export async function capturePlayback(
     let captureAborted: Error | null = null
     let captureAbortReject: ((err: Error) => void) | null = null
     recorder.on('captureStopped', () => {
+        log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'ffmpeg process exited unexpectedly')
         const err = new RasterizationError('capture stopped unexpectedly (ffmpeg crashed)', true, 'CAPTURE_ABORTED')
         captureAborted = err
         captureAbortReject?.(err)
