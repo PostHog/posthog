@@ -433,6 +433,7 @@ export interface HogQLQueryModifiers {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
+    funnelPreFilter?: boolean
 }
 
 export interface DataWarehouseEventsModifier {

@@ -18636,6 +18636,9 @@
                 "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
                 },
+                "funnelPreFilter": {
+                    "type": "boolean"
+                },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"

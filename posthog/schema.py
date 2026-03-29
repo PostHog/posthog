@@ -6210,6 +6210,7 @@ class HogQLQueryModifiers(BaseModel):
         description=("If these are provided, the query will fail if these skip indexes are not used"),
     )
     formatCsvAllowDoubleQuotes: bool | None = None
+    funnelPreFilter: bool | None = None
     inCohortVia: InCohortVia | None = None
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
