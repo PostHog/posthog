@@ -110,6 +110,7 @@ class TestFailMaterializationActivity:
         await activity_environment.run(fail_materialization_activity, inputs)
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.status == DataModelingJob.Status.FAILED
+        assert ajob.rows_materialized == 0
         assert ajob.error == "Test error message"
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):

@@ -400,6 +400,7 @@ async def handle_error(
         await logger.ainfo("Marking job %s as failed", job.id)
         await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.FAILED
+        job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
     await queue.put(
@@ -419,6 +420,7 @@ async def handle_cancelled(
     if job:
         await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.CANCELLED
+        job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
     await queue.put(
@@ -711,6 +713,7 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     await logger.aerror(f"mark_job_as_failed: {error_message}")
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
+    job.rows_materialized = 0
     job.error = strip_hostname_from_error(error_message)
     await database_sync_to_async(job.save)()
 
@@ -1384,6 +1387,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
         ).update
     )(
         status=DataModelingJob.Status.FAILED,
+        rows_materialized=0,
         error="Job timed out",
         updated_at=dt.datetime.now(dt.UTC),
     )
@@ -1508,7 +1512,7 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED)
+    )(status=DataModelingJob.Status.CANCELLED, rows_materialized=0)
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )

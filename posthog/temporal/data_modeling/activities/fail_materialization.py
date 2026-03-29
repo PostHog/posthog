@@ -50,6 +50,7 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
         return node, job
 
     job.status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+    job.rows_materialized = 0
     job.error = sanitized_error
     job.save()
 
