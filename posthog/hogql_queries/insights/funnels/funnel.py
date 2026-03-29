@@ -1,4 +1,4 @@
-from typing import Optional, Protocol, cast, runtime_checkable
+from typing import Optional, Protocol, Union, cast, runtime_checkable
 
 from rest_framework.exceptions import ValidationError
 
@@ -175,7 +175,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
-    def _inner_aggregation_query(self):
+    def _inner_aggregation_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         if self.context.funnelsFilter.funnelOrderType == "strict":
             inner_event_query = self._get_inner_event_query(skip_step_filter=True, skip_entity_filter=True)
         else:
@@ -268,6 +268,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         )
 
         if self._should_apply_pre_filter():
+            assert isinstance(inner_select, ast.SelectQuery)
             # Build qualifying subquery from a fresh inner event query (must be
             # built BEFORE mutating the original inner_event_query below)
             qualifying_subquery = parse_select(
@@ -282,7 +283,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             # Add IN filter directly to the inner event query's WHERE clause
             # (inner_select.select_from.table IS the inner_event_query AST node,
             # mutating it modifies inner_select's FROM in-place)
+            assert inner_select.select_from is not None
             event_query = inner_select.select_from.table
+            assert isinstance(event_query, ast.SelectQuery)
             in_filter = parse_expr(
                 "aggregation_target IN ({qualifying})",
                 {"qualifying": qualifying_subquery},
