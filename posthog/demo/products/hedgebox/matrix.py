@@ -81,14 +81,14 @@ from .taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
-    FILE_ENGAGEMENT_FLAG_KEY,
-    FILE_PREVIEWS_FLAG_KEY,
-    ONBOARDING_EXPERIMENT_FLAG_KEY,
-    PRICING_PAGE_FLAG_KEY,
-    RETENTION_NUDGE_FLAG_KEY,
-    SHARING_INCENTIVE_FLAG_KEY,
-    TEAM_COLLAB_FLAG_KEY,
-    UPGRADE_PROMPT_FLAG_KEY,
+    FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+    FLAG_FILE_PREVIEWS,
+    FLAG_ONBOARDING_EXPERIMENT,
+    FLAG_PRICING_PAGE_EXPERIMENT,
+    FLAG_RETENTION_NUDGE_EXPERIMENT,
+    FLAG_SHARING_INCENTIVE_EXPERIMENT,
+    FLAG_TEAM_COLLAB_EXPERIMENT,
+    FLAG_UPGRADE_PROMPT_EXPERIMENT,
     URL_HOME,
     URL_SIGNUP,
 )
@@ -882,7 +882,7 @@ class HedgeboxMatrix(Matrix):
         try:
             FeatureFlag.objects.create(
                 team=team,
-                key=FILE_PREVIEWS_FLAG_KEY,
+                key=FLAG_FILE_PREVIEWS,
                 name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
                 filters={
                     "groups": [
@@ -910,7 +910,7 @@ class HedgeboxMatrix(Matrix):
             # LEGACY Experiment feature flag
             onboarding_flag = FeatureFlag.objects.create(
                 team=team,
-                key=ONBOARDING_EXPERIMENT_FLAG_KEY,
+                key=FLAG_ONBOARDING_EXPERIMENT,
                 name="Onboarding flow test",
                 filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
@@ -929,7 +929,7 @@ class HedgeboxMatrix(Matrix):
             # Experiment feature flag
             file_engagement_flag = FeatureFlag.objects.create(
                 team=team,
-                key=FILE_ENGAGEMENT_FLAG_KEY,
+                key=FLAG_FILE_ENGAGEMENT_EXPERIMENT,
                 name="File engagement boost",
                 filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
@@ -948,7 +948,7 @@ class HedgeboxMatrix(Matrix):
             # Pricing page redesign flag (inconclusive)
             pricing_flag = FeatureFlag.objects.create(
                 team=team,
-                key=PRICING_PAGE_FLAG_KEY,
+                key=FLAG_PRICING_PAGE_EXPERIMENT,
                 name="Pricing page redesign",
                 filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
@@ -966,7 +966,7 @@ class HedgeboxMatrix(Matrix):
             # File sharing incentive flag (lost)
             sharing_flag = FeatureFlag.objects.create(
                 team=team,
-                key=SHARING_INCENTIVE_FLAG_KEY,
+                key=FLAG_SHARING_INCENTIVE_EXPERIMENT,
                 name="File sharing incentive",
                 filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
@@ -984,7 +984,7 @@ class HedgeboxMatrix(Matrix):
             # Upgrade prompt flag (running)
             upgrade_prompt_flag = FeatureFlag.objects.create(
                 team=team,
-                key=UPGRADE_PROMPT_FLAG_KEY,
+                key=FLAG_UPGRADE_PROMPT_EXPERIMENT,
                 name="Upgrade prompt experiment",
                 filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
@@ -1003,7 +1003,7 @@ class HedgeboxMatrix(Matrix):
             # Retention nudge flag (draft)
             retention_nudge_flag = FeatureFlag.objects.create(
                 team=team,
-                key=RETENTION_NUDGE_FLAG_KEY,
+                key=FLAG_RETENTION_NUDGE_EXPERIMENT,
                 name="Retention nudge",
                 filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
@@ -1021,7 +1021,7 @@ class HedgeboxMatrix(Matrix):
             # Team collaboration boost flag (stopped early)
             team_collab_flag = FeatureFlag.objects.create(
                 team=team,
-                key=TEAM_COLLAB_FLAG_KEY,
+                key=FLAG_TEAM_COLLAB_EXPERIMENT,
                 name="Team collaboration boost",
                 filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
@@ -1037,13 +1037,13 @@ class HedgeboxMatrix(Matrix):
             )
         except IntegrityError:
             # Flags already exist, fetch them
-            onboarding_flag = FeatureFlag.objects.get(team=team, key=ONBOARDING_EXPERIMENT_FLAG_KEY)
-            file_engagement_flag = FeatureFlag.objects.get(team=team, key=FILE_ENGAGEMENT_FLAG_KEY)
-            pricing_flag = FeatureFlag.objects.get(team=team, key=PRICING_PAGE_FLAG_KEY)
-            sharing_flag = FeatureFlag.objects.get(team=team, key=SHARING_INCENTIVE_FLAG_KEY)
-            upgrade_prompt_flag = FeatureFlag.objects.get(team=team, key=UPGRADE_PROMPT_FLAG_KEY)
-            retention_nudge_flag = FeatureFlag.objects.get(team=team, key=RETENTION_NUDGE_FLAG_KEY)
-            team_collab_flag = FeatureFlag.objects.get(team=team, key=TEAM_COLLAB_FLAG_KEY)
+            onboarding_flag = FeatureFlag.objects.get(team=team, key=FLAG_ONBOARDING_EXPERIMENT)
+            file_engagement_flag = FeatureFlag.objects.get(team=team, key=FLAG_FILE_ENGAGEMENT_EXPERIMENT)
+            pricing_flag = FeatureFlag.objects.get(team=team, key=FLAG_PRICING_PAGE_EXPERIMENT)
+            sharing_flag = FeatureFlag.objects.get(team=team, key=FLAG_SHARING_INCENTIVE_EXPERIMENT)
+            upgrade_prompt_flag = FeatureFlag.objects.get(team=team, key=FLAG_UPGRADE_PROMPT_EXPERIMENT)
+            retention_nudge_flag = FeatureFlag.objects.get(team=team, key=FLAG_RETENTION_NUDGE_EXPERIMENT)
+            team_collab_flag = FeatureFlag.objects.get(team=team, key=FLAG_TEAM_COLLAB_EXPERIMENT)
 
         # Experiments and shared metrics
 

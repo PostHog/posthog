@@ -26,19 +26,19 @@ from .taxonomy import (
     EVENT_UPLOADED_FILE,
     FILE_ENGAGEMENT_BLUE_SHARE_MULTIPLIER,
     FILE_ENGAGEMENT_BLUE_UPLOAD_MULTIPLIER,
-    FILE_ENGAGEMENT_FLAG_KEY,
     FILE_ENGAGEMENT_RED_SHARE_MULTIPLIER,
     FILE_ENGAGEMENT_RED_UPLOAD_MULTIPLIER,
+    FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+    FLAG_ONBOARDING_EXPERIMENT,
+    FLAG_PRICING_PAGE_EXPERIMENT,
+    FLAG_SHARING_INCENTIVE_EXPERIMENT,
+    FLAG_TEAM_COLLAB_EXPERIMENT,
+    FLAG_UPGRADE_PROMPT_EXPERIMENT,
     GROUP_TYPE_ACCOUNT,
     ONBOARDING_BLUE_RATE,
     ONBOARDING_CONTROL_RATE,
-    ONBOARDING_EXPERIMENT_FLAG_KEY,
     ONBOARDING_RED_RATE,
-    PRICING_PAGE_FLAG_KEY,
-    SHARING_INCENTIVE_FLAG_KEY,
     SIGNUP_SUCCESS_RATE_CONTROL,
-    TEAM_COLLAB_FLAG_KEY,
-    UPGRADE_PROMPT_FLAG_KEY,
     URL_ACCOUNT_BILLING,
     URL_ACCOUNT_SETTINGS,
     URL_ACCOUNT_TEAM,
@@ -311,37 +311,37 @@ class HedgeboxPerson(SimPerson):
 
         # Legacy experiment (complete): 30%-60% of simulation
         if m.onboarding_experiment_start <= t < m.onboarding_experiment_end:
-            flags[ONBOARDING_EXPERIMENT_FLAG_KEY] = self.onboarding_variant
+            flags[FLAG_ONBOARDING_EXPERIMENT] = self.onboarding_variant
 
         # File engagement (running): 70% onward
         if t >= m.file_engagement_experiment_start:
-            flags[FILE_ENGAGEMENT_FLAG_KEY] = self.file_engagement_variant
+            flags[FLAG_FILE_ENGAGEMENT_EXPERIMENT] = self.file_engagement_variant
 
         # Pricing page redesign (inconclusive): 15%-45%
         if m.pricing_experiment_start <= t < m.pricing_experiment_end:
-            flags[PRICING_PAGE_FLAG_KEY] = self.pricing_variant
+            flags[FLAG_PRICING_PAGE_EXPERIMENT] = self.pricing_variant
 
         # File sharing incentive (lost): 40%-65%
         if m.sharing_experiment_start <= t < m.sharing_experiment_end:
-            flags[SHARING_INCENTIVE_FLAG_KEY] = self.sharing_variant
+            flags[FLAG_SHARING_INCENTIVE_EXPERIMENT] = self.sharing_variant
 
         # Upgrade prompt (running): 90% onward
         if t >= m.upgrade_prompt_experiment_start:
-            flags[UPGRADE_PROMPT_FLAG_KEY] = self.upgrade_prompt_variant
+            flags[FLAG_UPGRADE_PROMPT_EXPERIMENT] = self.upgrade_prompt_variant
 
         # Team collab boost (stopped early): 50%-70%
         if m.team_collab_experiment_start <= t < m.team_collab_experiment_end:
-            flags[TEAM_COLLAB_FLAG_KEY] = self.team_collab_variant
+            flags[FLAG_TEAM_COLLAB_EXPERIMENT] = self.team_collab_variant
 
         return flags
 
     _EXPERIMENT_FLAG_KEYS = {
-        ONBOARDING_EXPERIMENT_FLAG_KEY,
-        FILE_ENGAGEMENT_FLAG_KEY,
-        PRICING_PAGE_FLAG_KEY,
-        SHARING_INCENTIVE_FLAG_KEY,
-        UPGRADE_PROMPT_FLAG_KEY,
-        TEAM_COLLAB_FLAG_KEY,
+        FLAG_ONBOARDING_EXPERIMENT,
+        FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+        FLAG_PRICING_PAGE_EXPERIMENT,
+        FLAG_SHARING_INCENTIVE_EXPERIMENT,
+        FLAG_UPGRADE_PROMPT_EXPERIMENT,
+        FLAG_TEAM_COLLAB_EXPERIMENT,
     }
 
     def capture_feature_flag_exposures(self):
@@ -412,7 +412,7 @@ class HedgeboxPerson(SimPerson):
             file_count = len(self.account.files)
 
             # File engagement experiment: Apply multipliers to upload and share intents
-            variant = self.decide_feature_flags().get(FILE_ENGAGEMENT_FLAG_KEY)
+            variant = self.decide_feature_flags().get(FLAG_FILE_ENGAGEMENT_EXPERIMENT)
             upload_multiplier = 1.0
             share_multiplier = 1.0
             if variant == "red":
@@ -591,7 +591,7 @@ class HedgeboxPerson(SimPerson):
             return self.go_to_login()
 
         # Onboarding experiment: Different success rates per variant
-        variant = self.decide_feature_flags().get(ONBOARDING_EXPERIMENT_FLAG_KEY)
+        variant = self.decide_feature_flags().get(FLAG_ONBOARDING_EXPERIMENT)
         if variant == "red":
             success_rate = ONBOARDING_RED_RATE
             signup_duration = 120
