@@ -110,8 +110,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     arrayRotateLeft(events_array, 1))"""
 
     def _should_apply_pre_filter(self) -> bool:
-        if not self.context.modifiers.funnelPreFilter:
-            return False
         funnelOrderType = self.context.funnelsFilter.funnelOrderType
         if funnelOrderType is not None and funnelOrderType != StepOrderValue.ORDERED:
             return False
