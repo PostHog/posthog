@@ -34,7 +34,11 @@ from .taxonomy import (
     ONBOARDING_CONTROL_RATE,
     ONBOARDING_EXPERIMENT_FLAG_KEY,
     ONBOARDING_RED_RATE,
+    PRICING_PAGE_FLAG_KEY,
+    SHARING_INCENTIVE_FLAG_KEY,
     SIGNUP_SUCCESS_RATE_CONTROL,
+    TEAM_COLLAB_FLAG_KEY,
+    UPGRADE_PROMPT_FLAG_KEY,
     URL_ACCOUNT_BILLING,
     URL_ACCOUNT_SETTINGS,
     URL_ACCOUNT_TEAM,
@@ -165,6 +169,10 @@ class HedgeboxPerson(SimPerson):
     affinity: float  # 0 roughly means they won't like Hedgebox, 1 means they will - affects need/satisfaction deltas
     onboarding_variant: str
     file_engagement_variant: str
+    pricing_variant: str
+    sharing_variant: str
+    upgrade_prompt_variant: str
+    team_collab_variant: str
     watches_marius_tech_tips: bool
 
     # Internal state - plain
@@ -205,6 +213,24 @@ class HedgeboxPerson(SimPerson):
             self.file_engagement_variant = "red"
         else:
             self.file_engagement_variant = "blue"
+
+        # Assign pricing page experiment variant (2-way)
+        self.pricing_variant = "control" if self.cluster.random.random() < 0.5 else "test"
+
+        # Assign sharing incentive experiment variant (2-way)
+        self.sharing_variant = "control" if self.cluster.random.random() < 0.5 else "test"
+
+        # Assign upgrade prompt experiment variant (3-way)
+        rand_val = self.cluster.random.random()
+        if rand_val < 0.34:
+            self.upgrade_prompt_variant = "control"
+        elif rand_val < 0.67:
+            self.upgrade_prompt_variant = "aggressive"
+        else:
+            self.upgrade_prompt_variant = "subtle"
+
+        # Assign team collab experiment variant (2-way)
+        self.team_collab_variant = "control" if self.cluster.random.random() < 0.5 else "test"
 
         self.watches_marius_tech_tips = self.cluster.random.random() < 0.04
         self.invite_to_use_id = None
@@ -280,19 +306,43 @@ class HedgeboxPerson(SimPerson):
 
     def decide_feature_flags(self) -> dict[str, Any]:
         flags = {}
+        t = self.cluster.simulation_time
+        m = self.cluster.matrix
 
-        # Legacy experiment (complete)
-        if (
-            self.cluster.simulation_time >= self.cluster.matrix.onboarding_experiment_start
-            and self.cluster.simulation_time < self.cluster.matrix.onboarding_experiment_end
-        ):
+        # Legacy experiment (complete): 30%-60% of simulation
+        if m.onboarding_experiment_start <= t < m.onboarding_experiment_end:
             flags[ONBOARDING_EXPERIMENT_FLAG_KEY] = self.onboarding_variant
 
-        # New experiment (running)
-        if self.cluster.simulation_time >= self.cluster.matrix.file_engagement_experiment_start:
+        # File engagement (running): 70% onward
+        if t >= m.file_engagement_experiment_start:
             flags[FILE_ENGAGEMENT_FLAG_KEY] = self.file_engagement_variant
 
+        # Pricing page redesign (inconclusive): 15%-45%
+        if m.pricing_experiment_start <= t < m.pricing_experiment_end:
+            flags[PRICING_PAGE_FLAG_KEY] = self.pricing_variant
+
+        # File sharing incentive (lost): 40%-65%
+        if m.sharing_experiment_start <= t < m.sharing_experiment_end:
+            flags[SHARING_INCENTIVE_FLAG_KEY] = self.sharing_variant
+
+        # Upgrade prompt (running): 90% onward
+        if t >= m.upgrade_prompt_experiment_start:
+            flags[UPGRADE_PROMPT_FLAG_KEY] = self.upgrade_prompt_variant
+
+        # Team collab boost (stopped early): 50%-70%
+        if m.team_collab_experiment_start <= t < m.team_collab_experiment_end:
+            flags[TEAM_COLLAB_FLAG_KEY] = self.team_collab_variant
+
         return flags
+
+    _EXPERIMENT_FLAG_KEYS = {
+        ONBOARDING_EXPERIMENT_FLAG_KEY,
+        FILE_ENGAGEMENT_FLAG_KEY,
+        PRICING_PAGE_FLAG_KEY,
+        SHARING_INCENTIVE_FLAG_KEY,
+        UPGRADE_PROMPT_FLAG_KEY,
+        TEAM_COLLAB_FLAG_KEY,
+    }
 
     def capture_feature_flag_exposures(self):
         """Capture $feature_flag_called exposure events for active experiment flags."""
@@ -300,7 +350,8 @@ class HedgeboxPerson(SimPerson):
 
         for flag_key, variant in active_flags.items():
             # Only capture exposures for experiment flags (not regular feature flags)
-            if flag_key in [ONBOARDING_EXPERIMENT_FLAG_KEY, FILE_ENGAGEMENT_FLAG_KEY]:
+            # (This check is defensive in case non-experiment flags are added to decide_feature_flags())
+            if flag_key in self._EXPERIMENT_FLAG_KEYS:
                 self.active_client.capture(
                     EVENT_FEATURE_FLAG_CALLED,
                     {
