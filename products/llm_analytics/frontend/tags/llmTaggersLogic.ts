@@ -1,9 +1,15 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
+
+import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmTaggersLogicType } from './llmTaggersLogicType'
 import { defaultTaggerTemplates } from './templates'
 import { Tagger } from './types'
@@ -12,13 +18,39 @@ export interface LLMTaggersLogicProps {
     tabId?: string
 }
 
+export interface TaggerRunStats {
+    tagger_id: string
+    runs_count: number
+}
+
+type RawStatsRow = [tagger_id: string, runs_count: number]
+
+function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
+    if (!dateFrom) {
+        return 'day'
+    }
+    if (dateFrom === 'dStart' || dateFrom === '-0d' || dateFrom === '-0dStart') {
+        return 'hour'
+    }
+    const match = dateFrom.match(/^-(\d+)([hdwmy])/i)
+    if (match) {
+        const value = parseInt(match[1])
+        const unit = match[2].toLowerCase()
+        const hoursMap: Record<string, number> = { h: 1, d: 24, w: 168, m: 720, y: 8760 }
+        const hours = value * (hoursMap[unit] || 24)
+        return hours <= 24 ? 'hour' : 'day'
+    }
+    const duration = dayjs.duration(dayjs().diff(dayjs(dateFrom)))
+    return duration.asDays() <= 1 ? 'hour' : 'day'
+}
+
 export const llmTaggersLogic = kea<llmTaggersLogicType>([
     path(['products', 'llm_analytics', 'taggers', 'llmTaggersLogic']),
     props({} as LLMTaggersLogicProps),
     key((props) => props.tabId ?? 'default'),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-        actions: [teamLogic, ['addProductIntent']],
+        values: [featureFlagLogic, ['featureFlags'], llmAnalyticsSharedLogic, ['dateFilter']],
+        actions: [teamLogic, ['addProductIntent'], llmAnalyticsSharedLogic, ['setDates']],
     })),
 
     actions({
@@ -56,6 +88,46 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
         ],
     }),
 
+    loaders(({ values }) => ({
+        runStats: [
+            [] as TaggerRunStats[],
+            {
+                loadRunStats: async () => {
+                    const dateFrom = values.dateFilter.dateFrom || '-7d'
+                    const dateTo = values.dateFilter.dateTo || null
+
+                    const query: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: `
+                            SELECT
+                                properties.$ai_tagger_id as tagger_id,
+                                count() as runs_count
+                            FROM events
+                            WHERE event = '$ai_tag' AND {filters}
+                            GROUP BY tagger_id
+                        `,
+                        filters: {
+                            dateRange: {
+                                date_from: dateFrom,
+                                date_to: dateTo,
+                            },
+                        },
+                    }
+
+                    try {
+                        const response = await api.query(query)
+                        return (response.results || []).map((row: RawStatsRow) => ({
+                            tagger_id: row[0],
+                            runs_count: row[1],
+                        }))
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
+    })),
+
     selectors({
         filteredTaggers: [
             (s) => [s.taggers, s.taggersFilter],
@@ -72,13 +144,65 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                 )
             },
         ],
+
+        runStatsMap: [
+            (s) => [s.runStats],
+            (runStats: TaggerRunStats[]): Record<string, number> => {
+                const map: Record<string, number> = {}
+                for (const stat of runStats) {
+                    map[stat.tagger_id] = stat.runs_count
+                }
+                return map
+            },
+        ],
+
+        totalRuns: [
+            (s) => [s.runStats],
+            (runStats: TaggerRunStats[]): number => runStats.reduce((sum, s) => sum + s.runs_count, 0),
+        ],
+
+        chartQuery: [
+            (s) => [s.taggers, s.dateFilter],
+            (taggers: Tagger[], dateFilter: { dateFrom: string | null; dateTo: string | null }): TrendsQuery | null => {
+                if (taggers.filter((t) => t.enabled && !t.deleted).length === 0) {
+                    return null
+                }
+
+                const dateFrom = dateFilter.dateFrom || '-7d'
+                const dateTo = dateFilter.dateTo || null
+                const interval = getIntervalFromDateRange(dateFrom)
+
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_tag',
+                            math: 'total' as any,
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown:
+                            "concat(properties.$ai_tagger_name, ' — ', arrayJoin(JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)')))",
+                        breakdown_type: 'hogql',
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                    },
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                    interval,
+                }
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
         loadTaggers: async () => {
             const response = await api.get('api/environments/@current/taggers/')
             if (response.results.length === 0 && !values.hasSeededDefaults) {
-                // Seed default taggers on first visit (once per logic instance)
                 for (const template of defaultTaggerTemplates) {
                     await api.create('api/environments/@current/taggers/', {
                         name: template.name,
@@ -94,15 +218,25 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                 actions.loadTaggersSuccess(response.results)
             }
         },
+        loadTaggersSuccess: () => {
+            actions.loadRunStats()
+        },
         toggleTaggerEnabled: async ({ id }, breakpoint) => {
             const response = await api.get(`api/environments/@current/taggers/${id}/`)
             await api.update(`api/environments/@current/taggers/${id}/`, { enabled: !response.enabled })
             await breakpoint(100)
             actions.loadTaggers()
         },
+        setDates: () => {
+            actions.loadRunStats()
+        },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        // Default to last 24h if no date range has been set via URL
+        if (values.dateFilter.dateFrom === '-1h') {
+            actions.setDates('-24h', null)
+        }
         actions.loadTaggers()
     }),
 ])

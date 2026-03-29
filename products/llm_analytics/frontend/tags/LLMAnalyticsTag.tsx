@@ -16,6 +16,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -26,7 +27,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { Query } from '~/queries/Query/Query'
+import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
@@ -597,9 +599,37 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
     )
 }
 
+function TagRunsChart({ id }: { id: string }): JSX.Element | null {
+    const { runsChartQuery } = useValues(llmTaggerLogic({ id }))
+
+    if (!runsChartQuery) {
+        return null
+    }
+
+    return (
+        <div className="bg-bg-light rounded p-4 mb-4 h-72 flex flex-col InsightCard">
+            <h3 className="text-base font-semibold mb-1">Tag distribution over time</h3>
+            <div className="flex-1 flex flex-col min-h-0">
+                <Query
+                    query={{ kind: NodeKind.InsightVizNode, source: runsChartQuery } as InsightVizNode}
+                    readOnly
+                    embedded
+                    inSharedMode
+                    context={{
+                        insightProps: {
+                            dashboardItemId: `new-tagger-runs-chart-${id}`,
+                            dataNodeCollectionId: `tagger-runs-${id}`,
+                        },
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
+
 function TagRunsTable({ id }: { id: string }): JSX.Element {
-    const { tagRuns, tagRunsLoading } = useValues(llmTaggerLogic({ id }))
-    const { loadTagRuns } = useActions(llmTaggerLogic({ id }))
+    const { tagRuns, tagRunsLoading, dateFilter } = useValues(llmTaggerLogic({ id }))
+    const { loadTagRuns, setDates } = useActions(llmTaggerLogic({ id }))
 
     const columns: LemonTableColumns<TagRun> = [
         {
@@ -659,7 +689,10 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                <p className="text-muted text-sm m-0">Recent tag runs for this tagger.</p>
+                <div className="flex items-center gap-3">
+                    <p className="text-muted text-sm m-0">Tag runs for this tagger.</p>
+                    <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+                </div>
                 <LemonButton type="secondary" size="small" onClick={loadTagRuns}>
                     Refresh
                 </LemonButton>
@@ -725,6 +758,7 @@ export function LLMAnalyticsTagScene({ id }: { id?: string }): JSX.Element {
                             label: 'Runs',
                             content: (
                                 <div className="max-w-6xl">
+                                    <TagRunsChart id={taggerId} />
                                     <TagRunsTable id={taggerId} />
                                 </div>
                             ),

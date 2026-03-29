@@ -3,12 +3,15 @@ import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
+import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
@@ -78,8 +81,8 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     key((props) => props.id),
 
     connect(() => ({
-        values: [llmProviderKeysLogic, ['providerKeys']],
-        actions: [llmProviderKeysLogic, ['loadProviderKeys']],
+        values: [llmProviderKeysLogic, ['providerKeys'], llmAnalyticsSharedLogic, ['dateFilter']],
+        actions: [llmProviderKeysLogic, ['loadProviderKeys'], llmAnalyticsSharedLogic, ['setDates']],
     })),
 
     actions({
@@ -166,6 +169,65 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
 
     selectors({
         isNewTagger: [(_, props) => [props.id], (id: string) => id === 'new'],
+
+        runsChartQuery: [
+            (s, props) => [props.id, s.dateFilter],
+            (id: string, dateFilter: { dateFrom: string | null; dateTo: string | null }): TrendsQuery | null => {
+                if (id === 'new') {
+                    return null
+                }
+
+                const dateFrom = dateFilter.dateFrom || '-7d'
+                const dateTo = dateFilter.dateTo || null
+
+                // Pick hour vs day interval based on date range
+                let interval: 'hour' | 'day' = 'day'
+                if (dateFrom === 'dStart' || dateFrom === '-0d' || dateFrom === '-0dStart') {
+                    interval = 'hour'
+                } else {
+                    const match = dateFrom.match(/^-(\d+)([hdwmy])/i)
+                    if (match) {
+                        const value = parseInt(match[1])
+                        const unit = match[2].toLowerCase()
+                        const hoursMap: Record<string, number> = { h: 1, d: 24, w: 168, m: 720, y: 8760 }
+                        interval = value * (hoursMap[unit] || 24) <= 24 ? 'hour' : 'day'
+                    } else {
+                        interval = dayjs.duration(dayjs().diff(dayjs(dateFrom))).asDays() <= 1 ? 'hour' : 'day'
+                    }
+                }
+
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_tag',
+                            math: 'total' as any,
+                            properties: [
+                                {
+                                    key: '$ai_tagger_id',
+                                    value: id,
+                                    operator: 'exact',
+                                    type: 'event',
+                                },
+                            ],
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown: "arrayJoin(JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)'))",
+                        breakdown_type: 'hogql',
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                    },
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                    interval,
+                }
+            },
+        ],
     }),
 
     forms(({ props }) => ({
@@ -240,6 +302,8 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 actions.loadTagRunsSuccess([])
                 return
             }
+            const dateFrom = values.dateFilter?.dateFrom || '-24h'
+            const dateTo = values.dateFilter?.dateTo || null
             const query: HogQLQuery = {
                 kind: NodeKind.HogQLQuery,
                 query: `
@@ -254,9 +318,16 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                     FROM events
                     WHERE event = '$ai_tag'
                       AND properties.$ai_tagger_id = '${props.id}'
+                      AND {filters}
                     ORDER BY timestamp DESC
                     LIMIT 100
                 `,
+                filters: {
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                },
             }
             try {
                 const response = await api.query(query)
@@ -367,6 +438,11 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                         provider_key_id: providerKeyId,
                     },
                 })
+            }
+        },
+        setDates: () => {
+            if (props.id !== 'new') {
+                actions.loadTagRuns()
             }
         },
     })),

@@ -2,9 +2,19 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,7 +23,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { Query } from '~/queries/Query/Query'
+import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
@@ -26,10 +37,66 @@ export const scene: SceneExport = {
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
+function TaggerMetrics({ tabId }: { tabId?: string }): JSX.Element {
+    const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic({ tabId }))
+
+    const enabledCount = taggers.filter((t) => t.enabled && !t.deleted).length
+
+    if (runStatsLoading) {
+        return <LemonSkeleton className="h-80 w-full mb-6" />
+    }
+
+    return (
+        <div className="mb-6">
+            <div className="flex gap-4 h-80">
+                {chartQuery ? (
+                    <div className="flex-[2] bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
+                        <h3 className="text-lg font-semibold mb-1">Tags over time</h3>
+                        <p className="text-muted text-sm mb-3">Tag counts broken down by tagger and tag name</p>
+                        <div className="flex-1 flex flex-col min-h-0">
+                            <Query
+                                query={{ kind: NodeKind.InsightVizNode, source: chartQuery } as InsightVizNode}
+                                readOnly
+                                embedded
+                                inSharedMode
+                                context={{
+                                    insightProps: {
+                                        dashboardItemId: 'new-tagger-metrics-chart',
+                                        dataNodeCollectionId: 'tagger-metrics',
+                                    },
+                                }}
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex-[2] bg-bg-light border rounded p-8 flex items-center justify-center">
+                        <div className="text-muted text-center">
+                            No enabled taggers to display. Create and enable taggers to see metrics.
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex-1 grid grid-cols-1 gap-4">
+                    <div className="bg-bg-light border rounded p-4 flex flex-col">
+                        <div className="text-muted text-xs font-medium uppercase mb-2">Enabled taggers</div>
+                        <div className="text-3xl font-semibold">{enabledCount}</div>
+                        <div className="text-muted text-sm mt-1">{taggers.length} total</div>
+                    </div>
+                    <div className="bg-bg-light border rounded p-4 flex flex-col">
+                        <div className="text-muted text-xs font-medium uppercase mb-2">Total runs</div>
+                        <div className="text-3xl font-semibold">{totalRuns}</div>
+                        {totalRuns === 0 && <div className="text-muted text-sm mt-1">No activity</div>}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
     const taggersLogic = llmTaggersLogic({ tabId })
-    const { filteredTaggers, taggersLoading, taggersFilter } = useValues(taggersLogic)
-    const { setTaggersFilter, toggleTaggerEnabled, loadTaggers } = useActions(taggersLogic)
+    const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap } = useValues(taggersLogic)
+    const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates } = useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
@@ -71,6 +138,15 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
                 </div>
             ),
             sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
+        },
+        {
+            title: 'Runs',
+            key: 'runs',
+            render: (_, tagger) => {
+                const count = runStatsMap[tagger.id] ?? 0
+                return <span className={count > 0 ? 'font-medium' : 'text-muted'}>{count}</span>
+            },
+            sorter: (a, b) => (runStatsMap[a.id] ?? 0) - (runStatsMap[b.id] ?? 0),
         },
         {
             title: 'Tags',
@@ -125,22 +201,6 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
                     </Tooltip>
                 )
             },
-        },
-        {
-            title: 'Triggers',
-            key: 'conditions',
-            render: (_, tagger) => (
-                <div className="flex flex-wrap gap-1">
-                    {tagger.conditions.map((condition) => (
-                        <LemonTag key={condition.id} type="option">
-                            {parseFloat(condition.rollout_percentage.toFixed(2))}%
-                            {condition.properties.length > 0 &&
-                                ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
-                        </LemonTag>
-                    ))}
-                    {tagger.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
-                </div>
-            ),
         },
         {
             title: 'Actions',
@@ -214,12 +274,15 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
                 </AccessControlAction>
             </div>
 
+            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+
+            <TaggerMetrics tabId={tabId} />
+
             <div className="flex items-center gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search taggers..."
                     value={taggersFilter}
-                    data-attr="taggers-search-input"
                     onChange={setTaggersFilter}
                     prefix={<IconSearch />}
                     className="max-w-sm"
@@ -235,7 +298,7 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
                     pageSize: 50,
                 }}
                 nouns={['tagger', 'taggers']}
-                emptyState={<div />}
+                emptyState={<div className="text-center p-8 text-muted">No taggers found.</div>}
             />
         </div>
     )
@@ -244,13 +307,7 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
 export function LLMAnalyticsTagsScene({ tabId }: { tabId?: string }): JSX.Element {
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Tags"
-                description="Automatically add custom tags to your LLM generations."
-                resourceType={{
-                    type: 'llm_taggers',
-                }}
-            />
+            <SceneTitleSection name="Tags" resourceType={{ type: 'llm_tags' }} />
             <LLMAnalyticsTagsContent tabId={tabId} />
         </SceneContent>
     )
