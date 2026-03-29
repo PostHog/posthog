@@ -216,6 +216,10 @@ function ChangeDescription({
 
 /** Try to produce a human-readable description from a cron expression, falling back to the raw string on error. */
 function describeCron(expr: string): string {
+    const fields = expr.trim().split(/\s+/)
+    if (fields.length !== 5) {
+        return 'Invalid cron expression'
+    }
     try {
         return cronstrue.toString(expr)
     } catch {
@@ -645,12 +649,15 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                       ? 'Select a repeat interval'
                                       : isRecurring && cronExpression !== null && cronExpression.trim() === ''
                                         ? 'Enter a cron expression'
-                                        : hasFormErrors(schedulePayloadErrors)
-                                          ? 'Fix release condition errors'
-                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
-                                              variantErrors.some((error) => error.key != null)
-                                            ? 'Fix schedule variant changes errors'
-                                            : undefined
+                                        : repeatsValue === 'cron' && cronPreview === 'Invalid cron expression'
+                                          ? 'Enter a valid cron expression'
+                                          : hasFormErrors(schedulePayloadErrors)
+                                            ? 'Fix release condition errors'
+                                            : scheduledChangeOperation ===
+                                                    ScheduledChangeOperationType.UpdateVariants &&
+                                                variantErrors.some((error) => error.key != null)
+                                              ? 'Fix schedule variant changes errors'
+                                              : undefined
                             }
                         >
                             Schedule

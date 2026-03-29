@@ -147,6 +147,14 @@ def process_scheduled_changes() -> None:
                 if is_paused:
                     continue
 
+                # Skip recurring schedules that have passed their end_date without executing.
+                # This prevents a stale schedule from firing one last time after the window has closed.
+                now = timezone.now()
+                if scheduled_change.end_date and scheduled_change.end_date <= now and has_recurrence_config:
+                    scheduled_change.executed_at = now
+                    scheduled_change.save()
+                    continue
+
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]

@@ -1520,6 +1520,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!cronExpression) {
                 return
             }
+            // Only compute next run for valid 5-field cron expressions
+            const fields = cronExpression.trim().split(/\s+/)
+            if (fields.length !== 5) {
+                return
+            }
             try {
                 const baseDate = values.scheduleDateMarker?.toDate() ?? new Date()
                 const interval = CronExpressionParser.parse(cronExpression, {
@@ -2118,6 +2123,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (cronExpression): string | null => {
                 if (!cronExpression) {
                     return null
+                }
+                // Only standard 5-field cron is supported (minute hour day month weekday).
+                // cronstrue accepts 6-field expressions with seconds, but our backend rejects them.
+                const fields = cronExpression.trim().split(/\s+/)
+                if (fields.length !== 5) {
+                    return 'Invalid cron expression'
                 }
                 try {
                     return cronstrue.toString(cronExpression)
