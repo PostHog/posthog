@@ -152,25 +152,28 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         inner_event_query = self._get_inner_event_query()
 
-        return parse_select(
-            f"""
-            SELECT
-                arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), '', [0])]) as events_array,
-                {prop_vals} as prop,
-                tuple(0, {breakdown_select}, arrayFilter(x -> 0, [toFloat(0)]), arrayMap(x -> arrayFilter(y -> 0, [toUUID('00000000-0000-0000-0000-000000000000')]), arrayFilter(z -> 0, [1])), 1) as af_tuple,
-                0 as step_reached,
-                1 as steps,
-                {breakdown_select} as breakdown,
-                arrayFilter(x -> 0, [toFloat(0)]) as timings,
-                {matched_events_selects}
-                1 as steps_bitfield,
-                {person_id_select}
-                aggregation_target
-            FROM {{inner_event_query}}
-            GROUP BY aggregation_target
-            HAVING countIf(step_0 = 1) > 0 AND countIf(step_1 = 1) = 0
-        """,
-            {"inner_event_query": inner_event_query},
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
+                SELECT
+                    arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), '', [0])]) as events_array,
+                    {prop_vals} as prop,
+                    tuple(0, {breakdown_select}, arrayFilter(x -> 0, [toFloat(0)]), arrayMap(x -> arrayFilter(y -> 0, [toUUID('00000000-0000-0000-0000-000000000000')]), arrayFilter(z -> 0, [1])), 1) as af_tuple,
+                    0 as step_reached,
+                    1 as steps,
+                    {breakdown_select} as breakdown,
+                    arrayFilter(x -> 0, [toFloat(0)]) as timings,
+                    {matched_events_selects}
+                    1 as steps_bitfield,
+                    {person_id_select}
+                    aggregation_target
+                FROM {{inner_event_query}}
+                GROUP BY aggregation_target
+                HAVING countIf(step_0 = 1) > 0 AND countIf(step_1 = 1) = 0
+            """,
+                {"inner_event_query": inner_event_query},
+            ),
         )
 
     # This is the function that calls the UDF
