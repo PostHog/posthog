@@ -196,41 +196,13 @@ class HedgeboxPerson(SimPerson):
             if self.active_client.browser != "Internet Explorer"
             else self.cluster.random.betavariate(1, 1.4)
         )
-        # Assign onboarding experiment variant
-        rand_val = self.cluster.random.random()
-        if rand_val < 0.34:
-            self.onboarding_variant = "control"
-        elif rand_val < 0.67:
-            self.onboarding_variant = "red"
-        else:
-            self.onboarding_variant = "blue"
-
-        # Assign file engagement experiment variant
-        rand_val = self.cluster.random.random()
-        if rand_val < 0.34:
-            self.file_engagement_variant = "control"
-        elif rand_val < 0.67:
-            self.file_engagement_variant = "red"
-        else:
-            self.file_engagement_variant = "blue"
-
-        # Assign pricing page experiment variant (2-way)
-        self.pricing_variant = "control" if self.cluster.random.random() < 0.5 else "test"
-
-        # Assign sharing incentive experiment variant (2-way)
-        self.sharing_variant = "control" if self.cluster.random.random() < 0.5 else "test"
-
-        # Assign upgrade prompt experiment variant (3-way)
-        rand_val = self.cluster.random.random()
-        if rand_val < 0.34:
-            self.upgrade_prompt_variant = "control"
-        elif rand_val < 0.67:
-            self.upgrade_prompt_variant = "aggressive"
-        else:
-            self.upgrade_prompt_variant = "subtle"
-
-        # Assign team collab experiment variant (2-way)
-        self.team_collab_variant = "control" if self.cluster.random.random() < 0.5 else "test"
+        # Assign experiment variants
+        self.onboarding_variant = self._pick_variant("control", "red", "blue")
+        self.file_engagement_variant = self._pick_variant("control", "red", "blue")
+        self.pricing_variant = self._pick_variant("control", "test")
+        self.sharing_variant = self._pick_variant("control", "test")
+        self.upgrade_prompt_variant = self._pick_variant("control", "aggressive", "subtle")
+        self.team_collab_variant = self._pick_variant("control", "test")
 
         self.watches_marius_tech_tips = self.cluster.random.random() < 0.04
         self.invite_to_use_id = None
@@ -301,6 +273,11 @@ class HedgeboxPerson(SimPerson):
     @property
     def has_signed_up(self) -> bool:
         return self.account is not None and self in self.account.team_members
+
+    # Helpers
+
+    def _pick_variant(self, *variants: str) -> str:
+        return self.cluster.random.choice(variants)
 
     # Abstract methods
 
