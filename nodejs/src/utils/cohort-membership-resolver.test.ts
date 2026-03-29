@@ -2,6 +2,8 @@ import { CohortMembershipResolver } from './cohort-membership-resolver'
 import { PostgresRouter } from './db/postgres'
 
 describe('CohortMembershipResolver', () => {
+    const person_id_1 = '3829de85-da62-578a-b0b0-56313b519694'
+    const person_id_2 = '8ff2b413-bc13-58d4-b3eb-b33cbdb18a99'
     let mockPostgres: PostgresRouter
     let resolver: CohortMembershipResolver
 
@@ -23,12 +25,12 @@ describe('CohortMembershipResolver', () => {
         it('returns cohort IDs for a person with memberships', async () => {
             ;(mockPostgres.query as jest.Mock).mockResolvedValue({
                 rows: [
-                    { team_id: 1, person_id: 'person-1', cohort_id: 10 },
-                    { team_id: 1, person_id: 'person-1', cohort_id: 20 },
+                    { team_id: 1, person_id: person_id_1, cohort_id: 10 },
+                    { team_id: 1, person_id: person_id_1, cohort_id: 20 },
                 ],
             })
 
-            const result = await resolver.getPersonCohortIds(1, 'person-1')
+            const result = await resolver.getPersonCohortIds(1, person_id_1)
 
             expect(result).toEqual([10, 20])
             expect(mockPostgres.query).toHaveBeenCalledTimes(1)
@@ -45,15 +47,15 @@ describe('CohortMembershipResolver', () => {
         it('batches concurrent calls into a single query', async () => {
             ;(mockPostgres.query as jest.Mock).mockResolvedValue({
                 rows: [
-                    { team_id: 1, person_id: 'person-a', cohort_id: 10 },
-                    { team_id: 1, person_id: 'person-b', cohort_id: 20 },
-                    { team_id: 1, person_id: 'person-b', cohort_id: 30 },
+                    { team_id: 1, person_id: person_id_1, cohort_id: 10 },
+                    { team_id: 1, person_id: person_id_2, cohort_id: 20 },
+                    { team_id: 1, person_id: person_id_2, cohort_id: 30 },
                 ],
             })
 
             const [resultA, resultB] = await Promise.all([
-                resolver.getPersonCohortIds(1, 'person-a'),
-                resolver.getPersonCohortIds(1, 'person-b'),
+                resolver.getPersonCohortIds(1, person_id_1),
+                resolver.getPersonCohortIds(1, person_id_2),
             ])
 
             expect(resultA).toEqual([10])
@@ -63,21 +65,21 @@ describe('CohortMembershipResolver', () => {
             const callArgs = (mockPostgres.query as jest.Mock).mock.calls[0]
             expect(callArgs[2]).toEqual([
                 [1, 1],
-                ['person-a', 'person-b'],
+                [person_id_1, person_id_2],
             ])
         })
 
         it('handles multiple teams correctly', async () => {
             ;(mockPostgres.query as jest.Mock).mockResolvedValue({
                 rows: [
-                    { team_id: 1, person_id: 'person-1', cohort_id: 10 },
-                    { team_id: 2, person_id: 'person-1', cohort_id: 50 },
+                    { team_id: 1, person_id: person_id_1, cohort_id: 10 },
+                    { team_id: 2, person_id: person_id_1, cohort_id: 50 },
                 ],
             })
 
             const [result1, result2] = await Promise.all([
-                resolver.getPersonCohortIds(1, 'person-1'),
-                resolver.getPersonCohortIds(2, 'person-1'),
+                resolver.getPersonCohortIds(1, person_id_1),
+                resolver.getPersonCohortIds(2, person_id_1),
             ])
 
             expect(result1).toEqual([10])

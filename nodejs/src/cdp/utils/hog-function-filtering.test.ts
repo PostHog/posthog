@@ -445,9 +445,9 @@ describe('hog-function-filtering', () => {
         let mockFilterGlobals: HogFunctionFilterGlobals
         let mockResolver: CohortMembershipResolver
 
-        // Bytecode: push 41, call inCohort(1 arg) — equivalent to `inCohort(41)`
+        // Bytecode: inCohort(41)
         const inCohortBytecode = ['_H', 1, 33, 41, 2, 'inCohort', 1]
-        // Bytecode: push 41, call notInCohort(1 arg)
+        // Bytecode: notInCohort(41)
         const notInCohortBytecode = ['_H', 1, 33, 41, 2, 'notInCohort', 1]
 
         beforeEach(() => {

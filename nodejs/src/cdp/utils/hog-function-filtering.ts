@@ -372,7 +372,8 @@ export function buildCohortFunctionsProvider(
 }
 
 /**
- * Returns an array of sync hog functions for all input functionProviders which pass their shouldResolve prechecks
+ * Checks which function providers are needed by the bytecode and lazily resolves only those,
+ * returning a merged map of function implementations or undefined if none are needed.
  */
 async function resolveLazyHogFunctionProviders(
     functionProviders: FilterFunctionsProvider[] | undefined,

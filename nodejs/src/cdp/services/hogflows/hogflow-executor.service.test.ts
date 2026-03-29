@@ -23,6 +23,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { CohortMembershipResolver } from '../../../utils/cohort-membership-resolver'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -73,6 +74,7 @@ describe('Hogflow Executor', () => {
             hub.SITE_URL
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const cohortResolver = new CohortMembershipResolver(hub.postgres)
         const hogExecutor = new HogExecutorService(
             {
                 hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
@@ -84,7 +86,8 @@ describe('Hogflow Executor', () => {
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            cohortResolver
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         const hogFlowFunctionsService = new HogFlowFunctionsService(
@@ -130,7 +133,7 @@ describe('Hogflow Executor', () => {
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
-        executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
+        executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService, cohortResolver)
     })
 
     describe('general event processing', () => {

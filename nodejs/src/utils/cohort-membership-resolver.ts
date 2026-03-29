@@ -4,11 +4,8 @@ import { LazyLoader } from './lazy-loader'
 const toKey = (teamId: number, personId: string): string => `${teamId}:${personId}`
 
 const fromKey = (key: string): { teamId: number; personId: string } => {
-    const sepIdx = key.indexOf(':')
-    return {
-        teamId: parseInt(key.substring(0, sepIdx)),
-        personId: key.substring(sepIdx + 1),
-    }
+    const [teamId, personId] = key.split(':')
+    return { teamId: parseInt(teamId), personId }
 }
 
 /**
@@ -51,7 +48,6 @@ export class CohortMembershipResolver {
                         resultRecord[key].push(Number(row.cohort_id))
                     }
                 }
-
                 return resultRecord
             },
         })

@@ -11,6 +11,7 @@ import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
+import { CohortMembershipResolver } from '../../utils/cohort-membership-resolver'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
@@ -62,6 +63,7 @@ describe('Hog Executor', () => {
             hub.SITE_URL
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const cohortResolver = new CohortMembershipResolver(hub.postgres)
         executor = new HogExecutorService(
             {
                 hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
@@ -73,7 +75,8 @@ describe('Hog Executor', () => {
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            cohortResolver
         )
     })
 
