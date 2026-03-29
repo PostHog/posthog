@@ -44,7 +44,7 @@ export class CohortMembershipResolver {
                 // Populate with actual memberships
                 for (const row of result.rows) {
                     const key = toKey(Number(row.team_id), row.person_id)
-                    if (resultRecord[key]) {
+                    if (key in resultRecord) {
                         resultRecord[key].push(Number(row.cohort_id))
                     }
                 }
