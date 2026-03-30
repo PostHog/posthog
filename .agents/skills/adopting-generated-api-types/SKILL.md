@@ -160,8 +160,8 @@ After migrating all usages of a handwritten type:
 | Neither exists                                      | Keep the manual pattern, fix the backend serializer/viewset first                                            |
 | Custom action without generated equivalent          | Keep the `api.<entity>.<method>()` call, fix the backend `@action` annotation first                          |
 | Generated type has different shape than handwritten | Adapt call sites to the generated shape — the serializer is the source of truth                              |
-| Code mutates the response object                    | Use a local mutable copy: `const mutable = { ...response }` or use `Writable<T>` utility                     |
-| Need both read and write types                      | Use `FooApi` for reads, `NonReadonly<FooApi>` (from generated `api.ts`) for writes                           |
+| Code mutates the response object                    | Use a local mutable copy: `const mutable = { ...response }` and mutate that                                  |
+| Need both read and write types                      | Use `FooApi` for reads, derive write types via `Parameters<typeof fooCreate>[1]` or use `PatchedFooApi`      |
 
 ## Import conventions
 

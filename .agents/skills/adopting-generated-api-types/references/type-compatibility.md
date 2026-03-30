@@ -30,8 +30,7 @@ dashboard.id = 123
 **Fix options:**
 
 1. Stop mutating the response — spread into a new object: `const local = { ...dashboard, id: 123 }`
-2. Use the `NonReadonly<T>` utility from the generated `api.ts` for write-side types
-3. If the code is building a request body, use the `Patched*Api` or `NonReadonly<*Api>` type instead
+2. If building a request body, use the `Patched*Api` type or derive the parameter type via `Parameters<typeof fooCreate>[1]`
 
 ## Patched types for partial updates
 
@@ -115,7 +114,7 @@ If a handwritten type has fields that don't appear in the generated type, the se
 For client-side computed fields, extend the generated type:
 
 ```typescript
-import type { DashboardApi } from '~/products/dashboards/frontend/generated/api.schemas'
+import type { DashboardApi } from 'products/dashboards/frontend/generated/api.schemas'
 
 interface DashboardWithLocal extends DashboardApi {
   _localDraft: boolean // client-only field
@@ -126,22 +125,18 @@ interface DashboardWithLocal extends DashboardApi {
 
 The serializer may expose fields the handwritten type never included. This is fine — the generated type is the source of truth. Frontend code may start using the new fields.
 
-## Working with NonReadonly for request bodies
+## Request body types
 
-The generated `api.ts` includes a `NonReadonly<T>` utility type that strips `readonly` and recursively makes nested objects writable:
-
-```typescript
-// Generated create function signature
-export const domainsCreate = async (
-    organizationId: string,
-    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
-    options?: RequestInit
-): Promise<OrganizationDomainApi>
-```
-
-You don't need to import or think about `NonReadonly` — just pass a plain object and TypeScript will accept it because plain objects satisfy `NonReadonly<T>`:
+Generated create/update functions accept a `NonReadonly<T>` parameter internally — this is a non-exported utility type that strips `readonly`. You don't need to import or reference it directly. Just pass a plain object and TypeScript will accept it:
 
 ```typescript
 // This works — plain objects are writable
 await domainsCreate(orgId, { domain: 'example.com' })
+```
+
+If you need to explicitly type a request body variable, derive the type from the function signature:
+
+```typescript
+type CreateBody = Parameters<typeof domainsCreate>[1]
+const body: CreateBody = { domain: 'example.com' }
 ```

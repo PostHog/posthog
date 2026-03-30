@@ -162,7 +162,7 @@ const surveys = await api.get<PaginatedResponse<Survey>>(url)
 // After
 import { surveysList } from 'products/surveys/frontend/generated/api'
 
-const surveys = await surveysList(projectId)
+const surveys = await surveysList(String(projectId))
 ```
 
 ### 12. Builder with action
@@ -178,9 +178,8 @@ await new ApiRequest()
 // After — if the @action has @extend_schema, a generated function exists:
 import { surveysSummarizeResponsesCreate } from 'products/surveys/frontend/generated/api'
 
-await surveysSummarizeResponsesCreate(projectId, surveyId, {
+await surveysSummarizeResponsesCreate(String(projectId), String(surveyId), {
   force_refresh: true,
-  question_index: 1,
 })
 
 // If no generated function exists, keep the builder and fix the backend first.
