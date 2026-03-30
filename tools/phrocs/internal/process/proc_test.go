@@ -450,6 +450,91 @@ func TestWriteInput_pipeMode(t *testing.T) {
 	}
 }
 
+// Simulates the production backpressure scenario: many processes flood output
+// simultaneously while sends are serialized through a slow bottleneck (like
+// Bubble Tea's unbuffered Program.msgs channel). Without the per-process
+// outCh buffer, readLoops block on send → stop draining chunkCh → PTY buffer
+// fills → child write() blocks → processes hang. With the fix, readLoops
+// send non-blocking to outCh so the PTY is always drained.
+func TestBackpressure_concurrentFloodDoesNotStall(t *testing.T) {
+	const procCount = 10
+	const linesPerProc = 5000
+
+	// Serialize all sends through a mutex with a 2ms delay to simulate the
+	// Bubble Tea unbuffered channel where Program.Send blocks until the
+	// event loop processes the previous message.
+	var bottleneck sync.Mutex
+	slowSend := func(msg tea.Msg) {
+		bottleneck.Lock()
+		time.Sleep(2 * time.Millisecond)
+		bottleneck.Unlock()
+	}
+
+	procs := make([]*Process, procCount)
+	for i := range procs {
+		procs[i] = NewProcess(
+			fmt.Sprintf("flood-%d", i),
+			config.ProcConfig{
+				Shell: fmt.Sprintf(
+					`for i in $(seq 1 %d); do echo "proc-%d line $i xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; done`,
+					linesPerProc, i),
+			},
+			linesPerProc+100,
+		)
+	}
+
+	for _, p := range procs {
+		if err := p.Start(slowSend); err != nil {
+			t.Skipf("skipping: cannot spawn subprocess: %v", err)
+		}
+	}
+
+	// All processes should complete well within 10s. Without the outCh
+	// buffer the serialized sends cause PTY backpressure that hangs the
+	// child processes, triggering this timeout.
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			var stalled []string
+			for _, p := range procs {
+				st := p.Status()
+				if st != StatusDone && st != StatusCrashed {
+					stalled = append(stalled, fmt.Sprintf(
+						"%s (status=%s, lines=%d)", p.Name, st, len(p.Lines())))
+				}
+			}
+			if len(stalled) > 0 {
+				t.Fatalf("timed out — %d/%d processes stalled: %v",
+					len(stalled), procCount, stalled)
+			}
+			return
+		default:
+		}
+
+		allDone := true
+		for _, p := range procs {
+			st := p.Status()
+			if st != StatusDone && st != StatusCrashed {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Verify all output was captured despite the backpressure
+	for _, p := range procs {
+		lines := p.Lines()
+		if len(lines) != linesPerProc {
+			t.Errorf("%s: expected %d lines, got %d", p.Name, linesPerProc, len(lines))
+		}
+	}
+}
+
 func TestSnapshot_noReadyAt(t *testing.T) {
 	p := NewProcess("svc", config.ProcConfig{Shell: "true", ReadyPattern: "ready"}, 1000)
 	// readyAt is left as zero value; startedAt is also zero

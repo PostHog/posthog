@@ -20,6 +20,7 @@ import (
 
 const metricsSampleInterval = 5 * time.Second
 const flushInterval = 16 * time.Millisecond
+const outputChannelSize = 256
 
 type Status int
 
@@ -114,9 +115,10 @@ type Process struct {
 	ptmx          *os.File // pty master; nil when using pipes
 	stdinPipe     *os.File // write end of stdin pipe; nil when using PTY
 	readyPattern  *regexp.Regexp
-	ready         bool // whether we've seen the ready pattern (or no pattern is set)
-	stopRequested bool // set by Stop() to catch races with in-flight Start()
-	hasPrompt     bool // last output was a partial line (no trailing \n), suggesting a prompt
+	ready         bool         // whether we've seen the ready pattern (or no pattern is set)
+	outCh         chan tea.Msg // buffered channel decoupling readLoop from TUI event loop
+	stopRequested bool         // set by Stop() to catch races with in-flight Start()
+	hasPrompt     bool         // last output was a partial line (no trailing \n), suggesting a prompt
 
 	startedAt time.Time
 	readyAt   time.Time
@@ -319,9 +321,18 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 	go p.startMetricsSampler(cmd.Process.Pid)
 
+	p.mu.Lock()
+	p.outCh = make(chan tea.Msg, outputChannelSize)
+	p.mu.Unlock()
+	go func() {
+		for msg := range p.outCh {
+			send(msg)
+		}
+	}()
+
 	readDone := make(chan struct{})
 	go func() {
-		p.readLoop(ptmx, send)
+		p.readLoop(ptmx)
 		close(readDone)
 	}()
 
@@ -338,6 +349,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 		// Wait for readLoop to drain all buffered output before updating status
 		<-readDone
+		close(p.outCh)
 
 		st := StatusDone
 		if exitErr != nil {
@@ -437,9 +449,18 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	go p.startMetricsSampler(cmd.Process.Pid)
 
+	p.mu.Lock()
+	p.outCh = make(chan tea.Msg, outputChannelSize)
+	p.mu.Unlock()
+	go func() {
+		for msg := range p.outCh {
+			send(msg)
+		}
+	}()
+
 	readDone := make(chan struct{})
 	go func() {
-		p.readLoop(pr, send)
+		p.readLoop(pr)
 		close(readDone)
 	}()
 
@@ -458,6 +479,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 		<-readDone
 		_ = pr.Close()
+		close(p.outCh)
 
 		st := StatusDone
 		if exitErr != nil {
@@ -486,11 +508,10 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	return nil
 }
 
-// Reads output from the process, buffering it internally and sending batched
-// OutputMsg notifications to the TUI. Complete lines (terminated by \n) are
-// buffered immediately; partial lines (e.g. interactive prompts that don't end
-// with \n) are flushed after a short timeout so they appear without delay.
-func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
+// Reads process output, batches lines, and sends OutputMsg to p.outCh.
+// Sends are non-blocking — if outCh is full the batch keeps accumulating
+// until the next tick, preventing TUI backpressure from stalling PTY reads.
+func (p *Process) readLoop(r io.Reader) {
 	chunkCh := make(chan []byte, 64)
 	go func() {
 		buf := make([]byte, 256*1024)
@@ -526,12 +547,18 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 			if !ok {
 				if len(partial) > 0 {
 					s := string(partial)
-					if p.bufferLine(s, send) {
+					ev, ready := p.bufferLine(s)
+					if ev {
 						evicted++
+					}
+					if ready {
+						p.outCh <- StatusMsg{Name: p.Name, Status: StatusRunning}
 					}
 					batch = append(batch, s)
 				}
-				send(OutputMsg{Name: p.Name, Added: batch, Evicted: evicted})
+				if len(batch) > 0 {
+					p.outCh <- OutputMsg{Name: p.Name, Added: batch, Evicted: evicted}
+				}
 				return
 			}
 
@@ -549,8 +576,12 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 					line = line[:len(line)-1]
 				}
 				s := string(line)
-				if p.bufferLine(s, send) {
+				ev, ready := p.bufferLine(s)
+				if ev {
 					evicted++
+				}
+				if ready {
+					p.outCh <- StatusMsg{Name: p.Name, Status: StatusRunning}
 				}
 				batch = append(batch, s)
 				data = data[idx+1:]
@@ -575,33 +606,43 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 
 		case <-flushTicker.C:
 			if len(batch) > 0 {
-				send(OutputMsg{Name: p.Name, Added: batch, Evicted: evicted})
-				batch = nil
-				evicted = 0
+				select {
+				case p.outCh <- OutputMsg{Name: p.Name, Added: batch, Evicted: evicted}:
+					batch = nil
+					evicted = 0
+				default:
+					// Channel full — keep accumulating, deliver on next tick
+				}
 			}
 
 		case <-partialTimer.C:
 			if len(partial) > 0 {
 				s := string(partial)
-				if p.bufferLine(s, send) {
+				ev, ready := p.bufferLine(s)
+				if ev {
 					evicted++
+				}
+				if ready {
+					p.outCh <- StatusMsg{Name: p.Name, Status: StatusRunning}
 				}
 				batch = append(batch, s)
 				partial = nil
-				send(OutputMsg{Name: p.Name, Added: batch, Evicted: evicted})
-				batch = nil
-				evicted = 0
+				select {
+				case p.outCh <- OutputMsg{Name: p.Name, Added: batch, Evicted: evicted}:
+					batch = nil
+					evicted = 0
+				default:
+				}
 			}
 		}
 	}
 }
 
 // bufferLine appends a single line to the scrollback buffer and checks the
-// ready pattern. Only sends a StatusMsg if the process just became ready.
-// Returns true if a line was evicted from the front of the buffer.
-func (p *Process) bufferLine(line string, send func(tea.Msg)) bool {
+// ready pattern. Returns whether a line was evicted and whether the process
+// just became ready (so the caller can send a StatusMsg).
+func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
 	p.mu.Lock()
-	evicted := false
 	if len(p.lines) >= p.maxLines {
 		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
@@ -609,19 +650,15 @@ func (p *Process) bufferLine(line string, send func(tea.Msg)) bool {
 	}
 	p.lines = append(p.lines, line)
 
-	shouldNotify := false
 	if !p.ready && p.readyPattern != nil && p.readyPattern.MatchString(line) {
 		p.ready = true
 		p.readyAt = time.Now()
 		p.status = StatusRunning
-		shouldNotify = true
+		becameReady = true
 	}
 	p.mu.Unlock()
 
-	if shouldNotify {
-		send(StatusMsg{Name: p.Name, Status: StatusRunning})
-	}
-	return evicted
+	return evicted, becameReady
 }
 
 // Sampling CPU/mem/threads every metricsSampleInterval for the process tree
