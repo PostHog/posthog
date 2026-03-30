@@ -253,9 +253,18 @@ export function copyTableToMarkdown(dataTableRows: DataTableRow[], columns: stri
         const [headers, ...rows] = tableData
         const escape = (cell: any): string => String(cell ?? '').replace(/\|/g, '\\|')
 
-        const headerRow = `| ${headers.map(escape).join(' | ')} |`
-        const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`
-        const dataRows = rows.map((row) => `| ${row.map(escape).join(' | ')} |`)
+        const escapedHeaders = headers.map(escape)
+        const escapedRows = rows.map((row) => row.map(escape))
+
+        const colWidths = escapedHeaders.map((header, colIndex) =>
+            Math.max(3, header.length, ...escapedRows.map((row) => (row[colIndex] ?? '').length))
+        )
+
+        const pad = (cell: string, width: number): string => cell.padEnd(width)
+
+        const headerRow = `| ${escapedHeaders.map((h, i) => pad(h, colWidths[i])).join(' | ')} |`
+        const separatorRow = `| ${colWidths.map((w) => '-'.repeat(w)).join(' | ')} |`
+        const dataRows = escapedRows.map((row) => `| ${row.map((cell, i) => pad(cell, colWidths[i])).join(' | ')} |`)
 
         const markdown = [headerRow, separatorRow, ...dataRows].join('\n')
 
