@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use common_kafka::kafka_consumer::Offset;
 use common_types::embedding::{
     EmbeddingModel, EmbeddingRequest, EmbeddingResponse, EmbeddingResult, ModelResult,
@@ -87,6 +87,7 @@ pub async fn handle_single(
         Ok(r) => r,
         Err(e) => {
             counter!(EMBEDDING_FAILED, labels.render()).increment(1);
+            error!("Failed to handle request: {:?}", request);
             return Err(e);
         }
     };
