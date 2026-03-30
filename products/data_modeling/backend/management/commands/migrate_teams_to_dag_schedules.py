@@ -18,12 +18,13 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.schedule import create_schedule, delete_schedule
+from posthog.temporal.common.schedule import create_schedule, delete_schedule, schedule_exists
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.schedule import build_schedule_spec
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +60,7 @@ class Command(BaseCommand):
         total = dags.count()
         if total == 0:
             raise CommandError("No DAGs found matching filters")
-        logger.info(f"Found {total} DAGs to process")
+        logger.info(f"Found {total} DAG(s) to process")
         if not options["dry_run"] and not settings.TEST:
             confirm = input(f"\n\tWill migrate {total} DAGs to v2 schedules. Proceed? (y/n) ")
             if confirm.strip().lower() != "y":
@@ -68,7 +69,7 @@ class Command(BaseCommand):
         migrated = 0
         skipped = 0
         failed = 0
-        for dag in dags.iterator():
+        for i, dag in enumerate(dags.iterator()):
             try:
                 result = self._migrate_dag(dag, dry_run=options["dry_run"])
                 if result:
@@ -78,6 +79,7 @@ class Command(BaseCommand):
             except Exception:
                 failed += 1
                 logger.exception("Failed to migrate DAG", dag_id=str(dag.id), team_id=dag.team_id)
+            logger.info(f"Progress: {i}/{total} (migrated={migrated}, skipped={skipped}, failed={failed})")
             if not options["dry_run"]:
                 time.sleep(BATCH_DELAY_SECONDS)
         if options["dry_run"]:
@@ -126,6 +128,9 @@ class Command(BaseCommand):
         # create the v2 DAG schedule
         temporal = sync_connect()
         schedule_id = str(dag.id)
+        if schedule_exists(temporal, schedule_id=schedule_id):
+            logger.info("V2 schedule already exists, skipping creation", dag_id=str(dag.id), team_id=team.pk)
+            return False
         inputs = ExecuteDAGInputs(
             team_id=team.pk,
             dag_id=str(dag.id),
@@ -169,9 +174,10 @@ class Command(BaseCommand):
             search_attributes=search_attributes,
         )
         logger.info("Created v2 DAG schedule", dag_id=str(dag.id), team_id=team.pk, interval=str(interval))
-        # rename the DAG to "Default" only after schedule creation succeeded
+        # update the DAG only after schedule creation succeeded
         dag.name = "Default"
-        dag.save(update_fields=["name"])
+        dag.sync_frequency_interval = interval
+        dag.save(update_fields=["name", "sync_frequency_interval"])
         logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
         # delete old per-node schedules
         deleted_count = 0
@@ -210,5 +216,14 @@ class Command(BaseCommand):
             team_id=team.pk,
             deleted=deleted_count,
             total=scheduled_nodes.count(),
+        )
+        # null out sync_frequency_interval on migrated saved queries so v1 schedules are not re-created
+        migrated_sq_ids = [node.saved_query_id for node in scheduled_nodes if node.saved_query_id is not None]
+        DataWarehouseSavedQuery.objects.filter(id__in=migrated_sq_ids).update(sync_frequency_interval=None)
+        logger.info(
+            "Cleared sync_frequency_interval on saved queries",
+            dag_id=str(dag.id),
+            team_id=team.pk,
+            count=len(migrated_sq_ids),
         )
         return True
