@@ -79,7 +79,7 @@ class Command(BaseCommand):
             except Exception:
                 failed += 1
                 logger.exception("Failed to migrate DAG", dag_id=str(dag.id), team_id=dag.team_id)
-            logger.info(f"Progress: {i}/{total} (migrated={migrated}, skipped={skipped}, failed={failed})")
+            logger.info(f"Progress: {i + 1}/{total} (migrated={migrated}, skipped={skipped}, failed={failed})")
             if not options["dry_run"]:
                 time.sleep(BATCH_DELAY_SECONDS)
         if options["dry_run"]:
