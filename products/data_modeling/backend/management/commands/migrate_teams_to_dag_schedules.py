@@ -131,99 +131,99 @@ class Command(BaseCommand):
         if schedule_exists(temporal, schedule_id=schedule_id):
             logger.info("V2 schedule already exists, skipping creation", dag_id=str(dag.id), team_id=team.pk)
         else:
-        inputs = ExecuteDAGInputs(
-            team_id=team.pk,
-            dag_id=str(dag.id),
-            node_ids=None,
-            duckgres_only=False,
-        )
-        spec = build_schedule_spec(
-            entity_id=dag.id,
-            interval=interval,
-            team_timezone=team.timezone,
-        )
-        schedule = Schedule(
-            action=ScheduleActionStartWorkflow(
-                "data-modeling-execute-dag",
-                asdict(inputs),
-                id=f"execute-dag-{dag.id}",
-                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=10),
-                    maximum_interval=timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NondeterminismError", "CancelledError"],
+            inputs = ExecuteDAGInputs(
+                team_id=team.pk,
+                dag_id=str(dag.id),
+                node_ids=None,
+                duckgres_only=False,
+            )
+            spec = build_schedule_spec(
+                entity_id=dag.id,
+                interval=interval,
+                team_timezone=team.timezone,
+            )
+            schedule = Schedule(
+                action=ScheduleActionStartWorkflow(
+                    "data-modeling-execute-dag",
+                    asdict(inputs),
+                    id=f"execute-dag-{dag.id}",
+                    task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=10),
+                        maximum_interval=timedelta(seconds=60),
+                        maximum_attempts=3,
+                        non_retryable_error_types=["NondeterminismError", "CancelledError"],
+                    ),
                 ),
-            ),
-            spec=spec,
-            state=ScheduleState(note=f"DAG schedule for team {team.pk}"),
-            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-        )
-        search_attributes = TypedSearchAttributes(
-            search_attributes=[
-                SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.pk),
-                SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(team.organization_id)),
-                SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag.id)),
-            ]
-        )
-        create_schedule(
-            temporal,
-            id=schedule_id,
-            schedule=schedule,
-            trigger_immediately=False,
-            search_attributes=search_attributes,
-        )
-        logger.info("Created v2 DAG schedule", dag_id=str(dag.id), team_id=team.pk, interval=str(interval))
-        # update the DAG only after schedule creation succeeded
-        dag.name = "Default"
-        dag.sync_frequency_interval = interval
-        dag.save(update_fields=["name", "sync_frequency_interval"])
-        logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
-        # delete old per-node schedules
-        deleted_count = 0
-        failed_schedule_ids: list[str] = []
-        for node in scheduled_nodes:
-            saved_query = node.saved_query
-            if saved_query is None:
-                continue
-            try:
-                delete_schedule(temporal, schedule_id=str(saved_query.id))
-                deleted_count += 1
-            except temporalio.service.RPCError as e:
-                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                    logger.warning(
-                        "Old schedule not found (already deleted?)",
-                        saved_query_id=str(saved_query.id),
-                        team_id=team.pk,
-                    )
-                else:
-                    failed_schedule_ids.append(str(saved_query.id))
-                    logger.exception(
-                        "Failed to delete old schedule",
-                        saved_query_id=str(saved_query.id),
-                        team_id=team.pk,
-                    )
-        if failed_schedule_ids:
-            logger.warning(
-                "Some old schedules could not be deleted",
+                spec=spec,
+                state=ScheduleState(note=f"DAG schedule for team {team.pk}"),
+                policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+            )
+            search_attributes = TypedSearchAttributes(
+                search_attributes=[
+                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.pk),
+                    SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(team.organization_id)),
+                    SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag.id)),
+                ]
+            )
+            create_schedule(
+                temporal,
+                id=schedule_id,
+                schedule=schedule,
+                trigger_immediately=False,
+                search_attributes=search_attributes,
+            )
+            logger.info("Created v2 DAG schedule", dag_id=str(dag.id), team_id=team.pk, interval=str(interval))
+            # update the DAG only after schedule creation succeeded
+            dag.name = "Default"
+            dag.sync_frequency_interval = interval
+            dag.save(update_fields=["name", "sync_frequency_interval"])
+            logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
+            # delete old per-node schedules
+            deleted_count = 0
+            failed_schedule_ids: list[str] = []
+            for node in scheduled_nodes:
+                saved_query = node.saved_query
+                if saved_query is None:
+                    continue
+                try:
+                    delete_schedule(temporal, schedule_id=str(saved_query.id))
+                    deleted_count += 1
+                except temporalio.service.RPCError as e:
+                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                        logger.warning(
+                            "Old schedule not found (already deleted?)",
+                            saved_query_id=str(saved_query.id),
+                            team_id=team.pk,
+                        )
+                    else:
+                        failed_schedule_ids.append(str(saved_query.id))
+                        logger.exception(
+                            "Failed to delete old schedule",
+                            saved_query_id=str(saved_query.id),
+                            team_id=team.pk,
+                        )
+            if failed_schedule_ids:
+                logger.warning(
+                    "Some old schedules could not be deleted",
+                    dag_id=str(dag.id),
+                    team_id=team.pk,
+                    failed_schedule_ids=failed_schedule_ids,
+                )
+            logger.info(
+                "Deleted old per-node schedules",
                 dag_id=str(dag.id),
                 team_id=team.pk,
-                failed_schedule_ids=failed_schedule_ids,
+                deleted=deleted_count,
+                total=scheduled_nodes.count(),
             )
-        logger.info(
-            "Deleted old per-node schedules",
-            dag_id=str(dag.id),
-            team_id=team.pk,
-            deleted=deleted_count,
-            total=scheduled_nodes.count(),
-        )
-        # null out sync_frequency_interval on migrated saved queries so v1 schedules are not re-created
-        migrated_sq_ids = [node.saved_query_id for node in scheduled_nodes if node.saved_query_id is not None]
-        DataWarehouseSavedQuery.objects.filter(id__in=migrated_sq_ids).update(sync_frequency_interval=None)
-        logger.info(
-            "Cleared sync_frequency_interval on saved queries",
-            dag_id=str(dag.id),
-            team_id=team.pk,
-            count=len(migrated_sq_ids),
-        )
+            # null out sync_frequency_interval on migrated saved queries so v1 schedules are not re-created
+            migrated_sq_ids = [node.saved_query_id for node in scheduled_nodes if node.saved_query_id is not None]
+            DataWarehouseSavedQuery.objects.filter(id__in=migrated_sq_ids).update(sync_frequency_interval=None)
+            logger.info(
+                "Cleared sync_frequency_interval on saved queries",
+                dag_id=str(dag.id),
+                team_id=team.pk,
+                count=len(migrated_sq_ids),
+            )
         return True
