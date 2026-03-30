@@ -133,7 +133,7 @@ class TestKafkaConsumerServiceCallbacks:
 
         service = _make_service()
         mock_consumer = MagicMock()
-        kafka_error = KafkaError(KafkaError._NO_OFFSET)
+        kafka_error = KafkaError(KafkaError._NO_OFFSET)  # type: ignore[attr-defined]
         mock_consumer.commit.side_effect = KafkaException(kafka_error)
 
         with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
@@ -147,7 +147,7 @@ class TestKafkaConsumerServiceCallbacks:
 
         service = _make_service()
         mock_consumer = MagicMock()
-        kafka_error = KafkaError(KafkaError._FAIL)
+        kafka_error = KafkaError(KafkaError._FAIL)  # type: ignore[attr-defined]
         mock_consumer.commit.side_effect = KafkaException(kafka_error)
 
         with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
