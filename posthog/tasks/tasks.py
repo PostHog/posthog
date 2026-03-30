@@ -1244,11 +1244,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 JSONExtractString(properties, '$feature_flag') as flag_key,
                 max(timestamp) as last_called_at,
                 count() as call_count
-            FROM events
+            FROM events_recent
             PREWHERE event = '$feature_flag_called'
-            WHERE timestamp > %(last_sync_timestamp)s
-              AND timestamp <= %(current_sync_timestamp)s
-              AND JSONExtractString(properties, '$feature_flag') != ''
+              AND inserted_at > %(last_sync_timestamp)s
+              AND inserted_at <= %(current_sync_timestamp)s
+            WHERE JSONExtractString(properties, '$feature_flag') != ''
             GROUP BY team_id, flag_key
             ORDER BY last_called_at DESC
             LIMIT %(limit)s
