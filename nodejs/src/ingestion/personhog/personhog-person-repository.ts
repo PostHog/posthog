@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../kafka/producer'
 import {
     InternalPerson,
     PersonUpdateFields,
@@ -10,15 +9,16 @@ import {
     PropertiesLastUpdatedAt,
     Team,
     TeamId,
-} from '../types'
-import { CreatePersonResult } from '../utils/db/db'
-import { logger } from '../utils/logger'
-import { PersonUpdate } from '../worker/ingestion/persons/person-update-batch'
+} from '../../types'
+import { CreatePersonResult } from '../../utils/db/db'
+import { logger } from '../../utils/logger'
+import { PersonMessage } from '../../worker/ingestion/persons/person-message'
+import { PersonUpdate } from '../../worker/ingestion/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     PersonRepository,
-} from '../worker/ingestion/persons/repositories/person-repository'
-import { PersonRepositoryTransaction } from '../worker/ingestion/persons/repositories/person-repository-transaction'
+} from '../../worker/ingestion/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '../../worker/ingestion/persons/repositories/person-repository-transaction'
 import { PersonHogClient } from './client'
 import { personhogErrorsTotal, personhogLatencySeconds, personhogRequestsTotal } from './metrics'
 
@@ -83,7 +83,7 @@ export class PersonHogPersonRepository implements PersonRepository {
 
         try {
             const results = await this.timedGrpc('fetchPerson', () =>
-                this.grpcClient.fetchPersonsByDistinctIds([{ teamId, distinctId }])
+                this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }])
             )
             if (results.length === 0) {
                 return undefined
@@ -113,7 +113,7 @@ export class PersonHogPersonRepository implements PersonRepository {
 
         try {
             return await this.timedGrpc('fetchPersonsByDistinctIds', () =>
-                this.grpcClient.fetchPersonsByDistinctIds(teamPersons)
+                this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchPersonsByDistinctIds failed, falling back to Postgres', {
@@ -139,7 +139,7 @@ export class PersonHogPersonRepository implements PersonRepository {
 
         try {
             return await this.timedGrpc('fetchPersonsByPersonIds', () =>
-                this.grpcClient.fetchPersonsByPersonIds(teamPersons)
+                this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchPersonsByPersonIds failed, falling back to Postgres', {
@@ -184,25 +184,25 @@ export class PersonHogPersonRepository implements PersonRepository {
         person: InternalPerson,
         update: PersonUpdateFields,
         tag?: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return this.postgres.updatePerson(person, update, tag)
     }
 
-    updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
+    updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]> {
         return this.postgres.updatePersonAssertVersion(personUpdate)
     }
 
     updatePersonsBatch(
         personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>> {
         return this.postgres.updatePersonsBatch(personUpdates)
     }
 
-    deletePerson(person: InternalPerson): Promise<TopicMessage[]> {
+    deletePerson(person: InternalPerson): Promise<PersonMessage[]> {
         return this.postgres.deletePerson(person)
     }
 
-    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]> {
+    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return this.postgres.addDistinctId(person, distinctId, version)
     }
 

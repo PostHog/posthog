@@ -22,10 +22,10 @@ import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
-import { buildGroupRepository, buildPersonRepository } from './personhog'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -343,19 +343,24 @@ export class PluginServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
         const personRepository = buildPersonRepository(
-            this.config,
+            personhogClient,
             postgresPersonRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
         const groupRepository = buildGroupRepository(
-            this.config,
+            personhogClient,
             postgresGroupRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)

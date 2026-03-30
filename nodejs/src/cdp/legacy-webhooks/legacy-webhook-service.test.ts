@@ -3,8 +3,8 @@ import { mockFetch } from '../../../tests/helpers/mocks/request.mock'
 import { Message } from 'node-rdkafka'
 
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { PersonHogClient } from '../../personhog/client'
-import { PersonHogGroupRepository } from '../../personhog/personhog-group-repository'
+import { PersonHogClient } from '../../ingestion/personhog/client'
+import { PersonHogGroupRepository } from '../../ingestion/personhog/personhog-group-repository'
 import { Action, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -12,12 +12,15 @@ import { FetchResponse } from '../../utils/request'
 import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { LegacyWebhookService } from './legacy-webhook-service'
 
-type MockPersonHogClient = jest.Mocked<
-    Pick<
-        PersonHogClient,
-        'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+type MockPersonHogClient = {
+    groups: jest.Mocked<
+        Pick<
+            PersonHogClient['groups'],
+            'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+        >
     >
->
+    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
+}
 
 jest.setTimeout(10000)
 
@@ -394,12 +397,18 @@ describe('LegacyWebhookService', () => {
             // Wrap the real postgres groupRepository with PersonHogGroupRepository at 100% gRPC rollout
             // with a mock gRPC client that returns the same data as the existing mock
             const mockGrpcClient: MockPersonHogClient = {
-                fetchGroup: jest.fn().mockResolvedValue({
-                    group_properties: { name: 'Test Project' },
-                } as any),
-                fetchGroupsByKeys: jest.fn(),
-                fetchGroupTypesByTeamIds: jest.fn(),
-                fetchGroupTypesByProjectIds: jest.fn(),
+                groups: {
+                    fetchGroup: jest.fn().mockResolvedValue({
+                        group_properties: { name: 'Test Project' },
+                    } as any),
+                    fetchGroupsByKeys: jest.fn(),
+                    fetchGroupTypesByTeamIds: jest.fn(),
+                    fetchGroupTypesByProjectIds: jest.fn(),
+                },
+                persons: {
+                    fetchPersonsByDistinctIds: jest.fn(),
+                    fetchPersonsByPersonIds: jest.fn(),
+                },
             }
 
             const personhogRepo = new PersonHogGroupRepository(
@@ -449,7 +458,7 @@ describe('LegacyWebhookService', () => {
             })
 
             // fetchGroup with useReadReplica: true should route to gRPC at 100%
-            expect(mockGrpcClient.fetchGroup).toHaveBeenCalled()
+            expect(mockGrpcClient.groups.fetchGroup).toHaveBeenCalled()
 
             await personhogService.stop()
         })

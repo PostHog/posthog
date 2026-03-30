@@ -3,6 +3,7 @@ import { createGrpcTransport } from '@connectrpc/connect-node'
 
 import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
 import { PersonHogGroupOperations } from './groups'
+import { PersonHogPersonOperations } from './persons'
 
 export interface PersonHogClientConfig {
     addr: string
@@ -17,10 +18,12 @@ export interface PersonHogClientConfig {
 
 export class PersonHogClient {
     readonly groups: PersonHogGroupOperations
+    readonly persons: PersonHogPersonOperations
 
     private constructor(transport: Transport) {
         const client = createClient(PersonHogService, transport)
         this.groups = new PersonHogGroupOperations(client)
+        this.persons = new PersonHogPersonOperations(client)
     }
 
     static fromTransport(transport: Transport): PersonHogClient {

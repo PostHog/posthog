@@ -29,8 +29,8 @@ import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { buildGroupRepository, buildPersonRepository } from '../personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -85,7 +85,8 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         // PersonHog gRPC
         | 'PERSONHOG_ENABLED'
         | 'PERSONHOG_ADDR'
-        | 'PERSONHOG_ROLLOUT_PERCENTAGE'
+        | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
+        | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'
         | 'PERSONHOG_TLS'
         | 'PERSONHOG_TIMEOUT_MS'
         | 'PERSONHOG_READ_MAX_BYTES'
@@ -164,20 +165,25 @@ export class IngestionGeneralServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
         const personRepository = buildPersonRepository(
-            this.config,
+            personhogClient,
             postgresPersonRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
 
         const groupRepository = buildGroupRepository(
-            this.config,
+            personhogClient,
             postgresGroupRepository,
-            this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)

@@ -23,7 +23,7 @@ import { ERROR_TRACKING_OUTPUT_DEFINITIONS } from '../ingestion/error-tracking/c
 import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/error-tracking/config/producers'
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
-import { buildGroupRepository } from '../ingestion/personhog'
+import { buildGroupRepository, createPersonHogClient } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -130,9 +130,11 @@ export class ErrorTrackingServer implements NodeServer {
 
         const personRepository = new PostgresPersonRepository(this.postgres)
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+        const personhogClient = createPersonHogClient(this.config)
         const groupRepository = buildGroupRepository(
-            this.config,
+            personhogClient,
             postgresGroupRepository,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
             this.config.PLUGIN_SERVER_MODE ?? 'unknown'
         )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
