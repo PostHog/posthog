@@ -25,9 +25,9 @@ from products.signals.backend.temporal.actionability_judge import (
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     RunAgenticReportOutput,
-    SignalsAgenticReportGateInput,
+    SignalsLegacyReportGateInput,
     run_agentic_report_activity,
-    signals_agentic_report_gate_activity,
+    signals_legacy_report_gate_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
@@ -104,14 +104,14 @@ class SignalReportSummaryWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         try:
-            use_agentic_report: bool = await workflow.execute_activity(
-                signals_agentic_report_gate_activity,
-                SignalsAgenticReportGateInput(team_id=inputs.team_id),
+            use_legacy_report: bool = await workflow.execute_activity(
+                signals_legacy_report_gate_activity,
+                SignalsLegacyReportGateInput(team_id=inputs.team_id),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             decision: ReportDecision | None = None
-            if use_agentic_report:
+            if not use_legacy_report:
                 workflow.logger.info(f"Report {inputs.report_id} using agentic summary path")
                 # 3. Run safety judge first to avoid passing unsafe report into the agentic research
                 safety_result = await workflow.execute_activity(

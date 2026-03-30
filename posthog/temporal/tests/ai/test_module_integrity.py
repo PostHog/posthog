@@ -110,7 +110,7 @@ class TestAITemporalModuleIntegrity:
             "wait_for_signal_in_clickhouse_activity",
             "run_agentic_report_activity",
             "select_repository_activity",
-            "signals_agentic_report_gate_activity",
+            "signals_legacy_report_gate_activity",
             "summarize_signals_activity",
             "delete_report_activity",
             "flush_signals_to_s3_activity",

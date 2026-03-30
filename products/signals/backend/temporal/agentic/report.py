@@ -27,26 +27,26 @@ from products.tasks.backend.services.custom_prompt_runner import CustomPromptSan
 
 logger = structlog.get_logger(__name__)
 
-SIGNALS_AGENTIC_REPORT_GENERATION_FF = "signals-agentic-report-generation"
+SIGNALS_LEGACY_REPORT_GENERATION_FF = "signals-legacy-report-generation"
 
 
 @dataclass
-class SignalsAgenticReportGateInput:
+class SignalsLegacyReportGateInput:
     team_id: int
 
 
 @temporalio.activity.defn
-async def signals_agentic_report_gate_activity(input: SignalsAgenticReportGateInput) -> bool:
-    """Evaluate whether Signals should use the agentic report path for a team."""
+async def signals_legacy_report_gate_activity(input: SignalsLegacyReportGateInput) -> bool:
+    """Evaluate whether Signals should use the legacy (non-agentic) report path for a team."""
     try:
         team = await Team.objects.only("id", "uuid", "organization_id").aget(id=input.team_id)
     except Team.DoesNotExist:
-        logger.warning("signals agentic report gate: team does not exist", team_id=input.team_id)
+        logger.warning("signals legacy report gate: team does not exist", team_id=input.team_id)
         return False
 
     try:
         return posthoganalytics.feature_enabled(
-            SIGNALS_AGENTIC_REPORT_GENERATION_FF,
+            SIGNALS_LEGACY_REPORT_GENERATION_FF,
             str(team.uuid),
             groups={
                 "organization": str(team.organization_id),
@@ -63,9 +63,9 @@ async def signals_agentic_report_gate_activity(input: SignalsAgenticReportGateIn
         )
     except Exception:
         logger.exception(
-            "signals agentic report gate: failed to evaluate feature flag",
+            "signals legacy report gate: failed to evaluate feature flag",
             team_id=input.team_id,
-            flag=SIGNALS_AGENTIC_REPORT_GENERATION_FF,
+            flag=SIGNALS_LEGACY_REPORT_GENERATION_FF,
         )
         return False
 

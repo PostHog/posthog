@@ -22,9 +22,9 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
-    SignalsAgenticReportGateInput,
+    SignalsLegacyReportGateInput,
     run_agentic_report_activity,
-    signals_agentic_report_gate_activity,
+    signals_legacy_report_gate_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
@@ -114,7 +114,7 @@ def _build_signals() -> list[SignalData]:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_signals_agentic_report_gate_activity(monkeypatch, ateam, flag_enabled):
+async def test_signals_legacy_report_gate_activity(monkeypatch, ateam, flag_enabled):
     captured = {}
 
     def fake_feature_enabled(
@@ -139,10 +139,10 @@ async def test_signals_agentic_report_gate_activity(monkeypatch, ateam, flag_ena
         fake_feature_enabled,
     )
 
-    result = await signals_agentic_report_gate_activity(SignalsAgenticReportGateInput(team_id=ateam.id))
+    result = await signals_legacy_report_gate_activity(SignalsLegacyReportGateInput(team_id=ateam.id))
 
     assert result is flag_enabled
-    assert captured["key"] == "signals-agentic-report-generation"
+    assert captured["key"] == "signals-legacy-report-generation"
     assert captured["distinct_id"] == str(ateam.uuid)
     assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}
     assert captured["only_evaluate_locally"] is False
