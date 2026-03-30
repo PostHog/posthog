@@ -4,6 +4,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
+from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
@@ -24,6 +25,7 @@ import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
@@ -136,6 +138,7 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
+    project_secret_api_key,
     proxy_record,
     query,
     quick_filters,
@@ -154,9 +157,7 @@ from . import (
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
-from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
-from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OAuthApplicationPublicMetadataViewSet, OrganizationOAuthApplicationViewSet
@@ -286,6 +287,12 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+projects_router.register(
+    r"sandbox_environments",
+    tasks.SandboxEnvironmentViewSet,
+    "project_sandbox_environments",
+    ["team_id"],
+)
 
 # PostHog Code invites (not project-scoped)
 router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
@@ -496,12 +503,6 @@ projects_router.register(
 )
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
-projects_router.register(
-    r"web_analytics",
-    external_web_analytics.ExternalWebAnalyticsViewSet,
-    "project_external_web_analytics",
-    ["project_id"],
-)
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
@@ -1069,6 +1070,13 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(
+    r"project_secret_api_keys",
+    project_secret_api_key.ProjectSecretAPIKeyViewSet,
+    "environment_project_secret_api_keys",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
 )
 
@@ -1196,6 +1204,8 @@ projects_router.register(
     "project_flag_value",
     ["project_id"],
 )
+
+projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"datasets",

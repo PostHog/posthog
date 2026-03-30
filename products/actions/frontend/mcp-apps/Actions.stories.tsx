@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { ActionListView, type ActionData, type ActionListData, ActionView } from './index'
 
@@ -14,6 +14,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const urlMatchingAction: ActionData = {
     id: 1,
@@ -61,19 +63,27 @@ const simpleAction: ActionData = {
     steps: [{ event: 'dashboard_viewed' }],
 }
 
-export const UrlMatching: StoryFn = () => <ActionView action={urlMatchingAction} />
-UrlMatching.storyName = 'Action with URL matching'
+export const UrlMatching: Story = {
+    render: () => <ActionView action={urlMatchingAction} />,
+    storyName: 'Action with URL matching',
+}
 
-export const MultiStep: StoryFn = () => <ActionView action={multiStepAction} />
-MultiStep.storyName = 'Pinned action with multiple steps'
+export const MultiStep: Story = {
+    render: () => <ActionView action={multiStepAction} />,
+    storyName: 'Pinned action with multiple steps',
+}
 
-export const Simple: StoryFn = () => <ActionView action={simpleAction} />
-Simple.storyName = 'Simple action'
+export const Simple: Story = {
+    render: () => <ActionView action={simpleAction} />,
+    storyName: 'Simple action',
+}
 
 const sampleListData: ActionListData = {
     results: [urlMatchingAction, multiStepAction, simpleAction],
     _posthogUrl: 'https://us.posthog.com/project/1/data-management/actions',
 }
 
-export const List: StoryFn = () => <ActionListView data={sampleListData} />
-List.storyName = 'Action list'
+export const List: Story = {
+    render: () => <ActionListView data={sampleListData} />,
+    storyName: 'Action list',
+}

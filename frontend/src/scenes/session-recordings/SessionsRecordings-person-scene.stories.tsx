@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
 
 import { App } from 'scenes/App'
@@ -142,221 +142,235 @@ const meta: Meta = {
 }
 export default meta
 
-export const PersonRecordingTabEmpty: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings': () => [200, { results: [] }],
-        },
-        post: {
-            '/api/environments/:team_id/query/': (req) => {
-                const query = (req.body as any)?.query
-                if (query?.kind === 'HogQLQuery' && query?.values?.id === personUUID) {
-                    return [200, personQueryResponse]
-                }
-                return [200, { results: [] }]
+type Story = StoryObj<{}>
+
+export const PersonRecordingTabEmpty: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': () => [200, { results: [] }],
             },
-        },
-    })
-
-    router.actions.push(combineUrl(urls.personByUUID(personUUID), {}, { activeTab: 'sessionRecordings' }).url)
-
-    return <App />
-}
-
-export const PersonRecordingTabMultipleAndNotFound: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-        },
-    })
-
-    router.actions.push(combineUrl(urls.personByUUID(personUUID), {}, { activeTab: 'sessionRecordings' }).url)
-
-    return <App />
-}
-
-export const PersonRecordingTabMultipleAndFound: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'rec-002-banana' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
-                    200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
+            post: {
+                '/api/environments/:team_id/query/': (req) => {
+                    const query = (req.body as any)?.query
+                    if (query?.kind === 'HogQLQuery' && query?.values?.id === personUUID) {
+                        return [200, personQueryResponse]
+                    }
+                    return [200, { results: [] }]
+                },
             },
-        },
-    })
+        })
 
-    router.actions.push(
-        combineUrl(
-            urls.personByUUID(personUUID),
-            { sessionRecordingId: 'rec-002-banana', pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
-            { activeTab: 'sessionRecordings' }
-        ).url
-    )
+        router.actions.push(combineUrl(urls.personByUUID(personUUID), {}, { activeTab: 'sessionRecordings' }).url)
 
-    return <App />
-}
-PersonRecordingTabMultipleAndFound.parameters = {
-    testOptions: {
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        return <App />
     },
 }
-PersonRecordingTabMultipleAndFound.tags = ['test-skip']
 
-export const PersonRecordingTabWide: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'rec-001-apple' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
-                    200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
+export const PersonRecordingTabMultipleAndNotFound: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
             },
-        },
-    })
+        })
 
-    router.actions.push(
-        combineUrl(
-            urls.personByUUID(personUUID),
-            { sessionRecordingId: 'rec-001-apple', pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
-            { activeTab: 'sessionRecordings' }
-        ).url
-    )
+        router.actions.push(combineUrl(urls.personByUUID(personUUID), {}, { activeTab: 'sessionRecordings' }).url)
 
-    return <App />
-}
-PersonRecordingTabWide.parameters = {
-    testOptions: {
-        viewport: { width: 1300, height: 720 },
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        return <App />
     },
 }
-PersonRecordingTabWide.tags = ['test-skip']
 
-export const PersonRecordingTabNarrow: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'rec-001-apple' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
+export const PersonRecordingTabMultipleAndFound: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
+                '/api/environments/:team_id/session_recordings/:id': () => [
                     200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
+                    { ...recordingMetaJson, id: 'rec-002-banana' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
             },
-        },
-    })
+        })
 
-    router.actions.push(
-        combineUrl(
-            urls.personByUUID(personUUID),
-            { sessionRecordingId: 'rec-001-apple', pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
-            { activeTab: 'sessionRecordings' }
-        ).url
-    )
+        router.actions.push(
+            combineUrl(
+                urls.personByUUID(personUUID),
+                { sessionRecordingId: 'rec-002-banana', pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
+                { activeTab: 'sessionRecordings' }
+            ).url
+        )
 
-    return <App />
-}
-PersonRecordingTabNarrow.parameters = {
-    testOptions: {
-        viewport: { width: 568, height: 1024 },
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        return <App />
     },
+    parameters: {
+        testOptions: {
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        },
+    },
+    tags: ['test-skip'],
 }
-PersonRecordingTabNarrow.tags = ['test-skip']
 
-export const PersonEventsTabWithModal: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'rec-001-apple' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
+export const PersonRecordingTabWide: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
+                '/api/environments/:team_id/session_recordings/:id': () => [
                     200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
+                    { ...recordingMetaJson, id: 'rec-001-apple' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
             },
-        },
-    })
+        })
 
-    router.actions.push(
-        combineUrl(
-            urls.personByUUID(personUUID),
-            { pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
-            { activeTab: 'events', sessionRecordingId: 'rec-001-apple' }
-        ).url
-    )
+        router.actions.push(
+            combineUrl(
+                urls.personByUUID(personUUID),
+                { sessionRecordingId: 'rec-001-apple', pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
+                { activeTab: 'sessionRecordings' }
+            ).url
+        )
 
-    return <App />
-}
-PersonEventsTabWithModal.parameters = {
-    testOptions: {
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        return <App />
     },
+    parameters: {
+        testOptions: {
+            viewport: { width: 1300, height: 720 },
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        },
+    },
+    tags: ['test-skip'],
 }
-PersonEventsTabWithModal.tags = ['test-skip']
+
+export const PersonRecordingTabNarrow: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
+                '/api/environments/:team_id/session_recordings/:id': () => [
+                    200,
+                    { ...recordingMetaJson, id: 'rec-001-apple' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+        })
+
+        router.actions.push(
+            combineUrl(
+                urls.personByUUID(personUUID),
+                { sessionRecordingId: 'rec-001-apple', pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
+                { activeTab: 'sessionRecordings' }
+            ).url
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            viewport: { width: 568, height: 1024 },
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        },
+    },
+    tags: ['test-skip'],
+}
+
+export const PersonEventsTabWithModal: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
+                '/api/environments/:team_id/session_recordings/:id': () => [
+                    200,
+                    { ...recordingMetaJson, id: 'rec-001-apple' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+        })
+
+        router.actions.push(
+            combineUrl(
+                urls.personByUUID(personUUID),
+                { pause: true, inspectorSideBar: true, tab: 'inspector', t: 2 },
+                { activeTab: 'events', sessionRecordingId: 'rec-001-apple' }
+            ).url
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        },
+    },
+    tags: ['test-skip'],
+}

@@ -1,9 +1,9 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
-import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { EmojiPickerPopover, EmojiPickerPopoverProps } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 
-type Story = StoryObj<typeof EmojiPickerPopover>
-const meta: Meta<typeof EmojiPickerPopover> = {
+type Story = StoryObj<EmojiPickerPopoverProps>
+const meta: Meta<EmojiPickerPopoverProps> = {
     title: 'Lemon UI/Emoji Picker Popover',
     component: EmojiPickerPopover,
     tags: ['autodocs'],
@@ -22,21 +22,22 @@ const meta: Meta<typeof EmojiPickerPopover> = {
             description: 'Whether to start with the popover open - defaults to false',
         },
     },
+    render: (props) => {
+        return (
+            <div className="w-[325px] h-[370px] border rounded">
+                <EmojiPickerPopover {...props} />
+            </div>
+        )
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof EmojiPickerPopover> = (props) => {
-    return (
-        <div className="w-[325px] h-[370px] border rounded">
-            <EmojiPickerPopover {...props} />
-        </div>
-    )
+export const Default: Story = {
+    args: {},
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
-
-export const Open: Story = BasicTemplate.bind({})
-Open.args = {
-    defaultOpen: true,
+export const Open: Story = {
+    args: {
+        defaultOpen: true,
+    },
 }

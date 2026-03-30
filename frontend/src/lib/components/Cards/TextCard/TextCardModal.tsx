@@ -47,7 +47,10 @@ export function TextCardModal({
             disablePointerDismissal={hasUnsavedInput}
             className={cn(
                 'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100vh-4rem)] top-8',
-                'bg-surface-primary'
+                'bg-surface-primary',
+                // DialogPrimitive defaults to z above --z-popover; rich editor toolbars portal to body at
+                // --z-popover and would sit under the panel. Sit the dialog just below that layer instead.
+                'z-[calc(var(--z-popover)-1)]'
             )}
         >
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-primary py-2 pl-4 pr-2">

@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { NodeTypes } from '@xyflow/react'
 
 import { IconPlus, IconX } from '@posthog/icons'
@@ -90,60 +90,84 @@ const meta: Meta = {
 }
 export default meta
 
-export const Default: StoryFn = () => (
-    <NodeCanvas nodes={[pathNode('p1', 'path', sampleData, 0)]} nodeTypes={nodeTypes} height={100} padding={0.5} />
-)
+type Story = StoryObj<{}>
 
-export const LongEventName: StoryFn = () => (
-    <NodeCanvas
-        nodes={[
+export const Default: Story = {
+    render: () => (
+        <NodeCanvas nodes={[pathNode('p1', 'path', sampleData, 0)]} nodeTypes={nodeTypes} height={100} padding={0.5} />
+    ),
+}
+
+export const LongEventName: Story = {
+    render: () => (
+        <NodeCanvas
+            nodes={[
+                pathNode(
+                    'p1',
+                    'path',
+                    {
+                        eventName: 'custom_event_with_a_very_long_name',
+                        displayName: 'custom_event_with_a_very_long_name',
+                        count: 3,
+                    },
+                    0
+                ),
+            ]}
+            nodeTypes={nodeTypes}
+            height={100}
+            padding={0.5}
+        />
+    ),
+}
+
+export const Addable: Story = {
+    render: () => (
+        <NodeCanvas
+            nodes={[pathNode('p1', 'addable', sampleData, 0)]}
+            nodeTypes={nodeTypes}
+            height={100}
+            padding={0.5}
+        />
+    ),
+}
+
+export const Staged: Story = {
+    render: () => (
+        <NodeCanvas
+            nodes={[pathNode('p1', 'staged', sampleData, 0)]}
+            nodeTypes={nodeTypes}
+            height={100}
+            padding={0.5}
+        />
+    ),
+}
+
+export const StagedOptional: Story = {
+    render: () => (
+        <NodeCanvas
+            nodes={[pathNode('p1', 'stagedOptional', sampleData, 0)]}
+            nodeTypes={nodeTypes}
+            height={100}
+            padding={0.5}
+        />
+    ),
+}
+
+export const AllVariants: Story = {
+    render: () => {
+        const spacing = PATH_NODE_WIDTH + 40
+        const nodes = [
+            pathNode('p1', 'path', { eventName: '$pageview', displayName: '/pricing', count: 150 }, 0),
+            pathNode('p2', 'addable', { eventName: '$pageview', displayName: '/signup', count: 85 }, spacing),
+            pathNode('p3', 'staged', { eventName: '$pageview', displayName: '/checkout', count: 42 }, spacing * 2),
+            pathNode('p4', 'stagedOptional', { eventName: '$pageview', displayName: '/docs', count: 20 }, spacing * 3),
             pathNode(
-                'p1',
+                'p5',
                 'path',
-                {
-                    eventName: 'custom_event_with_a_very_long_name',
-                    displayName: 'custom_event_with_a_very_long_name',
-                    count: 3,
-                },
-                0
+                { eventName: 'long_custom_event_name', displayName: 'long_custom_event_name', count: 3 },
+                spacing * 4
             ),
-        ]}
-        nodeTypes={nodeTypes}
-        height={100}
-        padding={0.5}
-    />
-)
-
-export const Addable: StoryFn = () => (
-    <NodeCanvas nodes={[pathNode('p1', 'addable', sampleData, 0)]} nodeTypes={nodeTypes} height={100} padding={0.5} />
-)
-
-export const Staged: StoryFn = () => (
-    <NodeCanvas nodes={[pathNode('p1', 'staged', sampleData, 0)]} nodeTypes={nodeTypes} height={100} padding={0.5} />
-)
-
-export const StagedOptional: StoryFn = () => (
-    <NodeCanvas
-        nodes={[pathNode('p1', 'stagedOptional', sampleData, 0)]}
-        nodeTypes={nodeTypes}
-        height={100}
-        padding={0.5}
-    />
-)
-
-export const AllVariants: StoryFn = () => {
-    const spacing = PATH_NODE_WIDTH + 40
-    const nodes = [
-        pathNode('p1', 'path', { eventName: '$pageview', displayName: '/pricing', count: 150 }, 0),
-        pathNode('p2', 'addable', { eventName: '$pageview', displayName: '/signup', count: 85 }, spacing),
-        pathNode('p3', 'staged', { eventName: '$pageview', displayName: '/checkout', count: 42 }, spacing * 2),
-        pathNode('p4', 'stagedOptional', { eventName: '$pageview', displayName: '/docs', count: 20 }, spacing * 3),
-        pathNode(
-            'p5',
-            'path',
-            { eventName: 'long_custom_event_name', displayName: 'long_custom_event_name', count: 3 },
-            spacing * 4
-        ),
-    ]
-    return <NodeCanvas nodes={nodes} nodeTypes={nodeTypes} height={100} padding={0.2} />
+        ]
+        return <NodeCanvas nodes={nodes} nodeTypes={nodeTypes} height={100} padding={0.2} />
+    },
 }

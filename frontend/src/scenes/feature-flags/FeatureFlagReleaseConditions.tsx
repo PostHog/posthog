@@ -301,12 +301,17 @@ export function FeatureFlagReleaseConditions({
                                     )}
                                     {property?.type !== PropertyFilterType.Cohort &&
                                         property?.type !== PropertyFilterType.Flag &&
-                                        getFilterLabel(
-                                            property.key,
-                                            property.type === PropertyFilterType.Person
-                                                ? TaxonomicFilterGroupType.PersonProperties
-                                                : TaxonomicFilterGroupType.EventProperties
-                                        )}
+                                        (() => {
+                                            const propertyLabel = getFilterLabel(
+                                                property.key,
+                                                property.type === PropertyFilterType.Person
+                                                    ? TaxonomicFilterGroupType.PersonProperties
+                                                    : TaxonomicFilterGroupType.EventProperties
+                                            )
+                                            return propertyLabel && propertyLabel !== property.key ? (
+                                                <span className="text-muted">{propertyLabel}</span>
+                                            ) : null
+                                        })()}
                                     {property.type === PropertyFilterType.Flag &&
                                         (() => {
                                             const flagId = property.key || ''
