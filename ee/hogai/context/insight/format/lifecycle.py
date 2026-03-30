@@ -62,7 +62,7 @@ class LifecycleResultsFormatter:
 
         return "\n\n".join(sections)
 
-    def _format_series(self, statuses: dict[str, dict[str, Any]], include_header: bool) -> str:
+    def _format_series(self, statuses: dict[str, dict[str, Any]], multi_series: bool) -> str:
         # Get dates from any available status
         any_result = next(iter(statuses.values()))
         days = any_result.get("days", [])
@@ -86,7 +86,7 @@ class LifecycleResultsFormatter:
             matrix.append(row)
 
         formatted = format_matrix(matrix)
-        if include_header:
+        if multi_series:
             return f"Event: {series_name}\n{formatted}"
         return formatted
 
