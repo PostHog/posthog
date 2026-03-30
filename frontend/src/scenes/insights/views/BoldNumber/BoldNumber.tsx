@@ -133,7 +133,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
     return resultSeries ? (
-        <div className="BoldNumber">
+        <div className="BoldNumber ph-no-capture">
             <div
                 className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                 data-attr="bold-number-value"
@@ -281,7 +281,7 @@ export function HogQLBoldNumber(): JSX.Element {
     const value = formattedValue ?? directValue ?? resultsValue ?? resultValue
 
     return (
-        <div className="BoldNumber LemonTable HogQL">
+        <div className="BoldNumber LemonTable HogQL ph-no-capture">
             <div className="BoldNumber__value">
                 <Textfit min={32} max={120}>
                     {String(value ?? 'Error')}
