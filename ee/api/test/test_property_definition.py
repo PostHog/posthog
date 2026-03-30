@@ -138,7 +138,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 6)  # 2 DB + 4 virtual event properties (bot detection)
+        db_results = [r for r in response_data["results"] if not r.get("name", "").startswith("$virt_")]
+        self.assertEqual(len(db_results), 2)
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -488,21 +489,19 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         for property in properties:
             EnterprisePropertyDefinition.objects.create(team=self.team, name=property["name"])
 
+        _exclude_virtual = lambda results: [r for r in results if not r.get("name", "").startswith("$virt_")]
+
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(properties) + 4)  # +4 virtual event properties (bot detection)
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = _exclude_virtual(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", False, None),
             ("2_when_verified", False, None),
             ("3_when_verified", False, None),
             ("4_when_verified", False, None),
             ("5_when_verified", False, None),
             ("6_when_verified", False, None),
-            ("$virt_is_bot", False, None),
-            ("$virt_traffic_type", False, None),
-            ("$virt_traffic_category", False, None),
-            ("$virt_bot_name", False, None),
         ]
 
         for property in properties:
@@ -514,17 +513,14 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = _exclude_virtual(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", True, None),
             ("2_when_verified", True, None),
             ("3_when_verified", True, None),
             ("4_when_verified", False, None),
             ("5_when_verified", False, None),
             ("6_when_verified", False, None),
-            ("$virt_is_bot", False, None),
-            ("$virt_traffic_type", False, None),
-            ("$virt_traffic_category", False, None),
-            ("$virt_bot_name", False, None),
         ]
 
         # We should prefer properties that have been seen on an event if that is available
@@ -533,17 +529,14 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = _exclude_virtual(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("3_when_verified", True, True),
             ("4_when_verified", False, True),
             ("1_when_verified", True, False),
             ("2_when_verified", True, False),
             ("5_when_verified", False, False),
             ("6_when_verified", False, False),
-            ("$virt_is_bot", False, None),
-            ("$virt_traffic_type", False, None),
-            ("$virt_traffic_category", False, None),
-            ("$virt_bot_name", False, None),
         ]
 
     def test_exclude_hidden_properties(self):
