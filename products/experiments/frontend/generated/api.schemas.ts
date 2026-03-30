@@ -8,161 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
-}
-
-export interface ExperimentHoldoutApi {
-    readonly id: number
-    /** @maxLength 400 */
-    name: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    description?: string | null
-    filters?: unknown
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedExperimentHoldoutListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExperimentHoldoutApi[]
-}
-
-export interface PatchedExperimentHoldoutApi {
-    readonly id?: number
-    /** @maxLength 400 */
-    name?: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    description?: string | null
-    filters?: unknown
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-/**
- * Mixin for serializers to add user access control fields
- */
-export interface ExperimentSavedMetricApi {
-    readonly id: number
-    /** @maxLength 400 */
-    name: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    description?: string | null
-    query: unknown
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    tags?: unknown[]
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-}
-
-export interface PaginatedExperimentSavedMetricListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExperimentSavedMetricApi[]
-}
-
-/**
- * Mixin for serializers to add user access control fields
- */
-export interface PatchedExperimentSavedMetricApi {
-    readonly id?: number
-    /** @maxLength 400 */
-    name?: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    description?: string | null
-    query?: unknown
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    readonly updated_at?: string
-    tags?: unknown[]
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level?: string | null
-}
-
-/**
  * * `server` - Server
  * `client` - Client
  * `all` - All
@@ -174,6 +19,16 @@ export const EvaluationRuntimeEnumApi = {
     Client: 'client',
     All: 'all',
 } as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
 
 /**
  * * `distinct_id` - User ID (default)
@@ -219,6 +74,70 @@ export interface MinimalFeatureFlagApi {
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_contexts: readonly string[]
+}
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
+
+export interface ExperimentHoldoutApi {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    filters?: unknown
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface ExperimentToSavedMetricApi {
@@ -442,28 +361,6 @@ export interface ShipVariantApi {
     conclusion_comment?: string | null
     /** The key of the variant to ship to 100% of users. */
     variant_key: string
-}
-
-export type ExperimentHoldoutsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ExperimentSavedMetricsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type ExperimentsListParams = {
