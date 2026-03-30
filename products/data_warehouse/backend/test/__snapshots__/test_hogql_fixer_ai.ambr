@@ -43,6 +43,10 @@
   - event_issue_id (expression)
   - exception_issue_override (lazy_table)
   - issue_id (expression)
+  - $virt_is_bot (boolean)
+  - $virt_traffic_type (expression)
+  - $virt_traffic_category (expression)
+  - $virt_bot_name (expression)
   '''
 # ---
 # name: test_get_system_prompt
@@ -156,6 +160,10 @@
   - event_issue_id (expression)
   - exception_issue_override (lazy_table)
   - issue_id (expression)
+  - $virt_is_bot (boolean)
+  - $virt_traffic_type (expression)
+  - $virt_traffic_category (expression)
+  - $virt_bot_name (expression)
   
   Below is the current HogQL query and the error message
   
