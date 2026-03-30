@@ -145,44 +145,29 @@ class OAuthValidator(OAuth2Validator):
         if request.client:
             return request.client
 
-        # Standard UUID lookup
-        try:
-            request.client = OAuthApplication.objects.get(client_id=client_id)
-            if not request.client.is_usable(request):
-                request.client = None
-                return None
-            return request.client
-        except OAuthApplication.DoesNotExist:
-            pass
-
-        # CIMD URL lookup (no metadata fetching)
+        # CIMD URLs are looked up by cimd_metadata_url, not the auto-generated client_id UUID
+        app: OAuthApplication | None = None
         if is_cimd_client_id(client_id):
-            try:
-                request.client = OAuthApplication.objects.get(cimd_metadata_url=client_id)
-                if not request.client.is_usable(request):
-                    request.client = None
-                    return None
-                return request.client
-            except OAuthApplication.DoesNotExist:
-                pass
+            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+        else:
+            app = OAuthApplication.objects.filter(client_id=client_id).first()
 
-        return None
+        if app is None or not app.is_usable(request):
+            return None
+
+        request.client = app
+        return request.client
 
     def validate_client_id(self, client_id, request, *args, **kwargs):
         """
-        Validate client_id, resolving CIMD metadata documents for new clients.
+        Validate client_id, supporting CIMD URL-form client_ids.
 
-        For URL-format client_ids not yet in the database, fetches the metadata
-        document and creates an OAuthApplication. This only runs during
-        authorization (user authenticated via @login_required), not at the token
-        endpoint.
+        For CIMD URLs, always routes through get_or_create_cimd_application()
+        so that metadata is refreshed when the cache expires.
+        For standard client_ids, loads directly from the database.
         """
 
-        # Try loading existing application (standard + CIMD DB lookup)
-        if self._load_application(client_id, request) is not None:
-            return True
-
-        # For CIMD URLs with no existing application, fetch metadata and create
+        # CIMD URLs always go through get_or_create to ensure metadata refresh
         if is_cimd_client_id(client_id):
             try:
                 app = get_or_create_cimd_application(client_id)
@@ -191,6 +176,10 @@ class OAuthValidator(OAuth2Validator):
             except (CIMDFetchError, CIMDValidationError) as e:
                 logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e))
                 return False
+
+        # Standard UUID lookup
+        if self._load_application(client_id, request) is not None:
+            return True
 
         return False
 

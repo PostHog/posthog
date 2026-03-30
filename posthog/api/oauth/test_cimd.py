@@ -422,7 +422,7 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         self.client.get(url)
         mock_get.reset_mock()
 
-        # Second request should use _load_application, no outbound fetch
+        # Second request should hit cache in get_or_create, no outbound fetch
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, 200)

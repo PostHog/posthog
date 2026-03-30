@@ -96,7 +96,7 @@ class CIMDMetadataDocument(TypedDict, total=False):
 
 
 def is_cimd_client_id(client_id: str | None) -> bool:
-    """Check whether a client_id looks like a CIMD URL."""
+    """Check whether a client_id looks like a CIMD URL - which is just an HTTPS URL with a path and no fragment/userinfo."""
     if not client_id or not client_id.startswith("https://"):
         return False
     try:
