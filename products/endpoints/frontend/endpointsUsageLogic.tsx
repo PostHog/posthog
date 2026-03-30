@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
@@ -42,6 +42,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         setInterval: (interval: IntervalType) => ({ interval }),
         setBreakdownBy: (breakdownBy: EndpointsUsageBreakdown | null) => ({ breakdownBy }),
         refresh: true,
+        clearCooldown: true,
     }),
 
     reducers({
@@ -78,10 +79,11 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                 setBreakdownBy: (_, { breakdownBy }) => breakdownBy,
             },
         ],
-        lastRefreshedAt: [
-            null as number | null,
+        cooldownActive: [
+            false,
             {
-                refresh: () => Date.now(),
+                refresh: () => true,
+                clearCooldown: () => false,
             },
         ],
         refreshKey: [
@@ -102,15 +104,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                     .sort(),
         ],
         endpointNamesLoading: [(s) => [s.allEndpointsLoading], (loading: boolean): boolean => loading],
-        canRefresh: [
-            (s) => [s.lastRefreshedAt],
-            (lastRefreshedAt: number | null): boolean => {
-                if (lastRefreshedAt === null) {
-                    return true
-                }
-                return Date.now() - lastRefreshedAt >= 15 * 60 * 1000
-            },
-        ],
+        canRefresh: [(s) => [s.cooldownActive], (cooldownActive: boolean): boolean => !cooldownActive],
         dateRange: [
             (s) => [s.dateFilter],
             (dateFilter): { date_from: string | null; date_to: string | null } => {
@@ -213,6 +207,17 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
             }),
         ],
     }),
+
+    listeners(({ actions }) => ({
+        refresh: () => {
+            setTimeout(
+                () => {
+                    actions.clearCooldown()
+                },
+                15 * 60 * 1000
+            )
+        },
+    })),
 
     tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({
