@@ -600,7 +600,7 @@ def check_trends_alert_with_detector(
         # For breakdowns, evaluate each breakdown value independently and fire on the first anomaly
         breakdown_results = cast(list[TrendResult], calculation_result.result)[:MAX_DETECTOR_BREAKDOWN_VALUES]
 
-        for breakdown_result in breakdown_results:
+        for bd_index, breakdown_result in enumerate(breakdown_results):
             if is_non_time_series:
                 data = np.array([breakdown_result.get("aggregated_value", 0)])
             else:
@@ -630,6 +630,7 @@ def check_trends_alert_with_detector(
                     triggered_points=result.triggered_indices if result.triggered_indices else None,
                     triggered_dates=triggered_dates,
                     interval=interval_value,
+                    triggered_series_index=bd_index,
                 )
 
         # No anomaly in any breakdown value

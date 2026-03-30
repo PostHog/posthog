@@ -354,8 +354,19 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     triggered_points = getattr(alert_evaluation_result, "triggered_points", None) if alert_evaluation_result else None
     triggered_dates = getattr(alert_evaluation_result, "triggered_dates", None) if alert_evaluation_result else None
     interval = getattr(alert_evaluation_result, "interval", None) if alert_evaluation_result else None
+    triggered_series_index = (
+        getattr(alert_evaluation_result, "triggered_series_index", None) if alert_evaluation_result else None
+    )
     alert_check = add_alert_check(
-        alert, value, breaches, error, anomaly_scores, triggered_points, triggered_dates, interval
+        alert,
+        value,
+        breaches,
+        error,
+        anomaly_scores,
+        triggered_points,
+        triggered_dates,
+        interval,
+        triggered_series_index,
     )
 
     # 3. Notify users if needed
@@ -442,6 +453,7 @@ def add_alert_check(
     triggered_points: list[int] | None = None,
     triggered_dates: list[str] | None = None,
     interval: str | None = None,
+    triggered_series_index: int | None = None,
 ) -> AlertCheck:
     notify = False
     targets_notified = {}
@@ -473,6 +485,7 @@ def add_alert_check(
         condition=alert.condition,
         targets_notified=targets_notified,
         state=alert.state,
+        triggered_series_index=triggered_series_index,
         error=error,
         anomaly_scores=anomaly_scores,
         triggered_points=triggered_points,

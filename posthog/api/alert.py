@@ -100,6 +100,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "triggered_points",
             "triggered_dates",
             "interval",
+            "triggered_series_index",
         ]
         read_only_fields = fields
 

@@ -149,13 +149,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     return []
                 }
 
-                // For breakdown insights, AlertCheck doesn't store which breakdown value
-                // triggered, so we can't map anomaly dots to the correct chart series.
-                // Skip anomaly points from checks to avoid showing them on the wrong series.
-                // (Simulation overlay still works correctly via breakdown_results.)
-                if (isValidBreakdown(breakdownFilter)) {
-                    return []
-                }
+                const hasBreakdown = isValidBreakdown(breakdownFilter)
 
                 // Derive from all firing checks of each detector-based alert.
                 // Each check typically has 0-1 triggered points, so we aggregate
@@ -165,11 +159,18 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     if (!alert.detector_config || !alert.checks?.length) {
                         return []
                     }
-                    const seriesIndex = alert.config?.series_index ?? 0
+                    const defaultSeriesIndex = alert.config?.series_index ?? 0
                     return alert.checks.flatMap((check) => {
                         if (!check.triggered_dates?.length) {
                             return []
                         }
+                        // For breakdown alerts, use the stored series index from the check
+                        // so the dot appears on the correct breakdown series.
+                        // For non-breakdown alerts, fall back to the alert's series_index.
+                        const seriesIndex =
+                            hasBreakdown && check.triggered_series_index != null
+                                ? check.triggered_series_index
+                                : defaultSeriesIndex
                         return check.triggered_dates
                             .filter((date) => {
                                 const key = `${seriesIndex}:${date}`
