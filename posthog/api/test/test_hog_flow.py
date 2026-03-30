@@ -636,7 +636,9 @@ class TestHogFlowAPI(APIBaseTest):
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
         with patch("posthog.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
-            mock_get_user_blast_radius.return_value = (4, 10)
+            from posthog.models.feature_flag.user_blast_radius import BlastRadiusResult
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(users_affected=4, total_users=10)
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",

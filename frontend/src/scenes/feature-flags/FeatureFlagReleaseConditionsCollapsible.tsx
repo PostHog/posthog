@@ -39,6 +39,7 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
+    GroupType,
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
@@ -291,15 +292,7 @@ interface ConditionProps {
     aggregationTargetName: string
     aggregationLabel: (groupTypeIndex: GroupTypeIndex) => { singular: string; plural: string }
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
-    groupTypes: Map<
-        GroupTypeIndex,
-        {
-            group_type: string
-            group_type_index: GroupTypeIndex
-            name_singular: string | null
-            name_plural: string | null
-        }
-    >
+    groupTypes: Map<GroupTypeIndex, GroupType>
     onSetConditionAggregation: (groupTypeIndex: number | null) => void
     onMoveUp: () => void
     onMoveDown: () => void

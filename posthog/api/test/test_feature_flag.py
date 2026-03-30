@@ -10039,7 +10039,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["total_groups"], 4)
 
     def test_user_blast_radius_no_error_fields_for_successful_queries(self):
-        """Successful queries should not include error fields in the response."""
         for i in range(3):
             _create_person(
                 team_id=self.team.pk,
