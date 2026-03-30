@@ -547,3 +547,120 @@ class TestComputeMinSamplesForDetector:
     )
     def test_compute_min_samples(self, _name: str, config: dict[str, Any], expected: int) -> None:
         assert _compute_min_samples_for_detector(config) == expected
+
+
+def _make_stable_hourly_data(n_days: int = 14) -> np.ndarray:
+    """Simulate realistic stable hourly pageview data with a diurnal pattern.
+
+    Generates a smooth day/night cycle (peak ~500, trough ~100) with small
+    gaussian noise. No genuine anomalies.
+    """
+    rng = np.random.default_rng(42)
+    hours = np.arange(n_days * 24)
+    base = 300 + 200 * np.sin(2 * np.pi * (hours - 6) / 24)
+    noise = rng.normal(0, 10, size=len(hours))
+    return base + noise
+
+
+def _make_stable_with_spike(n_days: int = 14, spike_value: float = 2000.0) -> np.ndarray:
+    """Stable diurnal data with a clear anomaly spike appended at the end."""
+    data = _make_stable_hourly_data(n_days)
+    data[-1] = spike_value
+    return data
+
+
+STABLE_HOURLY = _make_stable_hourly_data()
+STABLE_HOURLY_WITH_SPIKE = _make_stable_with_spike()
+
+
+class TestRealisticScoreBehavior:
+    """Smoke tests using realistic diurnal hourly data.
+
+    Verifies that detectors produce sensible scores on data resembling
+    real-world hourly metrics (stable day/night cycle with small noise).
+    """
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168})),
+            ("iqr", IQRDetector({"threshold": 0.95, "multiplier": 1.5, "window": 168})),
+            ("mad", MADDetector({"threshold": 0.95, "window": 168})),
+        ]
+    )
+    def test_stable_data_does_not_fire(self, _name: str, detector: Any) -> None:
+        result = detector.detect(STABLE_HOURLY)
+        assert not result.is_anomaly, f"{_name} fired on stable data (score={result.score:.4f})"
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168})),
+            ("iqr", IQRDetector({"threshold": 0.95, "multiplier": 1.5, "window": 168})),
+            ("mad", MADDetector({"threshold": 0.95, "window": 168})),
+        ]
+    )
+    def test_obvious_spike_does_fire(self, _name: str, detector: Any) -> None:
+        result = detector.detect(STABLE_HOURLY_WITH_SPIKE)
+        assert result.is_anomaly, f"{_name} missed a 2000-value spike on ~300-mean data (score={result.score:.4f})"
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168})),
+            ("iqr", IQRDetector({"threshold": 0.95, "multiplier": 1.5, "window": 168})),
+        ]
+    )
+    def test_stable_score_well_below_threshold(self, _name: str, detector: Any) -> None:
+        """Score on stable data should sit well below the alert threshold."""
+        result = detector.detect(STABLE_HOURLY)
+        assert result.score is not None
+        assert result.score < 0.8, f"{_name} score {result.score:.4f} on stable data is too close to the 0.95 threshold"
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector({"threshold": 0.95, "window": 168})),
+            ("iqr", IQRDetector({"threshold": 0.95, "multiplier": 1.5, "window": 168})),
+        ]
+    )
+    def test_batch_false_positive_rate_below_2_percent(self, _name: str, detector: Any) -> None:
+        """Fewer than 2% of stable data points should trigger in batch mode."""
+        result = detector.detect_batch(STABLE_HOURLY)
+        window = detector.config.get("window", 30)
+        n_scorable = len(STABLE_HOURLY) - window
+        fp_rate = len(result.triggered_indices) / n_scorable if n_scorable > 0 else 0
+        assert fp_rate < 0.02, (
+            f"{_name} FP rate {fp_rate:.1%} — triggered {len(result.triggered_indices)}/{n_scorable} points"
+        )
+
+    def test_zscore_and_iforest_both_low_on_stable_data(self) -> None:
+        """zscore and IsolationForest should both score low on stable data
+        so that ensemble OR/AND logic behaves predictably."""
+        zr = ZScoreDetector({"threshold": 0.95, "window": 168}).detect(STABLE_HOURLY)
+        ir = IsolationForestDetector({"threshold": 0.95}).detect(STABLE_HOURLY)
+
+        assert zr.score is not None and ir.score is not None
+        assert zr.score < 0.8, f"zscore score too high on stable data: {zr.score:.4f}"
+        assert ir.score < 0.8, f"iforest score too high on stable data: {ir.score:.4f}"
+
+    def test_ensemble_or_does_not_fire_on_stable_data(self) -> None:
+        """Ensemble (OR) of zscore + isolation_forest should not fire on
+        stable diurnal data at threshold=0.95."""
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.95, "window": 168, "preprocessing": {"diffs_n": 1}},
+                    {
+                        "type": "isolation_forest",
+                        "threshold": 0.95,
+                        "window": 168,
+                        "n_estimators": 100,
+                        "preprocessing": {"lags_n": 3, "diffs_n": 1},
+                    },
+                ],
+            }
+        )
+        result = detector.detect(STABLE_HOURLY)
+        assert not result.is_anomaly, (
+            f"Ensemble OR fired on stable data (score={result.score:.4f}, "
+            f"sub_results={result.metadata.get('sub_results')})"
+        )
