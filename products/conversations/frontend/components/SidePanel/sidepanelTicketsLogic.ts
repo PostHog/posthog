@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -48,7 +48,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
         requestRestoreLink: (email: string) => ({ email }),
-        restoreFromUrlToken: true,
+        restoreFromUrlToken: (token: string) => ({ token }),
         setRestoreState: (state: RestoreFlowState) => ({ state }),
         setRestoreError: (error: string | null) => ({ error }),
     }),
@@ -125,15 +125,23 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         loadTickets: async () => {
-            if (!values.isEnabled || !posthog.conversations) {
+            if (!values.isEnabled) {
                 return
             }
+            if (!posthog.conversations) {
+                // Conversations extension loads lazily — retry until it's ready
+                if ((cache.conversationsRetries ?? 0) < 20) {
+                    cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
+                    cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
+                }
+                return
+            }
+            cache.conversationsRetries = 0
             actions.setTicketsLoading(true)
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     actions.setTickets(response.results as ConversationTicket[])
-                    // Start polling only if user has tickets
                     if (response.results.length > 0) {
                         actions.startPolling()
                     }
@@ -277,15 +285,18 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setRestoreState('error')
             }
         },
-        restoreFromUrlToken: async () => {
+        restoreFromUrlToken: async ({ token }) => {
             const conversations = posthog.conversations as any
-            if (!conversations?.restoreFromUrlToken) {
+            if (!conversations?.restoreFromToken) {
                 removeRestoreTokenFromUrl()
                 actions.loadTickets()
                 return
             }
             try {
-                const result = await conversations.restoreFromUrlToken()
+                // Use restoreFromToken(token) directly instead of restoreFromUrlToken()
+                // because posthog-js clears the token from the URL during its own
+                // initialization, causing restoreFromUrlToken() to return null.
+                const result = await conversations.restoreFromToken(token)
                 if (result?.status === 'success') {
                     const count = result.migrated_ticket_ids?.length ?? 0
                     if (count > 0) {
@@ -295,6 +306,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     }
                 }
             } catch (e) {
+                // Token may have been consumed by posthog-js already — that's OK,
+                // the migration still happened so loadTickets will see them.
                 console.error('Failed to restore from URL token:', e)
             } finally {
                 removeRestoreTokenFromUrl()
@@ -302,39 +315,47 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
     })),
-    subscriptions(({ actions, values }) => ({
-        sidePanelOpen: (open: boolean) => {
-            if (values.isEnabled && open) {
+    subscriptions(({ actions, values, cache }) => ({
+        isEnabled: (enabled: boolean) => {
+            if (!enabled) {
+                return
+            }
+            const restoreToken = new URL(window.location.href).searchParams.get('ph_conv_restore')
+            if (restoreToken) {
+                actions.restoreFromUrlToken(restoreToken)
+            } else {
+                actions.loadTickets()
+            }
+
+            if (!cache.onVisibilityChange) {
+                cache.onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        actions.loadTickets()
+                    } else {
+                        actions.stopPolling()
+                    }
+                }
+                document.addEventListener('visibilitychange', cache.onVisibilityChange)
+            }
+        },
+        sidePanelOpen: () => {
+            if (values.isEnabled) {
                 actions.loadTickets()
             }
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        if (values.isEnabled) {
-            const hasRestoreToken = new URL(window.location.href).searchParams.has('ph_conv_restore')
-            if (hasRestoreToken) {
-                actions.restoreFromUrlToken()
-            } else {
-                actions.loadTickets()
-            }
-        }
-
-        // Set up visibility change listener (only if feature is enabled)
-        if (values.isEnabled) {
-            cache.onVisibilityChange = (): void => {
-                if (document.visibilityState === 'visible') {
-                    actions.loadTickets()
-                } else {
-                    actions.stopPolling()
-                }
-            }
-            document.addEventListener('visibilitychange', cache.onVisibilityChange)
-        }
-    }),
     beforeUnmount(({ actions, cache }) => {
         actions.stopPolling()
+        if (cache.conversationsRetryTimer) {
+            clearTimeout(cache.conversationsRetryTimer)
+        }
         if (cache.onVisibilityChange) {
             document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        }
+    }),
+    afterMount(({ values, actions }) => {
+        if (values.isEnabled) {
+            actions.loadTickets()
         }
     }),
 ])
