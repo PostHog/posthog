@@ -216,33 +216,7 @@ class TestRunOperations:
         assert snapshots["new"].result == SnapshotResult.NEW
         assert snapshots["changed"].result == SnapshotResult.CHANGED
 
-    def test_create_run_delta_mode(self, repo):
-        run, uploads = logic.create_run(
-            repo_id=repo.id,
-            team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "changed", "content_hash": "new_hash"},
-                {"identifier": "added", "content_hash": "brand_new"},
-            ],
-            baseline_hashes={"changed": "old_hash"},
-            unchanged_count=100,
-            removed_identifiers=["deleted_snapshot"],
-        )
-
-        assert run.total_snapshots == 102  # 2 sent + 100 unchanged (removed not counted in total)
-        assert run.changed_count == 1
-        assert run.new_count == 1
-        assert run.removed_count == 1
-        # Only 3 RunSnapshot rows: changed, added, removed (not 100 unchanged)
-        assert run.snapshots.count() == 3
-        removed = run.snapshots.get(identifier="deleted_snapshot")
-        assert removed.result == SnapshotResult.REMOVED
-
-    def test_create_run_delta_clean(self, repo):
+    def test_create_run_empty(self, repo):
         run, uploads = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -251,11 +225,9 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
-            unchanged_count=3083,
         )
 
-        assert run.total_snapshots == 3083
+        assert run.total_snapshots == 0
         assert run.changed_count == 0
         assert run.new_count == 0
         assert run.removed_count == 0
@@ -263,7 +235,7 @@ class TestRunOperations:
         assert len(uploads) == 0
 
     def test_add_snapshots_to_run(self, repo):
-        run, uploads = logic.create_run(
+        run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
@@ -271,7 +243,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
         )
         assert run.total_snapshots == 0
 
@@ -280,12 +251,10 @@ class TestRunOperations:
             run_id=run.id,
             team_id=repo.team_id,
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-            baseline_hashes={},
-            unchanged_count=50,
         )
         assert added == 1
         run.refresh_from_db()
-        assert run.total_snapshots == 51
+        assert run.total_snapshots == 1
         assert run.new_count == 1
 
         # Shard 2
@@ -293,12 +262,10 @@ class TestRunOperations:
             run_id=run.id,
             team_id=repo.team_id,
             snapshots=[{"identifier": "card", "content_hash": "h2"}],
-            baseline_hashes={},
-            unchanged_count=49,
         )
         assert added == 1
         run.refresh_from_db()
-        assert run.total_snapshots == 101
+        assert run.total_snapshots == 2
         assert run.new_count == 2
         assert run.snapshots.count() == 2
 
@@ -311,7 +278,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
         )
 
         for _ in range(2):
@@ -319,7 +285,6 @@ class TestRunOperations:
                 run_id=run.id,
                 team_id=repo.team_id,
                 snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-                baseline_hashes={},
             )
 
         assert run.snapshots.count() == 1
@@ -333,7 +298,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
         )
         logic.mark_run_completed(run.id)
 
@@ -342,7 +306,6 @@ class TestRunOperations:
                 run_id=run.id,
                 team_id=repo.team_id,
                 snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-                baseline_hashes={},
             )
 
     def test_create_run_with_purpose(self, repo):
@@ -354,7 +317,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[],
-            baseline_hashes={},
             purpose="observe",
         )
         assert run.purpose == "observe"
@@ -368,7 +330,6 @@ class TestRunOperations:
             branch="main",
             pr_number=None,
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-            baseline_hashes={},
             purpose="observe",
         )
         logic.mark_run_completed(run.id)
