@@ -15045,6 +15045,9 @@
                 "name": {
                     "type": "string"
                 },
+                "only_count_matured_users": {
+                    "type": "boolean"
+                },
                 "response": {
                     "type": "object"
                 },
@@ -15344,6 +15347,9 @@
                 "name": {
                     "type": "string"
                 },
+                "only_count_matured_users": {
+                    "type": "boolean"
+                },
                 "response": {
                     "type": "object"
                 },
@@ -15433,6 +15439,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "only_count_matured_users": {
+                    "type": "boolean"
                 },
                 "response": {
                     "type": "object"
@@ -15746,6 +15755,9 @@
                 "numerator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "only_count_matured_users": {
+                    "type": "boolean"
+                },
                 "response": {
                     "type": "object"
                 },
@@ -15814,6 +15826,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "only_count_matured_users": {
+                    "type": "boolean"
                 },
                 "response": {
                     "type": "object"
