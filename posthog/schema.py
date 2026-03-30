@@ -473,6 +473,12 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class AssistantStickinessDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+
+
 class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -5172,6 +5178,28 @@ class AssistantGroupPropertyFilter5(BaseModel):
     type: Literal["group"] = "group"
 
 
+class AssistantLifecycleFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stacked: bool | None = Field(default=True, description="Whether the lifecycle bars should be stacked.")
+    toggledLifecycles: list[LifecycleToggle] | None = Field(
+        default=None,
+        description=(
+            "Lifecycles that have been removed from display are not included in this"
+            " array. Available values: `new`, `returning`, `resurrecting`,"
+            " `dormant`.\n- `new` - users who performed the event for the first time"
+            " during the period.\n- `returning` - users who were active in the previous"
+            " period and are active in the current period.\n- `resurrecting` - users"
+            " who were inactive for one or more periods and became active again.\n-"
+            " `dormant` - users who were active in the previous period but are inactive"
+            " in the current period."
+        ),
+    )
+
+
 class AssistantMessageMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5947,6 +5975,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     isSharedMetric: bool | None = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -8414,6 +8443,84 @@ class AssistantInsightsQueryBase(BaseModel):
     )
 
 
+class AssistantLifecycleActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = Field(
+        default="ActionsNode",
+        description=(
+            "Defines the action series for the lifecycle insight. Lifecycle does not"
+            " support math aggregations. You must provide the action ID in the `id`"
+            " field and the name in the `name` field."
+        ),
+    )
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantLifecycleEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = Field(
+        default="EventsNode",
+        description=(
+            "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations."
+        ),
+    )
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8590,6 +8697,236 @@ class AssistantRetentionQuery(BaseModel):
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+
+
+class AssistantStickinessActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computedAs: StickinessComputationMode | None = Field(
+        default=StickinessComputationMode.NON_CUMULATIVE,
+        description=(
+            "Computation mode. `non_cumulative` (default) shows users active on exactly"
+            " N intervals. `cumulative` shows users active on N or more intervals."
+        ),
+    )
+    display: AssistantStickinessDisplayType | None = Field(
+        default=AssistantStickinessDisplayType.ACTIONS_LINE_GRAPH,
+        description=(
+            "Visualization type for the stickiness chart. `ActionsLineGraph` - line"
+            " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
+            " chart."
+        ),
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stickinessCriteria: StickinessCriteria | None = Field(
+        default=None,
+        description=(
+            "Filter which intervals count based on event frequency within each"
+            " interval. For example, only count intervals where the user performed the"
+            " event >= 3 times."
+        ),
+    )
+
+
+class AssistantStickinessQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Compare to date range. When enabled, shows the current and previous period side by side."),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=(
+            "Granularity of the response. Can be one of `hour`, `day`, `week` or"
+            ' `month`. This determines what counts as one "interval" for stickiness'
+            " measurement. For example, with `day` interval over a 30-day range, the"
+            " X-axis shows 1 through 30 days, and each bar/point shows how many users"
+            " performed the event on exactly that many days."
+        ),
+    )
+    intervalCount: int | None = Field(
+        default=None,
+        description=(
+            "How many base intervals comprise one stickiness period. Defaults to 1. For"
+            ' example, `interval: "day"` with `intervalCount: 7` groups by 7-day'
+            " periods."
+        ),
+    )
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantStickinessEventsNode | AssistantStickinessActionsNode] = Field(
+        ...,
+        description=(
+            "Events or actions to include. Each series measures how many intervals"
+            " (e.g. days) within the date range a user performed the event."
+            " Prioritize the more popular and fresh events and actions. When the"
+            " `math` field is omitted on a series, it defaults to counting unique"
+            " persons."
+        ),
+    )
+    stickinessFilter: AssistantStickinessFilter | None = Field(
+        default=None, description="Properties specific to the stickiness insight"
     )
 
 
@@ -16673,6 +17010,60 @@ class AssistantBasePropertyFilter(
     )
 
 
+class AssistantLifecycleQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
+    )
+    kind: Literal["LifecycleQuery"] = "LifecycleQuery"
+    lifecycleFilter: AssistantLifecycleFilter | None = Field(
+        default=None, description="Properties specific to the lifecycle insight"
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantLifecycleEventsNode | AssistantLifecycleActionsNode] = Field(
+        ...,
+        description=("Event or action to analyze. Lifecycle insights only support a single series."),
+        max_length=1,
+    )
+
+
 class CachedErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17240,6 +17631,7 @@ class ExperimentRatioMetric(BaseModel):
     metric_type: Literal["ratio"] = "ratio"
     name: str | None = None
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -17269,6 +17661,7 @@ class ExperimentRetentionMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["retention"] = "retention"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     retention_window_end: int
     retention_window_start: int
@@ -18291,6 +18684,7 @@ class ExperimentFunnelMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     series: list[EventsNode | ActionsNode]
     sharedMetricId: float | None = None
@@ -18313,6 +18707,7 @@ class ExperimentMeanMetric(BaseModel):
     lower_bound_percentile: float | None = None
     metric_type: Literal["mean"] = "mean"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
@@ -19609,7 +20004,9 @@ class VisualizationBlock(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     ) = Field(
         ...,
@@ -19838,7 +20235,9 @@ class VisualizationItem(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19847,7 +20246,9 @@ class VisualizationItem(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     )
     initiator: str | None = None
@@ -19863,7 +20264,9 @@ class VisualizationMessage(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19872,7 +20275,9 @@ class VisualizationMessage(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     )
     id: str | None = None
@@ -21414,7 +21819,9 @@ class VisualizationArtifactContent(BaseModel):
         AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
         | EventsNode
         | ActionsNode

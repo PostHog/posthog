@@ -276,7 +276,7 @@ procs:
             bin/check_ducklake_up && \
             ./manage.py sync_hog_function_templates
         autostart: false
-        ready_pattern: 'Sync completed in *'
+        ready_pattern: 'Hog function template sync complete'
         # no capability - manual start
 
     storybook:

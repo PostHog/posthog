@@ -681,9 +681,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             # Use JSON extract to get only the specific property
             escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
             safe_alias = f"prop_{i}"  # Use safe numeric aliases
-            property_selects.append(
-                f"JSONExtractString(argMax(properties, version), '{escaped_prop}') as `{safe_alias}`"
-            )
+            property_selects.append(f"JSONExtractString(properties, '{escaped_prop}') as `{safe_alias}`")
             property_alias_mapping[safe_alias] = prop
 
         properties_clause = ",\n                ".join(property_selects)
@@ -693,11 +691,10 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             SELECT
                 id as person_id,
                 {properties_clause}
-            FROM person
+            FROM person FINAL
             WHERE team_id = %(team_id)s
               AND id > %(cursor)s
-            GROUP BY id
-            HAVING argMax(is_deleted, version) = 0
+              AND is_deleted = 0
             ORDER BY id
             LIMIT %(batch_size)s
             FORMAT JSONEachRow
@@ -725,3 +722,9 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert property_alias_mapping["prop_1"] == "prop`with`backticks"
         assert property_alias_mapping["prop_2"] == "`malicious`DROP TABLE person--"
         assert property_alias_mapping["prop_3"] == "prop`; DELETE FROM person; --"
+
+        # Verify the new FINAL query structure
+        assert "FROM person FINAL" in query
+        assert "AND is_deleted = 0" in query
+        assert "GROUP BY" not in query
+        assert "HAVING" not in query

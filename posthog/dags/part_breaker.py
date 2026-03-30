@@ -120,11 +120,12 @@ class BreakResult:
     """Result of breaking a single oversized part."""
 
     part: PartStats
-    source_count: int
-    post_count: int
-    new_largest_part_gib: float
-    new_part_count: int
-    duration_seconds: float
+    source_count: int = 0
+    post_count: int = 0
+    new_largest_part_gib: float = 0.0
+    new_part_count: int = 0
+    duration_seconds: float = 0.0
+    dry_run: bool = False
 
     @property
     def count_diff_pct(self) -> float:
@@ -824,7 +825,7 @@ def break_part(
             ).result()
         except Exception:
             context.log.exception(f"Dry run failed for {source_table} shard {shard}, part {part.part_name}")
-        return None
+        return BreakResult(part=part, dry_run=True)
 
     start_time = time.time()
 
@@ -1203,11 +1204,17 @@ def report_results(
     results: list[Optional[BreakResult]],
 ):
     """Summarize the results of the part breaking run."""
-    completed = [r for r in results if r is not None]
-    failed_count = len(results) - len(completed)
+    dry_runs = [r for r in results if r is not None and r.dry_run]
+    completed = [r for r in results if r is not None and not r.dry_run]
+    failed_count = len(results) - len(completed) - len(dry_runs)
+
+    if dry_runs and not completed and failed_count == 0:
+        context.log.info(f"DRY RUN complete — checked {len(dry_runs)} part(s), no modifications made")
+        context.add_output_metadata({"parts_checked": len(dry_runs), "status": "dry_run"})
+        return
 
     if not completed and failed_count == 0:
-        context.log.info("No parts were processed (dry run or nothing to do)")
+        context.log.info("No parts were processed (nothing to do)")
         context.add_output_metadata({"parts_processed": 0, "status": "no_work"})
         return
 

@@ -79,7 +79,7 @@ function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter;
             ) : (
                 <LemonButton icon={<span className="text-xs font-medium">&</span>} size="small" noPadding />
             )}
-            {propertyLabel && <span className="text-muted">{propertyLabel}</span>}
+            {propertyLabel && propertyLabel !== property.key && <span className="text-muted">{propertyLabel}</span>}
             <LemonSnack>{property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}</LemonSnack>
             <span className="text-muted">{operator}</span>
             <PropertyValueDisplay property={property} />

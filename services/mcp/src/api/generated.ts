@@ -13938,6 +13938,8 @@ export namespace Schemas {
       /** @nullable */
       name?: string | null;
       /** @nullable */
+      only_count_matured_users?: boolean | null;
+      /** @nullable */
       response?: ExperimentFunnelMetricResponse;
       series: (EventsNode | ActionsNode)[];
       /** @nullable */
@@ -13988,6 +13990,8 @@ export namespace Schemas {
       metric_type?: ExperimentMeanMetricMetricType;
       /** @nullable */
       name?: string | null;
+      /** @nullable */
+      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentMeanMetricResponse;
       /** @nullable */
@@ -14047,6 +14051,8 @@ export namespace Schemas {
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       /** @nullable */
+      only_count_matured_users?: boolean | null;
+      /** @nullable */
       response?: ExperimentRatioMetricResponse;
       /** @nullable */
       sharedMetricId?: number | null;
@@ -14101,6 +14107,8 @@ export namespace Schemas {
       metric_type?: ExperimentRetentionMetricMetricType;
       /** @nullable */
       name?: string | null;
+      /** @nullable */
+      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentRetentionMetricResponse;
       retention_window_end: number;
@@ -18035,6 +18043,21 @@ export namespace Schemas {
     }
 
     /**
+     * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+     * @nullable
+     */
+    export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null | null;
+
+    export interface MaterializationPreviewRequest {
+      version?: number;
+      /**
+       * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+       * @nullable
+       */
+      bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
+    }
+
+    /**
      * * `1` - event
     * `2` - person
     * `3` - group
@@ -18260,6 +18283,20 @@ export namespace Schemas {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
     }
+
+    /**
+     * * `trusted` - Trusted
+    * `full` - Full
+    * `custom` - Custom
+     */
+    export type NetworkAccessLevelEnum = typeof NetworkAccessLevelEnum[keyof typeof NetworkAccessLevelEnum];
+
+
+    export const NetworkAccessLevelEnum = {
+      Trusted: 'trusted',
+      Full: 'full',
+      Custom: 'custom',
+    } as const;
 
     /**
      * * `table` - Table
@@ -19854,6 +19891,31 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Run[];
+    }
+
+    export interface SandboxEnvironmentList {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSandboxEnvironmentListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SandboxEnvironmentList[];
     }
 
     /**
@@ -23589,6 +23651,30 @@ export namespace Schemas {
       /** Members assigned to this role */
       readonly members?: readonly PatchedRoleMembersItem[];
       readonly is_default?: boolean;
+    }
+
+    export interface PatchedSandboxEnvironment {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      include_default_domains?: boolean;
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** Encrypted environment variables (write-only, never returned in responses) */
+      environment_variables?: unknown;
+      /** Whether this environment has any environment variables set */
+      readonly has_environment_variables?: boolean;
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      /** Computed domain allowlist based on network_access_level and allowed_domains */
+      readonly effective_domains?: readonly string[];
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedScheduledChange {
@@ -28403,6 +28489,30 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface SandboxEnvironment {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      include_default_domains?: boolean;
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** Encrypted environment variables (write-only, never returned in responses) */
+      environment_variables?: unknown;
+      /** Whether this environment has any environment variables set */
+      readonly has_environment_variables: boolean;
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      /** Computed domain allowlist based on network_access_level and allowed_domains */
+      readonly effective_domains: readonly string[];
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
        * Human-readable scorer name.
@@ -29185,6 +29295,11 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Follow-up user message to include in the resumed run's prompt. */
       pending_user_message?: string;
+      /**
+       * ID of a SandboxEnvironment to use for network governance
+       * @nullable
+       */
+      sandbox_environment_id?: string | null;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -32176,6 +32291,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     */
+    ordering?: string;
     };
 
     export type DashboardsListParams = {
@@ -33941,6 +34060,17 @@ export namespace Schemas {
     export type QueryLogRetrieve200 = {[key: string]: unknown};
 
     export type QueryTabStateListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SandboxListParams = {
     /**
      * Number of results to return per page.
      */
