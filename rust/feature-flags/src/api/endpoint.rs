@@ -481,23 +481,22 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
     let mut ms = secs.checked_mul(1_000)?;
 
     // Parse up to 3 fractional digits as milliseconds, zero-padding on the right.
-    // Reject if the fractional part contains non-digit characters (trailing garbage, multi-value).
+    // Reject if the fractional part is empty (trailing dot), contains non-digit characters,
+    // or contains trailing garbage / multi-value separators.
     if let Some(frac) = frac_str {
-        if !frac.chars().all(|c| c.is_ascii_digit()) {
+        if frac.is_empty() || !frac.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
         let bytes = frac.as_bytes();
-        if !bytes.is_empty() {
-            // Compute ms from up to 3 fractional digits using integer arithmetic,
-            // equivalent to right-padding with zeros and parsing as a 3-digit integer.
-            let mut frac_ms: i64 = 0;
-            let mut scale: i64 = 100; // hundreds, tens, ones
-            for &b in bytes.iter().take(3) {
-                frac_ms += (b - b'0') as i64 * scale;
-                scale /= 10;
-            }
-            ms = ms.checked_add(frac_ms)?;
+        // Compute ms from up to 3 fractional digits using integer arithmetic,
+        // equivalent to right-padding with zeros and parsing as a 3-digit integer.
+        let mut frac_ms: i64 = 0;
+        let mut scale: i64 = 100; // hundreds, tens, ones
+        for &b in bytes.iter().take(3) {
+            frac_ms += (b - b'0') as i64 * scale;
+            scale /= 10;
         }
+        ms = ms.checked_add(frac_ms)?;
     }
 
     Some(ms)
@@ -761,6 +760,8 @@ mod tests {
     #[case(" t=1774859827.782", None)]
     #[case("t=1774859827.782 ", None)]
     #[case("t=1774859827.782, t=1774859828.000", None)]
+    #[case("t=1774859827.", None)] // trailing dot with empty fractional part
+    #[case("1774859827.7821", Some(1774859827782))] // extra digits beyond ms are truncated
     fn test_parse_request_start_ms(#[case] input: &str, #[case] expected: Option<i64>) {
         assert_eq!(parse_request_start_ms(input), expected);
     }
