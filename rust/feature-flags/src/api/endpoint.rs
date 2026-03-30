@@ -264,11 +264,14 @@ pub async fn flags(
 
     let now_ms = chrono::Utc::now().timestamp_millis();
 
+    // Contour sets X-Request-Start, so the timestamp is from trusted infrastructure.
+    // We only filter out negative deltas (minor clock skew).
     let queue_time_ms: Option<i64> = headers
         .get("X-Request-Start")
         .and_then(|v| v.to_str().ok())
         .and_then(parse_request_start_ms)
-        .and_then(|start_ms| plausible_delta_ms(start_ms, now_ms));
+        .map(|start_ms| now_ms - start_ms)
+        .filter(|&delta| delta >= 0);
 
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
@@ -492,16 +495,6 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
     }
 
     Some(ms)
-}
-
-/// Returns `Some(delta_ms)` when `start_ms` is plausibly in the past
-/// and within a 5-minute window; returns `None` otherwise.
-fn plausible_delta_ms(start_ms: i64, now_ms: i64) -> Option<i64> {
-    let delta = now_ms.checked_sub(start_ms)?;
-    if delta < 0 || delta >= 300_000 {
-        return None;
-    }
-    Some(delta)
 }
 
 #[cfg(test)]
@@ -742,29 +735,6 @@ mod tests {
         // Two calls without header should generate different UUIDs
         let extracted_id_empty2 = extract_request_id(&empty_headers);
         assert_ne!(extracted_id_empty, extracted_id_empty2);
-    }
-
-    #[test]
-    fn test_plausible_delta_ms() {
-        let now = 1_700_000_000_000i64;
-
-        // Normal transit time (100ms)
-        assert_eq!(plausible_delta_ms(now - 100, now), Some(100));
-
-        // Zero delta
-        assert_eq!(plausible_delta_ms(now, now), Some(0));
-
-        // Just below 5min threshold
-        assert_eq!(plausible_delta_ms(now - 299_999, now), Some(299_999));
-
-        // Exactly 5min — excluded
-        assert_eq!(plausible_delta_ms(now - 300_000, now), None);
-
-        // Large delta (stale timestamp)
-        assert_eq!(plausible_delta_ms(now - 600_000, now), None);
-
-        // Negative delta (source clock ahead)
-        assert_eq!(plausible_delta_ms(now + 1000, now), None);
     }
 
     #[test]
