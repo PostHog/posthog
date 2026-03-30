@@ -95,7 +95,11 @@ function isTickVisible(mode: TickMode, date: Dayjs, index: number): boolean {
         case 'monthly':
             return mode.visibleBoundaries.has(index)
         case 'hourly-multi-day':
-            return mode.dayStartIndices.has(index) || date.hour() % mode.step === 0
+            if (mode.dayStartIndices.has(index)) {
+                return true
+            }
+            // Only show intermediate time ticks (e.g. 06:00, 12:00) when there are few days
+            return mode.dayStartIndices.size <= 3 && date.hour() % mode.step === 0
         default:
             return true
     }
