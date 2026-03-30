@@ -178,11 +178,16 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
                 "User-Agent": "PostHog-CIMD/1.0",
             },
             stream=True,
+            allow_redirects=False,
         )
     except requests.RequestException as e:
         raise CIMDFetchError(f"Failed to fetch metadata: {e}") from e
 
     try:
+        if response.is_redirect or response.is_permanent_redirect:
+            raise CIMDFetchError(
+                f"Metadata endpoint returned redirect (HTTP {response.status_code}), redirects are not allowed"
+            )
         if response.status_code != 200:
             raise CIMDFetchError(f"Metadata endpoint returned HTTP {response.status_code}")
 
@@ -239,6 +244,16 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     if auth_method in CIMD_FORBIDDEN_AUTH_METHODS:
         raise CIMDValidationError(f"CIMD clients cannot use token_endpoint_auth_method '{auth_method}'")
 
+    # Validate logo_uri if present: must be HTTPS and pass SSRF checks
+    logo_uri = metadata.get("logo_uri")
+    if logo_uri:
+        if not isinstance(logo_uri, str) or not logo_uri.startswith("https://"):
+            metadata.pop("logo_uri", None)
+        else:
+            logo_allowed, _ = is_url_allowed(logo_uri)
+            if not logo_allowed:
+                metadata.pop("logo_uri", None)
+
     cache_ttl = _parse_cache_ttl(response)
     return metadata, cache_ttl
 
@@ -254,7 +269,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
     redirect_uris = " ".join(metadata["redirect_uris"])
     logo_uri = metadata.get("logo_uri") or None
 
-    return OAuthApplication.objects.create(
+    app = OAuthApplication(
         name=client_name,
         redirect_uris=redirect_uris,
         client_type=AbstractApplication.CLIENT_PUBLIC,
@@ -269,6 +284,9 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         organization=None,
         user=None,
     )
+    app.full_clean()
+    app.save()
+    return app
 
 
 def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:

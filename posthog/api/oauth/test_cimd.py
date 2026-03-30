@@ -58,6 +58,8 @@ def _mock_response(metadata: dict | None = None, status_code: int = 200, headers
     resp = MagicMock()
     resp.status_code = status_code
     resp.headers = headers or {}
+    resp.is_redirect = status_code in (301, 302, 303, 307, 308)
+    resp.is_permanent_redirect = status_code in (301, 308)
     resp.close = MagicMock()
     if metadata is not None:
         body = json.dumps(metadata).encode()
