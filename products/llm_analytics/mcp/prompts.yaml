@@ -7,12 +7,11 @@
 category: Prompts
 feature: prompts
 url_prefix: /llm-analytics/prompts
+ui_apps: {}
 tools:
     prompt-list:
         operation: llm_prompts_list
         enabled: true
-        include_params:
-            - search
         scopes:
             - llm_prompt:read
         annotations:
@@ -23,6 +22,8 @@ tools:
         description: >
             List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt
             summaries.
+        include_params:
+            - search
     prompt-get:
         operation: llm_prompts_name_retrieve
         enabled: true
@@ -33,14 +34,11 @@ tools:
             destructive: false
             idempotent: true
         title: Get prompt
-        description: >
+        description: |
             Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.
     prompt-create:
         operation: llm_prompts_create
         enabled: true
-        include_params:
-            - name
-            - prompt
         scopes:
             - llm_prompt:write
         annotations:
@@ -51,12 +49,12 @@ tools:
         description: >
             Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
             object).
+        include_params:
+            - name
+            - prompt
     prompt-update:
         operation: llm_prompts_name_partial_update
         enabled: true
-        include_params:
-            - prompt
-            - base_version
         scopes:
             - llm_prompt:write
         annotations:
@@ -64,7 +62,7 @@ tools:
             destructive: false
             idempotent: true
         title: Update prompt
-        description: >
+        description: |
             Publish a new version of an existing LLM prompt by name. Name is immutable after creation.
     prompt-duplicate:
         operation: llm_prompts_name_duplicate_create
@@ -77,6 +75,6 @@ tools:
             idempotent: false
         title: Duplicate prompt
         description: >
-            Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create
-            a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are
-            immutable after creation.
+            Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new
+            prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after
+            creation.

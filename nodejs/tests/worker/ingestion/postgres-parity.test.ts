@@ -1,5 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../src/config/kafka-topics'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../src/ingestion/analytics/outputs'
+import { IngestionOutputs } from '../../../src/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
 import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
@@ -18,6 +21,13 @@ import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
+
+function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
+    return new IngestionOutputs({
+        [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: kafkaProducer },
+        [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer },
+    })
+}
 jest.setTimeout(45000) // 45s > delayUntilEventIngested budget (300 × 100ms = 30s) to let the helper throw its actionable error before Jest fires
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
@@ -97,7 +107,11 @@ describe('postgres parity', () => {
         }
         const person = result.person
         const kafkaMessages = result.messages
-        await kafkaProducer.queueMessages(kafkaMessages)
+        await Promise.all(
+            kafkaMessages.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
         await kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
@@ -192,7 +206,11 @@ describe('postgres parity', () => {
         const person = result.person
         const kafkaMessages = result.messages
 
-        await kafkaProducer.queueMessages(kafkaMessages)
+        await Promise.all(
+            kafkaMessages.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(person), 2)
@@ -205,7 +223,11 @@ describe('postgres parity', () => {
                 is_identified: true,
             })
         )
-        await kafkaProducer.queueMessages(kafkaMessagesUpdate)
+        await Promise.all(
+            kafkaMessagesUpdate.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
 
         await clickhouse.delayUntilEventIngested(async () =>
             (await clickhouse.fetchPersons()).filter((p) => p.is_identified)
@@ -236,7 +258,11 @@ describe('postgres parity', () => {
             })
         )
 
-        await kafkaProducer.queueMessages(kafkaMessages2)
+        await Promise.all(
+            kafkaMessages2.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
 
         expect(updatedPerson.version).toEqual(2)
 
@@ -279,7 +305,11 @@ describe('postgres parity', () => {
         }
         const person = result.person
 
-        await kafkaProducer.queueMessages(result.messages)
+        await Promise.all(
+            result.messages.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
         await kafkaProducer.flush()
 
         const result2 = await personRepository.createPerson(
@@ -299,7 +329,11 @@ describe('postgres parity', () => {
         const anotherPerson = result2.person
         const anotherPersonKafkaMessages = result2.messages
 
-        await kafkaProducer.queueMessages(anotherPersonKafkaMessages)
+        await Promise.all(
+            anotherPersonKafkaMessages.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
         await kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
@@ -338,7 +372,11 @@ describe('postgres parity', () => {
         // add 'anotherOne' to person
 
         const kafkaMessagesAddDistinctId = await personRepository.addDistinctId(postgresPerson, 'anotherOne', 0)
-        await kafkaProducer.queueMessages(kafkaMessagesAddDistinctId)
+        await Promise.all(
+            kafkaMessagesAddDistinctId.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 2)
 
@@ -375,7 +413,11 @@ describe('postgres parity', () => {
             throw new Error('Failed to create person')
         }
         const person = result.person
-        await kafkaProducer.queueMessages(result.messages)
+        await Promise.all(
+            result.messages.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
         await kafkaProducer.flush()
 
         const result2 = await personRepository.createPerson(
@@ -395,7 +437,11 @@ describe('postgres parity', () => {
         const anotherPerson = result2.person
         const kafkaMessagesAnotherPerson = result2.messages
 
-        await kafkaProducer.queueMessages(kafkaMessagesAnotherPerson)
+        await Promise.all(
+            kafkaMessagesAnotherPerson.map((msg) =>
+                createPersonOutputs(kafkaProducer).produce(msg.output, { value: msg.value, key: null })
+            )
+        )
         await kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
@@ -408,7 +454,11 @@ describe('postgres parity', () => {
         expect(moveDistinctIdsResult.success).toEqual(true)
 
         if (moveDistinctIdsResult.success) {
-            await kafkaProducer!.queueMessages(moveDistinctIdsResult.messages)
+            await Promise.all(
+                moveDistinctIdsResult.messages.map((msg) =>
+                    createPersonOutputs(kafkaProducer!).produce(msg.output, { value: msg.value, key: null })
+                )
+            )
         }
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(anotherPerson), 2)
 
@@ -454,7 +504,10 @@ describe('postgres parity', () => {
         // delete person
         await postgres.transaction(PostgresUse.PERSONS_WRITE, '', async (client) => {
             const deletePersonMessage = await personRepository.deletePerson(person, client)
-            await kafkaProducer!.queueMessages(deletePersonMessage[0])
+            await createPersonOutputs(kafkaProducer!).produce(deletePersonMessage[0].output, {
+                value: deletePersonMessage[0].value,
+                key: null,
+            })
         })
 
         await clickhouse.delayUntilEventIngested(async () =>

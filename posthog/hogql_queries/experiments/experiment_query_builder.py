@@ -1,5 +1,7 @@
 from typing import Optional, Union, cast
 
+from django.utils import timezone
+
 from posthog.schema import (
     ActionsNode,
     Breakdown,
@@ -233,6 +235,49 @@ class ExperimentQueryBuilder:
                 self.metric.conversion_window_unit,
             )
         return 0
+
+    def _get_maturity_window_seconds(self) -> int:
+        """
+        Returns the total maturity window in seconds.
+        For retention metrics: conversion_window + retention_window_end.
+        For other metrics: conversion_window.
+        Returns 0 if no conversion window is configured.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds == 0:
+            return 0
+
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            retention_window_end_seconds = conversion_window_to_seconds(
+                self.metric.retention_window_end,
+                self.metric.retention_window_unit,
+            )
+            return conversion_window_seconds + retention_window_end_seconds
+
+        return conversion_window_seconds
+
+    def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
+        """
+        Returns a HAVING clause expression to filter out users whose conversion window
+        hasn't elapsed yet, or None if the feature is not enabled.
+        """
+        if self.metric is None:
+            return None
+        if not getattr(self.metric, "only_count_matured_users", False):
+            return None
+
+        maturity_seconds = self._get_maturity_window_seconds()
+        if maturity_seconds == 0:
+            return None
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        return parse_expr(
+            f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
+            placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
+        )
 
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
@@ -1217,6 +1262,14 @@ class ExperimentQueryBuilder:
                 breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause()
+        if maturity_having is not None:
+            if exposure_query.having is None:
+                exposure_query.having = maturity_having
+            else:
+                exposure_query.having = ast.And(exprs=[exposure_query.having, maturity_having])
+
         return exposure_query
 
     def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
@@ -1270,6 +1323,15 @@ class ExperimentQueryBuilder:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause(timestamp_expr="t.last_exposure_time")
+        if maturity_having is not None:
+            if query.having is None:
+                query.having = maturity_having
+            else:
+                query.having = ast.And(exprs=[query.having, maturity_having])
+
         return query
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:

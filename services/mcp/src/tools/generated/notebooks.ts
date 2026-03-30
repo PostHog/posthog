@@ -10,13 +10,14 @@ import {
     NotebooksPartialUpdateParams,
     NotebooksRetrieveParams,
 } from '@/generated/notebooks/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const NotebooksListSchema = NotebooksListQueryParams
 
 const notebooksList = (): ToolBase<
     typeof NotebooksListSchema,
-    Schemas.PaginatedNotebookMinimalList & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.PaginatedNotebookMinimalList>
 > => ({
     name: 'notebooks-list',
     schema: NotebooksListSchema,
@@ -35,16 +36,13 @@ const notebooksList = (): ToolBase<
                 user: params.user,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/notebooks`,
-        }
+        return await withPostHogUrl(context, result, '/notebooks')
     },
 })
 
 const NotebooksCreateSchema = NotebooksCreateBody
 
-const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, Schemas.Notebook & { _posthogUrl: string }> => ({
+const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUrl<Schemas.Notebook>> => ({
     name: 'notebooks-create',
     schema: NotebooksCreateSchema,
     handler: async (context: Context, params: z.infer<typeof NotebooksCreateSchema>) => {
@@ -70,16 +68,13 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, Schemas.Noteb
             path: `/api/projects/${projectId}/notebooks/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/notebooks/${(result as any).short_id}`,
-        }
+        return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
     },
 })
 
 const NotebooksRetrieveSchema = NotebooksRetrieveParams.omit({ project_id: true })
 
-const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, Schemas.Notebook & { _posthogUrl: string }> => ({
+const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostHogUrl<Schemas.Notebook>> => ({
     name: 'notebooks-retrieve',
     schema: NotebooksRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof NotebooksRetrieveSchema>) => {
@@ -88,10 +83,7 @@ const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, Schemas.N
             method: 'GET',
             path: `/api/projects/${projectId}/notebooks/${params.short_id}/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/notebooks/${(result as any).short_id}`,
-        }
+        return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
     },
 })
 
@@ -99,10 +91,7 @@ const NotebooksPartialUpdateSchema = NotebooksPartialUpdateParams.omit({ project
     NotebooksPartialUpdateBody.shape
 )
 
-const notebooksPartialUpdate = (): ToolBase<
-    typeof NotebooksPartialUpdateSchema,
-    Schemas.Notebook & { _posthogUrl: string }
-> => ({
+const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema, WithPostHogUrl<Schemas.Notebook>> => ({
     name: 'notebooks-partial-update',
     schema: NotebooksPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof NotebooksPartialUpdateSchema>) => {
@@ -128,21 +117,18 @@ const notebooksPartialUpdate = (): ToolBase<
             path: `/api/projects/${projectId}/notebooks/${params.short_id}/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/notebooks/${(result as any).short_id}`,
-        }
+        return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
     },
 })
 
 const NotebooksDestroySchema = NotebooksDestroyParams.omit({ project_id: true })
 
-const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, unknown> => ({
+const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Notebook> => ({
     name: 'notebooks-destroy',
     schema: NotebooksDestroySchema,
     handler: async (context: Context, params: z.infer<typeof NotebooksDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/notebooks/${params.short_id}/`,
             body: { deleted: true },

@@ -90,7 +90,7 @@ export function FullscreenModeActions(): JSX.Element {
 }
 
 export function ViewModeActions(): JSX.Element {
-    const { dashboard, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
@@ -106,6 +106,7 @@ export function ViewModeActions(): JSX.Element {
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
+                disabledReason={tiles.length === 0 ? 'Add at least one tile before sharing this dashboard' : undefined}
             >
                 Share
             </LemonButton>
@@ -116,6 +117,7 @@ export function ViewModeActions(): JSX.Element {
                     keybind={[keyBinds.edit]}
                     intent="Enter edit mode"
                     interaction="click"
+                    disabled={tiles.length === 0}
                 >
                     <LemonButton
                         type="secondary"
@@ -125,6 +127,7 @@ export function ViewModeActions(): JSX.Element {
                         icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Edit layout"
                         tooltipPlacement="top"
+                        disabledReason={tiles.length === 0 ? 'Add at least one tile to edit layout' : undefined}
                     >
                         Edit layout
                     </LemonButton>

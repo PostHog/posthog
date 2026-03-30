@@ -113,6 +113,11 @@ core:
         description: Sync feature flags from configuration
         services:
             - postgresql
+    dev:sync-hog-templates:
+        cmd: python manage.py sync_hog_function_templates
+        description: Sync hog function templates from configuration
+        services:
+            - postgresql
     dev:sync-user-settings:
         cmd: python manage.py sync_user_settings
         description: Sync your user settings from PostHog cloud to local dev environment.
