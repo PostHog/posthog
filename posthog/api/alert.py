@@ -498,6 +498,29 @@ class AlertSimulateSerializer(serializers.Serializer):
         return validated.model_dump() if hasattr(validated, "model_dump") else value
 
 
+class BreakdownSimulationResultSerializer(serializers.Serializer):
+    label = serializers.CharField(help_text="Breakdown value label.")
+    data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
+    scores = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Anomaly score for each point.",
+    )
+    triggered_indices = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Indices of points flagged as anomalies."
+    )
+    triggered_dates = serializers.ListField(
+        child=serializers.CharField(), help_text="Dates of points flagged as anomalies."
+    )
+    total_points = serializers.IntegerField(help_text="Total number of data points analyzed.")
+    anomaly_count = serializers.IntegerField(help_text="Number of anomalies detected.")
+    sub_detector_scores = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Per-sub-detector scores for ensemble detectors.",
+    )
+
+
 class AlertSimulateResponseSerializer(serializers.Serializer):
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
@@ -520,6 +543,11 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
+    )
+    breakdown_results = BreakdownSimulationResultSerializer(
+        many=True,
+        required=False,
+        help_text="Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 10 values).",
     )
 
 

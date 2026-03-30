@@ -489,6 +489,11 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
 # (e.g. alerts saved before this field was introduced).
 DETECTOR_DEFAULT_WINDOW = 30
 
+# Maximum number of breakdown values to evaluate with a detector.
+# Running a detector per breakdown value is O(N) in model fits, so we cap
+# to keep alert check latency reasonable.
+MAX_DETECTOR_BREAKDOWN_VALUES = 10
+
 
 def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
     """Compute the number of historical data points needed for a detector.
@@ -585,7 +590,52 @@ def check_trends_alert_with_detector(
             interval=query.interval.value if query.interval else None,
         )
 
-    # Pick the series to analyze
+    has_breakdown = query.breakdownFilter and (
+        (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
+    )
+
+    interval_value = query.interval.value if query.interval else None
+
+    if has_breakdown:
+        # For breakdowns, evaluate each breakdown value independently and fire on the first anomaly
+        breakdown_results = cast(list[TrendResult], calculation_result.result)[:MAX_DETECTOR_BREAKDOWN_VALUES]
+
+        for breakdown_result in breakdown_results:
+            if is_non_time_series:
+                data = np.array([breakdown_result.get("aggregated_value", 0)])
+            else:
+                data = np.array(breakdown_result.get("data", []))
+
+            if len(data) < 2:
+                continue
+
+            detector = get_detector(detector_config)
+            result = detector.detect(data)
+
+            if result.is_anomaly:
+                label = breakdown_result.get("label", "Series")
+                current_value = float(data[-1])
+                score_str = f" (anomaly probability: {result.score:.0%})" if result.score is not None else ""
+                dates: list[str] = breakdown_result.get("days") or breakdown_result.get("labels") or []
+                triggered_dates: list[str] | None = None
+                if result.triggered_indices and dates:
+                    triggered_dates = [dates[i] for i in result.triggered_indices if i < len(dates)]
+
+                return AlertEvaluationResult(
+                    value=current_value,
+                    breaches=[
+                        f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type_str} detector"
+                    ],
+                    anomaly_scores=result.all_scores or None,
+                    triggered_points=result.triggered_indices if result.triggered_indices else None,
+                    triggered_dates=triggered_dates,
+                    interval=interval_value,
+                )
+
+        # No anomaly in any breakdown value
+        return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
+
+    # Non-breakdown: pick a single series by index
     selected_series_result = _pick_series_result(config, calculation_result)
 
     # Extract time series data
@@ -595,10 +645,10 @@ def check_trends_alert_with_detector(
         data = np.array(selected_series_result.get("data", []))
 
     if len(data) == 0:
-        return AlertEvaluationResult(value=None, breaches=[], interval=query.interval.value if query.interval else None)
+        return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
 
     # Extract dates for chart alignment
-    dates: list[str] = selected_series_result.get("days") or selected_series_result.get("labels") or []
+    dates = selected_series_result.get("days") or selected_series_result.get("labels") or []
 
     # Drop the current (incomplete) interval — always the last element.
     # The query does not set date_to, so the result includes the ongoing
@@ -615,12 +665,12 @@ def check_trends_alert_with_detector(
     result = detector.detect(data)
 
     # Map triggered indices to their corresponding dates
-    triggered_dates: list[str] | None = None
+    triggered_dates = None
     if result.triggered_indices and dates:
         triggered_dates = [dates[i] for i in result.triggered_indices if i < len(dates)]
 
     # Build breaches message if anomaly detected
-    breaches = []
+    breaches: list[str] = []
     if result.is_anomaly:
         label = selected_series_result.get("label", "Series")
         current_value = float(data[-1])
@@ -650,7 +700,7 @@ def check_trends_alert_with_detector(
         anomaly_scores=result.all_scores or None,
         triggered_points=result.triggered_indices if result.triggered_indices else None,
         triggered_dates=triggered_dates,
-        interval=query.interval.value if query.interval else None,
+        interval=interval_value,
     )
 
 
@@ -731,7 +781,86 @@ def simulate_detector_on_insight(
     if calculation_result.result is None or not calculation_result.result:
         raise ValueError("No results found for insight.")
 
-    # Pick the series
+    has_breakdown = trends_query.breakdownFilter and (
+        (trends_query.breakdownFilter.breakdown and trends_query.breakdownFilter.breakdown_type)
+        or trends_query.breakdownFilter.breakdowns
+    )
+    interval_value = trends_query.interval.value if trends_query.interval else None
+
+    if has_breakdown:
+        # Simulate each breakdown value independently (up to the cap)
+        all_breakdown_results = cast(list[TrendResult], calculation_result.result)[:MAX_DETECTOR_BREAKDOWN_VALUES]
+        breakdown_sim_results: list[dict[str, Any]] = []
+        total_points = 0
+        total_anomalies = 0
+
+        for br in all_breakdown_results:
+            label = br.get("label", "Series")
+            if is_non_time_series:
+                bd_data_list: list[float] = [float(br.get("aggregated_value", 0))]
+            else:
+                bd_data_list = [float(v) for v in br.get("data", [])]
+
+            bd_data = np.array(bd_data_list)
+            if len(bd_data) < 2:
+                continue
+
+            bd_dates: list[str] = br.get("days") or br.get("labels") or []
+
+            detector = get_detector(detector_config)
+            bd_result = detector.detect_batch(bd_data)
+
+            bd_triggered_dates: list[str] = []
+            if bd_result.triggered_indices and bd_dates:
+                bd_triggered_dates = [bd_dates[i] for i in bd_result.triggered_indices if i < len(bd_dates)]
+
+            bd_scores = bd_result.all_scores if bd_result.all_scores else [None] * len(bd_data)
+            bd_anomaly_count = len(bd_result.triggered_indices) if bd_result.triggered_indices else 0
+
+            total_points += len(bd_data)
+            total_anomalies += bd_anomaly_count
+
+            bd_sim: dict[str, Any] = {
+                "label": label,
+                "data": bd_data_list,
+                "dates": bd_dates,
+                "scores": bd_scores,
+                "triggered_indices": bd_result.triggered_indices or [],
+                "triggered_dates": bd_triggered_dates,
+                "total_points": len(bd_data),
+                "anomaly_count": bd_anomaly_count,
+            }
+
+            # Include sub-detector scores for ensemble detectors
+            if detector_type_str == "ensemble" and bd_result.metadata:
+                sub_results = bd_result.metadata.get("sub_results", [])
+                bd_sim["sub_detector_scores"] = [
+                    {"type": sr.get("type", "unknown"), "scores": sr.get("all_scores", [])}
+                    for sr in sub_results
+                    if sr.get("all_scores")
+                ]
+
+            breakdown_sim_results.append(bd_sim)
+
+        if not breakdown_sim_results:
+            raise ValueError("No breakdown values had enough data points for simulation.")
+
+        # Return the first breakdown as the top-level result for backward compatibility,
+        # plus the full list in breakdown_results
+        first = breakdown_sim_results[0]
+        return {
+            "data": first["data"],
+            "dates": first["dates"],
+            "scores": first["scores"],
+            "triggered_indices": first["triggered_indices"],
+            "triggered_dates": first["triggered_dates"],
+            "interval": interval_value,
+            "total_points": total_points,
+            "anomaly_count": total_anomalies,
+            "breakdown_results": breakdown_sim_results,
+        }
+
+    # Non-breakdown: pick a single series by index
     config = TrendsAlertConfig(type="TrendsAlertConfig", series_index=series_index)
     selected_series_result = _pick_series_result(config, calculation_result)
 
@@ -773,7 +902,7 @@ def simulate_detector_on_insight(
         "scores": scores,
         "triggered_indices": result.triggered_indices or [],
         "triggered_dates": triggered_dates,
-        "interval": trends_query.interval.value if trends_query.interval else None,
+        "interval": interval_value,
         "total_points": len(data),
         "anomaly_count": len(result.triggered_indices) if result.triggered_indices else 0,
     }
