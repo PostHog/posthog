@@ -11,12 +11,8 @@ use common_hypercache::HYPER_CACHE_EMPTY_VALUE;
 use common_types::TeamId;
 use metrics::counter;
 
-/// Parsed hypercache result: flags, optional evaluation metadata, optional preloaded cohorts.
-type HypercacheParseResult = (
-    Vec<FeatureFlag>,
-    Option<EvaluationMetadata>,
-    Option<Vec<Cohort>>,
-);
+/// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
+type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
@@ -50,12 +46,12 @@ impl FeatureFlagList {
         }
     }
 
-    /// Parses a JSON Value from hypercache into flags, optional evaluation metadata,
+    /// Parses a JSON Value from hypercache into flags, evaluation metadata,
     /// and optional preloaded cohort definitions.
     ///
     /// Handles:
-    /// - Null values (returns empty vec)
-    /// - Sentinel "__missing__" value (returns empty vec)
+    /// - Null values (returns empty vec with default metadata)
+    /// - Sentinel "__missing__" value (returns empty vec with default metadata)
     /// - Standard hypercache format `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]}`
     pub fn parse_hypercache_value(
         data: serde_json::Value,
@@ -63,13 +59,13 @@ impl FeatureFlagList {
     ) -> Result<HypercacheParseResult, FlagError> {
         // Handle null (can happen when hypercache returns empty)
         if data.is_null() {
-            return Ok((vec![], None, None));
+            return Ok((vec![], EvaluationMetadata::default(), None));
         }
 
         // Check for the sentinel value indicating no flags for this team
         if data.as_str() == Some(HYPER_CACHE_EMPTY_VALUE) {
             tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
-            return Ok((vec![], None, None));
+            return Ok((vec![], EvaluationMetadata::default(), None));
         }
 
         // Parse the hypercache format: {"flags": [...], "evaluation_metadata": {...}}
@@ -98,7 +94,22 @@ impl FeatureFlagList {
             team_id,
         );
 
-        Ok((wrapper.flags, wrapper.evaluation_metadata, wrapper.cohorts))
+        let evaluation_metadata = wrapper.evaluation_metadata;
+        if evaluation_metadata.dependency_stages.is_empty() && !wrapper.flags.is_empty() {
+            // Every valid cache entry and PG fallback must populate dependency_stages.
+            // Empty stages with non-empty flags means something went wrong upstream.
+            tracing::error!(
+                "evaluation_metadata.dependency_stages is empty but {} flags present for team {}",
+                wrapper.flags.len(),
+                team_id
+            );
+            return Err(FlagError::DataParsingErrorWithContext(format!(
+                "evaluation_metadata.dependency_stages is empty but {} flags present for team {team_id}",
+                wrapper.flags.len()
+            )));
+        }
+
+        Ok((wrapper.flags, evaluation_metadata, wrapper.cohorts))
     }
 
     /// Returns feature flags from postgres given a team_id
@@ -679,13 +690,20 @@ mod tests {
                     "deleted": false,
                     "filters": { "groups": [] }
                 }
-            ]
+            ],
+            "evaluation_metadata": {
+                "dependency_stages": [[1, 2]],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            }
         });
 
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
         let (flags, metadata, _cohorts) = result.unwrap();
-        assert!(metadata.is_none());
+        assert_eq!(metadata.dependency_stages, vec![vec![1, 2]]);
+        assert!(metadata.flags_with_missing_deps.is_empty());
+        assert!(metadata.transitive_deps.is_empty());
         assert_eq!(flags.len(), 2);
         assert_eq!(flags[0].key, "test_flag");
         assert!(flags[0].active);
@@ -840,17 +858,19 @@ mod tests {
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
         let (flags, evaluation_metadata, _cohorts) = result.unwrap();
-        let meta = evaluation_metadata.unwrap();
-        assert_eq!(meta.dependency_stages.len(), 2);
-        assert_eq!(meta.dependency_stages[0], vec![766, 768, 769]);
-        assert_eq!(meta.dependency_stages[1], vec![765]);
-        assert_eq!(meta.flags_with_missing_deps, vec![768]);
-        assert_eq!(meta.transitive_deps.len(), 4);
-        assert_eq!(meta.transitive_deps[&765].len(), 1);
-        assert!(meta.transitive_deps[&765].contains(&766));
-        assert!(meta.transitive_deps[&766].is_empty());
-        assert!(meta.transitive_deps[&768].is_empty());
-        assert!(meta.transitive_deps[&769].is_empty());
+        assert_eq!(evaluation_metadata.dependency_stages.len(), 2);
+        assert_eq!(
+            evaluation_metadata.dependency_stages[0],
+            vec![766, 768, 769]
+        );
+        assert_eq!(evaluation_metadata.dependency_stages[1], vec![765]);
+        assert_eq!(evaluation_metadata.flags_with_missing_deps, vec![768]);
+        assert_eq!(evaluation_metadata.transitive_deps.len(), 4);
+        assert_eq!(evaluation_metadata.transitive_deps[&765].len(), 1);
+        assert!(evaluation_metadata.transitive_deps[&765].contains(&766));
+        assert!(evaluation_metadata.transitive_deps[&766].is_empty());
+        assert!(evaluation_metadata.transitive_deps[&768].is_empty());
+        assert!(evaluation_metadata.transitive_deps[&769].is_empty());
         assert_eq!(flags.len(), 4);
         assert_eq!(flags[0].key, "all-flag-with-flag-dependency");
         assert!(flags[0].active);
@@ -869,7 +889,7 @@ mod tests {
         assert!(result.is_ok());
         let (flags, metadata, _cohorts) = result.unwrap();
         assert!(flags.is_empty());
-        assert!(metadata.is_none());
+        assert_eq!(metadata, EvaluationMetadata::default());
     }
 
     #[test]
@@ -879,17 +899,24 @@ mod tests {
         assert!(result.is_ok());
         let (flags, metadata, _cohorts) = result.unwrap();
         assert!(flags.is_empty());
-        assert!(metadata.is_none());
+        assert_eq!(metadata, EvaluationMetadata::default());
     }
 
     #[test]
     fn test_parse_hypercache_value_empty_flags_array() {
-        let data = json!({"flags": []});
+        let data = json!({
+            "flags": [],
+            "evaluation_metadata": {
+                "dependency_stages": [],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            }
+        });
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
         let (flags, metadata, _cohorts) = result.unwrap();
         assert!(flags.is_empty());
-        assert!(metadata.is_none());
+        assert_eq!(metadata, EvaluationMetadata::default());
     }
 
     #[test]
@@ -958,13 +985,20 @@ mod tests {
                     "version": 5,
                     "evaluation_runtime": "frontend"
                 }
-            ]
+            ],
+            "evaluation_metadata": {
+                "dependency_stages": [[42]],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            }
         });
 
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
         let (flags, metadata, _cohorts) = result.unwrap();
-        assert!(metadata.is_none());
+        assert_eq!(metadata.dependency_stages, vec![vec![42]]);
+        assert!(metadata.flags_with_missing_deps.is_empty());
+        assert!(metadata.transitive_deps.is_empty());
         assert_eq!(flags.len(), 1);
         let flag = &flags[0];
         assert_eq!(flag.id, 42);
@@ -981,6 +1015,11 @@ mod tests {
     fn test_parse_hypercache_value_with_cohorts() {
         let data = json!({
             "flags": [],
+            "evaluation_metadata": {
+                "dependency_stages": [],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            },
             "cohorts": [{
                 "id": 42,
                 "name": "Test Cohort",
@@ -1020,12 +1059,78 @@ mod tests {
                 "name": "flag",
                 "key": "flag-key",
                 "filters": {"groups": []}
-            }]
+            }],
+            "evaluation_metadata": {
+                "dependency_stages": [[1]],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            }
         });
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
         let (_flags, _metadata, cohorts) = result.unwrap();
         assert!(cohorts.is_none());
+    }
+
+    #[test]
+    fn test_parse_hypercache_value_empty_stages_with_flags_is_error() {
+        // dependency_stages must not be empty when flags are present
+        let data = json!({
+            "flags": [
+                {"id": 10, "key": "a", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}},
+                {"id": 20, "key": "b", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}}
+            ],
+            "evaluation_metadata": {
+                "dependency_stages": [],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            }
+        });
+        let result = FeatureFlagList::parse_hypercache_value(data, 1);
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+    }
+
+    #[test]
+    fn test_parse_hypercache_value_missing_evaluation_metadata_fails() {
+        // evaluation_metadata is required in cache entries; missing field must fail
+        let data = json!({
+            "flags": [
+                {"id": 1, "key": "flag", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}}
+            ]
+        });
+        let result = FeatureFlagList::parse_hypercache_value(data, 1);
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+    }
+
+    #[test]
+    fn test_single_stage_places_all_flag_ids_in_one_stage() {
+        let flags: Vec<FeatureFlag> = serde_json::from_value(json!([
+            {"id": 10, "key": "a", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}},
+            {"id": 20, "key": "b", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}}
+        ]))
+        .unwrap();
+
+        let meta = EvaluationMetadata::single_stage(&flags);
+        assert_eq!(meta.dependency_stages, vec![vec![10, 20]]);
+        assert!(meta.flags_with_missing_deps.is_empty());
+        // Each flag gets an empty dep set so flag_keys filtering works for independent flags
+        assert_eq!(meta.transitive_deps.len(), 2);
+        assert!(meta.transitive_deps[&10].is_empty());
+        assert!(meta.transitive_deps[&20].is_empty());
+    }
+
+    #[test]
+    fn test_single_stage_empty_flags() {
+        let meta = EvaluationMetadata::single_stage(&[]);
+        assert_eq!(meta.dependency_stages, vec![Vec::<i32>::new()]);
+        assert!(meta.flags_with_missing_deps.is_empty());
+        assert!(meta.transitive_deps.is_empty()); // no flags → genuinely empty
     }
 
     #[test]

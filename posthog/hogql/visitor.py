@@ -144,6 +144,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_constant(self, node: ast.Constant):
         self.visit(node.type)
 
+    def visit_keyword(self, node: ast.Keyword):
+        self.visit(node.type)
+
     def visit_field(self, node: ast.Field):
         self.visit(node.type)
 
@@ -708,6 +711,14 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             value=node.value,
+        )
+
+    def visit_keyword(self, node: ast.Keyword):
+        return ast.Keyword(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            name=node.name,
         )
 
     def visit_field(self, node: ast.Field):

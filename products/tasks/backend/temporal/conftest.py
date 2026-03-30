@@ -29,7 +29,7 @@ def activity_environment():
 
 
 @pytest.fixture(autouse=True)
-def array_oauth_app():
+def posthog_code_oauth_app():
     """Create the Array OAuth application for tests."""
     if not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")

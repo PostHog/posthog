@@ -198,6 +198,33 @@ class VercelAPIClient:
             refresh_token=json_data.get("refresh_token"),
         )
 
+    def import_resource(
+        self,
+        integration_config_id: str,
+        resource_id: str,
+        product_id: str,
+        name: str,
+        secrets: list[dict[str, Any]] | None = None,
+    ) -> OperationResult:
+        """Register a resource on Vercel's side (upsert). Used after connectable account linking."""
+        url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}"
+        payload: dict[str, Any] = {
+            "productId": product_id,
+            "name": name,
+            "status": "ready",
+            "ownership": "linked",
+        }
+        if secrets:
+            payload["secrets"] = secrets
+        return self._crud_operation(
+            "PUT",
+            url,
+            "Successfully imported resource to Vercel",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id},
+            {},
+            json=payload,
+        )
+
     def update_resource_secrets(
         self, integration_config_id: str, resource_id: str, secrets: list[dict[str, Any]]
     ) -> OperationResult:

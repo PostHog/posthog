@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import {
     type SurveyData,
@@ -21,6 +21,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const activePopover: SurveyData = {
     id: 'survey-1',
@@ -90,22 +92,30 @@ const completedSurvey: SurveyData = {
     _posthogUrl: 'https://us.posthog.com/project/1/surveys/survey-3',
 }
 
-export const ActivePopover: StoryFn = () => <SurveyView survey={activePopover} />
-ActivePopover.storyName = 'Active popover survey'
+export const ActivePopover: Story = {
+    render: () => <SurveyView survey={activePopover} />,
+    storyName: 'Active popover survey',
+}
 
-export const DraftMultiQuestion: StoryFn = () => <SurveyView survey={draftMultiQuestion} />
-DraftMultiQuestion.storyName = 'Draft with multiple question types'
+export const DraftMultiQuestion: Story = {
+    render: () => <SurveyView survey={draftMultiQuestion} />,
+    storyName: 'Draft with multiple question types',
+}
 
-export const Completed: StoryFn = () => <SurveyView survey={completedSurvey} />
-Completed.storyName = 'Completed survey'
+export const Completed: Story = {
+    render: () => <SurveyView survey={completedSurvey} />,
+    storyName: 'Completed survey',
+}
 
 const sampleListData: SurveyListData = {
     results: [activePopover, draftMultiQuestion, completedSurvey],
     _posthogUrl: 'https://us.posthog.com/project/1/surveys',
 }
 
-export const List: StoryFn = () => <SurveyListView data={sampleListData} />
-List.storyName = 'Survey list'
+export const List: Story = {
+    render: () => <SurveyListView data={sampleListData} />,
+    storyName: 'Survey list',
+}
 
 const sampleStats: SurveyStatsData = {
     survey_id: 'survey-1',
@@ -121,5 +131,7 @@ const sampleStats: SurveyStatsData = {
     _posthogUrl: 'https://us.posthog.com/project/1/surveys/survey-1',
 }
 
-export const Stats: StoryFn = () => <SurveyStatsView data={sampleStats} />
-Stats.storyName = 'Survey stats'
+export const Stats: Story = {
+    render: () => <SurveyStatsView data={sampleStats} />,
+    storyName: 'Survey stats',
+}

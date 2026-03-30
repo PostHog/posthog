@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { type FeatureFlagData, type FeatureFlagListData, FeatureFlagListView, FeatureFlagView } from './index'
 
@@ -14,6 +14,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const sampleBooleanFlag: FeatureFlagData = {
     id: 1,
@@ -85,14 +87,20 @@ const sampleInactiveFlag: FeatureFlagData = {
     updated_at: '2024-06-01T00:00:00Z',
 }
 
-export const BooleanFlag: StoryFn = () => <FeatureFlagView flag={sampleBooleanFlag} />
-BooleanFlag.storyName = 'Boolean flag'
+export const BooleanFlag: Story = {
+    render: () => <FeatureFlagView flag={sampleBooleanFlag} />,
+    storyName: 'Boolean flag',
+}
 
-export const MultivariateFlag: StoryFn = () => <FeatureFlagView flag={sampleMultivariateFlag} />
-MultivariateFlag.storyName = 'Multivariate flag with variant override'
+export const MultivariateFlag: Story = {
+    render: () => <FeatureFlagView flag={sampleMultivariateFlag} />,
+    storyName: 'Multivariate flag with variant override',
+}
 
-export const InactiveFlag: StoryFn = () => <FeatureFlagView flag={sampleInactiveFlag} />
-InactiveFlag.storyName = 'Inactive flag'
+export const InactiveFlag: Story = {
+    render: () => <FeatureFlagView flag={sampleInactiveFlag} />,
+    storyName: 'Inactive flag',
+}
 
 const sampleListData: FeatureFlagListData = {
     count: 3,
@@ -102,5 +110,7 @@ const sampleListData: FeatureFlagListData = {
     _posthogUrl: 'https://us.posthog.com/project/1/feature_flags',
 }
 
-export const FlagList: StoryFn = () => <FeatureFlagListView data={sampleListData} />
-FlagList.storyName = 'Flag list'
+export const FlagList: Story = {
+    render: () => <FeatureFlagListView data={sampleListData} />,
+    storyName: 'Flag list',
+}

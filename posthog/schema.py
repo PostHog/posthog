@@ -418,6 +418,29 @@ class AssistantNumericValuePropertyFilterOperator(StrEnum):
     LT = "lt"
 
 
+class AssistantPathCleaningFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    alias: str = Field(
+        ...,
+        description=(
+            "A human-readable alias that replaces matched path patterns in the"
+            " visualization. For example, `/user/:id/profile` to replace"
+            " `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement"
+            " syntax — use `\\\\1` for capture group back-references."
+        ),
+    )
+    regex: str = Field(
+        ...,
+        description=(
+            "A ClickHouse regex pattern to match against path values. Matched paths"
+            " will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile`"
+            " to match any user profile URL."
+        ),
+    )
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -448,6 +471,12 @@ class TimeWindowMode(StrEnum):
 class AssistantSetPropertyFilterOperator(StrEnum):
     IS_SET = "is_set"
     IS_NOT_SET = "is_not_set"
+
+
+class AssistantStickinessDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
 
 
 class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
@@ -2126,6 +2155,8 @@ class HeatmapSettings(BaseModel):
     gradient: list[HeatmapGradientStop] | None = None
     gradientPreset: str | None = None
     gradientScaleMode: GradientScaleMode | None = None
+    nullLabel: str | None = None
+    nullValue: str | None = None
     valueColumn: str | None = None
     xAxisColumn: str | None = None
     xAxisLabel: str | None = None
@@ -4045,6 +4076,7 @@ class SourceFieldOauthConfig(BaseModel):
     label: str
     name: str
     required: bool
+    requiredScopes: str | None = None
     type: Literal["oauth"] = "oauth"
 
 
@@ -5146,6 +5178,28 @@ class AssistantGroupPropertyFilter5(BaseModel):
     type: Literal["group"] = "group"
 
 
+class AssistantLifecycleFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stacked: bool | None = Field(default=True, description="Whether the lifecycle bars should be stacked.")
+    toggledLifecycles: list[LifecycleToggle] | None = Field(
+        default=None,
+        description=(
+            "Lifecycles that have been removed from display are not included in this"
+            " array. Available values: `new`, `returning`, `resurrecting`,"
+            " `dormant`.\n- `new` - users who performed the event for the first time"
+            " during the period.\n- `returning` - users who were active in the previous"
+            " period and are active in the current period.\n- `resurrecting` - users"
+            " who were inactive for one or more periods and became active again.\n-"
+            " `dormant` - users who were active in the previous period but are inactive"
+            " in the current period."
+        ),
+    )
+
+
 class AssistantMessageMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5165,6 +5219,100 @@ class AssistantNumericValuePropertyFilter(BaseModel):
     )
     operator: AssistantNumericValuePropertyFilterOperator
     value: float
+
+
+class AssistantPathsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edgeLimit: int | None = Field(
+        default=50,
+        description=(
+            "Maximum number of path edges (connections between steps) to return. Higher"
+            " values show more detail but can make the visualization harder to read."
+        ),
+    )
+    endPoint: str | None = Field(
+        default=None,
+        description=("Filter to only show paths that end at this specific step. Same format as `startPoint`."),
+    )
+    excludeEvents: list[str] | None = Field(
+        default=[],
+        description=(
+            "Event names or URLs to exclude from the path analysis entirely. Excluded"
+            " events are filtered out before building the path visualization. Useful"
+            " for removing noise from common but uninteresting events."
+        ),
+    )
+    includeEventTypes: list[PathType] | None = Field(
+        default=None,
+        description=(
+            "Which event types to include in the path analysis. Available values:"
+            " `$pageview` - web page views. Path values are page URLs (from"
+            " `$current_url`), with trailing slashes stripped. `$screen` - mobile"
+            " screen views. Path values are screen names (from `$screen_name`)."
+            " `custom_event` - custom events (any event not starting with `$`). Path"
+            " values are event names. `hogql` - custom HogQL expression defined in"
+            " `pathsHogQLExpression`. Path values come from evaluating the expression."
+            " You can combine multiple types. If not specified, all events are included"
+            " without type filtering."
+        ),
+    )
+    localPathCleaningFilters: list[AssistantPathCleaningFilter] | None = Field(
+        default=[],
+        description=(
+            "ClickHouse regex-based rules to clean and normalize path values at the"
+            " query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in"
+            " sequence. Useful for removing dynamic IDs or parameters from URLs."
+        ),
+    )
+    maxEdgeWeight: int | None = Field(
+        default=None,
+        description=(
+            "Maximum number of users who traversed an edge for it to be displayed."
+            " Filters out high-traffic paths to focus on less common journeys."
+        ),
+    )
+    minEdgeWeight: int | None = Field(
+        default=None,
+        description=(
+            "Minimum number of users who traversed an edge for it to be displayed."
+            " Filters out low-traffic paths to reduce visual noise."
+        ),
+    )
+    pathGroupings: list[str] | None = Field(
+        default=[],
+        description=(
+            "Glob-like patterns to group multiple path items into a single step. Use"
+            " `*` as a wildcard. The patterns are auto-escaped, so only `*` has special"
+            " meaning. For example, `/product/*` to group all product pages into one"
+            " node."
+        ),
+    )
+    pathsHogQLExpression: str | None = Field(
+        default=None,
+        description=(
+            "A HogQL expression to use as the path item. Required when `hogql` is"
+            " included in `includeEventTypes`. For example, `properties.$current_url`"
+            " to use the current URL as the path item."
+        ),
+    )
+    startPoint: str | None = Field(
+        default=None,
+        description=(
+            "Filter to only show paths that start from this specific step. The value"
+            " format depends on the included event types: For `$pageview` paths, use"
+            " page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen"
+            " names. For `custom_event` paths, use event names."
+        ),
+    )
+    stepLimit: int | None = Field(
+        default=5,
+        description=(
+            "Maximum number of steps (path depth) to show in the visualization."
+            " Controls how deep the path analysis goes from the start."
+        ),
+    )
 
 
 class AssistantRetentionActionsNode(BaseModel):
@@ -5827,6 +5975,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     isSharedMetric: bool | None = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -7395,6 +7544,7 @@ class TableSettings(BaseModel):
     columns: list[ChartAxis] | None = None
     conditionalFormatting: list[ConditionalFormattingRule] | None = None
     pinnedColumns: list[str] | None = None
+    transpose: bool | None = None
 
 
 class TaskExecutionItem(BaseModel):
@@ -8293,6 +8443,84 @@ class AssistantInsightsQueryBase(BaseModel):
     )
 
 
+class AssistantLifecycleActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = Field(
+        default="ActionsNode",
+        description=(
+            "Defines the action series for the lifecycle insight. Lifecycle does not"
+            " support math aggregations. You must provide the action ID in the `id`"
+            " field and the name in the `name` field."
+        ),
+    )
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantLifecycleEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = Field(
+        default="EventsNode",
+        description=(
+            "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations."
+        ),
+    )
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8303,6 +8531,56 @@ class AssistantMessage(BaseModel):
     parent_tool_call_id: str | None = None
     tool_calls: list[AssistantToolCall] | None = None
     type: Literal["ai"] = "ai"
+
+
+class AssistantPathsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    kind: Literal["PathsQuery"] = "PathsQuery"
+    pathsFilter: AssistantPathsFilter = Field(
+        ...,
+        description=(
+            "Properties specific to the paths insight. Paths show the most common"
+            " sequences of events or pages that users navigate through, helping"
+            " identify popular user flows and drop-off points."
+        ),
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
 
 
 class AssistantRetentionFilter(BaseModel):
@@ -8419,6 +8697,236 @@ class AssistantRetentionQuery(BaseModel):
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+
+
+class AssistantStickinessActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computedAs: StickinessComputationMode | None = Field(
+        default=StickinessComputationMode.NON_CUMULATIVE,
+        description=(
+            "Computation mode. `non_cumulative` (default) shows users active on exactly"
+            " N intervals. `cumulative` shows users active on N or more intervals."
+        ),
+    )
+    display: AssistantStickinessDisplayType | None = Field(
+        default=AssistantStickinessDisplayType.ACTIONS_LINE_GRAPH,
+        description=(
+            "Visualization type for the stickiness chart. `ActionsLineGraph` - line"
+            " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
+            " chart."
+        ),
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stickinessCriteria: StickinessCriteria | None = Field(
+        default=None,
+        description=(
+            "Filter which intervals count based on event frequency within each"
+            " interval. For example, only count intervals where the user performed the"
+            " event >= 3 times."
+        ),
+    )
+
+
+class AssistantStickinessQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Compare to date range. When enabled, shows the current and previous period side by side."),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=(
+            "Granularity of the response. Can be one of `hour`, `day`, `week` or"
+            ' `month`. This determines what counts as one "interval" for stickiness'
+            " measurement. For example, with `day` interval over a 30-day range, the"
+            " X-axis shows 1 through 30 days, and each bar/point shows how many users"
+            " performed the event on exactly that many days."
+        ),
+    )
+    intervalCount: int | None = Field(
+        default=None,
+        description=(
+            "How many base intervals comprise one stickiness period. Defaults to 1. For"
+            ' example, `interval: "day"` with `intervalCount: 7` groups by 7-day'
+            " periods."
+        ),
+    )
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantStickinessEventsNode | AssistantStickinessActionsNode] = Field(
+        ...,
+        description=(
+            "Events or actions to include. Each series measures how many intervals"
+            " (e.g. days) within the date range a user performed the event."
+            " Prioritize the more popular and fresh events and actions. When the"
+            " `math` field is omitted on a series, it defaults to counting unique"
+            " persons."
+        ),
+    )
+    stickinessFilter: AssistantStickinessFilter | None = Field(
+        default=None, description="Properties specific to the stickiness insight"
     )
 
 
@@ -16502,6 +17010,60 @@ class AssistantBasePropertyFilter(
     )
 
 
+class AssistantLifecycleQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
+    )
+    kind: Literal["LifecycleQuery"] = "LifecycleQuery"
+    lifecycleFilter: AssistantLifecycleFilter | None = Field(
+        default=None, description="Properties specific to the lifecycle insight"
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantLifecycleEventsNode | AssistantLifecycleActionsNode] = Field(
+        ...,
+        description=("Event or action to analyze. Lifecycle insights only support a single series."),
+        max_length=1,
+    )
+
+
 class CachedErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17069,6 +17631,7 @@ class ExperimentRatioMetric(BaseModel):
     metric_type: Literal["ratio"] = "ratio"
     name: str | None = None
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -17098,6 +17661,7 @@ class ExperimentRetentionMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["retention"] = "retention"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     retention_window_end: int
     retention_window_start: int
@@ -18120,6 +18684,7 @@ class ExperimentFunnelMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     series: list[EventsNode | ActionsNode]
     sharedMetricId: float | None = None
@@ -18142,6 +18707,7 @@ class ExperimentMeanMetric(BaseModel):
     lower_bound_percentile: float | None = None
     metric_type: Literal["mean"] = "mean"
     name: str | None = None
+    only_count_matured_users: bool | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
@@ -19438,6 +20004,9 @@ class VisualizationBlock(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     ) = Field(
         ...,
@@ -19445,56 +20014,6 @@ class VisualizationBlock(BaseModel):
     )
     title: str | None = Field(default=None, description="Optional title for the visualization")
     type: Literal["visualization"] = "visualization"
-
-
-class VisualizationItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-    )
-    initiator: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-
-
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-    )
-    id: str | None = None
-    initiator: str | None = None
-    parent_tool_call_id: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-    short_id: str | None = None
-    type: Literal["ai/viz"] = "ai/viz"
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
@@ -19639,17 +20158,6 @@ class FunnelsActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class MultiVisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    commentary: str | None = None
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    type: Literal["ai/multi_viz"] = "ai/multi_viz"
-    visualizations: list[VisualizationItem]
-
-
 class NotebookArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19717,6 +20225,68 @@ class ProductAnalyticsInsightQueryNode(
     RootModel[TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery]
 ):
     root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
+
+
+class VisualizationItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
+        | AssistantHogQLQuery
+    )
+    initiator: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
+        | AssistantHogQLQuery
+    )
+    id: str | None = None
+    initiator: str | None = None
+    parent_tool_call_id: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+    short_id: str | None = None
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -19805,6 +20375,17 @@ class InsightVizNode(BaseModel):
     suppressSessionAnalysisWarning: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: VizSpecificOptions | None = None
+
+
+class MultiVisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    commentary: str | None = None
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["ai/multi_viz"] = "ai/multi_viz"
+    visualizations: list[VisualizationItem]
 
 
 class WebVitalsQuery(BaseModel):
@@ -21238,6 +21819,9 @@ class VisualizationArtifactContent(BaseModel):
         AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
         | EventsNode
         | ActionsNode
