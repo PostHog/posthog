@@ -9,13 +9,16 @@ PostHog's canvas-based charting library built on D3.
 | **Chart types** (`charts/`)                      | Chart-specific logic — e.g. line vs bar. Provides `createScales` and `draw` to the base Chart.        |
 | **Chart base** (`core/`)                         | Generic chart infrastructure shared by all types — canvas, draw loop, interaction, overlays, context. |
 | **Canvas rendering** (`core/canvas-renderer.ts`) | Stateless pure functions that draw to a canvas. All drawing code goes here.                           |
-| **Overlays** (`overlays/`)                       | React DOM components rendered on top of the canvas — axes, crosshair, tooltip, goal lines.            |
+| **Overlays** (`overlays/`)                       | React DOM components rendered on top of the canvas e.g. annotations                                   |
 
 ## Rules
 
-- **No kea, no PostHog imports.** Theme, colors, and data are passed in as props.
-- **`ChartScales` must not expose d3 types.** Public interface is `x(label) => px`, `y(value) => px`, `yTicks() => number[]`.
-- **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`, no React or side effects.
+- **No kea, no PostHog imports.** Theme, colors, and data are passed in as
+  props.
+- **`ChartScales` must not expose d3 types.** Public interface is
+  `x(label) => px`, `y(value) => px`, `yTicks() => number[]`.
+- **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`, no
+  React or side effects.
 - **Overlays use `useChart()`, not props from Chart.**
 
 ## Adding a new chart type
@@ -54,10 +57,11 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
 
 ```tsx
 import { LineChart } from 'lib/hog-charts'
-import type { LineChartConfig, Series, ChartTheme } from 'lib/hog-charts'
+import type { ChartTheme, LineChartConfig, Series } from 'lib/hog-charts'
 ```
 
-For custom overlays rendered as children, use `useChart()` to access scales, dimensions, and hover state.
+For custom overlays rendered as children, use `useChart()` to access scales,
+dimensions, and hover state.
 
-For custom tooltip content, pass a component to the `tooltip` prop.
-It receives `TooltipContext` as props. Omit to use the built-in `DefaultTooltip`.
+For custom tooltip content, pass a component to the `tooltip` prop. It receives
+`TooltipContext` as props. Omit to use the built-in `DefaultTooltip`.

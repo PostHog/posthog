@@ -1,4 +1,5 @@
-export type { AxisFormat, ChartTheme } from 'lib/charts/types'
+import type { AxisFormat, ChartTheme } from 'lib/charts/types'
+export type { AxisFormat, ChartTheme }
 
 export interface Series {
     /** Unique identifier used to key React elements and look up stacked data. */
