@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import BatchExportRun
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
@@ -97,6 +98,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit=ast.Constant(value=10),
         )
 
+        tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
         result = execute_hogql_query(query, team=self.team)
 
         values = [row[0] for row in result.results]

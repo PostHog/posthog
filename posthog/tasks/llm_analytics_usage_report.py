@@ -13,7 +13,7 @@ from posthog.schema import AIEventType
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.property.util import get_property_string_expr
@@ -154,6 +154,7 @@ def _execute_split_query(
         # Execute the query for this time split
         with tags_context(
             product=Product.LLM_ANALYTICS,
+            feature=Feature.QUERY,
             kind="celery",
             id=CELERY_TASK_ID,
             name=query_name,
@@ -224,6 +225,7 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
 
     with tags_context(
         product=Product.LLM_ANALYTICS,
+        feature=Feature.QUERY,
         kind="celery",
         id=CELERY_TASK_ID,
         name="Get teams with LLM analytics trigger events",

@@ -885,3 +885,145 @@ class TestTable(APIBaseTest):
         # TODO: DRY
         self._delete_all_from_s3(s3_client, test_bucket_name)
         s3_client.delete_bucket(Bucket=test_bucket_name)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_sanitizes_filename_for_s3_key(self, mock_boto3_client, mock_feature_enabled):
+        """Django strips path components via os.path.basename in UploadedFile._set_name.
+        Our regex further sanitizes special characters. Verify the S3 key uses the sanitized name."""
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Django will strip "../team_999/" leaving "evil file (1).csv"
+        # Our regex then converts spaces and parens to underscores
+        test_file = SimpleUploadedFile("evil file (1).csv", b"col1\nval1", content_type="text/csv")
+
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+            with self.settings(
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "name": "test_table", "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        assert response.status_code == 201
+        # Verify special characters were replaced with underscores in S3 key and url_pattern
+        mock_s3.upload_fileobj.assert_called_once_with(
+            ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/evil_file__1_.csv"
+        )
+        table = DataWarehouseTable.objects.get(name="test_table")
+        assert (
+            table.url_pattern == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/evil_file__1_.csv"
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_table_name_defaults_to_sanitized_filename(self, mock_boto3_client, mock_feature_enabled):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("my data (2).csv", b"col1\nval1", content_type="text/csv")
+
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+            with self.settings(
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        # Sanitized filename "my_data__2_.csv" has dots, which the table name
+        # regex rejects — so the user must provide a valid name separately
+        assert response.status_code == 400
+        assert "Table names must start with a letter" in response.json()["message"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_table_name_defaults_to_sanitized_filename_when_valid(
+        self, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Filename without extension or special chars → valid as table name
+        test_file = SimpleUploadedFile("my_data", b"col1\nval1", content_type="text/csv")
+
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+            with self.settings(
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        assert response.status_code == 201
+        table = DataWarehouseTable.objects.get(name="my_data")
+        assert table is not None
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_rejects_dot_filename(self, mock_boto3_client, mock_feature_enabled):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile(".hidden", b"col1\nval1", content_type="text/csv")
+
+        with self.settings(DATAWAREHOUSE_BUCKET="test-warehouse-bucket"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "test_table", "format": "CSVWithNames"},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == "Invalid filename"
+
+    @parameterized.expand(
+        [
+            ("garbage", "InvalidFormat"),
+            ("injection", "'; DROP TABLE"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_invalid_format_rejected(self, _name, bad_format, mock_boto3_client, mock_feature_enabled):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("safe_file.csv", b"col1\nval1", content_type="text/csv")
+
+        with self.settings(DATAWAREHOUSE_BUCKET="test-warehouse-bucket"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "test_table", "format": bad_format},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert "Invalid format" in response.json()["message"]

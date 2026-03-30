@@ -436,6 +436,13 @@ impl StoreManager {
         consumer_offset: i64,
         producer_offset: i64,
     ) {
+        // Skip if the store has been unregistered (e.g. during rebalance).
+        // The directory may be deleted concurrently by cleanup_store_files,
+        // causing write_to_dir's rename to fail with ENOENT.
+        if self.get(topic, partition).is_none() {
+            return;
+        }
+
         let store_path = format_store_path(&self.store_config.path, topic, partition);
         if !store_path.exists() {
             return;

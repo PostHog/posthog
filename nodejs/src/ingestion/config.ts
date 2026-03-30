@@ -1,3 +1,4 @@
+import type { CommonConfig } from '../common/config'
 import {
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -6,7 +7,58 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
+import type { PostgresRouterConfig } from '../utils/db/postgres'
 import { isDevEnv, isProdEnv } from '../utils/env-utils'
+
+// =============================================================================
+// Infrastructure sub-config types
+// These group CommonConfig keys by infrastructure concern for use in server
+// config types. Defined here (rather than common/config.ts) because they are
+// ingestion-specific groupings — other domains may slice CommonConfig differently.
+// =============================================================================
+
+/** Kafka broker connection and authentication config */
+export type KafkaBrokerConfig = Pick<
+    CommonConfig,
+    | 'KAFKA_HOSTS'
+    | 'KAFKA_SECURITY_PROTOCOL'
+    | 'KAFKA_CLIENT_RACK'
+    | 'KAFKA_CLIENT_CERT_B64'
+    | 'KAFKA_CLIENT_CERT_KEY_B64'
+    | 'KAFKA_TRUSTED_CERT_B64'
+    | 'KAFKA_SASL_MECHANISM'
+    | 'KAFKA_SASL_USER'
+    | 'KAFKA_SASL_PASSWORD'
+>
+
+/** PostgreSQL connection config for the ingestion server — excludes behavioral cohorts */
+export type DatabaseConnectionConfig = Omit<PostgresRouterConfig, 'BEHAVIORAL_COHORTS_DATABASE_URL'>
+
+/** Redis connection config — URLs, hosts, and pool sizing */
+export type RedisConnectionsConfig = Pick<
+    CommonConfig,
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'INGESTION_REDIS_HOST'
+    | 'INGESTION_REDIS_PORT'
+    | 'POSTHOG_REDIS_HOST'
+    | 'POSTHOG_REDIS_PORT'
+    | 'POSTHOG_REDIS_PASSWORD'
+>
+
+/** Kafka consumer loop tuning config */
+export type KafkaConsumerBaseConfig = Pick<
+    CommonConfig,
+    | 'CONSUMER_BATCH_SIZE'
+    | 'CONSUMER_MAX_HEARTBEAT_INTERVAL_MS'
+    | 'CONSUMER_LOOP_STALL_THRESHOLD_MS'
+    | 'CONSUMER_LOG_STATS_LEVEL'
+    | 'CONSUMER_LOOP_BASED_HEALTH_CHECK'
+    | 'CONSUMER_MAX_BACKGROUND_TASKS'
+    | 'CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE'
+    | 'CONSUMER_AUTO_CREATE_TOPICS'
+>
 
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'

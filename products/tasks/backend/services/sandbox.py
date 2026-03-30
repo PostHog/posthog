@@ -106,7 +106,9 @@ class SandboxProtocol(Protocol):
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]: ...
 
-    def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult: ...
+    def execute_task(
+        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+    ) -> ExecutionResult: ...
 
     def get_connect_credentials(self) -> AgentServerResult:
         """Get connect credentials (URL and token) for this sandbox.
@@ -118,13 +120,14 @@ class SandboxProtocol(Protocol):
 
     def start_agent_server(
         self,
-        repository: str,
+        repository: str | None,
         task_id: str,
         run_id: str,
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        allowed_domains: list[str] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

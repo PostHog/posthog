@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { NEW_TEMPLATE } from './constants'
@@ -21,6 +22,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
     props({} as MessageTemplateLogicProps),
     key(({ id }) => id ?? 'new'),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamIdStrict']],
+    })),
     actions({
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
@@ -144,7 +148,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             await deleteWithUndo({
-                endpoint: `environments/@current/messaging_templates`,
+                endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                 object: {
                     id: template.id,
                     name: template.name,

@@ -222,7 +222,7 @@ class VercelRegionProxyMixin:
                 request_path=request.path,
                 integration="vercel",
             )
-            if not is_upsert:
+            if not is_upsert and request.method != "DELETE":
                 self._handle_missing_installation(installation_id)
 
         # If we can't proxy, and the installation exists, we return the response from the current region

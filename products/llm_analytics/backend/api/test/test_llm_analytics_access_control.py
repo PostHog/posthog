@@ -50,6 +50,15 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
         ]
         self.organization.save()
 
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=None,
+            role=None,
+        )
+
         self.viewer_user = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
         self.editor_user = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
         self.no_access_user = User.objects.create_and_join(self.organization, "noaccess@posthog.com", "testtest")
@@ -106,6 +115,47 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
             access_level=access_level,
             organization_member=membership,
         )
+
+    def _set_project_admin_access(self, user: User) -> None:
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=membership,
+        )
+
+    def _mutate_provider_key(self, action: str):
+        if action == "create":
+            return self.client.post(
+                f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+                {
+                    "provider": "openai",
+                    "name": "New Key",
+                    "api_key": "sk-test456",
+                },
+                format="json",
+            )
+
+        if action == "update":
+            return self.client.patch(
+                f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.provider_key.id}/",
+                {"name": "Updated Key"},
+                format="json",
+            )
+
+        if action == "validate":
+            return self.client.post(
+                f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.provider_key.id}/validate/"
+            )
+
+        if action == "delete":
+            return self.client.delete(
+                f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.provider_key.id}/"
+            )
+
+        raise ValueError(f"Unsupported action: {action}")
 
     # -- Viewer can list/retrieve --
 
@@ -393,14 +443,39 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_editor_can_delete_provider_key(self):
+    @parameterized.expand(
+        [
+            ("create", status.HTTP_403_FORBIDDEN),
+            ("update", status.HTTP_403_FORBIDDEN),
+            ("validate", status.HTTP_403_FORBIDDEN),
+            ("delete", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_editor_cannot_mutate_provider_key_without_project_admin(self, action, expected_status):
         self._set_access_level(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
-        response = self.client.delete(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.provider_key.id}/",
-        )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        with patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key") as mock_validate:
+            mock_validate.return_value = (LLMProviderKey.State.OK, None)
+            response = self._mutate_provider_key(action)
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("create", status.HTTP_201_CREATED),
+            ("update", status.HTTP_200_OK),
+            ("validate", status.HTTP_200_OK),
+            ("delete", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_project_admin_can_mutate_provider_key_without_llm_analytics_access(self, action, expected_status):
+        self._set_project_admin_access(self.editor_user)
+        self.client.force_login(self.editor_user)
+
+        with patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key") as mock_validate:
+            mock_validate.return_value = (LLMProviderKey.State.OK, None)
+            response = self._mutate_provider_key(action)
+        self.assertEqual(response.status_code, expected_status)
 
     def test_editor_can_create_score_definition(self):
         self._set_access_level(self.editor_user, access_level="editor")

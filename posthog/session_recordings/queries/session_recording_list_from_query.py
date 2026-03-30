@@ -188,7 +188,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
                 settings=HogQLGlobalSettings(
-                    allow_experimental_analyzer=None,
+                    enable_analyzer=None,
                     **(
                         {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
                     ),

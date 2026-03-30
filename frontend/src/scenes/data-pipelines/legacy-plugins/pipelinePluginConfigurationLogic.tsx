@@ -5,6 +5,7 @@ import { beforeUnload, router } from 'kea-router'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -52,7 +53,14 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            organizationLogic,
+            ['currentOrganizationId'],
+        ],
     })),
     loaders(({ props, values }) => ({
         pluginFromPluginId: [
@@ -65,7 +73,10 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
 
                     const plugins: Record<number, PluginType> = {}
 
-                    return plugins[props.pluginId] || api.get(`api/organizations/@current/plugins/${props.pluginId}`)
+                    return (
+                        plugins[props.pluginId] ||
+                        api.get(`api/organizations/${values.currentOrganizationId}/plugins/${props.pluginId}`)
+                    )
                 },
             },
         ],

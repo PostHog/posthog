@@ -459,6 +459,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Additional super condition groups used by experiments.",
     )
+    feature_enrollment = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
+    )
 
 
 property_help_text = "Filter events by event property, person property, cohort, groups and more."

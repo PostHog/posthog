@@ -1,6 +1,7 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.planning
 .pr-review-diff.patch
 __emails__
 __pycache__/
@@ -9,6 +10,7 @@ __pycache__/
 .dmypy.json
 .DS_Store
 .eslintcache
+.hypothesis
 .mypy_cache
 .parcel-cache
 .posthog/

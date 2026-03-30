@@ -508,6 +508,68 @@ class TestFstringSafeTernary:
 
 
 # ============================================================================
+# hogql-injection-taint: SHOULD FIND - Nested self attribute access
+# ============================================================================
+
+
+class TestTaintNestedAttrVulnerable:
+    def test_self_source_table_name(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_select(f"SELECT * FROM {self.source.table_name}")
+
+    def test_self_metric_source_field(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_expr(f"{self.metric.source.timestamp_field} AS ts")
+
+    def test_self_source_info_field(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_select(f"SELECT {self.source_info.timestamp_field} FROM events")
+
+
+# ============================================================================
+# hogql-injection-taint: SHOULD NOT FIND - Nested attr (sanitized / excluded)
+# ============================================================================
+
+
+class TestTaintInternalObjectsSafe:
+    def test_context_max_steps(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"steps <= {self.context.max_steps}")
+
+    def test_context_funnel_order_type(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_select(f"SELECT '{self.context.funnelOrderType}'")
+
+    def test_query_date_range_lookahead(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"arraySlice(arr, 1, {self.query_date_range.lookahead})")
+
+    def test_query_date_range_interval_name(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"toInterval{self.query_date_range.interval_name}(x)")
+
+    def test_team_timezone(self):
+        # ok: hogql-injection-taint
+        # ruleid: hogql-fstring-audit
+        parse_expr(f"toTimeZone(ts, '{self.team.timezone}')")
+
+
+class TestTaintNestedAttrSafe:
+    def test_sanitized_with_ast_field(self):
+        # ok: hogql-injection-taint
+        parse_select("{x}", placeholders={"x": ast.Field(chain=[self.source.table_name])})
+
+    def test_sanitized_with_direct_pass(self):
+        # Safe: user provides entire expression (no f-string, no context to escape)
+        # ok: hogql-injection-taint
+        parse_expr(self.source.timestamp_field)
+
+
+# ============================================================================
 # clickhouse-injection-taint: SHOULD FIND (user data in f-strings to execute)
 # ============================================================================
 

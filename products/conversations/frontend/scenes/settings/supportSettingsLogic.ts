@@ -44,19 +44,38 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         loadSlackChannelsWithToken: true,
         setSlackTicketEmojiValue: (value: string | null) => ({ value }),
         saveSlackTicketEmoji: true,
+        setSlackBotIconUrlValue: (value: string | null) => ({ value }),
+        setSlackBotDisplayNameValue: (value: string | null) => ({ value }),
+        saveSlackBotSettings: true,
         disconnectSlack: true,
         // Email channel settings
         setEmailFromEmail: (value: string) => ({ value }),
         setEmailFromName: (value: string) => ({ value }),
         connectEmail: true,
-        connectEmailDone: (forwardingAddress: string | null) => ({ forwardingAddress }),
+        connectEmailDone: (forwardingAddress: string | null, dnsRecords: Record<string, any> | null) => ({
+            forwardingAddress,
+            dnsRecords,
+        }),
         disconnectEmail: true,
         loadEmailStatus: true,
         loadEmailStatusDone: (
-            status: { forwarding_address: string | null; from_email: string; from_name: string } | null
+            status: {
+                forwarding_address: string | null
+                from_email: string
+                from_name: string
+                domain_verified: boolean
+                dns_records: Record<string, any> | null
+            } | null
         ) => ({
             status,
         }),
+        verifyEmailDomain: true,
+        verifyEmailDomainDone: (verified: boolean, dnsRecords: Record<string, any> | null) => ({
+            verified,
+            dnsRecords,
+        }),
+        sendTestEmail: true,
+        sendTestEmailDone: (sentTo: string | null) => ({ sentTo }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -151,10 +170,53 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 disconnectEmail: () => null,
             },
         ],
+        emailDomainVerified: [
+            false as boolean,
+            {
+                loadEmailStatusDone: (_, { status }) => status?.domain_verified ?? false,
+                verifyEmailDomainDone: (_, { verified }) => verified,
+                disconnectEmail: () => false,
+            },
+        ],
+        emailDnsRecords: [
+            null as Record<string, any> | null,
+            {
+                connectEmailDone: (_, { dnsRecords }) => dnsRecords,
+                loadEmailStatusDone: (_, { status }) => status?.dns_records ?? null,
+                verifyEmailDomainDone: (_, { dnsRecords }) => dnsRecords,
+                disconnectEmail: () => null,
+            },
+        ],
+        emailVerifying: [
+            false as boolean,
+            {
+                verifyEmailDomain: () => true,
+                verifyEmailDomainDone: () => false,
+            },
+        ],
+        emailSendingTest: [
+            false as boolean,
+            {
+                sendTestEmail: () => true,
+                sendTestEmailDone: () => false,
+            },
+        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
                 setSlackTicketEmojiValue: (_, { value }) => value,
+            },
+        ],
+        slackBotIconUrlValue: [
+            null as string | null,
+            {
+                setSlackBotIconUrlValue: (_, { value }) => value,
+            },
+        ],
+        slackBotDisplayNameValue: [
+            null as string | null,
+            {
+                setSlackBotDisplayNameValue: (_, { value }) => value,
             },
         ],
     }),
@@ -202,6 +264,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         slackConnected: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
+        ],
+        slackBotIconUrl: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_icon_url ?? null,
+        ],
+        slackBotDisplayName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
         ],
         emailConnected: [
             (s) => [s.currentTeam],
@@ -331,6 +401,30 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.success('Ticket emoji saved')
             }
         },
+        saveSlackBotSettings: () => {
+            const iconUrl = values.slackBotIconUrlValue?.trim()
+            const displayName = values.slackBotDisplayNameValue?.trim()
+            if (iconUrl && !iconUrl.startsWith('https://')) {
+                lemonToast.error('Icon URL must start with https://')
+                return
+            }
+            const updates: Record<string, string | null> = {}
+            if (values.slackBotIconUrlValue !== null) {
+                updates.slack_bot_icon_url = iconUrl || null
+            }
+            if (values.slackBotDisplayNameValue !== null) {
+                updates.slack_bot_display_name = displayName || null
+            }
+            if (Object.keys(updates).length > 0) {
+                actions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        ...updates,
+                    },
+                })
+                lemonToast.success('Bot settings saved')
+            }
+        },
         loadEmailStatus: async () => {
             try {
                 const response = await api.get('api/conversations/v1/email/status')
@@ -339,6 +433,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                         forwarding_address: response.forwarding_address,
                         from_email: response.from_email,
                         from_name: response.from_name,
+                        domain_verified: response.domain_verified,
+                        dns_records: response.dns_records,
                     })
                     actions.setEmailFromEmail(response.from_email || '')
                     actions.setEmailFromName(response.from_name || '')
@@ -353,7 +449,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             const { emailFromEmail, emailFromName } = values
             if (!emailFromEmail || !emailFromName) {
                 lemonToast.error('Please enter both an email address and display name')
-                actions.connectEmailDone(null)
+                actions.connectEmailDone(null, null)
                 return
             }
             try {
@@ -361,7 +457,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     from_email: emailFromEmail,
                     from_name: emailFromName,
                 })
-                actions.connectEmailDone(response.forwarding_address)
+                actions.connectEmailDone(response.forwarding_address, response.dns_records || null)
                 actions.updateCurrentTeam({
                     conversations_settings: {
                         ...values.currentTeam?.conversations_settings,
@@ -371,7 +467,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.success('Email channel connected')
             } catch {
                 lemonToast.error('Failed to connect email')
-                actions.connectEmailDone(null)
+                actions.connectEmailDone(null, null)
             }
         },
         disconnectEmail: async () => {
@@ -391,6 +487,30 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setEmailFromName('')
             lemonToast.success('Email channel disconnected')
         },
+        verifyEmailDomain: async () => {
+            try {
+                const response = await api.create('api/conversations/v1/email/verify-domain', {})
+                actions.verifyEmailDomainDone(response.domain_verified, response.dns_records || null)
+                if (response.domain_verified) {
+                    lemonToast.success('Domain verified successfully! Outbound email is now active.')
+                } else {
+                    lemonToast.warning('Domain not yet verified. Please check your DNS records and try again.')
+                }
+            } catch {
+                lemonToast.error('Failed to verify domain')
+                actions.verifyEmailDomainDone(false, null)
+            }
+        },
+        sendTestEmail: async () => {
+            try {
+                const response = await api.create('api/conversations/v1/email/send-test', {})
+                actions.sendTestEmailDone(response.sent_to)
+                lemonToast.success(`Test email sent to ${response.sent_to}`)
+            } catch {
+                lemonToast.error('Failed to send test email. Check SMTP settings.')
+                actions.sendTestEmailDone(null)
+            }
+        },
         disconnectSlack: async () => {
             try {
                 await api.create('api/conversations/v1/slack/disconnect', {})
@@ -406,6 +526,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     slack_channel_id: null,
                     slack_channel_name: null,
                     slack_ticket_emoji: null,
+                    slack_bot_icon_url: null,
+                    slack_bot_display_name: null,
                 },
             })
             lemonToast.success('Slack disconnected')
@@ -416,6 +538,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setIdentificationFormDescriptionValue(null)
             actions.setPlaceholderTextValue(null)
             actions.setSlackTicketEmojiValue(null)
+            actions.setSlackBotIconUrlValue(null)
+            actions.setSlackBotDisplayNameValue(null)
         },
     })),
     afterMount(({ values, actions }) => {

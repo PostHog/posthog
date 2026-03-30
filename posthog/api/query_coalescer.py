@@ -1,16 +1,24 @@
-import json
+import re
 import time
 import uuid
 import hashlib
 import threading
 from enum import StrEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+from urllib.parse import parse_qs, urlencode
 
+from django.http import HttpRequest, HttpResponse
+
+import orjson
 import structlog
+import posthoganalytics
 from prometheus_client import Counter, Histogram
 from redis.exceptions import RedisError
 
-from posthog import redis as posthog_redis
+from posthog import (
+    redis as posthog_redis,
+    settings,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -55,11 +63,6 @@ class CoalesceSignal(StrEnum):
     ERROR = "error"
     TIMEOUT = "timeout"
     CRASHED = "crashed"
-
-
-def compute_coalescing_key(team_id: int, query_json: str) -> str:
-    raw = f"{team_id}:{query_json}"
-    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 class _Heartbeat:
@@ -180,29 +183,59 @@ class QueryCoalescer:
             value = self._redis.get(self._error_key)
             if value is None:
                 return None
-            raw = value.decode("utf-8") if isinstance(value, bytes) else value
-            return json.loads(raw)
-        except (RedisError, json.JSONDecodeError):
+            return orjson.loads(value)
+        except (RedisError, orjson.JSONDecodeError):
             return None
 
-    def mark_done(self) -> None:
-        """Signal that leader completed successfully."""
+    def store_success_response(self, status_code: int, content: bytes, content_type: str) -> None:
+        """Store full HTTP success response for followers to replay."""
         try:
-            self._redis.set(self._done_key, "1", ex=LOCK_TTL_SECONDS)
+            payload = orjson.dumps(
+                {
+                    "status": status_code,
+                    "body": content.decode("utf-8") if isinstance(content, bytes) else content,
+                    "content_type": content_type,
+                }
+            )
+            self._redis.set(self._done_key, payload, ex=LOCK_TTL_SECONDS)
             self._redis.publish(self._channel_key, CoalesceSignal.DONE)
         except RedisError:
             pass
 
+    def get_success_response(self) -> Optional[dict]:
+        """Read stored HTTP success response. Returns {"status": int, "body": str, "content_type": str} or None."""
+        try:
+            value = self._redis.get(self._done_key)
+            if value is None:
+                return None
+            parsed = orjson.loads(value)
+            if isinstance(parsed, dict) and "status" in parsed:
+                return parsed
+            return None
+        except (RedisError, orjson.JSONDecodeError):
+            return None
+
     def store_error_response(self, status_code: int, content: bytes) -> None:
         """Store HTTP error response for followers to replay."""
         try:
-            payload = json.dumps(
+            payload = orjson.dumps(
                 {
                     "status": status_code,
                     "body": content.decode("utf-8") if isinstance(content, bytes) else content,
                 }
             )
             self._redis.set(self._error_key, payload, ex=ERROR_TTL_SECONDS)
+            self._redis.publish(self._channel_key, CoalesceSignal.ERROR)
+        except RedisError:
+            pass
+
+    def signal_error(self) -> None:
+        """Signal followers that the leader encountered a client error (4xx).
+
+        Publishes ERROR to the channel without storing a response body,
+        so followers stop waiting and execute independently.
+        """
+        try:
             self._redis.publish(self._channel_key, CoalesceSignal.ERROR)
         except RedisError:
             pass
@@ -217,3 +250,166 @@ class QueryCoalescer:
                 self._redis.eval(_RELEASE_LOCK_SCRIPT, 1, self._lock_key, self._lock_value)
             except RedisError:
                 pass
+
+
+_TEAM_ID_RE = re.compile(r"^/api/(?:environments|projects)/(\d+)/")
+
+_COALESCE_PATH_PATTERNS = [
+    re.compile(r"^/api/(?:environments|projects)/\d+/query/$"),
+    re.compile(r"^/api/(?:environments|projects)/\d+/insights/trend/$"),  # legacy endpoint
+    re.compile(r"^/api/(?:environments|projects)/\d+/insights/funnel/$"),  # legacy endpoint
+    re.compile(r"^/api/(?:environments|projects)/\d+/insights/\d+/$"),
+]
+
+
+class QueryCoalescingMiddleware:
+    """Coalesce concurrent identical query requests.
+
+    For matched endpoints, only one request (leader) executes while
+    concurrent identical requests (followers) wait and get the same response.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.method not in ("GET", "POST"):
+            return self.get_response(request)
+
+        if not any(p.match(request.path) for p in _COALESCE_PATH_PATTERNS):
+            return self.get_response(request)
+
+        team_id = self._extract_team_id(request.path)
+        if not team_id:
+            return self.get_response(request)
+
+        enabled = posthoganalytics.feature_enabled("http-query-coalescing", str(team_id))
+
+        key = self._compute_key(team_id, request)
+        coalescer = QueryCoalescer(key, dry_run=not enabled)
+
+        try:
+            is_leader = coalescer.try_acquire()
+        except RedisError:
+            logger.warning("query_coalescing_middleware_redis_error", msg="redis unavailable, skipping coalescing")
+            return self.get_response(request)
+
+        if is_leader:
+            return self._handle_leader(request, coalescer)
+
+        if not enabled:
+            return self.get_response(request)
+
+        return self._handle_follower(request, coalescer)
+
+    def _handle_leader(self, request: HttpRequest, coalescer: QueryCoalescer) -> HttpResponse:
+        try:
+            response = self.get_response(request)
+            # Force render DRF responses so we can capture the body
+            if hasattr(response, "render") and callable(response.render):
+                response.render()
+            content_type = response.get("Content-Type", "application/json")
+            if response.status_code < 400 or response.status_code >= 500:
+                # Coalesce successes (2xx) and server errors (5xx).
+                # 4xx are user-specific (permissions, validation) and must not be shared.
+                coalescer.store_success_response(response.status_code, response.content, content_type)
+            else:
+                coalescer.signal_error()
+            return response
+        except Exception:
+            coalescer.signal_error()
+            raise
+        finally:
+            coalescer.cleanup()
+
+    def _handle_follower(self, request: HttpRequest, coalescer: QueryCoalescer) -> HttpResponse:
+        log = logger.bind(coalescing_key=coalescer.coalescing_key)
+        log.info("query_coalescing_middleware_follower_waiting")
+
+        signal = coalescer.wait_for_signal(max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS)
+
+        if signal == CoalesceSignal.DONE:
+            data = coalescer.get_success_response()
+            if data:
+                log.info("query_coalescing_middleware_follower_done")
+                # Attach cached response for the view mixin to gate behind permissions
+                request.META["_coalesced_response"] = data
+                return self.get_response(request)
+            log.warning("query_coalescing_middleware_follower_done_read_failed")
+
+        if signal == CoalesceSignal.ERROR:
+            log.info("query_coalescing_middleware_follower_error")
+        elif signal == CoalesceSignal.TIMEOUT:
+            log.warning("query_coalescing_middleware_follower_timeout")
+        elif signal == CoalesceSignal.CRASHED:
+            log.warning("query_coalescing_middleware_follower_crashed")
+
+        # Fall through: execute the request normally
+        log.info("query_coalescing_middleware_follower_fallthrough", signal=signal)
+        return self.get_response(request)
+
+    @staticmethod
+    def _extract_team_id(path: str) -> int | None:
+        match = _TEAM_ID_RE.match(path)
+        if not match:
+            return None
+        return int(match.group(1))
+
+    # Fields that are unique per request and should not affect coalescing
+    _IGNORED_KEY_FIELDS = {"client_query_id", "session_id"}
+
+    @staticmethod
+    def _compute_key(team_id: int, request: HttpRequest) -> str:
+        if request.method == "GET":
+            params = parse_qs(request.META.get("QUERY_STRING", ""))
+            for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
+                params.pop(field, None)
+            normalized = urlencode(sorted(params.items()), doseq=True).encode()
+        else:
+            try:
+                data = orjson.loads(request.body)
+                if isinstance(data, dict):
+                    for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
+                        data.pop(field, None)
+                normalized = orjson.dumps(data, option=orjson.OPT_SORT_KEYS)
+            except ValueError:
+                normalized = request.body
+
+        raw = f"{team_id}:{request.method}:{request.path}:{normalized.decode()}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+
+if TYPE_CHECKING:
+    from rest_framework.views import APIView
+
+    _MixinBase = APIView
+else:
+    _MixinBase = object
+
+
+class QueryCoalescingMixin(_MixinBase):
+    """DRF ViewSet mixin that gates coalesced responses behind permission checks.
+
+    The QueryCoalescingMiddleware attaches cached response data to
+    request.META["_coalesced_response"] for followers. This mixin runs DRF's
+    initial() (auth + permissions + throttling) before returning the
+    cached response, ensuring the request is authorized.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        coalesced = request.META.get("_coalesced_response")
+        if coalesced is None:
+            return super().dispatch(request, *args, **kwargs)
+
+        request = self.initialize_request(request, *args, **kwargs)
+        self.request = request
+        try:
+            self.initial(request, *args, **kwargs)
+        except Exception as exc:
+            return self.handle_exception(exc)
+
+        return HttpResponse(
+            coalesced["body"],
+            status=coalesced["status"],
+            content_type=coalesced.get("content_type", "application/json"),
+        )

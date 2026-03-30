@@ -571,7 +571,7 @@ class TestMatchRepoRule:
         result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/repo"])
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_returns_valid_index(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -590,7 +590,7 @@ class TestMatchRepoRule:
         )
         assert result == "org/js-sdk"
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_returns_null_index(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -609,7 +609,7 @@ class TestMatchRepoRule:
         )
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_returns_invalid_index(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -626,7 +626,7 @@ class TestMatchRepoRule:
         result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_failure_returns_none(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -640,7 +640,7 @@ class TestMatchRepoRule:
         result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
         assert result is None
 
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("products.slack_app.backend.api.get_llm_client")
     def test_llm_invalid_json_returns_none(self, mock_get_client):
         RepoRoutingRule.objects.create(
             team=self.team,
@@ -673,7 +673,9 @@ class TestParseRulesCommand:
                 'rules add "fix frontend" my-org/my.repo',
                 RulesCommand(action="add", rule_text="fix frontend", repository="my-org/my.repo"),
             ),
-            ("remove", "rules remove 3", RulesCommand(action="remove", rule_number=3)),
+            ("remove", "rules remove 3", RulesCommand(action="remove", rule_numbers=[3])),
+            ("remove_multiple", "rules remove 1,2", RulesCommand(action="remove", rule_numbers=[1, 2])),
+            ("remove_multiple_spaces", "rules remove 1, 3", RulesCommand(action="remove", rule_numbers=[1, 3])),
             (
                 "bot_mention_list",
                 "<@U123BOT> rules list",
@@ -697,7 +699,7 @@ class TestParseRulesCommand:
             (
                 "bot_mention_remove",
                 "<@U123BOT> rules remove 1",
-                RulesCommand(action="remove", rule_number=1),
+                RulesCommand(action="remove", rule_numbers=[1]),
             ),
             ("help", "help", RulesCommand(action="help")),
             ("help_case_insensitive", "Help", RulesCommand(action="help")),

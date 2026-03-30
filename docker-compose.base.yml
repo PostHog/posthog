@@ -136,6 +136,7 @@ services:
             start_period: 10s
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
+            - ./products:/products:ro
 
     redis7:
         image: redis:7.2-alpine
@@ -152,7 +153,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.12.5.44}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.12.8.9}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -406,10 +407,42 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
-            COOKIELESS_REDIS_HOST: redis7
-            COOKIELESS_REDIS_PORT: 6379
             SESSION_RECORDING_API_REDIS_HOST: redis7
             SESSION_RECORDING_API_REDIS_PORT: 6379
+            # Logs/traces consumers default to 127.0.0.1 which doesn't work in Docker
+            LOGS_REDIS_HOST: redis7
+            TRACES_REDIS_HOST: redis7
+
+    ingestion-general:
+        command: node nodejs/dist/index.js
+        restart: on-failure
+        environment:
+            PLUGIN_SERVER_MODE: 'ingestion-v2-combined'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis7:6379/'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            COOKIELESS_REDIS_HOST: redis7
+            COOKIELESS_REDIS_PORT: 6379
+            CDP_REDIS_HOST: redis7
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+
+    ingestion-error-tracking:
+        command: node nodejs/dist/index.js
+        restart: on-failure
+        environment:
+            PLUGIN_SERVER_MODE: 'ingestion-errortracking'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis7:6379/'
+            CDP_REDIS_HOST: redis7
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
 
     livestream:
         image: 'ghcr.io/posthog/posthog/livestream:master'
@@ -450,6 +483,16 @@ services:
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
         image: elasticsearch:7.17.28
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'curl -s http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""',
+                ]
+            interval: 10s
+            timeout: 10s
+            retries: 30
+            start_period: 60s
         expose:
             - 9200
         volumes:
@@ -483,7 +526,7 @@ services:
             db:
                 condition: service_healthy
             elasticsearch:
-                condition: service_started
+                condition: service_healthy
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
@@ -544,15 +587,6 @@ services:
             - jaeger
         networks:
             - otel_network
-
-    echo_server:
-        image: docker.io/library/caddy:2
-        container_name: echo-server
-        restart: on-failure
-        ports:
-            - '18081:8081'
-        volumes:
-            - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0

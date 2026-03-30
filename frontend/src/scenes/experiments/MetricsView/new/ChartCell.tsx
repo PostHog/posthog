@@ -68,7 +68,9 @@ export function ChartCell({
     const hasEnoughData = !!interval
     const validationFailureType = getValidationFailureType(variantResult)
 
-    const gradientId = `gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${variantResult.key}${gradientSuffix ? `-${gradientSuffix}` : ''}`
+    // Sanitize all dynamic parts to produce valid SVG IDs (no spaces or special chars that break url() references)
+    const sanitize = (s: string): string => encodeURIComponent(s).replace(/[^a-zA-Z0-9_-]/g, '_')
+    const gradientId = `gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${sanitize(variantResult.key)}${gradientSuffix ? `-${sanitize(gradientSuffix)}` : ''}`
 
     // Position calculations
     const viewBoxHeight = CHART_CELL_VIEW_BOX_HEIGHT

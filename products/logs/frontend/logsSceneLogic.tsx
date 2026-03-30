@@ -38,7 +38,7 @@ import type { logsSceneLogicType } from './logsSceneLogicType'
 
 export type LogsSceneActiveTab = 'viewer' | 'configuration'
 const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'configuration']
-const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
+export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 export interface LogsLogicProps {
     tabId: string

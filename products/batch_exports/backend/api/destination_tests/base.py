@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 class Status(enum.StrEnum):
     PASSED = "Passed"
     FAILED = "Failed"
+    SKIPPED = "Skipped"
 
 
 DestinationTestStepResultDict = dict[str, str | None]
