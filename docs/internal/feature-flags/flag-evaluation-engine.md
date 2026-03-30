@@ -471,20 +471,20 @@ The evaluation engine follows a lazy-but-batched approach:
 
 ## Related files
 
-| File                                                         | Purpose                                                        |
-| ------------------------------------------------------------ | -------------------------------------------------------------- |
-| `rust/feature-flags/src/handler/evaluation.rs`               | Entry point: creates matcher and calls evaluate                |
-| `rust/feature-flags/src/flags/flag_matching.rs`              | Core matching engine: `FeatureFlagMatcher`                     |
-| `rust/feature-flags/src/flags/flag_matching_utils.rs`        | Hash calculation, property fetching, DB queries                |
-| `rust/feature-flags/src/properties/property_matching.rs`     | Property filter operator implementations                       |
-| `rust/feature-flags/src/flags/flag_models.rs`                | Data models                                                    |
-| `rust/feature-flags/src/flags/flag_operations.rs`            | Flag helper methods, `DependencyProvider` trait                |
-| `rust/feature-flags/src/flags/flag_match_reason.rs`          | Match reason enum with priority ordering                       |
-| `rust/feature-flags/src/flags/property_filter.rs`            | Regex pre-compilation: `prepare_regex()`, `CompiledRegex` enum |
-| `rust/feature-flags/src/utils/graph_utils.rs`                | Dependency graph (pre-computed + petgraph fallback)            |
-| `rust/feature-flags/src/cohorts/cohort_cache_manager.rs`     | Moka-backed cohort cache                                       |
-| `rust/feature-flags/src/flags/test_flag_matching.rs`         | Unit tests for flag matching                                   |
-| `rust/feature-flags/tests/test_flag_matching_consistency.rs` | Cross-language consistency tests                               |
+| File                                                         | Purpose                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------- |
+| `rust/feature-flags/src/handler/evaluation.rs`               | Entry point: creates matcher and calls evaluate         |
+| `rust/feature-flags/src/flags/flag_matching.rs`              | Core matching engine: `FeatureFlagMatcher`              |
+| `rust/feature-flags/src/flags/flag_matching_utils.rs`        | Hash calculation, property fetching, DB queries         |
+| `rust/feature-flags/src/properties/property_matching.rs`     | Property filter operator implementations                |
+| `rust/feature-flags/src/flags/flag_models.rs`                | Data models                                             |
+| `rust/feature-flags/src/flags/flag_operations.rs`            | Flag helper methods, `DependencyProvider` trait         |
+| `rust/feature-flags/src/flags/flag_match_reason.rs`          | Match reason enum with priority ordering                |
+| `rust/feature-flags/src/flags/property_filter.rs`            | Regex pre-compilation: `prepare_regex()` implementation |
+| `rust/feature-flags/src/utils/graph_utils.rs`                | Dependency graph (pre-computed + petgraph fallback)     |
+| `rust/feature-flags/src/cohorts/cohort_cache_manager.rs`     | Moka-backed cohort cache                                |
+| `rust/feature-flags/src/flags/test_flag_matching.rs`         | Unit tests for flag matching                            |
+| `rust/feature-flags/tests/test_flag_matching_consistency.rs` | Cross-language consistency tests                        |
 
 ## See also
 
