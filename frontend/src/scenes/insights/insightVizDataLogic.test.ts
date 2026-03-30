@@ -248,9 +248,17 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('disables filterTestAccounts when adding a data warehouse series to trends', () => {
+        it('disables filterTestAccounts and properties when adding a data warehouse series to trends', () => {
             builtInsightVizDataLogic.actions.updateQuerySource({
                 filterTestAccounts: true,
+                properties: [
+                    {
+                        type: 'event',
+                        key: 'browser',
+                        value: 'Chrome',
+                        operator: 'exact',
+                    },
+                ],
                 series: [
                     {
                         kind: NodeKind.EventsNode,
@@ -260,7 +268,10 @@ describe('insightVizDataLogic', () => {
                 ],
             } as TrendsQuery)
 
-            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ filterTestAccounts: true })
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                filterTestAccounts: true,
+                properties: [expect.objectContaining({ key: 'browser' })],
+            })
 
             expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({
@@ -282,6 +293,7 @@ describe('insightVizDataLogic', () => {
                     source: expect.objectContaining({
                         kind: NodeKind.TrendsQuery,
                         filterTestAccounts: undefined,
+                        properties: undefined,
                         series: [
                             expect.objectContaining({
                                 kind: NodeKind.DataWarehouseNode,
