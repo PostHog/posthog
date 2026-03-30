@@ -20,28 +20,17 @@ class ModelInfo(TypedDict):
     is_recommended: bool
 
 
+def _build_model_infos(provider: str, models: list[str]) -> list[ModelInfo]:
+    return [{"id": m, "name": m, "provider": provider, "description": "", "is_recommended": True} for m in models]
+
+
 def get_default_models() -> list[ModelInfo]:
     """Returns the default static list of models for all providers."""
-    models: list[ModelInfo] = []
-    models.extend(
-        [
-            {"id": m, "name": m, "provider": "OpenAI", "description": "", "is_recommended": True}
-            for m in OpenAIConfig.SUPPORTED_MODELS
-        ]
+    return (
+        _build_model_infos("OpenAI", OpenAIConfig.SUPPORTED_MODELS)
+        + _build_model_infos("Anthropic", AnthropicConfig.SUPPORTED_MODELS)
+        + _build_model_infos("Gemini", GeminiConfig.SUPPORTED_MODELS)
     )
-    models.extend(
-        [
-            {"id": m, "name": m, "provider": "Anthropic", "description": "", "is_recommended": True}
-            for m in AnthropicConfig.SUPPORTED_MODELS
-        ]
-    )
-    models.extend(
-        [
-            {"id": m, "name": m, "provider": "Gemini", "description": "", "is_recommended": True}
-            for m in GeminiConfig.SUPPORTED_MODELS
-        ]
-    )
-    return models
 
 
 def get_trial_models() -> list[ModelInfo]:
@@ -50,26 +39,11 @@ def get_trial_models() -> list[ModelInfo]:
     This is a curated subset excluding expensive models like pro/opus tiers
     while including one flagship per provider for quality evaluation.
     """
-    models: list[ModelInfo] = []
-    models.extend(
-        [
-            {"id": m, "name": m, "provider": "OpenAI", "description": "", "is_recommended": True}
-            for m in OpenAIConfig.TRIAL_MODELS
-        ]
+    return (
+        _build_model_infos("OpenAI", OpenAIConfig.TRIAL_MODELS)
+        + _build_model_infos("Anthropic", AnthropicConfig.TRIAL_MODELS)
+        + _build_model_infos("Gemini", GeminiConfig.TRIAL_MODELS)
     )
-    models.extend(
-        [
-            {"id": m, "name": m, "provider": "Anthropic", "description": "", "is_recommended": True}
-            for m in AnthropicConfig.TRIAL_MODELS
-        ]
-    )
-    models.extend(
-        [
-            {"id": m, "name": m, "provider": "Gemini", "description": "", "is_recommended": True}
-            for m in GeminiConfig.TRIAL_MODELS
-        ]
-    )
-    return models
 
 
 TRIAL_MODEL_IDS: frozenset[str] = frozenset(
