@@ -6,6 +6,7 @@ import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING, Any
 
+import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
@@ -44,6 +45,74 @@ def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
         return str(cohort_ids)
 
 
+async def evaluate_single_filter_async(filter_obj, globals_dict):
+    """Async wrapper for single filter evaluation."""
+    return await asyncio.to_thread(execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10)
+
+
+async def evaluate_person_against_all_filters(person_id, parsed_properties, filters, inputs):
+    """Evaluate one person against all filters concurrently.
+
+    Args:
+        person_id: The person ID
+        parsed_properties: Parsed person properties dict
+        filters: List of filter objects to evaluate
+        inputs: Process inputs containing team_id
+
+    Returns:
+        List of events for this person (one per filter)
+    """
+    globals_dict = {
+        "person": {
+            "id": person_id,
+            "properties": parsed_properties,
+        },
+        "project": {
+            "id": inputs.team_id,
+        },
+    }
+
+    # Create all evaluation tasks concurrently
+    evaluation_tasks = []
+    for filter_obj in filters:
+        task = asyncio.create_task(evaluate_single_filter_async(filter_obj, globals_dict))
+        evaluation_tasks.append((task, filter_obj))
+
+    # Wait for all evaluations to complete concurrently
+    events = []
+    results = await asyncio.gather(*[task for task, _ in evaluation_tasks], return_exceptions=True)
+
+    # Process results
+    for (_task, filter_obj), result in zip(evaluation_tasks, results):
+        if isinstance(result, Exception):
+            # Use the logger from inputs or create one - this will be passed from activity
+            from posthog.temporal.common.logger import get_logger
+
+            activity_logger = get_logger(__name__)
+            activity_logger.debug(
+                f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {result}",
+                person_id=person_id,
+                condition_hash=filter_obj.condition_hash,
+                error=str(result),
+            )
+            matches = False
+        else:
+            matches = bool(result.result) if result else False
+
+        # Create event for this filter result
+        event = {
+            "distinct_id": person_id,
+            "person_id": person_id,
+            "team_id": inputs.team_id,
+            "condition": filter_obj.condition_hash,
+            "matches": matches,
+            "source": f"cohort_backfill_{filter_obj.condition_hash}",
+        }
+        events.append(event)
+
+    return events
+
+
 def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, Any]:
     """Parse person properties from ClickHouse, handling both string and dict formats.
 
@@ -64,6 +133,69 @@ def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, An
             return {}
     else:
         return properties_raw if isinstance(properties_raw, dict) else {}
+
+
+async def flush_kafka_batch_async(kafka_futures: list, team_id: int, logger, flush_duration_metric=None) -> int:
+    """Flush a batch of Kafka futures concurrently without blocking producer.
+
+    Args:
+        kafka_futures: List of futures from Kafka produce operations
+        team_id: Team ID for logging and metrics
+        logger: Logger instance
+        flush_duration_metric: Optional metric to record flush duration
+
+    Returns:
+        Number of messages successfully flushed
+    """
+    if not kafka_futures:
+        return 0
+
+    batch_size = len(kafka_futures)
+    logger.info(f"Flushing batch of {batch_size} Kafka futures", team_id=team_id, batch_size=batch_size)
+
+    # Time the async flush operation
+    flush_start_time = time.monotonic()
+
+    try:
+        # Wait for all futures to complete
+        results = await asyncio.gather(*kafka_futures, return_exceptions=True)
+
+        # Count successful sends
+        successful_sends = 0
+        failed_sends = 0
+
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failed_sends += 1
+                logger.debug(f"Kafka future {i} failed: {result}", team_id=team_id)
+            else:
+                successful_sends += 1
+
+        flush_duration = time.monotonic() - flush_start_time
+
+        # Record flush performance metrics if metric is provided
+        if flush_duration_metric:
+            flush_duration_metric.record(flush_duration, {"team_id": str(team_id)})
+
+        logger.info(
+            f"Async flush completed: {successful_sends} successful, {failed_sends} failed in {flush_duration:.3f}s",
+            team_id=team_id,
+            successful_sends=successful_sends,
+            failed_sends=failed_sends,
+            flush_duration_seconds=flush_duration,
+        )
+
+        return successful_sends
+
+    except Exception as e:
+        flush_duration = time.monotonic() - flush_start_time
+        logger.exception(
+            f"Async Kafka flush failed after {flush_duration:.3f}s",
+            team_id=team_id,
+            batch_size=batch_size,
+            error=str(e),
+        )
+        raise
 
 
 async def flush_kafka_batch(
@@ -156,6 +288,7 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
     cursor: str = "00000000-0000-0000-0000-000000000000"  # UUID cursor for pagination
+    batch_sequence: int = 1  # Sequence number for this batch in the pipeline
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -246,7 +379,8 @@ async def backfill_precalculated_person_properties_activity(
             )
             FLUSH_BATCH_SIZE = 10000
 
-        pending_kafka_messages = []
+        kafka_futures = []  # Store async futures for later flushing
+        pending_flush_tasks = []  # Store background flush tasks
 
         # Create metric once for activity
         flush_duration_metric = None
@@ -338,65 +472,48 @@ async def backfill_precalculated_person_properties_activity(
                         # Fallback format: use full properties JSON
                         parsed_properties = parse_person_properties(row.get("properties"), person_id)
 
-                    globals_dict = {
-                        "person": {
-                            "id": person_id,
-                            "properties": parsed_properties,
-                        },
-                        "project": {
-                            "id": inputs.team_id,
-                        },
-                    }
+                    # Evaluate all filters for this person concurrently
+                    person_events = await evaluate_person_against_all_filters(
+                        person_id, parsed_properties, filters, inputs
+                    )
 
-                    # Evaluate each filter once per person
-                    for filter_obj in filters:
+                    # Process all events from this person
+                    for event in person_events:
+                        # Produce to Kafka and collect futures for async flushing
                         try:
-                            bytecode_result = await asyncio.to_thread(
-                                execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
+                            # Create async future for Kafka produce
+                            future = asyncio.create_task(
+                                asyncio.to_thread(
+                                    kafka_producer.produce,
+                                    topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                    data=event,
+                                )
                             )
-                            matches = bool(bytecode_result.result) if bytecode_result else False
-                        except Exception as e:
-                            logger.debug(
-                                f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
-                                person_id=person_id,
-                                condition_hash=filter_obj.condition_hash,
-                                error=str(e),
-                            )
-                            matches = False
-
-                        # Send filter result with condition hash as source
-                        event = {
-                            "distinct_id": person_id,
-                            "person_id": person_id,
-                            "team_id": inputs.team_id,
-                            "condition": filter_obj.condition_hash,
-                            "matches": matches,
-                            "source": f"cohort_backfill_{filter_obj.condition_hash}",
-                        }
-
-                        # Produce to Kafka without blocking - collect send results for later flushing
-                        try:
-                            send_result = kafka_producer.produce(
-                                topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                                data=event,
-                            )
-                            pending_kafka_messages.append(send_result)
+                            kafka_futures.append(future)
                             total_events_produced += 1
 
-                            # Flush in batches to allow heartbeats
-                            if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
-                                flushed = await flush_kafka_batch(
-                                    kafka_producer,
-                                    pending_kafka_messages,
-                                    inputs.team_id,
-                                    kafka_batch_offset,  # Use kafka batch offset
-                                    heartbeater,
-                                    logger,
-                                    flush_duration_metric=flush_duration_metric,
+                            # Start background flush every 10K messages, but don't await
+                            if len(kafka_futures) >= FLUSH_BATCH_SIZE:
+                                # Start background flush task
+                                flush_task = asyncio.create_task(
+                                    flush_kafka_batch_async(
+                                        kafka_futures[:FLUSH_BATCH_SIZE],  # Copy current batch
+                                        inputs.team_id,
+                                        logger,
+                                        flush_duration_metric,
+                                    )
                                 )
-                                total_flushed += flushed
-                                kafka_batch_offset += 1  # Increment kafka batch counter
-                                pending_kafka_messages.clear()
+                                pending_flush_tasks.append(flush_task)
+                                kafka_batch_offset += 1
+
+                                # Keep remaining futures for next batch
+                                kafka_futures = kafka_futures[FLUSH_BATCH_SIZE:]
+
+                                logger.info(
+                                    f"Started background flush task {len(pending_flush_tasks)} for batch {kafka_batch_offset}",
+                                    team_id=inputs.team_id,
+                                    kafka_batch_offset=kafka_batch_offset,
+                                )
 
                         except Exception as e:
                             logger.warning(
@@ -415,21 +532,32 @@ async def backfill_precalculated_person_properties_activity(
             f"Processed {total_processed} persons, produced {total_events_produced} events, flushed {total_flushed}",
         )
 
-        # Flush any remaining messages
-        if pending_kafka_messages:
-            # Final flush - batch may contain messages from multiple cohorts
-            flushed = await flush_kafka_batch(
-                kafka_producer,
-                pending_kafka_messages,
+        # Await all background flush tasks and handle remaining futures
+        logger.info(
+            f"Awaiting {len(pending_flush_tasks)} background flush tasks and {len(kafka_futures)} remaining futures",
+            team_id=inputs.team_id,
+        )
+
+        # Await all background flush tasks
+        if pending_flush_tasks:
+            flush_results = await asyncio.gather(*pending_flush_tasks, return_exceptions=True)
+            for i, result in enumerate(flush_results):
+                if isinstance(result, Exception):
+                    logger.exception(f"Background flush task {i} failed: {result}", team_id=inputs.team_id)
+                else:
+                    total_flushed += result
+                    logger.info(f"Background flush task {i} completed: {result} messages", team_id=inputs.team_id)
+
+        # Flush any remaining futures
+        if kafka_futures:
+            logger.info(f"Final flush of {len(kafka_futures)} remaining futures", team_id=inputs.team_id)
+            final_flushed = await flush_kafka_batch_async(
+                kafka_futures,
                 inputs.team_id,
-                kafka_batch_offset,  # Use kafka batch offset
-                heartbeater,
                 logger,
-                is_final=True,
-                flush_duration_metric=flush_duration_metric,
+                flush_duration_metric,
             )
-            total_flushed += flushed
-            pending_kafka_messages.clear()
+            total_flushed += final_flushed
 
         end_time = time.time()
         duration_seconds = end_time - start_time
@@ -458,6 +586,15 @@ async def backfill_precalculated_person_properties_activity(
 class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
     """Workflow that backfills precalculated person properties for a team's cohorts."""
 
+    def __init__(self):
+        self._updated_cursor: str | None = None
+
+    @temporalio.workflow.signal
+    async def update_cursor(self, cursor: str) -> None:
+        """Signal to update the cursor for this workflow."""
+        self._updated_cursor = cursor
+        temporalio.workflow.logger.info(f"Cursor updated via signal to: {cursor}")
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BackfillPrecalculatedPersonPropertiesInputs:
         """Parse inputs from the management command CLI."""
@@ -468,18 +605,24 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
     async def run(
         self, inputs: BackfillPrecalculatedPersonPropertiesInputs
     ) -> BackfillPrecalculatedPersonPropertiesResult:
-        """Run the workflow to backfill precalculated person properties."""
+        """Run the workflow to backfill precalculated person properties with pipeline chaining."""
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
         workflow_logger.info(
             f"Starting person properties precalculation for {len(cohort_ids)} cohorts {format_cohort_ids_for_logging(cohort_ids)} "
-            f"(team {inputs.team_id})"
+            f"(team {inputs.team_id}, cursor: {inputs.cursor})"
         )
 
-        # Process the batch of persons
+        # Use updated cursor if provided via signal, otherwise use input cursor
+        effective_cursor = self._updated_cursor if self._updated_cursor else inputs.cursor
+        effective_inputs = dataclasses.replace(inputs, cursor=effective_cursor)
+
+        workflow_logger.info(f"Using cursor: {effective_cursor} (updated: {self._updated_cursor is not None})")
+
+        # Process the current batch first to determine if there are more persons
         result = await temporalio.workflow.execute_activity(
             backfill_precalculated_person_properties_activity,
-            inputs,
+            effective_inputs,
             start_to_close_timeout=dt.timedelta(hours=12),  # Long timeout for large batches
             heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
@@ -488,6 +631,38 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
                 maximum_interval=dt.timedelta(minutes=1),
             ),
         )
+
+        # Start next workflow if current batch was full (indicating more data)
+        next_workflow_handle = None
+        if result.persons_processed >= inputs.batch_size and result.last_person_id:
+            try:
+                # Create next batch inputs with incremented sequence
+                next_sequence = inputs.batch_sequence + 1
+                next_inputs = dataclasses.replace(inputs, cursor=result.last_person_id, batch_sequence=next_sequence)
+
+                workflow_logger.info(
+                    f"Starting next workflow in pipeline for cursor: {result.last_person_id}, batch: {next_sequence}"
+                )
+
+                # Generate workflow ID using batch sequence
+                base_id = temporalio.workflow.info().workflow_id
+                if "-batch-" in base_id:
+                    base_id = base_id.rsplit("-batch-", 1)[0]
+                workflow_id = f"{base_id}-batch-{next_sequence}"
+
+                next_workflow_handle = await temporalio.workflow.start_workflow(
+                    BackfillPrecalculatedPersonPropertiesWorkflow.run,
+                    next_inputs,
+                    id=workflow_id,
+                    task_queue="messaging-task-queue",
+                    execution_timeout=dt.timedelta(hours=24),
+                )
+
+                workflow_logger.info(f"Next workflow started with ID: {next_workflow_handle.id}")
+
+            except Exception as e:
+                workflow_logger.warning(f"Failed to start next workflow in pipeline: {e}")
+                # Continue even if next workflow fails to start
 
         workflow_logger.info(
             f"Precalculated person properties backfill workflow completed: "
