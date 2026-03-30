@@ -10,6 +10,7 @@ import type {
     AssistantHogQLQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
@@ -22,6 +23,7 @@ import type {
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
     TrendsQuery,
 } from './schema-general'
 
@@ -235,6 +237,7 @@ export type AnyAssistantGeneratedQuery =
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
+    | AssistantStickinessQuery
     | AssistantPathsQuery
     | AssistantHogQLQuery
 
@@ -247,6 +250,7 @@ export interface VisualizationItem {
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery

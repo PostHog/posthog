@@ -1,4 +1,12 @@
-import { BreakdownType, FunnelMathType, IntervalType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BreakdownType,
+    ChartDisplayType,
+    FunnelMathType,
+    IntervalType,
+    PathType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import {
     ActionsNode,
@@ -10,6 +18,9 @@ import {
     Node,
     NodeKind,
     RetentionFilterLegacy,
+    StickinessComputationMode,
+    StickinessFilterLegacy,
+    StickinessCriteria,
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
@@ -759,6 +770,162 @@ export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter: AssistantRetentionFilter
+}
+
+/**
+ * Stickiness display types. Only time-series visualizations are supported:
+ * - `ActionsLineGraph` - line chart (default)
+ * - `ActionsBar` - bar chart
+ * - `ActionsAreaGraph` - area chart
+ */
+export type AssistantStickinessDisplayType =
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsAreaGraph
+
+/**
+ * Defines the event series for the stickiness insight. Each series measures how many intervals
+ * (e.g. days) within the date range a user performed the event. The X-axis shows the number of
+ * intervals (1, 2, 3, ...) and the Y-axis shows the count of users.
+ * When math is omitted, the default aggregation is by unique persons (person_id).
+ */
+export interface AssistantStickinessEventsNode extends Pick<
+    EventsNode,
+    | 'kind'
+    | 'event'
+    | 'name'
+    | 'custom_name'
+    | 'math'
+    | 'math_multiplier'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_group_type_index'
+> {
+    properties?: AssistantPropertyFilter[]
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
+}
+
+/**
+ * Defines the action series for the stickiness insight. You must provide the action ID in the `id` field and the name in the `name` field.
+ * When math is omitted, the default aggregation is by unique persons (person_id).
+ */
+export interface AssistantStickinessActionsNode extends Pick<
+    ActionsNode,
+    | 'kind'
+    | 'id'
+    | 'custom_name'
+    | 'math'
+    | 'math_multiplier'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_group_type_index'
+> {
+    properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
+}
+
+export type AssistantStickinessNode = AssistantStickinessEventsNode | AssistantStickinessActionsNode
+
+export interface AssistantStickinessFilter {
+    /**
+     * Visualization type for the stickiness chart.
+     * `ActionsLineGraph` - line chart (default).
+     * `ActionsBar` - bar chart.
+     * `ActionsAreaGraph` - area chart.
+     * @default ActionsLineGraph
+     */
+    display?: AssistantStickinessDisplayType
+
+    /**
+     * Whether to show the legend describing series.
+     * @default false
+     */
+    showLegend?: StickinessFilterLegacy['show_legend']
+
+    /**
+     * Whether to show a value on each data point.
+     * @default false
+     */
+    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+
+    /**
+     * Filter which intervals count based on event frequency within each interval.
+     * For example, only count intervals where the user performed the event >= 3 times.
+     */
+    stickinessCriteria?: StickinessCriteria
+
+    /**
+     * Computation mode. `non_cumulative` (default) shows users active on exactly N intervals.
+     * `cumulative` shows users active on N or more intervals.
+     * @default non_cumulative
+     */
+    computedAs?: StickinessComputationMode
+}
+
+export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.StickinessQuery
+
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`.
+     * This determines what counts as one "interval" for stickiness measurement.
+     * For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days,
+     * and each bar/point shows how many users performed the event on exactly that many days.
+     *
+     * @default day
+     */
+    interval?: IntervalType
+
+    /**
+     * How many base intervals comprise one stickiness period. Defaults to 1.
+     * For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.
+     */
+    intervalCount?: integer
+
+    /**
+     * Events or actions to include. Each series measures how many intervals (e.g. days) within
+     * the date range a user performed the event. Prioritize the more popular and fresh events
+     * and actions. When the `math` field is omitted on a series, it defaults to counting
+     * unique persons.
+     */
+    series: AssistantStickinessNode[]
+
+    /**
+     * Properties specific to the stickiness insight
+     */
+    stickinessFilter?: AssistantStickinessFilter
+
+    /**
+     * Compare to date range. When enabled, shows the current and previous period side by side.
+     */
+    compareFilter?: CompareFilter
 }
 
 /**
