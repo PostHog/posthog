@@ -310,8 +310,7 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     Raises on network/auth errors — silent failure would misclassify all
     snapshots as NEW and risk baseline data loss on auto-approve.
 
-    TODO: Cache resolved baselines on the Run model to avoid redundant
-    GitHub API calls when multiple shards resolve the same baseline.
+
     """
     try:
         github = get_github_integration_for_repo(repo)
@@ -364,10 +363,6 @@ def create_run(
     """
     repo = get_repo(repo_id, team_id)
 
-    # Resolve baselines BEFORE the transaction — this makes a GitHub API call
-    # and must not hold a DB connection open during network I/O.
-    verified_baselines = _resolve_baselines(repo, run_type, branch)
-
     return _create_run_inner(
         repo,
         team_id,
@@ -376,7 +371,6 @@ def create_run(
         branch,
         pr_number,
         snapshots,
-        verified_baselines,
         purpose,
         metadata,
     )
@@ -391,7 +385,6 @@ def _create_run_inner(
     branch,
     pr_number,
     snapshots,
-    verified_baselines,
     purpose,
     metadata,
 ) -> tuple[Run, list[dict]]:
@@ -429,7 +422,7 @@ def _create_run_inner(
     if superseded_ids:
         Run.objects.filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
-    _added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
+    _added, uploads = _register_snapshots(run, repo, snapshots)
     _update_run_counts(run)
 
     transaction.on_commit(
@@ -443,13 +436,12 @@ def _register_snapshots(
     run: Run,
     repo: Repo,
     snapshots: list[dict],
-    verified_baselines: dict[str, str],
 ) -> tuple[int, list[dict]]:
-    """Register snapshots on a run and return upload targets.
+    """Store snapshot rows and generate upload URLs.
 
-    Reused by create_run and add_snapshots_to_run (shard flow).
+    Stores raw identifier + hash pairs. Classification (CHANGED/NEW/UNCHANGED/REMOVED)
+    happens at complete_run time when the baseline is fetched once.
     Idempotent per (run, identifier) via unique constraint — safe for retries.
-    Removals are detected server-side at complete time, not here.
     """
     repo_id = repo.id
     all_hashes: set[str] = set()
@@ -458,21 +450,7 @@ def _register_snapshots(
     for snap in snapshots:
         identifier = snap["identifier"]
         current_hash = snap["content_hash"]
-        baseline_hash = verified_baselines.get(identifier)
-
         all_hashes.add(current_hash)
-        if baseline_hash:
-            all_hashes.add(baseline_hash)
-
-        current_artifact = get_artifact(repo_id, current_hash)
-        baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
-
-        if baseline_hash is None:
-            result = SnapshotResult.NEW
-        elif current_hash == baseline_hash:
-            result = SnapshotResult.UNCHANGED
-        else:
-            result = SnapshotResult.CHANGED
 
         _snapshot, created = RunSnapshot.objects.get_or_create(
             run=run,
@@ -480,10 +458,8 @@ def _register_snapshots(
             identifier=identifier,
             defaults={
                 "current_hash": current_hash,
-                "baseline_hash": baseline_hash or "",
-                "current_artifact": current_artifact,
-                "baseline_artifact": baseline_artifact,
-                "result": result,
+                "baseline_hash": "",
+                "result": SnapshotResult.NEW,  # Provisional — reclassified at complete time
                 "current_width": snap.get("width"),
                 "current_height": snap.get("height"),
                 "metadata": snap.get("metadata") or {},
@@ -540,15 +516,13 @@ def add_snapshots_to_run(
         raise ValueError(f"Can only add snapshots to pending runs (current status: {run.status})")
 
     repo = run.repo
-    # Resolve baselines BEFORE the transaction — GitHub API call
-    verified_baselines = _resolve_baselines(repo, run.run_type, run.branch)
 
-    return _add_snapshots_inner(run, run_id, team_id, repo, snapshots, verified_baselines)
+    return _add_snapshots_inner(run, run_id, team_id, repo, snapshots)
 
 
 @transaction.atomic(using=WRITER_DB)
-def _add_snapshots_inner(run, run_id, team_id, repo, snapshots, verified_baselines):
-    added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
+def _add_snapshots_inner(run, run_id, team_id, repo, snapshots):
+    added, uploads = _register_snapshots(run, repo, snapshots)
 
     # Atomically increment total (safe for concurrent shards)
     Run.objects.filter(id=run_id, team_id=team_id).update(total_snapshots=F("total_snapshots") + added)
@@ -590,22 +564,42 @@ def complete_run(run_id: UUID) -> Run:
 
     repo = run.repo
 
-    # Detect removed snapshots: baseline identifiers not in this run's RunSnapshot rows
+    # Fetch baseline once — used for classification and removal detection
     baseline = _resolve_baselines(repo, run.run_type, run.branch)
+
+    # Classify existing snapshots against baseline
+    for snapshot in run.snapshots.all():
+        baseline_hash = baseline.get(snapshot.identifier)
+        baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
+
+        if baseline_hash is None:
+            result = SnapshotResult.NEW
+        elif snapshot.current_hash == baseline_hash:
+            result = SnapshotResult.UNCHANGED
+        else:
+            result = SnapshotResult.CHANGED
+
+        snapshot.result = result
+        snapshot.baseline_hash = baseline_hash or ""
+        snapshot.baseline_artifact = baseline_artifact
+        snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
+        snapshot.save(update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"])
+
+    # Detect removed: baseline identifiers with no RunSnapshot row
     if baseline:
         produced = set(run.snapshots.values_list("identifier", flat=True))
         for identifier in baseline:
             if identifier not in produced:
-                baseline_hash = baseline.get(identifier)
-                baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
+                b_hash = baseline[identifier]
+                b_artifact = get_artifact(repo.id, b_hash) if b_hash else None
                 RunSnapshot.objects.get_or_create(
                     run=run,
                     team_id=repo.team_id,
                     identifier=identifier,
                     defaults={
                         "current_hash": "",
-                        "baseline_hash": baseline_hash or "",
-                        "baseline_artifact": baseline_artifact,
+                        "baseline_hash": b_hash or "",
+                        "baseline_artifact": b_artifact,
                         "result": SnapshotResult.REMOVED,
                         "metadata": {},
                     },
