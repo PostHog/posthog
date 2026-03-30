@@ -42,8 +42,8 @@ import type {
     PaginatedOrganizationMemberListApi,
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
+    PaginatedProjectSecretAPIKeyListApi,
     PaginatedRoleListApi,
-    PaginatedScheduledChangeListApi,
     PaginatedSubscriptionListApi,
     PaginatedUserListApi,
     PatchedCommentApi,
@@ -54,16 +54,16 @@ import type {
     PatchedOrganizationDomainApi,
     PatchedOrganizationMemberApi,
     PatchedProjectBackwardCompatApi,
+    PatchedProjectSecretAPIKeyApi,
     PatchedRoleApi,
-    PatchedScheduledChangeApi,
     PatchedSubscriptionApi,
     PatchedUserApi,
     ProjectBackwardCompatApi,
+    ProjectSecretAPIKeyApi,
+    ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
     RoleApi,
     RolesListParams,
-    ScheduledChangeApi,
-    ScheduledChangesListParams,
     SharingConfigurationApi,
     SubscriptionApi,
     SubscriptionsListParams,
@@ -1821,6 +1821,134 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
+export const getProjectSecretApiKeysListUrl = (projectId: string, params?: ProjectSecretApiKeysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/project_secret_api_keys/?${stringifiedParams}`
+        : `/api/projects/${projectId}/project_secret_api_keys/`
+}
+
+export const projectSecretApiKeysList = async (
+    projectId: string,
+    params?: ProjectSecretApiKeysListParams,
+    options?: RequestInit
+): Promise<PaginatedProjectSecretAPIKeyListApi> => {
+    return apiMutator<PaginatedProjectSecretAPIKeyListApi>(getProjectSecretApiKeysListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProjectSecretApiKeysCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/`
+}
+
+export const projectSecretApiKeysCreate = async (
+    projectId: string,
+    projectSecretAPIKeyApi: NonReadonly<ProjectSecretAPIKeyApi>,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(projectSecretAPIKeyApi),
+    })
+}
+
+export const getProjectSecretApiKeysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProjectSecretApiKeysUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysUpdate = async (
+    projectId: string,
+    id: string,
+    projectSecretAPIKeyApi: NonReadonly<ProjectSecretAPIKeyApi>,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(projectSecretAPIKeyApi),
+    })
+}
+
+export const getProjectSecretApiKeysPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedProjectSecretAPIKeyApi: NonReadonly<PatchedProjectSecretAPIKeyApi>,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProjectSecretAPIKeyApi),
+    })
+}
+
+export const getProjectSecretApiKeysDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/`
+}
+
+export const projectSecretApiKeysDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getProjectSecretApiKeysDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Roll a project secret API key
+ */
+export const getProjectSecretApiKeysRollCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/project_secret_api_keys/${id}/roll/`
+}
+
+export const projectSecretApiKeysRollCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProjectSecretAPIKeyApi> => {
+    return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysRollCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getPropertyDefinitionsListUrl = (projectId: string, params?: PropertyDefinitionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1929,130 +2057,6 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
     return apiMutator<void>(getPropertyDefinitionsSeenTogetherRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
-    })
-}
-
-/**
- * Create, read, update and delete scheduled changes.
- */
-export const getScheduledChangesListUrl = (projectId: string, params?: ScheduledChangesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/scheduled_changes/?${stringifiedParams}`
-        : `/api/projects/${projectId}/scheduled_changes/`
-}
-
-export const scheduledChangesList = async (
-    projectId: string,
-    params?: ScheduledChangesListParams,
-    options?: RequestInit
-): Promise<PaginatedScheduledChangeListApi> => {
-    return apiMutator<PaginatedScheduledChangeListApi>(getScheduledChangesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Create, read, update and delete scheduled changes.
- */
-export const getScheduledChangesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/scheduled_changes/`
-}
-
-export const scheduledChangesCreate = async (
-    projectId: string,
-    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
-    options?: RequestInit
-): Promise<ScheduledChangeApi> => {
-    return apiMutator<ScheduledChangeApi>(getScheduledChangesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(scheduledChangeApi),
-    })
-}
-
-/**
- * Create, read, update and delete scheduled changes.
- */
-export const getScheduledChangesRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/scheduled_changes/${id}/`
-}
-
-export const scheduledChangesRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<ScheduledChangeApi> => {
-    return apiMutator<ScheduledChangeApi>(getScheduledChangesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Create, read, update and delete scheduled changes.
- */
-export const getScheduledChangesUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/scheduled_changes/${id}/`
-}
-
-export const scheduledChangesUpdate = async (
-    projectId: string,
-    id: number,
-    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
-    options?: RequestInit
-): Promise<ScheduledChangeApi> => {
-    return apiMutator<ScheduledChangeApi>(getScheduledChangesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(scheduledChangeApi),
-    })
-}
-
-/**
- * Create, read, update and delete scheduled changes.
- */
-export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/scheduled_changes/${id}/`
-}
-
-export const scheduledChangesPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedScheduledChangeApi: NonReadonly<PatchedScheduledChangeApi>,
-    options?: RequestInit
-): Promise<ScheduledChangeApi> => {
-    return apiMutator<ScheduledChangeApi>(getScheduledChangesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedScheduledChangeApi),
-    })
-}
-
-/**
- * Create, read, update and delete scheduled changes.
- */
-export const getScheduledChangesDestroyUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/scheduled_changes/${id}/`
-}
-
-export const scheduledChangesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getScheduledChangesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
     })
 }
 

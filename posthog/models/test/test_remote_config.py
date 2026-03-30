@@ -241,6 +241,112 @@ class TestRemoteConfig(_RemoteConfigBase):
             assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
 
 
+class TestRemoteConfigSdkVersion(_RemoteConfigBase):
+    def _reset_snippet_caches(self):
+        import posthog.models.js_snippet_versioning as sv
+
+        sv._cached_manifest = None
+
+    def setUp(self):
+        super().setUp()
+        self._reset_snippet_caches()
+
+    def tearDown(self):
+        from django.core.cache import cache
+
+        from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        self._reset_snippet_caches()
+        super().tearDown()
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="")
+    def test_sdk_version_absent_when_versioning_disabled(self):
+        self.sync_remote_config()
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert "sdkVersion" not in config
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="")
+    @patch("posthog.models.remote_config.get_disk_js_hash", return_value="mocked_hash")
+    def test_resolved_version_is_none_when_versioning_disabled(self, _mock_hash):
+        self.sync_remote_config()
+        meta = RemoteConfig.compute_array_js_metadata(self.team.api_token)
+        assert meta.resolved_version is None
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_sdk_version_present_when_versioning_enabled(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        manifest = {"versions": ["1.360.0", "1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+        self.sync_remote_config()
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert "sdkVersion" in config
+        assert config["sdkVersion"]["requested"] == "1"
+        assert config["sdkVersion"]["resolved"] == "1.360.1"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket", POSTHOG_JS_SCRIPTS_BASE_URL="https://cdn.example.com/js")
+    def test_sdk_version_includes_script_base_url(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        manifest = {"versions": ["1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+        self.sync_remote_config()
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert config["sdkVersion"]["scriptBaseUrl"] == "https://cdn.example.com/js/1.360.1"
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket", POSTHOG_JS_SCRIPTS_BASE_URL="")
+    def test_sdk_version_omits_script_base_url_when_not_configured(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY
+
+        manifest = {"versions": ["1.360.1"], "pointers": {"1": "1.360.1", "1.360": "1.360.1"}}
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+        self.sync_remote_config()
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert "sdkVersion" in config
+        assert "scriptBaseUrl" not in config["sdkVersion"]
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_sdk_version_reflects_team_pin(self):
+        import json
+
+        from django.core.cache import cache
+
+        from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY
+        from posthog.models.team.extensions import get_or_create_team_extension
+        from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
+
+        manifest = {
+            "versions": ["1.358.0", "1.359.0"],
+            "pointers": {"1": "1.359.0", "1.358": "1.358.0", "1.359": "1.359.0"},
+        }
+        cache.set(REDIS_POINTER_MAP_KEY, json.dumps(manifest), timeout=None)
+
+        snippet_config = get_or_create_team_extension(self.team, TeamJsSnippetConfig)
+        snippet_config.js_snippet_version = "1.358"
+        snippet_config.save()
+        self.sync_remote_config()
+
+        config = RemoteConfig.get_config_via_token(self.team.api_token)
+        assert config["sdkVersion"]["requested"] == "1.358"
+        assert config["sdkVersion"]["resolved"] == "1.358.0"
+
+
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
     def setUp(self):
@@ -425,6 +531,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         assert actual_surveys == expected_surveys
 
 
+@override_settings(POSTHOG_JS_S3_BUCKET="")
 class TestRemoteConfigCaching(_RemoteConfigBase):
     def setUp(self):
         super().setUp()
@@ -483,24 +590,27 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             data = RemoteConfig.get_config_js_via_token(self.team.api_token)
             self._assert_matches_config_js(data)
 
-    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
-    def test_gets_array_js_via_redis_cache(self, mock_get_array_js_content):
+    @patch("posthog.models.remote_config.get_disk_js_hash", return_value="mocked_hash")
+    @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
+    def test_gets_array_js_via_redis_cache(self, mock_get_array_js_content, _mock_hash):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            data = RemoteConfig.get_array_js_via_token(self.team.api_token)
-            self._assert_matches_config_array_js(data)
+            meta = RemoteConfig.compute_array_js_metadata(self.team.api_token)
+            content = RemoteConfig.build_array_js_content(self.team.api_token, meta.config, meta.resolved_version)
+            self._assert_matches_config_array_js(content)
 
         with self.assertNumQueries(0):
-            data = RemoteConfig.get_array_js_via_token(self.team.api_token)
-            self._assert_matches_config_array_js(data)
+            meta = RemoteConfig.compute_array_js_metadata(self.team.api_token)
+            content = RemoteConfig.build_array_js_content(self.team.api_token, meta.config, meta.resolved_version)
+            self._assert_matches_config_array_js(content)
 
     def test_caches_missing_response(self):
         with self.assertNumQueries(1):  # Just RemoteConfig lookup (no on-demand Team creation)
             with pytest.raises(RemoteConfig.DoesNotExist):
-                RemoteConfig.get_array_js_via_token("missing-token")
+                RemoteConfig.compute_array_js_metadata("missing-token")
 
         with self.assertNumQueries(0):
             with pytest.raises(RemoteConfig.DoesNotExist):
-                RemoteConfig.get_array_js_via_token("missing-token")
+                RemoteConfig.compute_array_js_metadata("missing-token")
 
     def test_sanitizes_config_for_public_cdn(self):
         config = self.remote_config.get_config_via_token(self.team.api_token)

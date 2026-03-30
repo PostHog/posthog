@@ -488,6 +488,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
+                        valueLoading: 'databaseLoading',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
                         getPopoverHeader: () => 'Data Warehouse Table',

@@ -16,7 +16,7 @@ import pytz
 import pydantic
 import posthoganalytics
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -785,29 +785,31 @@ class Team(UUIDTClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
-        return sync_execute(
-            f"""
-            SELECT count(1) FROM (
-                {person_query}
-            )
-        """,
-            {**person_query_params, **filter.hogql_context.values},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            return sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {person_query}
+                )
+            """,
+                {**person_query_params, **filter.hogql_context.values},
+            )[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
-        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
-        return sync_execute(
-            f"""
-            SELECT
-                count(DISTINCT group_key)
-            FROM groups
-            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-        """,
-            {"team_id": self.pk, "group_type_index": group_type_index},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
+            return sync_execute(
+                f"""
+                SELECT
+                    count(DISTINCT group_key)
+                FROM groups
+                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+            """,
+                {"team_id": self.pk, "group_type_index": group_type_index},
+            )[0][0]
 
     @property
     def timezone_info(self) -> ZoneInfo:

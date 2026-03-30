@@ -298,10 +298,10 @@ describe('DWH source webhooks', () => {
             expect(kafkaMessages[0].value).toMatchObject({
                 team_id: team.id,
                 schema_id: invoiceSchemaId,
-                payload: {
+                payload: JSON.stringify({
                     type: 'invoice.payment_succeeded',
                     data: { object: { id: 'inv_1', object: 'invoice' } },
-                },
+                }),
             })
         })
 
@@ -419,7 +419,7 @@ describe('DWH source webhooks', () => {
             expect(kafkaMessages[0].value).toMatchObject({
                 team_id: team.id,
                 schema_id: subscriptionSchemaId,
-                payload: eventBody,
+                payload: JSON.stringify(eventBody),
             })
         })
     })

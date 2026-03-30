@@ -3017,15 +3017,14 @@ wheels = [
 
 [[package]]
 name = "hypothesis"
-version = "6.130.13"
+version = "6.151.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs" },
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/3f/c6e05264670316c42259410e1f52c06a82114a0c9dd4352d026024c6b88b/hypothesis-6.130.13.tar.gz", hash = "sha256:71208d5ca5368fbbfd233243eb119a4bc918a32303f5c8f2b5dbc7a37417abd4", size = 430360, upload-time = "2025-04-09T17:54:13.647Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/e1/ef365ff480903b929d28e057f57b76cae51a30375943e33374ec9a165d9c/hypothesis-6.151.9.tar.gz", hash = "sha256:2f284428dda6c3c48c580de0e18470ff9c7f5ef628a647ee8002f38c3f9097ca", size = 463534, upload-time = "2026-02-16T22:59:23.09Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/29/02e25088fee4fe284f36dbee752c1ffe480f63e38a5c04be3868317f5f70/hypothesis-6.130.13-py3-none-any.whl", hash = "sha256:2a2f97adf0090db5cbf4987584549b96b233f37318209fbd8dbe1e42ea7c02fb", size = 495504, upload-time = "2025-04-09T17:54:09.67Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/f7/5cc291d701094754a1d327b44d80a44971e13962881d9a400235726171da/hypothesis-6.151.9-py3-none-any.whl", hash = "sha256:7b7220585c67759b1b1ef839b1e6e9e3d82ed468cfc1ece43c67184848d7edd9", size = 529307, upload-time = "2026-02-16T22:59:20.443Z" },
 ]
 
 [[package]]
@@ -5396,7 +5395,7 @@ dev = [
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
     { name = "freezegun", specifier = "==1.2.2" },
     { name = "grpcio-tools", specifier = "~=1.71.0" },
-    { name = "hypothesis", specifier = "~=6.130.0" },
+    { name = "hypothesis", specifier = "~=6.151.9" },
     { name = "ipython", specifier = "~=9.3.0" },
     { name = "mypy", specifier = "~=1.19.1" },
     { name = "mypy-baseline", specifier = "~=0.7.3" },

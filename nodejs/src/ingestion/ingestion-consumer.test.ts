@@ -21,6 +21,7 @@ import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -109,6 +110,7 @@ describe('IngestionConsumer', () => {
                 ...hub,
                 kafkaMetricsProducer: hub.kafkaProducer,
                 outputs,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
                 hogTransformer: createHogTransformerService(hub, hub),
             },
             overrides

@@ -891,27 +891,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false,
             {
                 setIsRecurring: (_, { isRecurring }) => isRecurring,
-                // Reset when operation changes away from UpdateStatus
+                // Reset when switching to AddReleaseCondition (recurring not supported for that operation)
                 setScheduledChangeOperation: (state, { changeType }) =>
-                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : false,
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? false : state,
             },
         ],
         recurrenceInterval: [
             null as RecurrenceInterval | null,
             {
                 setRecurrenceInterval: (_, { interval }) => interval,
-                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                // Reset when switching to AddReleaseCondition (recurring not supported for that operation)
                 setScheduledChangeOperation: (state, { changeType }) =>
-                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? null : state,
             },
         ],
         endDate: [
             null as Dayjs | null,
             {
                 setEndDate: (_, { endDate }) => endDate,
-                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                // Reset when switching to AddReleaseCondition (recurring not supported for that operation)
                 setScheduledChangeOperation: (state, { changeType }) =>
-                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? null : state,
             },
         ],
         // V2 form UI state

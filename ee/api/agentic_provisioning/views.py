@@ -371,8 +371,10 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
 
     if not non_demo_teams:
-        _capture_provisioning_event("authorize", "no_team")
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
+        organization = memberships[0].organization
+        team = Team.objects.create_with_data(initiating_user=user, organization=organization)
+        non_demo_teams = [team]
+        _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
     if len(memberships) == 1 and len(non_demo_teams) == 1:
         cache.delete(pending_key)
