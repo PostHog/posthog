@@ -422,11 +422,6 @@ _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
 
 
-@temporal_activity.defn(name="preempt_dag_run_activity")
-async def stub_preempt_dag_run(_: PreemptDAGRunInputs) -> None:
-    return None
-
-
 @temporal_workflow.defn(name="data-modeling-materialize-view")
 class MockMaterializeViewWorkflow:
     @temporal_workflow.run
