@@ -6,7 +6,7 @@ import { customerJourneysLogic } from './customerJourneysLogic'
 
 type CustomerJourneySelectProps = Pick<LemonSelectProps<string>, 'type'>
 
-export function CustomerJourneySelect({ type }: CustomerJourneySelectProps): JSX.Element | null {
+export function CustomerJourneySelect({ type = 'tertiary' }: CustomerJourneySelectProps): JSX.Element | null {
     const { activeJourneyId, journeyOptions } = useValues(customerJourneysLogic)
     const { setActiveJourneyId } = useActions(customerJourneysLogic)
 
