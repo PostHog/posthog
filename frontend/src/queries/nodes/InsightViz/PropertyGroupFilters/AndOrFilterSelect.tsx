@@ -2,7 +2,7 @@ import { LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
 
 import { FilterLogicalOperator } from '~/types'
 
-interface AndOrFilterSelectProps {
+export interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
     value: FilterLogicalOperator
     topLevelFilter?: boolean

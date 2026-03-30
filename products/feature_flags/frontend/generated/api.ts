@@ -25,7 +25,11 @@ import type {
     LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
+    PaginatedScheduledChangeListApi,
     PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    PatchedScheduledChangeApi,
+    ScheduledChangeApi,
+    ScheduledChangesListParams,
     UserBlastRadiusRequestApi,
     UserBlastRadiusResponseApi,
 } from './api.schemas'
@@ -596,5 +600,129 @@ export const featureFlagsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userBlastRadiusRequestApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesListUrl = (projectId: string, params?: ScheduledChangesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/scheduled_changes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/scheduled_changes/`
+}
+
+export const scheduledChangesList = async (
+    projectId: string,
+    params?: ScheduledChangesListParams,
+    options?: RequestInit
+): Promise<PaginatedScheduledChangeListApi> => {
+    return apiMutator<PaginatedScheduledChangeListApi>(getScheduledChangesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/scheduled_changes/`
+}
+
+export const scheduledChangesCreate = async (
+    projectId: string,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesUpdate = async (
+    projectId: string,
+    id: number,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedScheduledChangeApi: NonReadonly<PatchedScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedScheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getScheduledChangesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }

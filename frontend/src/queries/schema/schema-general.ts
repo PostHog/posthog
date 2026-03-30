@@ -1079,6 +1079,8 @@ export interface HeatmapSettings {
     valueColumn?: string
     xAxisLabel?: string
     yAxisLabel?: string
+    nullLabel?: string
+    nullValue?: string
     gradient?: HeatmapGradientStop[]
     gradientPreset?: string
     gradientScaleMode?: 'absolute' | 'relative'
@@ -1126,6 +1128,7 @@ export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
     pinnedColumns?: string[]
+    transpose?: boolean
 }
 
 export interface SharingConfigurationSettings {
@@ -5096,6 +5099,7 @@ export interface SourceFieldOauthConfig {
     label: string
     required: boolean
     kind: string
+    requiredScopes?: string
 }
 
 export type SourceFieldInputConfigType =
