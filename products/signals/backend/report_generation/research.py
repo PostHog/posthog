@@ -458,11 +458,7 @@ async def run_multi_turn_research(
     output_fn: OutputFn = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
-    from products.tasks.backend.services.custom_prompt_multi_turn_runner import (
-        end_session,
-        send_followup,
-        start_session,
-    )
+    from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
     total = len(signals)
     if total == 0:
@@ -489,7 +485,7 @@ async def run_multi_turn_research(
         previous_report_id=previous_report_id,
         previous_finding=previous_findings_by_signal_id.get(signals[0].signal_id),
     )
-    session, first_finding = await start_session(
+    session, first_finding = await MultiTurnSession.start(
         prompt=initial_prompt,
         context=context,
         model=SignalFinding,
@@ -513,8 +509,7 @@ async def run_multi_turn_research(
             total,
             previous_finding=previous_findings_by_signal_id.get(signal.signal_id),
         )
-        finding = await send_followup(
-            session,
+        finding = await session.send_followup(
             followup_prompt,
             SignalFinding,
             label=f"signal_{i}_of_{total}",
@@ -531,8 +526,7 @@ async def run_multi_turn_research(
         total,
         previous_actionability=previous_report_research.actionability if previous_report_research else None,
     )
-    actionability_result = await send_followup(
-        session,
+    actionability_result = await session.send_followup(
         actionability_prompt,
         ActionabilityAssessment,
         label="actionability",
@@ -549,8 +543,7 @@ async def run_multi_turn_research(
             total,
             previous_priority=previous_report_research.priority if previous_report_research else None,
         )
-        priority_result = await send_followup(
-            session,
+        priority_result = await session.send_followup(
             priority_prompt,
             PriorityAssessment,
             label="priority",
@@ -565,8 +558,7 @@ async def run_multi_turn_research(
         previous_title=title or (previous_report_research.title if previous_report_research else None),
         previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
     )
-    presentation_result = await send_followup(
-        session,
+    presentation_result = await session.send_followup(
         presentation_prompt,
         ReportPresentationOutput,
         label="presentation",
@@ -574,7 +566,7 @@ async def run_multi_turn_research(
     if output_fn:
         output_fn(f"Report title: {presentation_result.title}")
 
-    await end_session(session)
+    await session.end()
 
     logger.info("multi_turn_research: completed with %d findings", len(findings))
     return ReportResearchOutput(
