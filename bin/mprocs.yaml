@@ -270,6 +270,15 @@ procs:
         ready_pattern: 'Feature flag sync complete'
         # no capability - manual start
 
+    sync-hog-function-templates:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/check_ducklake_up && \
+            ./manage.py sync_hog_function_templates
+        autostart: false
+        ready_pattern: 'Hog function template sync complete'
+        # no capability - manual start
+
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
