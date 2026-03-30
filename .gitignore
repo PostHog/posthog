@@ -166,6 +166,7 @@ bin/phrocs
 # Claude Code review outputs
 CODE_DEBUGGING_SESSION.md
 CODE_REVIEW.md
+QAREPORT.md
 
 # SeaweedFS data + migration checkpoint
 .migration-checkpoint.json
