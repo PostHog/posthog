@@ -206,22 +206,29 @@ When running `uv sync`, you may see a `Failed to parse` warning related to `pypr
 ## Option 2: Developing with Codespaces
 
 This is a faster option to get up and running if you can't or don't want to set up locally.
+GitHub Codespaces gives you a cloud-hosted dev environment with all dependencies pre-installed.
 
-1. Create your codespace.
-   ![](https://user-images.githubusercontent.com/890921/231489405-cb2010b4-d9e3-4837-bfdf-b2d4ef5c5d0b.png)
-2. Update it to 8-core machine type (the smallest is probably too small to get PostHog running properly).
-   ![](https://user-images.githubusercontent.com/890921/231490278-140f814e-e77b-46d5-9a4f-31c1b1d6956a.png)
-3. Open the codespace, using one of the "Open in" options from the list.
-4. In the codespace, open a terminal window and run `docker compose -f docker-compose.dev.yml up`.
-5. Ensure that you are using the right Node version (`nvm install 22 && nvm use 22`) then, in another terminal, run `pnpm i` (and use the same terminal for the following commands).
-6. Then run `uv sync`
-   - If this doesn't activate your python virtual environment, run `uv venv` (install `uv` following the [uv standalone installer guide](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer) if needed)
-7. Install `sqlx-cli` with `cargo install sqlx-cli` (install Cargo following the [Cargo getting started guide](https://doc.rust-lang.org/cargo/getting-started/installation.html) if needed)
-8. Now run `DEBUG=1 ./bin/migrate`
-9. Install [phrocs](https://github.com/PostHog/posthog/blob/master/tools/phrocs/README.md) (`brew install posthog/tap/phrocs`).
-10. Run `bin/hogli start` (or just `hogli start` if using Flox).
-11. Open browser to <http://localhost:8010/>.
-12. To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`.
+### Creating a codespace
+
+1. Go to the [PostHog repository](https://github.com/PostHog/posthog) and click **Code > Codespaces > New codespace**.
+2. Select at least the **8-core** machine type — smaller sizes don't have enough resources.
+3. Wait for the codespace to build. The devcontainer installs all system dependencies, Python/Node packages, Docker infrastructure, and runs database migrations automatically. This takes a while on first creation but is cached for subsequent starts.
+4. Once the codespace is ready, open a terminal and run `hogli start`.
+5. Open your browser to the forwarded port for **PostHog (proxy)** (port 8010).
+
+### How it works
+
+The devcontainer lifecycle scripts handle everything automatically:
+
+- **on-create** (`on-create.sh`) — installs Python/Node dependencies, pulls Docker images, starts infrastructure, runs migrations. This only runs once when the codespace is first created.
+- **update-content** (`update-content.sh`) — re-syncs dependencies and rebuilds if the branch changes (e.g. during a prebuild update).
+- **post-create** (`post-create.sh`) — final setup after creation (hogli symlink, demo data generation).
+- **post-start** (`post-start.sh`) — restarts Docker services if they stopped during idle suspension. Runs on every codespace start/resume.
+- **post-attach** (`post-attach.sh`) — prints a welcome message on each client attach.
+
+### Generating test data
+
+To get practical test data, run `hogli dev:demo-data`.
 
 ## Testing
 

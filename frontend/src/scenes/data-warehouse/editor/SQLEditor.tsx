@@ -265,6 +265,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     }
 
     const saveAsDisabledReason = useMemo(() => {
+        if (insightLoading) {
+            return 'Loading insight...'
+        }
+
         if (!isSourceQueryLastRun) {
             return 'Run latest query changes before saving'
         }
@@ -278,7 +282,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         }
 
         return undefined
-    }, [isSourceQueryLastRun, responseLoading, responseError, response])
+    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
