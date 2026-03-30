@@ -574,7 +574,7 @@ interface VariantProps {
     installationComplete: boolean
     listeningForName: string
     teamPropertyToVerify: string
-    selectedSDK: SDK | undefined
+    selectedSDK: SDK | null
     header?: React.ReactNode
 }
 
