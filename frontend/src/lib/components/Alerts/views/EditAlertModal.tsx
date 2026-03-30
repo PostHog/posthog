@@ -296,7 +296,7 @@ export function EditAlertModal({
                                     {isBreakdownValid && (
                                         <LemonBanner type="warning">
                                             {alertMode === 'detector'
-                                                ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 10) and fire if any is anomalous.'
+                                                ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
                                                 : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
                                         </LemonBanner>
                                     )}
@@ -329,7 +329,7 @@ export function EditAlertModal({
                                                     disabledReason={
                                                         isBreakdownValid &&
                                                         (alertMode === 'detector'
-                                                            ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 10) and fire if any is anomalous.'
+                                                            ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
                                                             : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
                                                     }
                                                 />

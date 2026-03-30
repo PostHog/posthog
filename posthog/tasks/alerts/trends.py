@@ -490,9 +490,8 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
 DETECTOR_DEFAULT_WINDOW = 30
 
 # Maximum number of breakdown values to evaluate with a detector.
-# Running a detector per breakdown value is O(N) in model fits, so we cap
-# to keep alert check latency reasonable.
-MAX_DETECTOR_BREAKDOWN_VALUES = 10
+# Matches the default breakdown_limit in the query layer (25).
+MAX_DETECTOR_BREAKDOWN_VALUES = 25
 
 
 def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
