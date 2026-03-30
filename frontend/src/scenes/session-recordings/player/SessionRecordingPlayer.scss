@@ -78,8 +78,8 @@
     .SessionRecordingPlayer__body {
         position: relative;
         z-index: 0;
-        flex: 1;
         min-width: 1px;
+        height: 100%;
         overflow: hidden;
         background-color: var(--color-bg-surface-primary);
     }
