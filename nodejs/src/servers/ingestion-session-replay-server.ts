@@ -73,10 +73,10 @@ export class IngestionSessionReplayServer implements NodeServer {
     }
 
     private getCleanupResources(): CleanupResources {
+        // Note: kafkaWarpStreamProducer is intentionally excluded here because
+        // SessionRecordingIngester owns its lifecycle and disconnects it in stop().
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaWarpStreamProducer].filter(
-                Boolean
-            ) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [],
             postgres: this.postgres,
         }
