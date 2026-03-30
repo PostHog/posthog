@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     person_id UUID,
     properties String,
     retention_days Int16 DEFAULT 30,
+    drop_date Date MATERIALIZED toDate(timestamp) + toIntervalDay(retention_days),
 
     -- Trace structure
     trace_id String,
@@ -171,9 +172,9 @@ def AI_EVENTS_DATA_TABLE_SQL():
     return (
         AI_EVENTS_TABLE_BASE_SQL
         + """
-PARTITION BY (toStartOfDay(timestamp), retention_days)
+PARTITION BY toYYYYMM(drop_date)
 ORDER BY (team_id, trace_id, timestamp)
-TTL toDateTime(timestamp) + toIntervalDay(retention_days)
+TTL drop_date
 SETTINGS ttl_only_drop_parts = 1
 """
     ).format(
