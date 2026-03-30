@@ -16,13 +16,8 @@ export function useEditorGroupExpansion(
             return true
         }
 
-        // Auto-expand when there's configured content, even if defaultExpanded is false
-        if (defaultExpanded === false && hasContent) {
-            return true
-        }
-
-        // If not specified, the group is expanded
-        return defaultExpanded ?? true
+        // Auto-expand when there's configured content, otherwise use the default
+        return hasContent || (defaultExpanded ?? true)
     })
 
     // If defaultExpanded is not set, the group is not expandable
