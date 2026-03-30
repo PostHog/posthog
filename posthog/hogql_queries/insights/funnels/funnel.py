@@ -137,6 +137,15 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         else:
             breakdown_select = "ifNull(any(prop_basic), '')"
 
+        # The events_array tuple's prop element must match the type used in the
+        # UDF branch's prop_selector to satisfy UNION ALL type compatibility.
+        if self.context.breakdownType == BreakdownType.COHORT:
+            events_array_prop_default = "0"
+        elif self._query_has_array_breakdown():
+            events_array_prop_default = "['']"
+        else:
+            events_array_prop_default = "''"
+
         matched_events_selects = ""
         if self._include_matched_events() or self.context.includePrecedingTimestamp or self.context.includeTimestamp:
             matched_events_selects = """
@@ -157,7 +166,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             parse_select(
                 f"""
                 SELECT
-                    arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), '', [0])]) as events_array,
+                    arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), {events_array_prop_default}, [0])]) as events_array,
                     {prop_vals} as prop,
                     tuple(0, {breakdown_select}, arrayFilter(x -> 0, [toFloat(0)]), arrayMap(x -> arrayFilter(y -> 0, [toUUID('00000000-0000-0000-0000-000000000000')]), arrayFilter(z -> 0, [1])), 1) as af_tuple,
                     0 as step_reached,

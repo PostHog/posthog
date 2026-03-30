@@ -5604,3 +5604,66 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
+
+    def test_pre_filter_basic(self):
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
+        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
+        _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
+        # user_2 only does step one — should be filtered by the pre-filter
+        _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.ORDERED),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        self.assertEqual(results[0]["count"], 3)
+        self.assertEqual(results[1]["count"], 2)
+
+    def test_pre_filter_not_applied_for_strict(self):
+        from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
+        from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.STRICT),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        funnel = FunnelUDF(context=context)
+        self.assertFalse(funnel._should_apply_pre_filter())
+
+    def test_pre_filter_not_applied_for_unordered(self):
+        from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
+        from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.UNORDERED),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        funnel = FunnelUDF(context=context)
+        self.assertFalse(funnel._should_apply_pre_filter())
+
+    def test_pre_filter_not_applied_when_step1_optional(self):
+        from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
+        from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two", optionalInFunnel=True),
+                EventsNode(event="step three"),
+            ],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.ORDERED),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        funnel = FunnelUDF(context=context)
+        self.assertFalse(funnel._should_apply_pre_filter())

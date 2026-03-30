@@ -1051,3 +1051,28 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         assert len(response.results) == 0
+
+    def test_pre_filter_actors_step1_dropoff(self):
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
+        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
+        # user_2 only does step one — handled by synthetic branch
+        _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
+        _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
+
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+        )
+        # Step 1 dropoff: persons who did step 1 but NOT step 2 (funnelStep=-2)
+        actors = get_actors(funnels_query, self.team, funnel_step=-2)
+        actor_ids = {val[0]["id"] for val in actors}
+        # Only user_2 dropped off (did step one but not step two)
+        from posthog.models import Person
+
+        user_2_person = Person.objects.get(team=self.team, persondistinctid__distinct_id="user_2")
+        assert user_2_person.uuid in actor_ids
+        assert len(actor_ids) == 1
