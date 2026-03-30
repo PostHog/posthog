@@ -457,8 +457,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return
             }
 
-            // Stop loading after 10 minutes — the workflow may still finish,
-            // and the summary will load when the user comes back (via has_summary)
+            // Give up waiting after 10 minutes. If the workflow finishes later,
+            // the summary will show up next time the user opens this recording
             const timeout = setTimeout(
                 () => {
                     actions.setSessionSummaryLoading(false)
@@ -476,7 +476,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const parser = createParser({
                     onEvent: ({ event, data }) => {
                         try {
-                            // Real workflow failure — stop loading and show error
+                            // The workflow itself failed, not just the connection
                             if (event === 'session-summary-error') {
                                 lemonToast.error(data)
                                 actions.setSessionSummaryLoading(false)
@@ -502,8 +502,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     parser.feed(decodedValue)
                 }
             } catch {
-                // Connection lost (e.g. timeout) — the workflow is likely still running,
-                // so keep the loading state until the timeout above fires
+                // Connection dropped but the workflow keeps running.
+                // Keep the spinner going until the timeout kicks in
             } finally {
                 clearTimeout(timeout)
             }
