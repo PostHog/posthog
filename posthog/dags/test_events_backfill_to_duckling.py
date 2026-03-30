@@ -64,7 +64,12 @@ class TestParsePartitionKey:
 class TestGetS3UrlForClickhouse:
     @parameterized.expand(
         [
-            ("bucket", "us-east-1", "path/file.parquet", "https://bucket.s3.us-east-1.amazonaws.com/path/file.parquet"),
+            (
+                "bucket",
+                "us-east-1",
+                "path/file.parquet",
+                "https://bucket.s3.us-east-1.amazonaws.com/path/file.parquet",
+            ),
             (
                 "my-bucket",
                 "eu-west-1",
@@ -74,8 +79,8 @@ class TestGetS3UrlForClickhouse:
             (
                 "duckling-bucket",
                 "us-west-2",
-                "backfill/events/team_id=123/year=2024/month=01/day=15/abc.parquet",
-                "https://duckling-bucket.s3.us-west-2.amazonaws.com/backfill/events/team_id=123/year=2024/month=01/day=15/abc.parquet",
+                "backfill/events/123/2024/01/15/abc.parquet",
+                "https://duckling-bucket.s3.us-west-2.amazonaws.com/backfill/events/123/2024/01/15/abc.parquet",
             ),
         ]
     )
@@ -259,7 +264,11 @@ class TestGetMonthsInRange:
         [
             (date(2024, 1, 15), date(2024, 1, 20), ["2024-01"]),
             (date(2024, 1, 1), date(2024, 3, 15), ["2024-01", "2024-02", "2024-03"]),
-            (date(2023, 11, 1), date(2024, 2, 15), ["2023-11", "2023-12", "2024-01", "2024-02"]),
+            (
+                date(2023, 11, 1),
+                date(2024, 2, 15),
+                ["2023-11", "2023-12", "2024-01", "2024-02"],
+            ),
             (
                 date(2022, 6, 1),
                 date(2024, 2, 15),
@@ -306,19 +315,34 @@ class TestSetTablePartitioning:
 
         # First call should succeed
         result1 = _set_table_partitioning(
-            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+            conn,
+            "test_catalog",
+            "events",
+            "year(timestamp), month(timestamp)",
+            mock_context,
+            team_id=123,
         )
         assert result1 is True
 
         # Second call with same keys should also succeed (idempotent)
         result2 = _set_table_partitioning(
-            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+            conn,
+            "test_catalog",
+            "events",
+            "year(timestamp), month(timestamp)",
+            mock_context,
+            team_id=123,
         )
         assert result2 is True
 
         # Third call should also succeed
         result3 = _set_table_partitioning(
-            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+            conn,
+            "test_catalog",
+            "events",
+            "year(timestamp), month(timestamp)",
+            mock_context,
+            team_id=123,
         )
         assert result3 is True
 
@@ -335,7 +359,12 @@ class TestSetTablePartitioning:
         mock_context = MagicMock()
 
         result = _set_table_partitioning(
-            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+            conn,
+            "test_catalog",
+            "events",
+            "year(timestamp), month(timestamp)",
+            mock_context,
+            team_id=123,
         )
 
         assert result is True
@@ -354,7 +383,12 @@ class TestSetTablePartitioning:
 
         # This should fail because regular DuckDB tables don't support SET PARTITIONED BY
         result = _set_table_partitioning(
-            conn, "memory", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+            conn,
+            "memory",
+            "events",
+            "year(timestamp), month(timestamp)",
+            mock_context,
+            team_id=123,
         )
 
         assert result is False
@@ -367,11 +401,25 @@ class TestSetTablePartitioning:
         mock_context = MagicMock()
 
         with pytest.raises(ValueError) as exc_info:
-            _set_table_partitioning(conn, "test; DROP TABLE", "events", "year(timestamp)", mock_context, team_id=123)
+            _set_table_partitioning(
+                conn,
+                "test; DROP TABLE",
+                "events",
+                "year(timestamp)",
+                mock_context,
+                team_id=123,
+            )
         assert "Invalid SQL identifier" in str(exc_info.value)
 
         with pytest.raises(ValueError) as exc_info:
-            _set_table_partitioning(conn, "test_catalog", "events'; --", "year(timestamp)", mock_context, team_id=123)
+            _set_table_partitioning(
+                conn,
+                "test_catalog",
+                "events'; --",
+                "year(timestamp)",
+                mock_context,
+                team_id=123,
+            )
         assert "Invalid SQL identifier" in str(exc_info.value)
 
         conn.close()
@@ -405,7 +453,10 @@ class TestIsFullExportPartition:
             ("12345_2024-01-15", False),
             ("12345_2024-01", False),
             ("1_2020-12-31", False),
-            ("12345-2024-01", False),  # Invalid format with hyphen instead of underscore
+            (
+                "12345-2024-01",
+                False,
+            ),  # Invalid format with hyphen instead of underscore
             ("abc", False),  # Non-numeric
             ("", False),  # Empty string
         ]
@@ -444,19 +495,31 @@ class TestDeleteRangePredicate:
         [
             # (timestamps_to_insert, target_date, expected_deleted, expected_remaining)
             (
-                ["2024-01-15 00:00:00", "2024-01-15 12:30:00", "2024-01-15 23:59:59.999999"],
+                [
+                    "2024-01-15 00:00:00",
+                    "2024-01-15 12:30:00",
+                    "2024-01-15 23:59:59.999999",
+                ],
                 "2024-01-15",
                 3,
                 0,
             ),
             (
-                ["2024-01-14 23:59:59.999999", "2024-01-15 00:00:00", "2024-01-16 00:00:00"],
+                [
+                    "2024-01-14 23:59:59.999999",
+                    "2024-01-15 00:00:00",
+                    "2024-01-16 00:00:00",
+                ],
                 "2024-01-15",
                 1,
                 2,
             ),
             (
-                ["2024-02-29 00:00:00", "2024-02-29 23:59:59.999999", "2024-03-01 00:00:00"],
+                [
+                    "2024-02-29 00:00:00",
+                    "2024-02-29 23:59:59.999999",
+                    "2024-03-01 00:00:00",
+                ],
                 "2024-02-29",
                 2,
                 1,
@@ -682,7 +745,13 @@ class TestFullBackfillSensorEarliestDate:
     @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     def test_earliest_date_clamped(
-        self, _name, earliest_dt, expected_first_month, mock_tz, mock_catalog_cls, mock_get_earliest
+        self,
+        _name,
+        earliest_dt,
+        expected_first_month,
+        mock_tz,
+        mock_catalog_cls,
+        mock_get_earliest,
     ):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
 
@@ -733,7 +802,11 @@ class TestGetClusterRetry:
     @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
     def test_retries_on_timeout_then_succeeds(self, mock_get_cluster, mock_sleep):
         mock_cluster = MagicMock()
-        mock_get_cluster.side_effect = [TimeoutError("timed out"), TimeoutError("timed out"), mock_cluster]
+        mock_get_cluster.side_effect = [
+            TimeoutError("timed out"),
+            TimeoutError("timed out"),
+            mock_cluster,
+        ]
 
         result = _get_cluster()
 

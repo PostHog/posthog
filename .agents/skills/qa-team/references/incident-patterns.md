@@ -5,9 +5,6 @@ This document grounds QA review agents with real-world failure modes.
 
 ## Pattern 1: Database Migration Failures
 
-**Frequency:** Common
-**Severity:** High — causes deployment blocks, data loss, multi-hour outages
-
 **Common triggers:**
 
 - `AddIndexConcurrently` mixed with `AddField` in a single `atomic=False` migration
@@ -25,9 +22,6 @@ This document grounds QA review agents with real-world failure modes.
 - Missing `SeparateDatabaseAndState` for complex schema changes
 
 ## Pattern 2: Hot-Path Service Fragility
-
-**Frequency:** Very common
-**Severity:** Critical — affects real-time customer-facing evaluations (e.g., feature flags, config endpoints)
 
 **Common triggers:**
 
@@ -51,9 +45,6 @@ This document grounds QA review agents with real-world failure modes.
 
 ## Pattern 3: SDK Backwards Compatibility Breaks
 
-**Frequency:** Occasional
-**Severity:** Critical — breaks customer applications directly
-
 **Common triggers:**
 
 - SDK extension calls a function only available in newer core SDK versions
@@ -72,9 +63,6 @@ This document grounds QA review agents with real-world failure modes.
 - Absence of integration tests across SDK version combinations
 
 ## Pattern 4: Security & Data Exposure
-
-**Frequency:** Occasional
-**Severity:** Critical
 
 **Common triggers:**
 
@@ -97,9 +85,6 @@ This document grounds QA review agents with real-world failure modes.
 
 ## Pattern 5: Performance & Resource Exhaustion
 
-**Frequency:** Common
-**Severity:** High
-
 **Common triggers:**
 
 - Database materialized view insert amplification (1 insert triggering hundreds of real inserts)
@@ -121,9 +106,6 @@ This document grounds QA review agents with real-world failure modes.
 
 ## Pattern 6: Data Correctness & Silent Failures
 
-**Frequency:** Occasional
-**Severity:** High — customers see wrong data or lose data silently
-
 **Common triggers:**
 
 - Database compatibility mode or config changes breaking aggregation logic silently
@@ -140,9 +122,6 @@ This document grounds QA review agents with real-world failure modes.
 - Monitoring that only covers hot/recent data, not historical data integrity
 
 ## Pattern 7: Infrastructure & Deployment Failures
-
-**Frequency:** Common
-**Severity:** High
 
 **Common triggers:**
 
@@ -164,9 +143,6 @@ This document grounds QA review agents with real-world failure modes.
 
 ## Pattern 8: Cross-Service & Queue Processing Failures
 
-**Frequency:** Occasional
-**Severity:** High
-
 **Common triggers:**
 
 - Jobs consumed from one backend but routed to another due to missing configuration mapping
@@ -183,9 +159,6 @@ This document grounds QA review agents with real-world failure modes.
 - Task queue configuration changes
 
 ## Pattern 9: Frontend & UX Papercuts
-
-**Frequency:** Very common
-**Severity:** Medium individually, but compound to erode user trust and increase support burden
 
 These are recurring UX failure patterns synthesized from internal papercut reports.
 They represent the most common classes of user-facing issues that ship to production.

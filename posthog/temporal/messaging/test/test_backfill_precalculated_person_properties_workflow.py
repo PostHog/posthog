@@ -64,7 +64,8 @@ class TestFlushKafkaBatch:
 
         assert result == 100
         mock_thread.assert_called_once_with(kafka_producer.flush)
-        logger.info.assert_called_once()
+        # Should call logger.info twice: once for start, once for completion with timing
+        assert logger.info.call_count == 2
 
     @pytest.mark.asyncio
     async def test_final_batch_includes_final_in_messages(self):
@@ -124,11 +125,11 @@ class TestFlushKafkaBatch:
         assert "final" not in log_call_args.lower()
 
     @pytest.mark.asyncio
-    async def test_batch_flush_with_partial_failures(self):
-        """Should raise exception when some messages fail to send."""
+    async def test_batch_flush_with_mixed_results(self):
+        """Should flush successfully regardless of send result types (no failure checking for performance)."""
         kafka_producer = Mock()
 
-        # Create mix of successful and failed results
+        # Create mix of different result types (but we don't check them anymore for performance)
         successful_result = Mock()
         successful_result.get = Mock(return_value=None)
 
@@ -141,27 +142,28 @@ class TestFlushKafkaBatch:
         logger = Mock()
 
         with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            with pytest.raises(Exception, match="Failed to send 1/3 Kafka messages"):
-                await flush_kafka_batch(
-                    kafka_producer=kafka_producer,
-                    pending_messages=mock_results,
-                    team_id=1,
-                    current_offset=3000,
-                    heartbeater=heartbeater,
-                    logger=logger,
-                )
+            # Should not raise exception anymore since we removed failure checking for performance
+            result = await flush_kafka_batch(
+                kafka_producer=kafka_producer,
+                pending_messages=mock_results,
+                team_id=1,
+                current_offset=3000,
+                heartbeater=heartbeater,
+                logger=logger,
+            )
 
-        # Should log warnings for failed messages
-        assert logger.warning.call_count == 1
-        # Should log error summary
-        assert logger.error.call_count == 1
+        # Should return batch size
+        assert result == 3
+        # Should not log warnings/errors since we removed failure checking
+        assert logger.warning.call_count == 0
+        assert logger.error.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_batch_flush_with_all_failures(self):
-        """Should raise exception when all messages fail to send."""
+    async def test_batch_flush_handles_all_result_types(self):
+        """Should flush successfully with any result types (no failure checking for performance)."""
         kafka_producer = Mock()
 
-        # All results fail
+        # All results with different behaviors (but we don't check them anymore)
         mock_results = []
         for _ in range(5):
             failed_result = Mock()
@@ -172,18 +174,21 @@ class TestFlushKafkaBatch:
         logger = Mock()
 
         with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
-            with pytest.raises(Exception, match="Failed to send 5/5 Kafka messages"):
-                await flush_kafka_batch(
-                    kafka_producer=kafka_producer,
-                    pending_messages=mock_results,
-                    team_id=1,
-                    current_offset=4000,
-                    heartbeater=heartbeater,
-                    logger=logger,
-                )
+            # Should not raise exception anymore since we removed failure checking for performance
+            result = await flush_kafka_batch(
+                kafka_producer=kafka_producer,
+                pending_messages=mock_results,
+                team_id=1,
+                current_offset=4000,
+                heartbeater=heartbeater,
+                logger=logger,
+            )
 
-        assert logger.warning.call_count == 5
-        assert logger.error.call_count == 1
+        # Should return batch size
+        assert result == 5
+        # Should not log warnings/errors since we removed failure checking
+        assert logger.warning.call_count == 0
+        assert logger.error.call_count == 0
 
     @pytest.mark.asyncio
     async def test_heartbeat_details_format(self):
@@ -229,8 +234,8 @@ class TestFlushKafkaBatch:
                 logger=logger,
             )
 
-        # Check logger.info was called with metadata
-        logger.info.assert_called_once()
+        # Check logger.info was called with metadata (twice: start + completion with timing)
+        assert logger.info.call_count == 2
         call_kwargs = logger.info.call_args[1]
         assert call_kwargs["team_id"] == 42
         assert call_kwargs["offset"] == 25000
@@ -276,8 +281,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
     """Tests for the main backfill activity function."""
 
     @pytest.mark.asyncio
-    async def test_multi_cohort_processing_with_correct_source_attribution(self):
-        """Should process multiple cohorts and attribute events to correct cohort sources."""
+    async def test_multi_cohort_processing_with_condition_hash_sources(self):
+        """Should process multiple cohorts and attribute events to condition hash sources."""
         # Set up test data
         person_data = [
             {
@@ -431,36 +436,32 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         #   - cohort 100: age_filter_25 (doesn't match), country_filter_us (doesn't match)
         #   - cohort 200: age_filter_35 (matches)
 
-        # Group events by cohort source
-        cohort_100_events = [e for e in produced_events if e["source"] == "cohort_backfill_100"]
-        cohort_200_events = [e for e in produced_events if e["source"] == "cohort_backfill_200"]
+        # Group events by filter condition hash
+        age_25_events = [e for e in produced_events if e["source"] == "cohort_backfill_age_filter_25"]
+        country_us_events = [e for e in produced_events if e["source"] == "cohort_backfill_country_filter_us"]
+        age_35_events = [e for e in produced_events if e["source"] == "cohort_backfill_age_filter_35"]
 
-        # Should have events for both cohorts
-        assert len(cohort_100_events) > 0, "Should have events for cohort 100"
-        assert len(cohort_200_events) > 0, "Should have events for cohort 200"
+        # Should have events for all filter conditions
+        assert len(age_25_events) > 0, "Should have events for age_filter_25"
+        assert len(country_us_events) > 0, "Should have events for country_filter_us"
+        assert len(age_35_events) > 0, "Should have events for age_filter_35"
 
-        # Verify cohort 100 events have correct source and conditions
-        cohort_100_conditions = {e["condition"] for e in cohort_100_events}
-        assert "age_filter_25" in cohort_100_conditions
-        assert "country_filter_us" in cohort_100_conditions
+        # Verify each filter has the correct condition hash
+        assert all(e["condition"] == "age_filter_25" for e in age_25_events)
+        assert all(e["condition"] == "country_filter_us" for e in country_us_events)
+        assert all(e["condition"] == "age_filter_35" for e in age_35_events)
 
-        # Verify cohort 200 events have correct source and conditions
-        cohort_200_conditions = {e["condition"] for e in cohort_200_events}
-        assert "age_filter_35" in cohort_200_conditions
+        # Verify person 1 matches are correct
+        person_1_age_events = [e for e in age_25_events if e["person_id"] == "person_1"]
+        person_1_country_events = [e for e in country_us_events if e["person_id"] == "person_1"]
 
-        # Verify person 1 matches are correct for cohort 100
-        person_1_cohort_100_events = [e for e in cohort_100_events if e["person_id"] == "person_1"]
+        assert len(person_1_age_events) == 1 and person_1_age_events[0]["matches"] is True  # age=25 matches
+        assert len(person_1_country_events) == 1 and person_1_country_events[0]["matches"] is True  # country=US matches
 
-        # Person 1 should have matching events for both filters in cohort 100
-        person_1_matches = {e["condition"]: e["matches"] for e in person_1_cohort_100_events}
-        assert person_1_matches.get("age_filter_25") is True  # age=25 matches
-        assert person_1_matches.get("country_filter_us") is True  # country=US matches
+        # Verify person 2 matches are correct
+        person_2_age_35_events = [e for e in age_35_events if e["person_id"] == "person_2"]
 
-        # Verify person 2 matches are correct for cohort 200
-        person_2_cohort_200_events = [e for e in cohort_200_events if e["person_id"] == "person_2"]
-
-        person_2_matches = {e["condition"]: e["matches"] for e in person_2_cohort_200_events}
-        assert person_2_matches.get("age_filter_35") is True  # age=35 matches
+        assert len(person_2_age_35_events) == 1 and person_2_age_35_events[0]["matches"] is True  # age=35 matches
 
         # Verify all events have the correct team_id
         for event in produced_events:
@@ -474,8 +475,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert person_2_distinct_ids == {"person_2"}  # Uses person_id as distinct_id for backfilling
 
     @pytest.mark.asyncio
-    async def test_shared_condition_across_multiple_cohorts(self):
-        """Should evaluate a shared condition once and emit results to multiple cohorts."""
+    async def test_shared_condition_emits_single_event_with_condition_hash(self):
+        """Should evaluate a shared condition once and emit a single event with condition hash as source."""
         # Set up test data
         person_data = [
             {
@@ -604,33 +605,26 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         for _result, call_kwargs in mock_send_results:
             produced_events.append(call_kwargs["data"])
 
-        # Should have events for BOTH cohorts from the SAME evaluation
-        cohort_100_events = [e for e in produced_events if e["source"] == "cohort_backfill_100"]
-        cohort_200_events = [e for e in produced_events if e["source"] == "cohort_backfill_200"]
+        # Should have events for the shared condition (but only ONE event since we removed the cohort loop)
+        age_filter_events = [e for e in produced_events if e["source"] == "cohort_backfill_age_filter_25"]
 
-        # Both cohorts should have events
-        assert len(cohort_100_events) == 1, f"Expected 1 event for cohort 100, got {len(cohort_100_events)}"
-        assert len(cohort_200_events) == 1, f"Expected 1 event for cohort 200, got {len(cohort_200_events)}"
+        # Should have exactly one event for the shared condition
+        assert len(age_filter_events) == 1, f"Expected 1 event for age_filter_25, got {len(age_filter_events)}"
 
-        # Both events should have the same condition hash
-        assert cohort_100_events[0]["condition"] == "age_filter_25"
-        assert cohort_200_events[0]["condition"] == "age_filter_25"
+        # Event should have the correct condition hash
+        assert age_filter_events[0]["condition"] == "age_filter_25"
 
-        # Both events should have the same evaluation result (matches=True since age=25)
-        assert cohort_100_events[0]["matches"] is True
-        assert cohort_200_events[0]["matches"] is True
+        # Event should have the correct evaluation result (matches=True since age=25)
+        assert age_filter_events[0]["matches"] is True
 
-        # Both events should be for the same person
-        assert cohort_100_events[0]["person_id"] == "person_1"
-        assert cohort_200_events[0]["person_id"] == "person_1"
+        # Event should be for the correct person
+        assert age_filter_events[0]["person_id"] == "person_1"
 
-        # Verify distinct IDs are correct for both - for backfilling, we use person_id as distinct_id
-        assert cohort_100_events[0]["distinct_id"] == "person_1"
-        assert cohort_200_events[0]["distinct_id"] == "person_1"
+        # Verify distinct ID is correct - for backfilling, we use person_id as distinct_id
+        assert age_filter_events[0]["distinct_id"] == "person_1"
 
-        # Verify sources are different
-        assert cohort_100_events[0]["source"] == "cohort_backfill_100"
-        assert cohort_200_events[0]["source"] == "cohort_backfill_200"
+        # Verify source uses condition hash instead of cohort ID
+        assert age_filter_events[0]["source"] == "cohort_backfill_age_filter_25"
 
     @pytest.mark.asyncio
     async def test_missing_filter_storage_key_raises_non_retryable_error(self):
@@ -662,6 +656,35 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 assert "Filters not found in storage" in str(error)
                 assert "Redis payload may have expired" in str(error)
                 assert inputs.filter_storage_key in str(error)
+
+    @pytest.mark.asyncio
+    async def test_no_filters_aborts_early(self):
+        """Should abort early and return zero results when no filters are found."""
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="backfill_person_properties_filters:team_1_empty",
+            cohort_ids=[100],
+            batch_size=1000,
+        )
+
+        # Mock get_filters_and_properties to return empty filters list
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties"
+        ) as mock_get_filters_and_properties:
+            mock_get_filters_and_properties.return_value = ([], [])  # Empty filters and properties
+
+            # Mock asyncio.to_thread to just call the function directly for testing
+            with patch("asyncio.to_thread") as mock_to_thread:
+                mock_to_thread.side_effect = lambda func, *args: func(*args)
+
+                result = await backfill_precalculated_person_properties_activity(inputs)
+
+                # Should return zero results without processing
+                assert result.persons_processed == 0
+                assert result.events_produced == 0
+                assert result.events_flushed == 0
+                assert result.last_person_id is None
+                assert result.duration_seconds == 0.0
 
     def test_property_names_with_backticks_generate_safe_query(self):
         """Should generate safe SQL queries when property names contain backticks or other dangerous characters."""
