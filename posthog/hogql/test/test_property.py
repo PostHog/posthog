@@ -1165,6 +1165,7 @@ class TestProperty(BaseTest):
     def test_map_virtual_properties_for_event_properties(self, _name: str, virt_prop: str):
         assert map_virtual_properties(ast.Field(chain=["properties", virt_prop])) == ast.Field(chain=[virt_prop])
 
+
     def test_property_to_expr_event_metadata_group_scope_basic(self):
         assert self._property_to_expr(
             {"type": "event_metadata", "key": "$group_0", "operator": "exact", "value": "1234-abcd"},
