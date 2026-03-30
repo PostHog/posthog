@@ -163,6 +163,17 @@ describe('createXAxisTickCallback', () => {
             }),
         },
         {
+            scenario: 'hourly, multi-day (4 days) → day-start labels only, no intermediate time ticks',
+            interval: 'hour' as const,
+            allDays: hourlyDates('2025-02-15', 96),
+            expected: sparseLabels(96, {
+                0: 'Feb 15',
+                24: 'Feb 16',
+                48: 'Feb 17',
+                72: 'Feb 18',
+            }),
+        },
+        {
             scenario:
                 'hourly, multi-day sparse (5 days, 8am-10pm only) → date label at each day start, not just midnight',
             interval: 'hour' as const,
@@ -203,15 +214,10 @@ describe('createXAxisTickCallback', () => {
             ],
             expected: sparseLabels(28, {
                 0: 'Mar 24', // day 1 start
-                4: '12:00', // noon
                 10: 'Mar 25', // day 2 start
-                12: '12:00', // noon
                 16: 'Mar 26', // day 3 start
-                17: '12:00', // noon
                 20: 'Mar 27', // day 4 start
-                21: '12:00', // noon
                 24: 'Mar 28', // day 5 start
-                25: '12:00', // noon
             }),
         },
     ])('$scenario', ({ interval, allDays, expected }) => {
