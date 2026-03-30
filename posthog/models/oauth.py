@@ -102,7 +102,6 @@ class OAuthApplication(AbstractApplication):
         null=True,
         blank=True,
         unique=True,
-        db_index=True,
         help_text="The URL used as client_id for CIMD clients. Must match the client_id in the metadata document.",
     )
     cimd_metadata_last_fetched: models.DateTimeField = models.DateTimeField(

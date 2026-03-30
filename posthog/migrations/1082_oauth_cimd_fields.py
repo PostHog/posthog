@@ -23,7 +23,6 @@ class Migration(migrations.Migration):
             name="cimd_metadata_url",
             field=models.URLField(
                 blank=True,
-                db_index=True,
                 help_text="The URL used as client_id for CIMD clients. Must match the client_id in the metadata document.",
                 max_length=2048,
                 null=True,
