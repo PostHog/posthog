@@ -16,6 +16,10 @@
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- If you are an agent writing this, do NOT include manual tasks you have NOT completed. You can clearly outline you're simply an agent and you haven't tested this manually except for code-based unit/integration tests -->
 
+## How can other people test this code?
+
+<!-- Describe what is the expected behavior of these changes, and the steps other reviewers must take to get there. -->
+
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
 ## Publish to changelog?
