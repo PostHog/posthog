@@ -8,6 +8,8 @@ import {
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { dayOptions, formatHourString } from './utils'
+
 const nameOrLinkToBatchExport = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(unnamed export)'
     return id ? <Link to={urls.batchExport(id)}>{displayName}</Link> : `${displayName}`
@@ -19,40 +21,62 @@ const nameOrLinkToBatchExport = (id?: string | null, name?: string | null): stri
 
 const SCHEDULE_FIELDS = new Set(['interval', 'interval_offset', 'timezone'])
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-
-function formatHour(hour: number): string {
-    if (hour === 0) {
-        return '12am'
-    }
-    if (hour < 12) {
-        return `${hour}am`
-    }
-    if (hour === 12) {
-        return '12pm'
-    }
-    return `${hour - 12}pm`
+interface ScheduleValues {
+    interval?: string
+    offset?: number
+    timezone?: string
 }
 
-const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
-const asNumber = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
+function parseScheduleChanges(changes: ActivityChange[]): {
+    before: ScheduleValues
+    after: ScheduleValues
+    hasIntervalChange: boolean
+} {
+    const before: ScheduleValues = {}
+    const after: ScheduleValues = {}
+    let hasIntervalChange = false
+
+    for (const change of changes) {
+        switch (change.field) {
+            case 'interval':
+                hasIntervalChange = true
+                if (typeof change.before === 'string') {
+                    before.interval = change.before
+                }
+                if (typeof change.after === 'string') {
+                    after.interval = change.after
+                }
+                break
+            case 'interval_offset':
+                // null means default (midnight), so treat as 0
+                before.offset = typeof change.before === 'number' ? change.before : 0
+                after.offset = typeof change.after === 'number' ? change.after : 0
+                break
+            case 'timezone':
+                if (typeof change.before === 'string') {
+                    before.timezone = change.before
+                }
+                if (typeof change.after === 'string') {
+                    after.timezone = change.after
+                }
+                break
+        }
+    }
+
+    return { before, after, hasIntervalChange }
+}
 
 function isSubDayInterval(interval: string | undefined): boolean {
     return interval === 'hour' || (!!interval && interval.startsWith('every'))
 }
 
-/** Convert an offset in seconds to a readable time string. Null is treated as 0 (midnight). */
-function offsetToTimeStr(offset: unknown): string | null {
-    const seconds = typeof offset === 'number' ? offset : offset === null ? 0 : undefined
-    if (seconds === undefined) {
-        return null
-    }
-    return formatHour(Math.floor((seconds % 86400) / 3600))
+function formatOffsetTime(seconds: number): string {
+    return formatHourString(Math.floor((seconds % 86400) / 3600))
 }
 
 /**
- * Build a human-readable schedule string from interval, offset, and timezone.
- * Examples: "hourly", "daily at 3am (Asia/Muscat)", "weekly on Monday at 1am (UTC)"
+ * Build a human-readable schedule string from typed schedule values.
+ * Examples: "hourly", "daily at 14:00 (Asia/Muscat)", "weekly on Monday at 01:00 (UTC)"
  */
 export function formatSchedule(interval: string | undefined, offset?: number, timezone?: string): string | null {
     if (!interval) {
@@ -67,10 +91,10 @@ export function formatSchedule(interval: string | undefined, offset?: number, ti
 
     if (offset !== undefined) {
         const day = Math.floor(offset / 86400)
-        const hourStr = formatHour(Math.floor((offset % 86400) / 3600))
+        const hourStr = formatOffsetTime(offset)
 
         if (interval === 'week') {
-            const dayName = day >= 0 && day < DAY_NAMES.length ? DAY_NAMES[day] : DAY_NAMES[0]
+            const dayName = dayOptions.find((d) => d.value === day)?.label ?? dayOptions[0].label
             schedule += ` on ${dayName} at ${hourStr}`
         } else {
             schedule += ` at ${hourStr}`
@@ -85,10 +109,10 @@ export function formatSchedule(interval: string | undefined, offset?: number, ti
 }
 
 /**
- * Collect schedule-related changes and produce descriptions.
+ * Produce descriptions for schedule-related changes.
  *
  * When the interval changes, we combine all schedule fields into one "schedule" description
- * (e.g. "changed schedule from hourly to daily at 3am (UTC)").
+ * (e.g. "changed schedule from hourly to daily at 14:00 (UTC)").
  *
  * When only timezone or start time changes (no interval change), we describe them individually
  * since we don't have enough context to build a full schedule string.
@@ -98,35 +122,31 @@ function describeScheduleChanges(scheduleChanges: ActivityChange[]): ChangeDescr
         return []
     }
 
-    const changeByField = new Map(scheduleChanges.map((c) => [c.field, c]))
-    const intervalChange = changeByField.get('interval')
-    const offsetChange = changeByField.get('interval_offset')
-    const timezoneChange = changeByField.get('timezone')
+    const { before, after, hasIntervalChange } = parseScheduleChanges(scheduleChanges)
 
     // When the interval changes, combine everything into a single "schedule" description
-    if (intervalChange) {
+    if (hasIntervalChange) {
         // When coming from a sub-day interval, offset and timezone weren't previously configurable,
         // so we can safely assume defaults (0 = midnight, UTC) for the "after" side if they're
         // not in the changes. We can't do this when switching between daily/weekly since those
         // fields may have been previously set to non-default values.
-        const comingFromSubDay = isSubDayInterval(asString(intervalChange.before))
-        const defaultOffset = comingFromSubDay ? 0 : undefined
-        const defaultTimezone = comingFromSubDay ? 'UTC' : undefined
+        const comingFromSubDay = isSubDayInterval(before.interval)
+        const afterWithDefaults: ScheduleValues = comingFromSubDay
+            ? { ...after, offset: after.offset ?? 0, timezone: after.timezone ?? 'UTC' }
+            : after
 
-        const beforeOffset = offsetChange ? asNumber(offsetChange.before) : undefined
-        const afterOffset = offsetChange ? asNumber(offsetChange.after) : defaultOffset
+        const beforeStr = formatSchedule(before.interval, before.offset, before.timezone)
+        const afterStr = formatSchedule(
+            afterWithDefaults.interval,
+            afterWithDefaults.offset,
+            afterWithDefaults.timezone
+        )
 
-        const beforeTimezone = timezoneChange ? asString(timezoneChange.before) : undefined
-        const afterTimezone = timezoneChange ? asString(timezoneChange.after) : defaultTimezone
-
-        const before = formatSchedule(asString(intervalChange.before), beforeOffset, beforeTimezone)
-        const after = formatSchedule(asString(intervalChange.after), afterOffset, afterTimezone)
-
-        if (before && after && before !== after) {
-            return [describeFieldChange('schedule', before, after)]
+        if (beforeStr && afterStr && beforeStr !== afterStr) {
+            return [describeFieldChange('schedule', beforeStr, afterStr)]
         }
-        if (after) {
-            return [describeFieldChange('schedule', null, after)]
+        if (afterStr) {
+            return [describeFieldChange('schedule', null, afterStr)]
         }
         return [{ inline: <>updated the schedule for</>, inlist: <>updated schedule</> }]
     }
@@ -134,19 +154,13 @@ function describeScheduleChanges(scheduleChanges: ActivityChange[]): ChangeDescr
     // No interval change — describe each schedule field individually
     const descriptions: ChangeDescription[] = []
 
-    if (timezoneChange) {
-        const before = asString(timezoneChange.before) ?? null
-        const after = asString(timezoneChange.after) ?? null
-        descriptions.push(describeFieldChange('schedule timezone', before, after))
+    if (before.timezone !== undefined || after.timezone !== undefined) {
+        descriptions.push(describeFieldChange('schedule timezone', before.timezone ?? null, after.timezone ?? null))
     }
-    if (offsetChange) {
-        descriptions.push(
-            describeFieldChange(
-                'schedule start time',
-                offsetToTimeStr(offsetChange.before),
-                offsetToTimeStr(offsetChange.after)
-            )
-        )
+    if (before.offset !== undefined || after.offset !== undefined) {
+        const beforeStr = before.offset !== undefined ? formatOffsetTime(before.offset) : null
+        const afterStr = after.offset !== undefined ? formatOffsetTime(after.offset) : null
+        descriptions.push(describeFieldChange('schedule start time', beforeStr, afterStr))
     }
 
     return descriptions

@@ -39,14 +39,14 @@ describe('batch export activity descriptions', () => {
             ['hourly', 'hour', undefined, undefined],
             ['every 5 minutes', 'every 5 minutes', undefined, undefined],
             ['daily', 'day', undefined, undefined],
-            ['daily at 1am', 'day', 3600, undefined],
-            ['daily at 12am (UTC)', 'day', 0, 'UTC'],
-            ['daily at 3am (Asia/Muscat)', 'day', 10800, 'Asia/Muscat'],
+            ['daily at 01:00', 'day', 3600, undefined],
+            ['daily at 00:00 (UTC)', 'day', 0, 'UTC'],
+            ['daily at 03:00 (Asia/Muscat)', 'day', 10800, 'Asia/Muscat'],
             ['weekly', 'week', undefined, undefined],
-            ['weekly on Sunday at 12am', 'week', 0, undefined],
-            ['weekly on Monday at 1am', 'week', 90000, undefined],
-            ['weekly on Monday at 1am (UTC)', 'week', 90000, 'UTC'],
-            ['weekly on Saturday at 11pm (US/Pacific)', 'week', 6 * 86400 + 23 * 3600, 'US/Pacific'],
+            ['weekly on Sunday at 00:00', 'week', 0, undefined],
+            ['weekly on Monday at 01:00', 'week', 90000, undefined],
+            ['weekly on Monday at 01:00 (UTC)', 'week', 90000, 'UTC'],
+            ['weekly on Saturday at 23:00 (US/Pacific)', 'week', 6 * 86400 + 23 * 3600, 'US/Pacific'],
         ])('formats as "%s"', (expected, interval, offset, timezone) => {
             expect(formatSchedule(interval, offset, timezone)).toBe(expected)
         })
@@ -205,17 +205,17 @@ describe('batch export activity descriptions', () => {
                 {
                     name: 'hourly to daily, defaults unchanged',
                     changes: [change('interval', 'hour', 'day')],
-                    expected: 'changed the schedule from hourly to daily at 12am (UTC)',
+                    expected: 'changed the schedule from hourly to daily at 00:00 (UTC)',
                 },
                 {
                     name: 'hourly to daily, also changing timezone',
                     changes: [change('interval', 'hour', 'day'), change('timezone', 'UTC', 'Asia/Muscat')],
-                    expected: 'changed the schedule from hourly to daily at 12am (Asia/Muscat)',
+                    expected: 'changed the schedule from hourly to daily at 00:00 (Asia/Muscat)',
                 },
                 {
                     name: 'hourly to daily, also changing start time',
                     changes: [change('interval', 'hour', 'day'), change('interval_offset', null, 10800)],
-                    expected: 'changed the schedule from hourly to daily at 3am (UTC)',
+                    expected: 'changed the schedule from hourly to daily at 03:00 (UTC)',
                 },
                 {
                     name: 'hourly to daily, changing both timezone and start time',
@@ -224,23 +224,23 @@ describe('batch export activity descriptions', () => {
                         change('interval_offset', null, 10800),
                         change('timezone', 'UTC', 'Asia/Muscat'),
                     ],
-                    expected: 'changed the schedule from hourly to daily at 3am (Asia/Muscat)',
+                    expected: 'changed the schedule from hourly to daily at 03:00 (Asia/Muscat)',
                 },
                 // hourly → weekly
                 {
                     name: 'hourly to weekly, defaults unchanged',
                     changes: [change('interval', 'hour', 'week')],
-                    expected: 'changed the schedule from hourly to weekly on Sunday at 12am (UTC)',
+                    expected: 'changed the schedule from hourly to weekly on Sunday at 00:00 (UTC)',
                 },
                 {
                     name: 'hourly to weekly, also changing timezone',
                     changes: [change('interval', 'hour', 'week'), change('timezone', 'UTC', 'US/Pacific')],
-                    expected: 'changed the schedule from hourly to weekly on Sunday at 12am (US/Pacific)',
+                    expected: 'changed the schedule from hourly to weekly on Sunday at 00:00 (US/Pacific)',
                 },
                 {
                     name: 'hourly to weekly, also changing start time',
                     changes: [change('interval', 'hour', 'week'), change('interval_offset', null, 90000)],
-                    expected: 'changed the schedule from hourly to weekly on Monday at 1am (UTC)',
+                    expected: 'changed the schedule from hourly to weekly on Monday at 01:00 (UTC)',
                 },
                 {
                     name: 'hourly to weekly, changing both timezone and start time',
@@ -249,7 +249,7 @@ describe('batch export activity descriptions', () => {
                         change('interval_offset', null, 90000),
                         change('timezone', 'UTC', 'US/Pacific'),
                     ],
-                    expected: 'changed the schedule from hourly to weekly on Monday at 1am (US/Pacific)',
+                    expected: 'changed the schedule from hourly to weekly on Monday at 01:00 (US/Pacific)',
                 },
                 // daily ↔ weekly: both intervals support timezone and start time, so unchanged
                 // fields may have non-default values — we can't assume defaults here and only
@@ -267,7 +267,7 @@ describe('batch export activity descriptions', () => {
                 {
                     name: 'daily to weekly, also changing start time',
                     changes: [change('interval', 'day', 'week'), change('interval_offset', 10800, 90000)],
-                    expected: 'changed the schedule from daily at 3am to weekly on Monday at 1am',
+                    expected: 'changed the schedule from daily at 03:00 to weekly on Monday at 01:00',
                 },
                 {
                     name: 'daily to weekly, changing both timezone and start time',
@@ -276,7 +276,8 @@ describe('batch export activity descriptions', () => {
                         change('interval_offset', 10800, 90000),
                         change('timezone', 'UTC', 'Europe/London'),
                     ],
-                    expected: 'changed the schedule from daily at 3am (UTC) to weekly on Monday at 1am (Europe/London)',
+                    expected:
+                        'changed the schedule from daily at 03:00 (UTC) to weekly on Monday at 01:00 (Europe/London)',
                 },
                 // weekly → daily (same caveat as daily → weekly above)
                 {
@@ -292,7 +293,7 @@ describe('batch export activity descriptions', () => {
                 {
                     name: 'weekly to daily, also changing start time',
                     changes: [change('interval', 'week', 'day'), change('interval_offset', 90000, 7200)],
-                    expected: 'changed the schedule from weekly on Monday at 1am to daily at 2am',
+                    expected: 'changed the schedule from weekly on Monday at 01:00 to daily at 02:00',
                 },
                 {
                     name: 'weekly to daily, changing both timezone and start time',
@@ -301,7 +302,8 @@ describe('batch export activity descriptions', () => {
                         change('interval_offset', 90000, 7200),
                         change('timezone', 'Europe/London', 'UTC'),
                     ],
-                    expected: 'changed the schedule from weekly on Monday at 1am (Europe/London) to daily at 2am (UTC)',
+                    expected:
+                        'changed the schedule from weekly on Monday at 01:00 (Europe/London) to daily at 02:00 (UTC)',
                 },
                 // daily/weekly → hourly (sub-day suppresses offset and timezone)
                 {
@@ -311,7 +313,7 @@ describe('batch export activity descriptions', () => {
                         change('interval_offset', 10800, null),
                         change('timezone', 'Asia/Muscat', 'UTC'),
                     ],
-                    expected: 'changed the schedule from daily at 3am (Asia/Muscat) to hourly',
+                    expected: 'changed the schedule from daily at 03:00 (Asia/Muscat) to hourly',
                 },
                 {
                     name: 'weekly to hourly, offset and timezone suppressed',
@@ -320,7 +322,7 @@ describe('batch export activity descriptions', () => {
                         change('interval_offset', 90000, null),
                         change('timezone', 'US/Pacific', 'UTC'),
                     ],
-                    expected: 'changed the schedule from weekly on Monday at 1am (US/Pacific) to hourly',
+                    expected: 'changed the schedule from weekly on Monday at 01:00 (US/Pacific) to hourly',
                 },
                 // no interval change — individual field descriptions
                 {
@@ -331,18 +333,18 @@ describe('batch export activity descriptions', () => {
                 {
                     name: 'only start time changes',
                     changes: [change('interval_offset', 0, 10800)],
-                    expected: 'changed the schedule start time from 12am to 3am',
+                    expected: 'changed the schedule start time from 00:00 to 03:00',
                 },
                 {
                     name: 'start time changes from null (default midnight)',
                     changes: [change('interval_offset', null, 3600)],
-                    expected: 'changed the schedule start time from 12am to 1am',
+                    expected: 'changed the schedule start time from 00:00 to 01:00',
                 },
                 {
                     name: 'both timezone and start time change',
                     changes: [change('timezone', 'UTC', 'Asia/Muscat'), change('interval_offset', 0, 10800)],
                     expected: 'changed schedule timezone from UTC to Asia/Muscat',
-                    expectedAlso: 'changed schedule start time from 12am to 3am',
+                    expectedAlso: 'changed schedule start time from 00:00 to 03:00',
                 },
             ])(
                 '$name',
