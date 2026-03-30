@@ -104,7 +104,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                     </LemonButton>
                 </AccessControlAction>
             )}
-            <LLMAnalyticsReloadAction />
+            {activeTab !== 'sentiment' && <LLMAnalyticsReloadAction />}
         </div>
     )
 }
@@ -599,6 +599,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ),
             content: (
                 <LLMAnalyticsSetupPrompt>
+                    <Filters />
                     <LLMAnalyticsSentiment />
                 </LLMAnalyticsSetupPrompt>
             ),

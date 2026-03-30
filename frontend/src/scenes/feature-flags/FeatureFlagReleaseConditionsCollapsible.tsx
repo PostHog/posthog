@@ -63,6 +63,8 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     bucketingIdentifier?: FeatureFlagBucketingIdentifier | null
     onBucketingIdentifierChange?: (value: FeatureFlagBucketingIdentifier | null) => void
     evaluationRuntime?: FeatureFlagEvaluationRuntime
+    /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
+    hideMatchOptions?: boolean
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -688,6 +690,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     bucketingIdentifier,
     onBucketingIdentifierChange,
     evaluationRuntime,
+    hideMatchOptions,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -821,8 +824,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 <LemonLabel>Release conditions</LemonLabel>
             </div>
             <p className="text-xs text-muted mb-2">
-                Target users or groups for this flag. Conditions are evaluated top to bottom – the first match wins. A
-                condition matches when all property filters pass AND the target falls within the rollout percentage.
+                Target {aggregationTargetName} for this flag. Conditions are evaluated top to bottom – the first match
+                wins. A condition matches when all property filters pass AND the target falls within the rollout
+                percentage.
             </p>
 
             {isDisabled && (
@@ -840,7 +844,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
             <div className="flex items-end justify-between mb-2">
                 <div className="flex-1">
                     {/* Match by selector */}
-                    {(showGroupsOptions || onBucketingIdentifierChange) && (
+                    {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
                         <div>
                             <LemonLabel className="mb-2">Match by</LemonLabel>
                             <LemonRadio

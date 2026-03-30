@@ -9,3 +9,6 @@ export type DlqOutput = typeof DLQ_OUTPUT
 
 export const OVERFLOW_OUTPUT = 'overflow' as const
 export type OverflowOutput = typeof OVERFLOW_OUTPUT
+
+export const GROUPS_OUTPUT = 'groups' as const
+export type GroupsOutput = typeof GROUPS_OUTPUT

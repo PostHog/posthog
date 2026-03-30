@@ -447,6 +447,7 @@ class ModalSandbox:
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        allowed_domains: list[str] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -463,6 +464,9 @@ class ModalSandbox:
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
             repo_flag = f" --repositoryPath {shlex.quote(repo_path)}"
 
+        if allowed_domains and repo_path:
+            self._setup_agentsh(repo_path, allowed_domains)
+
         mcp_servers_arg = ""
         if mcp_configs:
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
@@ -472,13 +476,26 @@ class ModalSandbox:
             f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         )
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
-        command = (
-            f"cd /scripts && "
-            f"nohup {env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
-            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg} "
-            f"> /tmp/agent-server.log 2>&1 &"
+
+        server_binary = (
+            "/scripts/node_modules/.bin/agent-server" if allowed_domains else "./node_modules/.bin/agent-server"
         )
+        agent_cmd = (
+            f"{env_prefix}{server_binary} --port {AGENT_SERVER_PORT}{repo_flag} "
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
+            f"{branch_flag}{mcp_servers_arg}"
+        )
+
+        if allowed_domains:
+            from products.tasks.backend.services.agentsh import build_exec_prefix
+
+            agent_cmd_with_log = (
+                f"bash -c {shlex.quote('cd /scripts && ' + agent_cmd + ' > /tmp/agent-server.log 2>&1')}"
+            )
+            agent_cmd = f"{build_exec_prefix()} {agent_cmd_with_log}"
+            command = f"{agent_cmd} &"
+        else:
+            command = f"cd /scripts && nohup {agent_cmd} > /tmp/agent-server.log 2>&1 &"
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
         result = self.execute(command, timeout_seconds=30)
@@ -499,6 +516,41 @@ class ModalSandbox:
             )
 
         logger.info(f"Agent-server started in sandbox {self.id}")
+
+    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str]) -> None:
+        from products.tasks.backend.services.agentsh import (
+            SESSION_ID_FILE,
+            build_setup_script,
+            generate_config_yaml,
+            generate_policy_yaml,
+        )
+
+        config_yaml = generate_config_yaml(enable_ptrace=True, full_trace=True)
+        policy_yaml = generate_policy_yaml(allowed_domains)
+
+        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
+        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
+        self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
+        self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
+
+        setup_script = build_setup_script(workspace_path)
+        result = self.execute(setup_script, timeout_seconds=30)
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to start agentsh daemon",
+                {"sandbox_id": self.id, "stderr": result.stderr, "stdout": result.stdout},
+                cause=RuntimeError(result.stderr),
+            )
+
+        session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
+        if session_check.exit_code != 0 or not session_check.stdout.strip():
+            raise SandboxExecutionError(
+                "Failed to create agentsh session",
+                {"sandbox_id": self.id, "stderr": session_check.stderr},
+                cause=RuntimeError("agentsh session create failed"),
+            )
+
+        logger.info(f"agentsh daemon started and session created in sandbox {self.id}")
 
     def _wait_for_health_check(self, max_attempts: int = 20, poll_interval: float = 0.3) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""

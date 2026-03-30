@@ -1171,8 +1171,8 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             ),
         ]
     )
-    @patch("posthog.tasks.alerts.checks.emit_slo_completed")
-    @patch("posthog.tasks.alerts.checks.emit_slo_started")
+    @patch("posthog.slo.context.emit_slo_completed")
+    @patch("posthog.slo.context.emit_slo_started")
     @patch("posthog.tasks.alerts.checks.check_alert")
     def test_slo_emits_correct_events(
         self,
@@ -1218,8 +1218,11 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             outcome=expected_outcome,
             duration_ms=completed_kwargs["properties"].duration_ms,
         )
-        assert completed_kwargs["extra_properties"] == {
-            "calculation_interval": calculation_interval,
-            **(expected_error_extra or {}),
-        }
+        assert completed_kwargs["extra_properties"]["calculation_interval"] == calculation_interval
+        for key, value in (expected_error_extra or {}).items():
+            assert completed_kwargs["extra_properties"][key] == value
+        if side_effect is not None:
+            assert completed_kwargs["extra_properties"]["error_origin"]
+        else:
+            assert "error_origin" not in completed_kwargs["extra_properties"]
         assert mock_slo_completed.call_args.kwargs["properties"].duration_ms >= 0

@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
-from hogli.core.cli import cli
+from hogli.core.cli import _infer_process_manager, cli
 
 runner = CliRunner()
 
@@ -140,3 +140,25 @@ class TestHelpText:
         lines = result.output.split("\n")
         # Look for section headers (typically uppercase or titled)
         assert len(lines) > 10
+
+
+class TestProcessManagerInference:
+    """Test process manager inference for telemetry."""
+
+    def test_start_defaults_to_phrocs(self, monkeypatch) -> None:
+        monkeypatch.delenv("HOGLI_PROCESS_MANAGER", raising=False)
+        monkeypatch.setattr("sys.argv", ["hogli", "start"])
+
+        assert _infer_process_manager("start") == "phrocs"
+
+    def test_start_uses_mprocs_flag(self, monkeypatch) -> None:
+        monkeypatch.delenv("HOGLI_PROCESS_MANAGER", raising=False)
+        monkeypatch.setattr("sys.argv", ["hogli", "start", "--mprocs"])
+
+        assert _infer_process_manager("start") == "mprocs"
+
+    def test_env_override_wins(self, monkeypatch) -> None:
+        monkeypatch.setenv("HOGLI_PROCESS_MANAGER", "/usr/local/bin/phrocs")
+        monkeypatch.setattr("sys.argv", ["hogli", "start", "--mprocs"])
+
+        assert _infer_process_manager("start") == "phrocs"

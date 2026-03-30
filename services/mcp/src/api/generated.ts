@@ -6557,6 +6557,10 @@ export namespace Schemas {
       gradientPreset?: string | null;
       gradientScaleMode?: GradientScaleMode | null;
       /** @nullable */
+      nullLabel?: string | null;
+      /** @nullable */
+      nullValue?: string | null;
+      /** @nullable */
       valueColumn?: string | null;
       /** @nullable */
       xAxisColumn?: string | null;
@@ -13934,6 +13938,8 @@ export namespace Schemas {
       /** @nullable */
       name?: string | null;
       /** @nullable */
+      only_count_matured_users?: boolean | null;
+      /** @nullable */
       response?: ExperimentFunnelMetricResponse;
       series: (EventsNode | ActionsNode)[];
       /** @nullable */
@@ -13984,6 +13990,8 @@ export namespace Schemas {
       metric_type?: ExperimentMeanMetricMetricType;
       /** @nullable */
       name?: string | null;
+      /** @nullable */
+      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentMeanMetricResponse;
       /** @nullable */
@@ -14043,6 +14051,8 @@ export namespace Schemas {
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       /** @nullable */
+      only_count_matured_users?: boolean | null;
+      /** @nullable */
       response?: ExperimentRatioMetricResponse;
       /** @nullable */
       sharedMetricId?: number | null;
@@ -14097,6 +14107,8 @@ export namespace Schemas {
       metric_type?: ExperimentRetentionMetricMetricType;
       /** @nullable */
       name?: string | null;
+      /** @nullable */
+      only_count_matured_users?: boolean | null;
       /** @nullable */
       response?: ExperimentRetentionMetricResponse;
       retention_window_end: number;
@@ -18031,6 +18043,21 @@ export namespace Schemas {
     }
 
     /**
+     * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+     * @nullable
+     */
+    export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null | null;
+
+    export interface MaterializationPreviewRequest {
+      version?: number;
+      /**
+       * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+       * @nullable
+       */
+      bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
+    }
+
+    /**
      * * `1` - event
     * `2` - person
     * `3` - group
@@ -18256,6 +18283,20 @@ export namespace Schemas {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
     }
+
+    /**
+     * * `trusted` - Trusted
+    * `full` - Full
+    * `custom` - Custom
+     */
+    export type NetworkAccessLevelEnum = typeof NetworkAccessLevelEnum[keyof typeof NetworkAccessLevelEnum];
+
+
+    export const NetworkAccessLevelEnum = {
+      Trusted: 'trusted',
+      Full: 'full',
+      Custom: 'custom',
+    } as const;
 
     /**
      * * `table` - Table
@@ -19852,6 +19893,31 @@ export namespace Schemas {
       results: Run[];
     }
 
+    export interface SandboxEnvironmentList {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSandboxEnvironmentListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SandboxEnvironmentList[];
+    }
+
     /**
      * * `daily` - daily
     * `weekly` - weekly
@@ -19871,10 +19937,18 @@ export namespace Schemas {
     export interface ScheduledChange {
       readonly id: number;
       readonly team_id: number;
-      /** @maxLength 200 */
+      /**
+       * The ID of the record to modify (e.g. the feature flag ID).
+       * @maxLength 200
+       */
       record_id: string;
+      /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+    * `FeatureFlag` - feature flag */
       model_name: ModelNameEnum;
-      payload?: unknown;
+      /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+      payload: unknown;
+      /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at: string;
       /** @nullable */
       executed_at?: string | null;
@@ -19886,11 +19960,21 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
+      /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
       is_recurring?: boolean;
-      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+    * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+    * `yearly` - yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
       /** @nullable */
       readonly last_executed_at: string | null;
-      /** @nullable */
+      /**
+       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+       * @nullable
+       */
       end_date?: string | null;
     }
 
@@ -23569,13 +23653,45 @@ export namespace Schemas {
       readonly is_default?: boolean;
     }
 
+    export interface PatchedSandboxEnvironment {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      include_default_domains?: boolean;
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** Encrypted environment variables (write-only, never returned in responses) */
+      environment_variables?: unknown;
+      /** Whether this environment has any environment variables set */
+      readonly has_environment_variables?: boolean;
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      /** Computed domain allowlist based on network_access_level and allowed_domains */
+      readonly effective_domains?: readonly string[];
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedScheduledChange {
       readonly id?: number;
       readonly team_id?: number;
-      /** @maxLength 200 */
+      /**
+       * The ID of the record to modify (e.g. the feature flag ID).
+       * @maxLength 200
+       */
       record_id?: string;
+      /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+    * `FeatureFlag` - feature flag */
       model_name?: ModelNameEnum;
+      /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload?: unknown;
+      /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at?: string;
       /** @nullable */
       executed_at?: string | null;
@@ -23587,11 +23703,21 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
+      /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
       is_recurring?: boolean;
-      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+    * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+    * `yearly` - yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
-      /** @nullable */
+      /**
+       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+       * @nullable
+       */
       end_date?: string | null;
     }
 
@@ -28363,6 +28489,30 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface SandboxEnvironment {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      network_access_level?: NetworkAccessLevelEnum;
+      /** List of allowed domains for custom network access */
+      allowed_domains?: string[];
+      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      include_default_domains?: boolean;
+      /** List of repositories this environment applies to (format: org/repo) */
+      repositories?: string[];
+      /** Encrypted environment variables (write-only, never returned in responses) */
+      environment_variables?: unknown;
+      /** Whether this environment has any environment variables set */
+      readonly has_environment_variables: boolean;
+      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      private?: boolean;
+      /** Computed domain allowlist based on network_access_level and allowed_domains */
+      readonly effective_domains: readonly string[];
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
        * Human-readable scorer name.
@@ -29145,6 +29295,11 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Follow-up user message to include in the resumed run's prompt. */
       pending_user_message?: string;
+      /**
+       * ID of a SandboxEnvironment to use for network governance
+       * @nullable
+       */
+      sandbox_environment_id?: string | null;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -29461,33 +29616,6 @@ export namespace Schemas {
       source_table_name: string;
       /** @maxLength 255 */
       source_table_key: string;
-    }
-
-    export interface WebAnalyticsBreakdownResponse {
-      /**
-       * URL for next page of results
-       * @nullable
-       */
-      next?: string | null;
-      /** Array of breakdown items */
-      results: unknown[];
-    }
-
-    export interface WebAnalyticsOverviewResponse {
-      /** Unique visitors */
-      visitors: number;
-      /** Total page views */
-      views: number;
-      /** Total sessions */
-      sessions: number;
-      /**
-       * Bounce rate
-       * @minimum 0
-       * @maximum 1
-       */
-      bounce_rate: number;
-      /** Average session duration in seconds */
-      session_duration: number;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -32163,6 +32291,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     */
+    ordering?: string;
     };
 
     export type DashboardsListParams = {
@@ -33938,6 +34070,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SandboxListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SavedListParams = {
     /**
      * Number of results to return per page.
@@ -33955,9 +34098,17 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Filter by model type. Use "FeatureFlag" to see feature flag schedules.
+     */
+    model_name?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by the ID of a specific feature flag.
+     */
+    record_id?: string;
     };
 
     export type SchemaPropertyGroupsListParams = {
@@ -34288,109 +34439,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type WebAnalyticsBreakdownRetrieveParams = {
-    /**
-     * Apply URL path cleaning
-     */
-    apply_path_cleaning?: boolean;
-    /**
-     * Property to break down by
-
-    * `DeviceType` - DeviceType
-    * `Browser` - Browser
-    * `OS` - OS
-    * `Viewport` - Viewport
-    * `InitialReferringDomain` - InitialReferringDomain
-    * `InitialUTMSource` - InitialUTMSource
-    * `InitialUTMMedium` - InitialUTMMedium
-    * `InitialUTMCampaign` - InitialUTMCampaign
-    * `InitialUTMTerm` - InitialUTMTerm
-    * `InitialUTMContent` - InitialUTMContent
-    * `Country` - Country
-    * `Region` - Region
-    * `City` - City
-    * `InitialPage` - InitialPage
-    * `Page` - Page
-    * `ExitPage` - ExitPage
-    * `InitialChannelType` - InitialChannelType
-     * @minLength 1
-     */
-    breakdown_by: WebAnalyticsBreakdownRetrieveBreakdownBy;
-    /**
-     * Start date for the query (format: YYYY-MM-DD)
-     */
-    date_from: string;
-    /**
-     * End date for the query (format: YYYY-MM-DD)
-     */
-    date_to: string;
-    /**
-     * Filter out test accounts
-     */
-    filter_test_accounts?: boolean;
-    /**
-     * Host to filter by (e.g. example.com)
-     * @minLength 1
-     * @nullable
-     */
-    host?: string | null;
-    /**
-     * Number of results to return
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number;
-    /**
-     * Number of results to skip
-     * @minimum 0
-     */
-    offset?: number;
-    };
-
-    export type WebAnalyticsBreakdownRetrieveBreakdownBy = typeof WebAnalyticsBreakdownRetrieveBreakdownBy[keyof typeof WebAnalyticsBreakdownRetrieveBreakdownBy];
-
-
-    export const WebAnalyticsBreakdownRetrieveBreakdownBy = {
-      DeviceType: 'DeviceType',
-      Browser: 'Browser',
-      Os: 'OS',
-      Viewport: 'Viewport',
-      InitialReferringDomain: 'InitialReferringDomain',
-      InitialUTMSource: 'InitialUTMSource',
-      InitialUTMMedium: 'InitialUTMMedium',
-      InitialUTMCampaign: 'InitialUTMCampaign',
-      InitialUTMTerm: 'InitialUTMTerm',
-      InitialUTMContent: 'InitialUTMContent',
-      Country: 'Country',
-      Region: 'Region',
-      City: 'City',
-      InitialPage: 'InitialPage',
-      Page: 'Page',
-      ExitPage: 'ExitPage',
-      InitialChannelType: 'InitialChannelType',
-    } as const;
-
-    export type WebAnalyticsOverviewRetrieveParams = {
-    /**
-     * Start date for the query (format: YYYY-MM-DD)
-     */
-    date_from: string;
-    /**
-     * End date for the query (format: YYYY-MM-DD)
-     */
-    date_to: string;
-    /**
-     * Filter out test accounts
-     */
-    filter_test_accounts?: boolean;
-    /**
-     * Host to filter by (e.g. example.com)
-     * @minLength 1
-     * @nullable
-     */
-    host?: string | null;
     };
 
     export type WebExperimentsListParams = {
