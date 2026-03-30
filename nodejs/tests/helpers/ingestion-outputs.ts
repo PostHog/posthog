@@ -7,8 +7,17 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
     KAFKA_GROUPS,
     KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
 } from '../../src/config/kafka-topics'
-import { AI_EVENTS_OUTPUT, ASYNC_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from '../../src/ingestion/analytics/outputs'
+import {
+    AI_EVENTS_OUTPUT,
+    ASYNC_OUTPUT,
+    EVENTS_OUTPUT,
+    HEATMAPS_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+} from '../../src/ingestion/analytics/outputs'
 import {
     DLQ_OUTPUT,
     GROUPS_OUTPUT,
@@ -28,5 +37,7 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
         [OVERFLOW_OUTPUT]: { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, producer: kafkaProducer },
         [ASYNC_OUTPUT]: { topic: KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC, producer: kafkaProducer },
         [GROUPS_OUTPUT]: { topic: KAFKA_GROUPS, producer: kafkaProducer },
+        [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: kafkaProducer },
+        [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer },
     })
 }
