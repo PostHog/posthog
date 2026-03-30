@@ -605,7 +605,7 @@ class TestCommitStatusChecks:
         assert "1 new" in statuses[-1]["description"]
         assert len(mock_github_api.review_comments) == 1
         comment = mock_github_api.review_comments[0]["body"]
-        assert "Please review and approve this run in PostHog" in comment
+        assert "Review and approve in PostHog" in comment
         assert f"/visual_review/runs/{run.id}" in comment
 
     def test_complete_run_does_not_comment_when_pr_comments_disabled(self, github_repo, mock_github_api):

@@ -1018,7 +1018,10 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
 
     run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
     comment = (
-        f"👋 Visual changes were detected for this PR.\n\nPlease review and approve this run in PostHog: {run_url}"
+        f"👋 **Visual changes detected** for this PR.\n\n"
+        f"[Review and approve in PostHog Visual Review]({run_url})\n\n"
+        f"If these changes are unexpected, they may be caused by a flaky test or a "
+        f"broken snapshot on master. Don't approve — rerun the job or wait for a fix."
     )
 
     try:
