@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
@@ -25,8 +25,10 @@ import {
     isDataVisualizationNode,
     isHogQLQuery,
     isHogQuery,
+    isInsightQueryNode,
     isInsightVizNode,
     isWebAnalyticsInsightQuery,
+    shouldQueryBeAsync,
 } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
@@ -361,6 +363,38 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // values.query can throw if the logic's state isn't in the store yet
             // (e.g. when InsightCard rebuilds the logic during navigation)
             actions.setQuery(props.cachedInsight.query)
+        }
+    }),
+    afterMount(({ actions, props }) => {
+        // On a dashboard, the first response for a tile can say “we don’t have chart numbers yet”
+        // (`result: null`) instead of leaving the field unset. Without a real fetch, the UI can look
+        // like a failed load (“Chart data didn’t load”) even though we simply haven’t run the query.
+        // Force-refresh here for dashboard-backed insights only so we don’t change generic data-node behavior.
+        if (props.doNotLoad || props.dashboardId == null) {
+            return
+        }
+        const cached = props.cachedInsight
+        if (!cached || typeof cached !== 'object') {
+            return
+        }
+        const cr = cached as Record<string, unknown>
+        const hasRenderable =
+            (cr.result !== null && cr.result !== undefined) || (cr.results !== null && cr.results !== undefined)
+        if (hasRenderable) {
+            return
+        }
+        const iq = cached.query
+        if (!iq || !isInsightVizNode(iq)) {
+            return
+        }
+        const source = iq.source
+        if (isInsightQueryNode(source)) {
+            if (isWebAnalyticsInsightQuery(source)) {
+                return
+            }
+            actions.loadData(shouldQueryBeAsync(source) ? 'force_async' : 'force_blocking')
+        } else if (isHogQLQuery(source)) {
+            actions.loadData('force_blocking')
         }
     }),
     actionToUrl(({ props }) => ({
