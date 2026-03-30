@@ -251,7 +251,10 @@ export function copyTableToMarkdown(dataTableRows: DataTableRow[], columns: stri
         }
 
         const [headers, ...rows] = tableData
-        const escape = (cell: any): string => String(cell ?? '').replace(/\|/g, '\\|')
+        const escape = (cell: any): string =>
+            String(cell ?? '')
+                .replace(/\\/g, '\\\\')
+                .replace(/\|/g, '\\|')
 
         const escapedHeaders = headers.map(escape)
         const escapedRows = rows.map((row) => row.map(escape))
