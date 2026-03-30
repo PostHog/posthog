@@ -145,18 +145,20 @@ def _detect_rust_test(file_only: str) -> TestRunConfig:
 
 
 def _detect_go_test(file_only: str) -> TestRunConfig:
-    """Detect Go test configuration by finding the nearest go.mod."""
+    """Detect Go test configuration by finding the nearest go.mod.
+
+    Accepts any .go file or go.mod and runs tests from the module root.
+    """
     go_mod = _find_nearest(file_only, "go.mod")
     if not go_mod:
         raise click.UsageError(f"No go.mod found for: {file_only}")
 
     mod_root = str(go_mod.parent.relative_to(REPO_ROOT))
-    pkg_dir = str(PurePosixPath(file_only).parent)
 
     return TestRunConfig(
         test_type="go",
-        command=["go", "test", f"./{pkg_dir}/..."],
-        description=f"Go test (go test in {mod_root})",
+        command=["go", "test", f"./{mod_root}/..."],
+        description=f"Go test (go test ./{mod_root}/...)",
     )
 
 
@@ -220,8 +222,8 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     if ext == ".rs":
         return _detect_rust_test(file_only)
 
-    # 6. Go tests — finds nearest go.mod
-    if file_only.endswith("_test.go"):
+    # 6. Go — any .go file or go.mod; finds nearest go.mod and runs from module root
+    if ext == ".go" or PurePosixPath(file_only).name == "go.mod":
         return _detect_go_test(file_only)
 
     raise click.UsageError(

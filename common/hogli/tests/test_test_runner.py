@@ -107,17 +107,21 @@ class TestDetectTestType:
             detect_test_type("random/thing.rs")
 
     # -- Go tests: these hit real go.mod files on disk --
+    # Any .go file or go.mod should run tests from the module root
 
     @parameterized.expand(
         [
-            ("livestream/main_test.go", "go", ["go", "test", "./livestream/..."]),
-            ("tools/phrocs/internal/tui/app_test.go", "go", ["go", "test", "./tools/phrocs/internal/tui/..."]),
-            ("bin/hobby-installer/installer_test.go", "go", ["go", "test", "./bin/hobby-installer/..."]),
+            ("livestream/main_test.go", ["go", "test", "./livestream/..."]),
+            ("livestream/main.go", ["go", "test", "./livestream/..."]),
+            ("livestream/handlers/handler.go", ["go", "test", "./livestream/..."]),
+            ("livestream/go.mod", ["go", "test", "./livestream/..."]),
+            ("tools/phrocs/internal/tui/app_test.go", ["go", "test", "./tools/phrocs/..."]),
+            ("bin/hobby-installer/installer_test.go", ["go", "test", "./bin/hobby-installer/..."]),
         ]
     )
-    def test_go_tests(self, file_path: str, expected_type: str, expected_command: list[str]) -> None:
+    def test_go_tests(self, file_path: str, expected_command: list[str]) -> None:
         config = detect_test_type(file_path)
-        assert config.test_type == expected_type
+        assert config.test_type == "go"
         assert config.command == expected_command
 
     def test_go_no_go_mod_raises(self) -> None:
