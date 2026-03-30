@@ -130,7 +130,7 @@ class Command(BaseCommand):
         schedule_id = str(dag.id)
         if schedule_exists(temporal, schedule_id=schedule_id):
             logger.info("V2 schedule already exists, skipping creation", dag_id=str(dag.id), team_id=team.pk)
-            return False
+        else:
         inputs = ExecuteDAGInputs(
             team_id=team.pk,
             dag_id=str(dag.id),
