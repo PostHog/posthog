@@ -188,9 +188,9 @@ interface RunCompleteOptions {
 
 // --- Helpers ---
 
-// Wrapper around stdout.write — console.log gets stripped by lint-staged
+// Log to stderr so stdout stays clean for machine-readable output (e.g. run IDs)
 function log(message: string): void {
-    process.stdout.write(message + '\n')
+    process.stderr.write(message + '\n')
 }
 
 function extractContentHash(signedHash: string): string {
@@ -278,6 +278,7 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
         branch,
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
         snapshots: [],
+        purpose: options.purpose,
     })
 
     log(`Run created: ${result.run_id}`)
@@ -352,6 +353,9 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
             )
         }
         log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+        if (failed > 0) {
+            throw new Error(`${failed} artifact upload(s) failed`)
+        }
     }
 }
 
@@ -580,6 +584,9 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
             await Promise.all(batch.map(uploadOne))
         }
         log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+        if (failed > 0) {
+            throw new Error(`${failed} artifact upload(s) failed`)
+        }
     }
 
     // 6. Complete run

@@ -306,32 +306,38 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
 
     Returns a dict of identifier → content_hash (plain, not signed).
     The baseline YAML in the repo is the source of truth.
+    Returns empty dict when baseline file doesn't exist (first run).
+    Raises on network/auth errors — silent failure would misclassify all
+    snapshots as NEW and risk baseline data loss on auto-approve.
+
+    TODO: Cache resolved baselines on the Run model to avoid redundant
+    GitHub API calls when multiple shards resolve the same baseline.
     """
     try:
         github = get_github_integration_for_repo(repo)
         if github.access_token_expired():
             github.refresh_access_token()
-
-        baseline_paths = repo.baseline_file_paths or {}
-        baseline_path = baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
-
-        baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, branch)
-
-        # Verify HMAC signatures and extract content hashes
-        return _verify_baseline_hashes(
-            repo,
-            {
-                identifier: entry["hash"]
-                for identifier, entry in baselines_signed.items()
-                if isinstance(entry, dict) and "hash" in entry
-            },
-        )
     except Exception:
-        logger.warning("visual_review.baseline_resolve_failed", repo_id=str(repo.id), exc_info=True)
+        # No GitHub integration configured — treat as no baseline (first run / local dev)
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}
 
+    baseline_paths = repo.baseline_file_paths or {}
+    baseline_path = baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
 
-@transaction.atomic(using=WRITER_DB)
+    # _fetch_baseline_file returns ({}, None) on 404 — no exception for missing files
+    baselines_signed, _sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, branch)
+
+    return _verify_baseline_hashes(
+        repo,
+        {
+            identifier: entry["hash"]
+            for identifier, entry in baselines_signed.items()
+            if isinstance(entry, dict) and "hash" in entry
+        },
+    )
+
+
 def create_run(
     repo_id: UUID,
     team_id: int,
@@ -358,15 +364,44 @@ def create_run(
     """
     repo = get_repo(repo_id, team_id)
 
+    # Resolve baselines BEFORE the transaction — this makes a GitHub API call
+    # and must not hold a DB connection open during network I/O.
     verified_baselines = _resolve_baselines(repo, run_type, branch)
 
+    return _create_run_inner(
+        repo,
+        team_id,
+        run_type,
+        commit_sha,
+        branch,
+        pr_number,
+        snapshots,
+        verified_baselines,
+        purpose,
+        metadata,
+    )
+
+
+@transaction.atomic(using=WRITER_DB)
+def _create_run_inner(
+    repo,
+    team_id,
+    run_type,
+    commit_sha,
+    branch,
+    pr_number,
+    snapshots,
+    verified_baselines,
+    purpose,
+    metadata,
+) -> tuple[Run, list[dict]]:
     # Supersede ALL old runs before inserting the new one. The unique
     # partial index on (repo, branch, run_type) WHERE superseded_by IS NULL
     # requires the slot to be free before the insert. A new CI push always
     # replaces the previous run — approved and clean runs still show up in
     # their respective UI filters via REVIEW_STATE_FILTERS.
     supersede_filter = Run.objects.filter(
-        repo_id=repo_id,
+        repo_id=repo.id,
         branch=branch,
         run_type=run_type,
         superseded_by__isnull=True,
@@ -487,7 +522,6 @@ def _update_run_counts(run: Run) -> None:
     run.save(update_fields=["changed_count", "new_count", "removed_count"])
 
 
-@transaction.atomic(using=WRITER_DB)
 def add_snapshots_to_run(
     run_id: UUID,
     team_id: int,
@@ -506,8 +540,14 @@ def add_snapshots_to_run(
         raise ValueError(f"Can only add snapshots to pending runs (current status: {run.status})")
 
     repo = run.repo
+    # Resolve baselines BEFORE the transaction — GitHub API call
     verified_baselines = _resolve_baselines(repo, run.run_type, run.branch)
 
+    return _add_snapshots_inner(run, run_id, team_id, repo, snapshots, verified_baselines)
+
+
+@transaction.atomic(using=WRITER_DB)
+def _add_snapshots_inner(run, run_id, team_id, repo, snapshots, verified_baselines):
     added, uploads = _register_snapshots(run, repo, snapshots, verified_baselines)
 
     # Atomically increment total (safe for concurrent shards)
@@ -540,6 +580,13 @@ def complete_run(run_id: UUID) -> Run:
     run = get_run(run_id)
     if run.status in (RunStatus.PROCESSING, RunStatus.COMPLETED):
         return run
+
+    # Transition to PROCESSING early so late add_snapshots calls are rejected.
+    # Atomic update with condition prevents race with concurrent complete calls.
+    updated = Run.objects.filter(id=run_id, status=RunStatus.PENDING).update(status=RunStatus.PROCESSING)
+    if not updated:
+        # Another complete_run got here first, or status changed
+        return get_run(run_id)
 
     repo = run.repo
 
@@ -1048,19 +1095,15 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
     baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
     current_baselines: dict[str, dict] = {}
 
-    try:
-        github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
-        current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
-    except Exception:
-        # Fall back to RunSnapshot rows if GitHub fetch fails
-        logger.warning("visual_review.baseline_fetch_failed", run_id=str(run.id), exc_info=True)
-        current_baselines = {
-            s.identifier: {"hash": s.baseline_hash}
-            for s in snapshots
-            if s.result == SnapshotResult.UNCHANGED and s.baseline_hash
-        }
+    github = get_github_integration_for_repo(repo)
+    if github.access_token_expired():
+        github.refresh_access_token()
+    current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
+
+    # Remove entries that are now REMOVED — they should not persist in the baseline
+    removed_identifiers = {s.identifier for s in snapshots if s.result == SnapshotResult.REMOVED}
+    for identifier in removed_identifiers:
+        current_baselines.pop(identifier, None)
 
     # Apply changes from this run on top of the baseline
     updates = [

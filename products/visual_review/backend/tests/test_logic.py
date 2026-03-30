@@ -308,6 +308,29 @@ class TestRunOperations:
                 snapshots=[{"identifier": "btn", "content_hash": "h1"}],
             )
 
+    def test_complete_run_detects_removals(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+        )
+
+        # Mock baseline to include an identifier not in the run
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines",
+            return_value={"kept": "h1", "deleted": "h2"},
+        )
+
+        completed = logic.complete_run(run.id)
+
+        assert completed.removed_count == 1
+        removed = run.snapshots.get(identifier="deleted")
+        assert removed.result == SnapshotResult.REMOVED
+
     def test_create_run_with_purpose(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,

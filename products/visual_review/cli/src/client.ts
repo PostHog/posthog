@@ -82,6 +82,7 @@ export class VisualReviewClient {
         branch: string
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
+        purpose?: string
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -90,6 +91,7 @@ export class VisualReviewClient {
             branch: input.branch,
             snapshots: input.snapshots,
             pr_number: input.prNumber,
+            purpose: input.purpose,
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {
@@ -143,8 +145,7 @@ export class VisualReviewClient {
     }
 
     /**
-     * Signal that all artifacts are uploaded, trigger diff processing.
-     * Optionally accepts reconciliation data for shard flow.
+     * Complete a run: detect removals, verify uploads, trigger diff processing.
      */
     async completeRun(runId: string): Promise<RunApi> {
         return this.request<RunApi>(`/visual_review/runs/${runId}/complete/`, {
