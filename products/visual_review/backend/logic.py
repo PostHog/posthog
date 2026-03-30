@@ -1038,20 +1038,35 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
 
     snapshots = list(run.snapshots.all().order_by("identifier"))
 
-    # Preserve existing baselines for unchanged snapshots
-    baseline_updates = [
-        {"identifier": s.identifier, "new_hash": s.baseline_hash}
-        for s in snapshots
-        if s.result == SnapshotResult.UNCHANGED and s.baseline_hash
-    ]
-    # Approve changed/new snapshots with their current hash
-    change_updates = [
+    # Fetch current baseline from GitHub — the authoritative source.
+    # This ensures unchanged entries are preserved even in delta mode
+    # where unchanged snapshots have no RunSnapshot rows.
+    baseline_paths = repo.baseline_file_paths or {}
+    baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
+    current_baselines: dict[str, dict] = {}
+
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+        current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
+    except Exception:
+        # Fall back to RunSnapshot rows if GitHub fetch fails
+        logger.warning("visual_review.baseline_fetch_failed", run_id=str(run.id), exc_info=True)
+        current_baselines = {
+            s.identifier: {"hash": s.baseline_hash}
+            for s in snapshots
+            if s.result == SnapshotResult.UNCHANGED and s.baseline_hash
+        }
+
+    # Apply changes from this run on top of the baseline
+    updates = [
         {"identifier": s.identifier, "new_hash": s.current_hash}
         for s in snapshots
         if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
     ]
 
-    baseline_content = _build_snapshots_yaml(repo, current_baselines={}, updates=baseline_updates + change_updates)
+    baseline_content = _build_snapshots_yaml(repo, current_baselines=current_baselines, updates=updates)
     return run, baseline_content
 
 
