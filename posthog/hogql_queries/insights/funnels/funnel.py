@@ -128,6 +128,10 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         # unconditionally counts them as step_reached=0.
         if getattr(self.context.funnelsFilter, "exclusions", None):
             return False
+        # Correlation and actor queries need real matched events / timestamps;
+        # the synthetic branch only produces dummy placeholders.
+        if self._include_matched_events() or self.context.includeTimestamp or self.context.includePrecedingTimestamp:
+            return False
         return True
 
     def _build_synthetic_branch(self) -> ast.SelectQuery:
@@ -136,35 +140,13 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         These persons can never progress past step 0, so their result is
         deterministic: step_reached=0, steps_bitfield=1 (only bit 0 set).
         This avoids sending their events through the expensive Rust UDF.
+
+        Only called when _should_apply_pre_filter() is True, which guarantees:
+        no breakdowns, no exclusions, no matched events/timestamps needed.
         """
         prop_vals = self._prop_vals()
-
-        if not self.context.breakdown:
-            breakdown_select = self._default_breakdown_selector()
-        elif self.context.breakdownType == BreakdownType.COHORT:
-            breakdown_select = "any(prop_basic)"
-        elif self._query_has_array_breakdown():
-            breakdown_select = "arrayMap(x -> ifNull(x, ''), any(prop_basic))"
-        else:
-            breakdown_select = "ifNull(any(prop_basic), '')"
-
-        # The events_array tuple's prop element must match the type used in the
-        # UDF branch's prop_selector to satisfy UNION ALL type compatibility.
-        if self.context.breakdownType == BreakdownType.COHORT:
-            events_array_prop_default = "0"
-        elif self._query_has_array_breakdown():
-            events_array_prop_default = "['']"
-        else:
-            events_array_prop_default = "''"
-
-        matched_events_selects = ""
-        if self._include_matched_events() or self.context.includePrecedingTimestamp or self.context.includeTimestamp:
-            matched_events_selects = """
-            arrayMap(x -> [x], arrayFilter(x -> 0, [toUUID('00000000-0000-0000-0000-000000000000')])) as matched_event_uuids_array_array,
-            arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), toNullable(''), toNullable(''))]) as user_events,
-            map() as user_events_map,
-            arrayMap(x -> arrayFilter(y -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), toNullable(''), toNullable(''))]), arrayFilter(z -> 0, [1])) as matched_events_array,
-            """
+        breakdown_select = self._default_breakdown_selector()
+        events_array_prop_default = "''"
 
         person_id_select = ""
         if self._is_session_aggregation():
@@ -172,6 +154,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         inner_event_query = self._get_inner_event_query()
 
+        # Use arrayMap(x -> assumeNotNull(x), ...) for timings arrays — HogQL
+        # translates toFloat to accurateCastOrNull which produces Nullable(Float64),
+        # but the Rust UDF returns Array(Float64). A Nullable mismatch in the
+        # UNION ALL causes arraySum to fail downstream.
+        non_nullable_empty_float_array = "arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [toFloat(0)]))"
         return cast(
             ast.SelectQuery,
             parse_select(
@@ -179,12 +166,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 SELECT
                     arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), {events_array_prop_default}, [0])]) as events_array,
                     {prop_vals} as prop,
-                    tuple(0, {breakdown_select}, arrayFilter(x -> 0, [toFloat(0)]), arrayMap(x -> arrayFilter(y -> 0, [toUUID('00000000-0000-0000-0000-000000000000')]), arrayFilter(z -> 0, [1])), 1) as af_tuple,
+                    tuple(0, {breakdown_select}, {non_nullable_empty_float_array}, arrayMap(x -> arrayFilter(y -> 0, [toUUID('00000000-0000-0000-0000-000000000000')]), arrayFilter(z -> 0, [1])), 1) as af_tuple,
                     0 as step_reached,
                     1 as steps,
                     {breakdown_select} as breakdown,
-                    arrayFilter(x -> 0, [toFloat(0)]) as timings,
-                    {matched_events_selects}
+                    {non_nullable_empty_float_array} as timings,
                     1 as steps_bitfield,
                     {person_id_select}
                     aggregation_target
