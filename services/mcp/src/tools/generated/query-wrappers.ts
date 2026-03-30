@@ -787,6 +787,110 @@ const AssistantRetentionQuery = z.object({
     retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
 })
 
+const AssistantStickinessEventsNode = z.object({
+    custom_name: z.string().optional(),
+    event: z.string().nullable().describe('The event or `null` for all events.').optional(),
+    kind: z.literal('EventsNode').default('EventsNode'),
+    math: MathType.optional(),
+    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
+    math_multiplier: z.coerce.number().optional(),
+    math_property: z.string().optional(),
+    math_property_type: z.string().optional(),
+    name: z.string().optional(),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantStickinessActionsNode = z.object({
+    custom_name: z.string().optional(),
+    id: integer,
+    kind: z.literal('ActionsNode').default('ActionsNode'),
+    math: MathType.optional(),
+    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+        )
+        .optional(),
+    math_multiplier: z.coerce.number().optional(),
+    math_property: z.string().optional(),
+    math_property_type: z.string().optional(),
+    name: z.string().describe('Action name from the plan.'),
+    properties: z.array(AssistantPropertyFilter).optional(),
+})
+
+const AssistantStickinessNode = z.union([AssistantStickinessEventsNode, AssistantStickinessActionsNode])
+
+const StickinessComputationMode = z.enum(['non_cumulative', 'cumulative'])
+
+const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar', 'ActionsAreaGraph'])
+
+const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
+
+const StickinessCriteria = z.object({
+    operator: StickinessOperator,
+    value: integer,
+})
+
+const AssistantStickinessFilter = z.object({
+    computedAs: StickinessComputationMode.describe(
+        'Computation mode. `non_cumulative` (default) shows users active on exactly N intervals. `cumulative` shows users active on N or more intervals.'
+    )
+        .default('non_cumulative')
+        .optional(),
+    display: AssistantStickinessDisplayType.describe(
+        'Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart.'
+    )
+        .default('ActionsLineGraph')
+        .optional(),
+    showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
+    showValuesOnSeries: z.coerce
+        .boolean()
+        .describe('Whether to show a value on each data point.')
+        .default(false)
+        .optional(),
+    stickinessCriteria: StickinessCriteria.describe(
+        'Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times.'
+    ).optional(),
+})
+
+const AssistantStickinessQuery = z.object({
+    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    compareFilter: CompareFilter.describe(
+        'Compare to date range. When enabled, shows the current and previous period side by side.'
+    ).optional(),
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters')
+        .default(false)
+        .optional(),
+    interval: IntervalType.describe(
+        'Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one "interval" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days.'
+    )
+        .default('day')
+        .optional(),
+    intervalCount: integer
+        .describe(
+            'How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.'
+        )
+        .optional(),
+    kind: z.literal('StickinessQuery').default('StickinessQuery'),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    series: z
+        .array(AssistantStickinessNode)
+        .describe(
+            'Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions. When the `math` field is omitted on a series, it defaults to counting unique persons.'
+        ),
+    stickinessFilter: AssistantStickinessFilter.describe('Properties specific to the stickiness insight').optional(),
+})
+
 const PathType = z.enum(['$pageview', '$screen', 'custom_event', 'hogql'])
 
 const AssistantPathCleaningFilter = z.object({
@@ -1147,6 +1251,12 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-retention',
         schema: AssistantRetentionQuery,
         kind: 'RetentionQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-stickiness': createQueryWrapper({
+        name: 'query-stickiness',
+        schema: AssistantStickinessQuery,
+        kind: 'StickinessQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
     }),
     'query-paths': createQueryWrapper({
