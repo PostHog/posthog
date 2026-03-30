@@ -10,6 +10,7 @@ import {
     copyTableToCsv,
     copyTableToExcel,
     copyTableToJson,
+    copyTableToMarkdown,
     flattenObject,
     getCsvTableData,
     getJsonTableData,
@@ -347,6 +348,87 @@ describe('clipboardUtils', () => {
             const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
 
             copyTableToExcel([{ result: ['pageview'] }], ['event'], query)
+
+            expect(mockLemonToastError).toHaveBeenCalledWith('Copy failed!')
+        })
+    })
+
+    describe('copyTableToMarkdown', () => {
+        it('copies a padded markdown table to clipboard', () => {
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
+            // getCsvTableData sorts columns alphabetically: age, city, name
+            const columns = ['name', 'age', 'city']
+            const rows: DataTableRow[] = [
+                { result: ['Alice', 30, 'New York'] },
+                { result: ['Bob', 25, 'San Francisco'] },
+            ]
+
+            copyTableToMarkdown(rows, columns, query)
+
+            const expected = [
+                '| age | city          | name  |',
+                '| --- | ------------- | ----- |',
+                '| 30  | New York      | Alice |',
+                '| 25  | San Francisco | Bob   |',
+            ].join('\n')
+            expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
+        })
+
+        it('pads short header names to match data width', () => {
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
+            // getCsvTableData sorts columns alphabetically: n, v
+            const columns = ['n', 'v']
+            const rows: DataTableRow[] = [{ result: ['very_long_value', 'x'] }]
+
+            copyTableToMarkdown(rows, columns, query)
+
+            // 'n' column: max(3, 1, 15) = 15; 'v' column: max(3, 1, 1) = 3
+            const expected = [
+                '| n               | v   |',
+                '| --------------- | --- |',
+                '| very_long_value | x   |',
+            ].join('\n')
+            expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
+        })
+
+        it('escapes pipe characters in header and cell values', () => {
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
+            const columns = ['expr|rpxe']
+            const rows: DataTableRow[] = [{ result: ['a|b'] }]
+
+            copyTableToMarkdown(rows, columns, query)
+
+            const expected = ['| expr\\|rpxe |', '| ---------- |', '| a\\|b       |'].join('\n')
+            expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
+        })
+
+        it('handles null and undefined cell values', () => {
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
+            const columns = ['col']
+            const rows: DataTableRow[] = [{ result: [null] }, { result: [undefined] }]
+
+            copyTableToMarkdown(rows, columns, query)
+
+            const expected = ['| col |', '| --- |', '|     |', '|     |'].join('\n')
+            expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
+        })
+
+        it('shows error toast when no data is returned', () => {
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
+
+            copyTableToMarkdown([], ['event'], query)
+
+            expect(mockLemonToastError).toHaveBeenCalledWith('No data to copy!')
+            expect(mockCopyToClipboard).not.toHaveBeenCalled()
+        })
+
+        it('shows error on copy failure', () => {
+            mockCopyToClipboard.mockImplementation(() => {
+                throw new Error('Copy failed')
+            })
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
+
+            copyTableToMarkdown([{ result: ['pageview'] }], ['event'], query)
 
             expect(mockLemonToastError).toHaveBeenCalledWith('Copy failed!')
         })
