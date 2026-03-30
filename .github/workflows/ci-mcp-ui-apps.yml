@@ -91,8 +91,9 @@ jobs:
             - name: Validate build output
               run: |
                   # Each app should produce main.js and styles.css
+                  # Use find to recurse into wrapper dirs like generated/
                   missing=0
-                  for app_dir in services/mcp/public/ui-apps/*/; do
+                  for app_dir in $(find services/mcp/public/ui-apps -mindepth 1 -type d ! -name generated | sort); do
                     app=$(basename "$app_dir")
                     if [ ! -f "$app_dir/main.js" ]; then
                       echo "::error::Missing main.js for $app"
@@ -121,15 +122,23 @@ jobs:
                       const distDir = 'services/mcp/public/ui-apps';
                       const rows = [];
 
-                      for (const app of fs.readdirSync(distDir).sort()) {
-                          const appDir = path.join(distDir, app);
-                          if (!fs.statSync(appDir).isDirectory()) continue;
-                          const jsPath = path.join(appDir, 'main.js');
-                          const cssPath = path.join(appDir, 'styles.css');
-                          const jsSize = fs.existsSync(jsPath) ? (fs.statSync(jsPath).size / 1024).toFixed(1) : '—';
-                          const cssSize = fs.existsSync(cssPath) ? (fs.statSync(cssPath).size / 1024).toFixed(1) : '—';
-                          rows.push(`| ${app} | ${jsSize} KB | ${cssSize} KB |`);
+                      // Recursively collect app dirs (those containing main.js)
+                      function collectApps(dir) {
+                          for (const entry of fs.readdirSync(dir).sort()) {
+                              const full = path.join(dir, entry);
+                              if (!fs.statSync(full).isDirectory()) continue;
+                              const jsPath = path.join(full, 'main.js');
+                              if (fs.existsSync(jsPath)) {
+                                  const cssPath = path.join(full, 'styles.css');
+                                  const jsSize = (fs.statSync(jsPath).size / 1024).toFixed(1);
+                                  const cssSize = fs.existsSync(cssPath) ? (fs.statSync(cssPath).size / 1024).toFixed(1) : '—';
+                                  rows.push(`| ${entry} | ${jsSize} KB | ${cssSize} KB |`);
+                              } else {
+                                  collectApps(full);
+                              }
+                          }
                       }
+                      collectApps(distDir);
 
                       if (rows.length === 0) return;
 
