@@ -2154,6 +2154,49 @@ describe('Hogflow Executor', () => {
             expect(logMessages).not.toContainEqual(expect.stringContaining('duplicate execution detected'))
         })
 
+        it('allows execution when Redis key expires between SET NX and GET', async () => {
+            // Simulate: SET NX fails (key exists), but GET returns null (key expired)
+            const expiringRedisStore = new Map<string, { value: string; expiry: number }>()
+            const expiringMockRedis = {
+                useClient: jest.fn(async (_opts: any, callback: (client: any) => Promise<any>) => {
+                    const mockClient = {
+                        set: jest.fn((key: string, value: string, _ex: string, ttl: number, _nx: string) => {
+                            if (expiringRedisStore.has(key)) {
+                                return Promise.resolve(null)
+                            }
+                            expiringRedisStore.set(key, { value, expiry: Date.now() + ttl * 1000 })
+                            return Promise.resolve('OK')
+                        }),
+                        get: jest.fn((_key: string) => {
+                            // Always return null to simulate key expiring between SET and GET
+                            return Promise.resolve(null)
+                        }),
+                    }
+                    return callback(mockClient)
+                }),
+            }
+
+            const expiringExecutor = createTestExecutor(expiringMockRedis)
+
+            // First invocation sets the key
+            const firstInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-expiring' },
+            })
+            await expiringExecutor.execute(firstInvocation)
+
+            // Second invocation: SET NX fails (key exists), GET returns null (expired)
+            // Should fail open and allow execution
+            const secondInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-expiring' },
+            })
+            const result = await expiringExecutor.execute(secondInvocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+            const logMessages = result.logs.map((l) => l.message)
+            expect(logMessages).not.toContainEqual(expect.stringContaining('duplicate execution detected'))
+        })
+
         it('also deduplicates non-side-effect actions like delays', async () => {
             const delayFlow: HogFlow = new FixtureHogFlowBuilder()
                 .withWorkflow({
