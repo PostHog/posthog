@@ -3733,6 +3733,21 @@ export interface EndpointRequestApi {
 }
 
 /**
+ * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+ * @nullable
+ */
+export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null | null
+
+export interface MaterializationPreviewRequestApi {
+    version?: number
+    /**
+     * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+     * @nullable
+     */
+    bucket_overrides?: MaterializationPreviewRequestApiBucketOverrides
+}
+
+/**
  * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
 
 For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`

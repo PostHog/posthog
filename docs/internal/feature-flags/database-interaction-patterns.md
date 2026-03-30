@@ -134,6 +134,64 @@ let flags = sqlx::query("SELECT * FROM posthog_featureflag WHERE team_id = $1")
 
 **Important**: Always include `team_id` in queries against persons tables. These tables are partitioned by `team_id`, and queries without it will scan all partitions instead of targeting the correct one via the index.
 
+## Parallel query execution
+
+The `fetch_and_locally_cache_all_relevant_properties` function in `flag_matching_utils.rs` uses parallel execution to optimize property fetching when groups are needed.
+
+### Query branches
+
+The function decomposes into two independent query branches:
+
+1. **Person + cohort branch** (`fetch_person_and_cohorts`): Fetches person data followed by static cohort membership. These queries run sequentially because cohort lookup depends on `person_id` from the person query.
+
+2. **Group properties branch** (`fetch_group_properties`): Fetches group properties independently of person data.
+
+### Execution pattern
+
+```text
+When groups needed:
+┌──────────────────────────────────────────────────────────────┐
+│                    tokio::try_join!                          │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐   │
+│  │  fetch_person_and_      │  │  fetch_group_           │   │
+│  │  cohorts                │  │  properties             │   │
+│  │  ┌───────────────────┐  │  │  ┌───────────────────┐  │   │
+│  │  │ 1. Person query   │  │  │  │ Group query       │  │   │
+│  │  │ 2. Cohort query   │  │  │  └───────────────────┘  │   │
+│  │  └───────────────────┘  │  │                         │   │
+│  └─────────────────────────┘  └─────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+
+When no groups needed:
+┌─────────────────────────┐
+│  fetch_person_and_      │
+│  cohorts                │
+│  ┌───────────────────┐  │
+│  │ 1. Person query   │  │
+│  │ 2. Cohort query   │  │
+│  └───────────────────┘  │
+└─────────────────────────┘
+```
+
+### Connection pool implications
+
+Both branches acquire connections from the same `persons_reader` pool:
+
+- `fetch_person_and_cohorts`: Acquires one connection for person + cohort queries
+- `fetch_group_properties`: Acquires a separate connection for group query
+
+For requests requiring groups, two connections are held simultaneously from the same pool.
+
+### Task-local safety
+
+`tokio::try_join!` runs both futures cooperatively on the **same task**. This is required for `with_canonical_log` which uses a task-local `RefCell`. The synchronous borrows (no `.await` while borrowed) prevent double-borrow panics.
+
+**Do not refactor to `tokio::spawn`**: Spawned tasks do not inherit the `CANONICAL_LOG` task-local scope (see `handler/canonical_log.rs`). This would cause `with_canonical_log` to silently no-op and drop canonical-log counters.
+
+### Error handling
+
+On error, `tokio::try_join!` short-circuits and cancels the other future. If one branch fails (e.g., connection timeout), the entire operation fails and no partial state is applied.
+
 ## Error handling
 
 ### Transient error detection
