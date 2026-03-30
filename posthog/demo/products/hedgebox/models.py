@@ -196,13 +196,9 @@ class HedgeboxPerson(SimPerson):
             if self.active_client.browser != "Internet Explorer"
             else self.cluster.random.betavariate(1, 1.4)
         )
-        # Assign experiment variants
+        # Assign original experiment variants (order matters for random seed stability)
         self.onboarding_variant = self._pick_variant("control", "red", "blue")
         self.file_engagement_variant = self._pick_variant("control", "red", "blue")
-        self.pricing_variant = self._pick_variant("control", "test")
-        self.sharing_variant = self._pick_variant("control", "test")
-        self.upgrade_prompt_variant = self._pick_variant("control", "aggressive", "subtle")
-        self.team_collab_variant = self._pick_variant("control", "test")
 
         self.watches_marius_tech_tips = self.cluster.random.random() < 0.04
         self.invite_to_use_id = None
@@ -237,6 +233,12 @@ class HedgeboxPerson(SimPerson):
                 continue
             else:
                 break
+
+        # New experiment variants — appended at end to preserve random seed stability
+        self.pricing_variant = self._pick_variant("control", "test")
+        self.sharing_variant = self._pick_variant("control", "test")
+        self.upgrade_prompt_variant = self._pick_variant("control", "aggressive", "subtle")
+        self.team_collab_variant = self._pick_variant("control", "test")
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
@@ -277,7 +279,9 @@ class HedgeboxPerson(SimPerson):
     # Helpers
 
     def _pick_variant(self, *variants: str) -> str:
-        return self.cluster.random.choice(variants)
+        """Pick a variant using a single random() call to keep the random sequence stable."""
+        n = len(variants)
+        return variants[int(self.cluster.random.random() * n)]
 
     # Abstract methods
 
