@@ -17,7 +17,7 @@ import { UUIDT } from '../../utils/utils'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PersonHogClient } from './client'
 
-jest.mock('../utils/logger')
+jest.mock('../../utils/logger')
 
 const textEncoder = new TextEncoder()
 

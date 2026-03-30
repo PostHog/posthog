@@ -13,7 +13,7 @@ import { GroupRepository } from '../../worker/ingestion/groups/repositories/grou
 import { PersonHogClient } from './client'
 import { PersonHogGroupRepository } from './personhog-group-repository'
 
-jest.mock('../utils/logger')
+jest.mock('../../utils/logger')
 
 const textEncoder = new TextEncoder()
 
