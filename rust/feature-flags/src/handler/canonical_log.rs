@@ -252,7 +252,7 @@ pub struct FlagsCanonicalLogLine {
 
     // Transit time
     /// Proxy-to-app queue time in milliseconds (server_now - X-Request-Start).
-    /// None when the header is missing or delta is outside [0, 5min).
+    /// None when the header is missing or the computed delta is negative.
     pub queue_time_ms: Option<i64>,
 
     // Cache sources (populated during data fetching)

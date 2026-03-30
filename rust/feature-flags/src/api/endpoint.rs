@@ -486,10 +486,16 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
         if !frac.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
-        let digits: String = frac.chars().take(3).collect();
-        if !digits.is_empty() {
-            let padded = format!("{:0<3}", digits);
-            let frac_ms: i64 = padded.parse().ok()?;
+        let bytes = frac.as_bytes();
+        if !bytes.is_empty() {
+            // Compute ms from up to 3 fractional digits using integer arithmetic,
+            // equivalent to right-padding with zeros and parsing as a 3-digit integer.
+            let mut frac_ms: i64 = 0;
+            let mut scale: i64 = 100; // hundreds, tens, ones
+            for &b in bytes.iter().take(3) {
+                frac_ms += (b - b'0') as i64 * scale;
+                scale /= 10;
+            }
             ms = ms.checked_add(frac_ms)?;
         }
     }
