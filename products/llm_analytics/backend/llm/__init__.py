@@ -76,6 +76,13 @@ TRIAL_MODEL_IDS: frozenset[str] = frozenset(
     OpenAIConfig.TRIAL_MODELS + AnthropicConfig.TRIAL_MODELS + GeminiConfig.TRIAL_MODELS
 )
 
+# Provider-keyed lookup for code that needs per-provider trial lists
+TRIAL_MODELS_BY_PROVIDER: dict[str, list[str]] = {
+    "openai": OpenAIConfig.TRIAL_MODELS,
+    "anthropic": AnthropicConfig.TRIAL_MODELS,
+    "gemini": GeminiConfig.TRIAL_MODELS,
+}
+
 
 __all__ = [
     "Client",
@@ -89,6 +96,7 @@ __all__ = [
     "UnsupportedProviderError",
     "SUPPORTED_MODELS_WITH_THINKING",
     "TRIAL_MODEL_IDS",
+    "TRIAL_MODELS_BY_PROVIDER",
     "get_default_models",
     "get_trial_models",
     "OpenAIConfig",
