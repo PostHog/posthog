@@ -65,7 +65,8 @@ const oauthAuthorize = async (
             }
         }
     } catch (error: any) {
-        lemonToast.error('Something went wrong while authorizing the application')
+        const detail = error?.detail || error?.message || 'Something went wrong while authorizing the application'
+        lemonToast.error(detail)
         throw error
     }
 

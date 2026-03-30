@@ -220,7 +220,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <IconWarning className="text-warning shrink-0" />
                         <span>
                             <strong>Unverified application.</strong> This application has not been verified by PostHog.
-                            Only authorize if you trust the developer.
+                            Only continue if you recognize and trust this application.
                         </span>
                     </div>
                 )}
