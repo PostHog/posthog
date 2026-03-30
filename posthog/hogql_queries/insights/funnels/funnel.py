@@ -117,6 +117,17 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             return False
         if getattr(self.context.query.series[1], "optionalInFunnel", False):
             return False
+        # The synthetic branch can't replicate the UDF's breakdown logic: cohort
+        # breakdowns produce multiple rows per person, step attribution uses
+        # per-step property values, and the UDF's arrayJoin may expand results
+        # differently. Disable the pre-filter when any breakdown is active.
+        if self.context.breakdown:
+            return False
+        # The synthetic branch doesn't process exclusions — the UDF may set
+        # step_reached < 0 for excluded persons, but the synthetic branch
+        # unconditionally counts them as step_reached=0.
+        if getattr(self.context.funnelsFilter, "exclusions", None):
+            return False
         return True
 
     def _build_synthetic_branch(self) -> ast.SelectQuery:

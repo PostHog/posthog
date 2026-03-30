@@ -5667,3 +5667,33 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         context = FunnelQueryContext(query=query, team=self.team)
         funnel = FunnelUDF(context=context)
         self.assertFalse(funnel._should_apply_pre_filter())
+
+    def test_pre_filter_not_applied_with_breakdown(self):
+        from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
+        from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.ORDERED),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        funnel = FunnelUDF(context=context)
+        self.assertFalse(funnel._should_apply_pre_filter())
+
+    def test_pre_filter_not_applied_with_exclusions(self):
+        from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
+        from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
+            funnelsFilter=FunnelsFilter(
+                funnelOrderType=StepOrderValue.ORDERED,
+                exclusions=[FunnelExclusionEventsNode(funnelFromStep=0, funnelToStep=1, event="excluded")],
+            ),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        funnel = FunnelUDF(context=context)
+        self.assertFalse(funnel._should_apply_pre_filter())
