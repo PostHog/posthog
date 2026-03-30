@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { CohortListView, type CohortData, type CohortListData, CohortView } from './index'
 
@@ -14,6 +14,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const dynamicCohort: CohortData = {
     id: 1,
@@ -49,19 +51,27 @@ const calculatingCohort: CohortData = {
     created_at: '2025-12-01T09:00:00Z',
 }
 
-export const Dynamic: StoryFn = () => <CohortView cohort={dynamicCohort} />
-Dynamic.storyName = 'Dynamic cohort'
+export const Dynamic: Story = {
+    render: () => <CohortView cohort={dynamicCohort} />,
+    storyName: 'Dynamic cohort',
+}
 
-export const Static: StoryFn = () => <CohortView cohort={staticCohort} />
-Static.storyName = 'Static cohort'
+export const Static: Story = {
+    render: () => <CohortView cohort={staticCohort} />,
+    storyName: 'Static cohort',
+}
 
-export const Calculating: StoryFn = () => <CohortView cohort={calculatingCohort} />
-Calculating.storyName = 'Calculating cohort'
+export const Calculating: Story = {
+    render: () => <CohortView cohort={calculatingCohort} />,
+    storyName: 'Calculating cohort',
+}
 
 const sampleListData: CohortListData = {
     results: [dynamicCohort, staticCohort, calculatingCohort],
     _posthogUrl: 'https://us.posthog.com/project/1/cohorts',
 }
 
-export const List: StoryFn = () => <CohortListView data={sampleListData} />
-List.storyName = 'Cohort list'
+export const List: Story = {
+    render: () => <CohortListView data={sampleListData} />,
+    storyName: 'Cohort list',
+}

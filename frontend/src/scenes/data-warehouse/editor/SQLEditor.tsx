@@ -25,6 +25,7 @@ import {
     dataVisualizationLogic,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
+import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -109,6 +110,8 @@ export function SQLEditor({
 
     const { sourceQuery, dataLogicKey } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
+    const sourceQueryRef = useRef(sourceQuery)
+    sourceQueryRef.current = sourceQuery
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -119,7 +122,7 @@ export function SQLEditor({
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: (setter) => setSourceQuery(setter(sourceQuery)),
+        setQuery: (setter) => applyDataVisualizationQueryUpdate(sourceQueryRef, setter, setSourceQuery),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -262,6 +265,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     }
 
     const saveAsDisabledReason = useMemo(() => {
+        if (insightLoading) {
+            return 'Loading insight...'
+        }
+
         if (!isSourceQueryLastRun) {
             return 'Run latest query changes before saving'
         }
@@ -275,7 +282,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         }
 
         return undefined
-    }, [isSourceQueryLastRun, responseLoading, responseError, response])
+    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {

@@ -687,19 +687,27 @@ class HogQLPrinter(Visitor[str]):
         return self._get_compare_op(node.op, left, right)
 
     def visit_between_expr(self, node: ast.BetweenExpr):
-        expr = self.visit(node.expr)
-        low = self.visit(node.low)
-        high = self.visit(node.high)
+        expr = self._visit_infix_operand(node.expr)
+        low = self._visit_infix_operand(node.low)
+        high = self._visit_infix_operand(node.high)
         not_kw = " NOT" if node.negated else ""
         op = f"{expr}{not_kw} BETWEEN {low} AND {high}"
 
         return op
 
     def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
-        left = self.visit(node.left)
-        right = self.visit(node.right)
+        left = self._visit_infix_operand(node.left)
+        right = self._visit_infix_operand(node.right)
         not_kw = " NOT" if node.negated else ""
         return f"{left} IS{not_kw} DISTINCT FROM {right}"
+
+    def _visit_infix_operand(self, node: ast.Expr) -> str:
+        """Visit an operand of an infix keyword operator, parenthesizing Alias
+        nodes since AS binds more loosely than BETWEEN / IS DISTINCT FROM."""
+        result = self.visit(node)
+        if isinstance(node, ast.Alias) and not node.hidden:
+            result = f"({result})"
+        return result
 
     def visit_constant(self, node: ast.Constant):
         # Inline everything in HogQL

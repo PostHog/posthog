@@ -474,16 +474,6 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "2400/hour"
 
 
-class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_burst"
-    rate = "240/minute"
-
-
-class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_sustained"
-    rate = "2400/hour"
-
-
 class LLMAnalyticsTextReprBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_text_repr_burst"
     rate = "120/minute"

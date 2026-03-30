@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
 
 import { App } from 'scenes/App'
@@ -165,244 +165,260 @@ const meta: Meta = {
 }
 export default meta
 
-export const GroupRecordingTabEmpty: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings': () => [200, { results: [] }],
-        },
-    })
+type Story = StoryObj<{}>
 
-    router.actions.push(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'))
-
-    return <App />
-}
-
-export const GroupRecordingTabMultipleAndNotFound: StoryFn = () => {
-    router.actions.push(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'))
-
-    return <App />
-}
-
-export const GroupRecordingTabMultipleAndFound: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'group-rec-002' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
-                    200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
+export const GroupRecordingTabEmpty: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': () => [200, { results: [] }],
             },
-        },
-        post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
-        },
-    })
+        })
 
-    router.actions.push(
-        combineUrl(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'), {
-            sessionRecordingId: 'group-rec-002',
-            pause: true,
-            inspectorSideBar: true,
-            tab: 'inspector',
-            t: 4,
-        }).url
-    )
+        router.actions.push(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'))
 
-    return <App />
-}
-GroupRecordingTabMultipleAndFound.parameters = {
-    testOptions: {
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        return <App />
     },
 }
-GroupRecordingTabMultipleAndFound.tags = ['test-skip']
 
-export const GroupRecordingTabWide: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'group-rec-001' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
-                    200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
-            },
-        },
-        post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
-        },
-    })
+export const GroupRecordingTabMultipleAndNotFound: Story = {
+    render: () => {
+        router.actions.push(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'))
 
-    router.actions.push(
-        combineUrl(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'), {
-            sessionRecordingId: 'group-rec-001',
-            pause: true,
-            inspectorSideBar: true,
-            tab: 'inspector',
-            t: 4,
-        }).url
-    )
-
-    return <App />
-}
-GroupRecordingTabWide.parameters = {
-    testOptions: {
-        viewport: { width: 1300, height: 720 },
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        return <App />
     },
 }
-GroupRecordingTabWide.tags = ['test-skip']
 
-export const GroupRecordingTabNarrow: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'group-rec-001' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
+export const GroupRecordingTabMultipleAndFound: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
+                '/api/environments/:team_id/session_recordings/:id': () => [
                     200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
+                    { ...recordingMetaJson, id: 'group-rec-002' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
             },
-        },
-        post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
-        },
-    })
-
-    router.actions.push(
-        combineUrl(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'), {
-            sessionRecordingId: 'group-rec-001',
-            pause: true,
-            inspectorSideBar: true,
-            tab: 'inspector',
-            t: 4,
-        }).url
-    )
-
-    return <App />
-}
-GroupRecordingTabNarrow.parameters = {
-    testOptions: {
-        viewport: { width: 568, height: 1024 },
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
-    },
-}
-GroupRecordingTabNarrow.tags = ['test-skip']
-
-export const GroupEventsTabWithModal: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/:id': () => [
-                200,
-                { ...recordingMetaJson, id: 'group-rec-001' },
-            ],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                if (req.url.searchParams.get('source') === 'blob_v2') {
-                    return res(ctx.text(snapshotsAsJSONLines()))
-                }
-                return [
-                    200,
-                    {
-                        sources: [
-                            {
-                                source: 'blob_v2',
-                                start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                blob_key: '0',
-                            },
-                        ],
-                    },
-                ]
+            post: {
+                '/api/environments/:team_id/query/': () => [200, { results: [] }],
             },
-        },
-        post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
-        },
-    })
+        })
 
-    router.actions.push(
-        combineUrl(
-            urls.group(groupTypeIndex, groupKey, true, 'events'),
-            {
+        router.actions.push(
+            combineUrl(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'), {
+                sessionRecordingId: 'group-rec-002',
                 pause: true,
                 inspectorSideBar: true,
                 tab: 'inspector',
                 t: 4,
-            },
-            { sessionRecordingId: 'group-rec-001' }
-        ).url
-    )
+            }).url
+        )
 
-    return <App />
-}
-GroupEventsTabWithModal.parameters = {
-    testOptions: {
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        return <App />
     },
+    parameters: {
+        testOptions: {
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        },
+    },
+    tags: ['test-skip'],
 }
-GroupEventsTabWithModal.tags = ['test-skip']
 
-export const GroupEventsTabWithModalNotFound: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
-            '/api/environments/:team_id/session_recordings/:id/snapshots': () => [404, { detail: 'Not found.' }],
+export const GroupRecordingTabWide: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
+                '/api/environments/:team_id/session_recordings/:id': () => [
+                    200,
+                    { ...recordingMetaJson, id: 'group-rec-001' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            },
+        })
+
+        router.actions.push(
+            combineUrl(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'), {
+                sessionRecordingId: 'group-rec-001',
+                pause: true,
+                inspectorSideBar: true,
+                tab: 'inspector',
+                t: 4,
+            }).url
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            viewport: { width: 1300, height: 720 },
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
         },
-        post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
+    },
+    tags: ['test-skip'],
+}
+
+export const GroupRecordingTabNarrow: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
+                '/api/environments/:team_id/session_recordings/:id': () => [
+                    200,
+                    { ...recordingMetaJson, id: 'group-rec-001' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            },
+        })
+
+        router.actions.push(
+            combineUrl(urls.group(groupTypeIndex, groupKey, true, 'sessionRecordings'), {
+                sessionRecordingId: 'group-rec-001',
+                pause: true,
+                inspectorSideBar: true,
+                tab: 'inspector',
+                t: 4,
+            }).url
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            viewport: { width: 568, height: 1024 },
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
         },
-    })
+    },
+    tags: ['test-skip'],
+}
 
-    router.actions.push(`${urls.group(groupTypeIndex, groupKey, true, 'events')}#sessionRecordingId=non-existent`)
+export const GroupEventsTabWithModal: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/:id': () => [
+                    200,
+                    { ...recordingMetaJson, id: 'group-rec-001' },
+                ],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '0',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            },
+        })
 
-    return <App />
+        router.actions.push(
+            combineUrl(
+                urls.group(groupTypeIndex, groupKey, true, 'events'),
+                {
+                    pause: true,
+                    inspectorSideBar: true,
+                    tab: 'inspector',
+                    t: 4,
+                },
+                { sessionRecordingId: 'group-rec-001' }
+            ).url
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        },
+    },
+    tags: ['test-skip'],
+}
+
+export const GroupEventsTabWithModalNotFound: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
+                '/api/environments/:team_id/session_recordings/:id/snapshots': () => [404, { detail: 'Not found.' }],
+            },
+            post: {
+                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            },
+        })
+
+        router.actions.push(`${urls.group(groupTypeIndex, groupKey, true, 'events')}#sessionRecordingId=non-existent`)
+
+        return <App />
+    },
 }

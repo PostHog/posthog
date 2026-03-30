@@ -1,72 +1,58 @@
-# hadolint global ignore=DL3004
-
-# hadolint doesn't like changes to this file, but it is only used for local dev
-
-# Defines the environment you're dropped into with codespaces
-# I've take
-# https://github.com/microsoft/vscode-dev-containers/blob/main/containers/python-3/.devcontainer/Dockerfile
-# and surrounding files as inspiration. I'm extending their image rather than
-# building from e.g. the official python docker images as there appears to be
-# quite a bit done as part of the vscode images, presumably to make the
-# experience as rich as possible. Perhaps later down the line it might be worth
-# rolling our own
+# PostHog Codespaces development environment
 #
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.11-bookworm
+# Lean image — devcontainer features handle Rust, gh CLI, sshd, and
+# Docker-in-Docker. This Dockerfile installs system deps, uv, Node, and
+# pre-installs Python + JS dependencies for faster startup.
 
-# Make sure all exit codes on pipes cause failures
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-22.04
+
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Set up docker in docker as per
-# https://github.com/microsoft/vscode-dev-containers/blob/main/script-library/docs/docker-in-docker.md
-COPY .devcontainer/library-scripts /tmp/library-scripts
-
-ENV DOCKER_BUILDKIT=1
-RUN /tmp/library-scripts/docker-in-docker-debian.sh
-# this runs as root
-# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
-ENTRYPOINT ["/usr/local/share/docker-init.sh"]
-VOLUME [ "/var/lib/docker" ]
-# nosemgrep: dockerfile.security.missing-user.missing-user
-CMD ["sleep", "infinity"]
-
-# Add in some useful dev cli tools
-# hadolint ignore=DL3008
-RUN apt-get update \
-    && apt-get -y install --no-install-recommends \
-    # Add in useful db debugging tools
-    "postgresql-client=15+*" \
-    # needed for posthog to run
-    netcat-openbsd brotli curl \
+# System packages required by PostHog Python deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential=12.9ubuntu3 \
+    libpq-dev=14.22-0ubuntu0.22.04.1 \
+    libxml2-dev=2.9.13+dfsg-1ubuntu0.11 \
+    libxmlsec1-dev=1.2.33-1build2 \
+    libxmlsec1-openssl=1.2.33-1build2 \
+    pkg-config=0.29.2-1ubuntu3 \
+    libssl-dev=3.0.2-0ubuntu1.21 \
+    libffi-dev=3.4.2-4 \
+    postgresql-client=14+238 \
+    netcat-openbsd=1.218-4ubuntu1 \
+    brotli=1.0.9-2build6 \
+    curl=7.81.0-1ubuntu1.23 \
+    unzip=6.0-26ubuntu3.2 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && sudo apt update \
-    && sudo apt install gh -y
+# uv — Python package manager
+COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /usr/local/bin/uv
 
-# Install node via NVM (https://github.com/nvm-sh/nvm)
-ARG NODE_VERSION="18"
-RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
+# phrocs — process manager used by bin/start
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-linux-${ARCH}" \
+    -o /usr/local/bin/phrocs && chmod +x /usr/local/bin/phrocs
 
-# install pnpm globally, this container doesn't expose a supported shell to the pnpm installer
-# so `RUN curl -fsSL https://get.pnpm.io/install.sh | sh -` fails
-# see https://github.com/pnpm/pnpm/issues/4495
-RUN corepack enable && pnpm --version \
-    && SHELL=bash pnpm setup \
-    && source /root/.bashrc
+# Node.js via tarball (avoids a second apt-get update cycle from NodeSource)
+ARG NODE_VERSION=24.14.0
+ENV COREPACK_ENABLE_AUTO_PIN=0
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "${ARCH}" in amd64) NODE_ARCH='x64';; arm64) NODE_ARCH='arm64';; *) echo "unsupported: ${ARCH}"; exit 1;; esac && \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+    | tar xJ -C /usr/local --strip-components=1 --no-same-owner \
+    && corepack enable
 
-WORKDIR /workspace
+# rpk — Kafka topic management (pre-create topics before services start)
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://github.com/redpanda-data/redpanda/releases/download/v25.1.9/rpk-linux-${ARCH}.zip" \
+    -o /tmp/rpk.zip && unzip -o /tmp/rpk.zip -d /usr/local/bin/ rpk && rm /tmp/rpk.zip
 
-# Compile and install Python dependencies.
-#
-# Notes:
-#
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
-#
-# - we need few additional OS packages for this. Let's install
-#   and then uninstall them when the compilation is completed.
+WORKDIR /workspaces/posthog
+
+# Pre-install Python dependencies (cached layer — rebuilds only when lockfile changes)
 COPY pyproject.toml uv.lock ./
-RUN --mount=from=ghcr.io/astral-sh/uv:0.10.12,source=/uv,target=/bin/uv \
-    uv sync
+RUN uv sync
+
+# Node dependencies are installed in on-create.sh (pnpm workspace
+# requires the full source tree with all workspace package.json files)
