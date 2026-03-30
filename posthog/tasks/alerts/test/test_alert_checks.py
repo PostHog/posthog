@@ -1221,5 +1221,12 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
         assert completed_kwargs["extra_properties"] == {
             "calculation_interval": calculation_interval,
             **(expected_error_extra or {}),
+            **(
+                {"error_origin": completed_kwargs["extra_properties"]["error_origin"]}
+                if side_effect is not None
+                else {}
+            ),
         }
+        if side_effect is not None:
+            assert completed_kwargs["extra_properties"]["error_origin"]
         assert mock_slo_completed.call_args.kwargs["properties"].duration_ms >= 0
