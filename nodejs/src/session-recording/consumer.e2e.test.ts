@@ -846,7 +846,9 @@ describe('Session Recording Consumer Integration', () => {
             hub as any,
             hub.postgres,
             kafkaMetadataProducer,
-            kafkaMessageProducer
+            kafkaMessageProducer,
+            hub.redisPool,
+            hub.redisPool
         )
 
         return { ingester, kafkaMetadataProducer }
