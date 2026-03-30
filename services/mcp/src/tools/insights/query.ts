@@ -33,7 +33,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         throw new Error(`Failed to query insight: ${queryResult.error.message}`)
     }
 
-    const posthogUrl = `${context.api.getProjectBaseUrl(projectId)}/insights/${insightResult.data.short_id}`
+    const path = `/insights/${insightResult.data.short_id}`
     const queryInfo = analyzeQuery(insightResult.data.query)
 
     // Format results based on the query type
@@ -41,24 +41,26 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     // The UI app infers the visualization type from the data structure
     if (queryInfo.visualization === 'trends' || queryInfo.visualization === 'funnel') {
         return withPostHogUrl(
+            context,
             {
                 query: queryInfo.innerQuery || insightResult.data.query,
                 insight: {
-                    url: posthogUrl,
+                    url: path,
                     ...insightResult.data,
                 },
                 results: queryResult.data.results,
             },
-            posthogUrl
+            path
         )
     }
 
     // HogQL/table results have columns and results arrays
     return withPostHogUrl(
+        context,
         {
             query: insightResult.data.query,
             insight: {
-                url: posthogUrl,
+                url: path,
                 ...insightResult.data,
             },
             results: {
@@ -66,7 +68,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
                 results: queryResult.data.results || [],
             },
         },
-        posthogUrl
+        path
     )
 }
 

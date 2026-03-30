@@ -42,10 +42,7 @@ export const getLLMCostsHandler: ToolBase<typeof schema, Result>['handler'] = as
     if (!costsResult.success) {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }
-    return withPostHogUrl(
-        { results: costsResult.data.results },
-        `${context.api.getProjectBaseUrl(String(projectId))}/llm-observability`
-    )
+    return withPostHogUrl(context, { results: costsResult.data.results }, '/llm-observability')
 }
 
 export default (): ToolBase<typeof schema, Result> =>

@@ -33,10 +33,7 @@ export const errorDetailsHandler: ToolBase<typeof schema, Result>['handler'] = a
         throw new Error(`Failed to get error details: ${errorsResult.error.message}`)
     }
 
-    return withPostHogUrl(
-        { results: errorsResult.data.results },
-        `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${issueId}`
-    )
+    return withPostHogUrl(context, { results: errorsResult.data.results }, `/error_tracking/${issueId}`)
 }
 
 export default (): ToolBase<typeof schema, Result> =>

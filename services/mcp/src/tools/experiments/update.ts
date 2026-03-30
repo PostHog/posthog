@@ -29,10 +29,7 @@ export const updateHandler: Tool<typeof schema, Result>['handler'] = async (cont
         throw new Error(`Failed to update experiment: ${updateResult.error.message}`)
     }
 
-    return withPostHogUrl(
-        updateResult.data,
-        `${context.api.getProjectBaseUrl(projectId)}/experiments/${updateResult.data.id}`
-    )
+    return withPostHogUrl(context, updateResult.data, `/experiments/${updateResult.data.id}`)
 }
 
 const definition = getToolDefinition('experiment-update')

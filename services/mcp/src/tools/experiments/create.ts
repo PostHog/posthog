@@ -28,7 +28,7 @@ export const createExperimentHandler: ToolBase<typeof schema, Result>['handler']
     }
 
     const experiment = result.data
-    return withPostHogUrl(experiment, `${context.api.getProjectBaseUrl(projectId)}/experiments/${experiment.id}`)
+    return withPostHogUrl(context, experiment, `/experiments/${experiment.id}`)
 }
 
 export default (): ToolBase<typeof schema, Result> =>

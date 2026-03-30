@@ -34,10 +34,7 @@ export const listErrorsHandler: ToolBase<typeof schema, Result>['handler'] = asy
         throw new Error(`Failed to list errors: ${errorsResult.error.message}`)
     }
 
-    return withPostHogUrl(
-        { results: errorsResult.data.results },
-        `${context.api.getProjectBaseUrl(projectId)}/error_tracking`
-    )
+    return withPostHogUrl(context, { results: errorsResult.data.results }, '/error_tracking')
 }
 
 export default (): ToolBase<typeof schema, Result> =>

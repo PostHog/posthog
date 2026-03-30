@@ -28,7 +28,7 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
 
     const baseUrl = context.api.getProjectBaseUrl(projectId)
     const queryParam = encodeURIComponent(JSON.stringify(query))
-    const posthogUrl = `${baseUrl}/insights/new?q=${queryParam}`
+    const path = `${baseUrl}/insights/new?q=${queryParam}`
 
     const queryInfo = analyzeQuery(query)
 
@@ -42,16 +42,18 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
         queryInfo.visualization === 'paths'
     ) {
         return withPostHogUrl(
+            context,
             {
                 query: queryInfo.innerQuery || query,
                 results: queryResult.data.results,
             },
-            posthogUrl
+            path
         )
     }
 
     // HogQL/table results have columns and results arrays
     return withPostHogUrl(
+        context,
         {
             query,
             results: {
@@ -59,7 +61,7 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
                 results: queryResult.data.results || [],
             },
         },
-        posthogUrl
+        path
     )
 }
 

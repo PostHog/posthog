@@ -25,7 +25,7 @@ export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (
         throw new Error(`Failed to get experiments: ${results.error.message}`)
     }
 
-    return withPostHogUrl({ results: results.data }, `${context.api.getProjectBaseUrl(projectId)}/experiments`)
+    return withPostHogUrl(context, { results: results.data }, '/experiments')
 }
 
 export default (): ToolBase<typeof schema, Result> =>

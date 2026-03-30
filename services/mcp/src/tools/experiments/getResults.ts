@@ -35,13 +35,14 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data
 
     return withPostHogUrl(
+        context,
         transformExperimentResults({
             experiment,
             primaryMetricsResults,
             secondaryMetricsResults,
             exposures,
         }),
-        `${context.api.getProjectBaseUrl(projectId)}/experiments/${params.experimentId}`
+        `/experiments/${params.experimentId}`
     )
 }
 
