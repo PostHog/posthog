@@ -458,6 +458,10 @@ export class HogFlowExecutorService {
 
                     // Key exists - check if it's our own invocation (legitimate retry)
                     const existingId = await client.get(dedupKey)
+                    if (existingId === null) {
+                        // Key expired between SET and GET - fail open
+                        return false
+                    }
                     return existingId !== invocationId
                 }
             )

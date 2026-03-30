@@ -1788,6 +1788,40 @@ describe('Hogflow Executor', () => {
         })
     })
 
+    function createTestExecutor(redis?: any): HogFlowExecutorService {
+        return new HogFlowExecutorService(
+            new HogFlowFunctionsService(
+                hub.SITE_URL,
+                new HogFunctionTemplateManagerService(hub.postgres),
+                new HogExecutorService(
+                    {
+                        hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                        googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                        fetchRetries: hub.CDP_FETCH_RETRIES,
+                        fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                        fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                    },
+                    { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                    new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                    new EmailService(
+                        {
+                            sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                            sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                            sesRegion: hub.SES_REGION,
+                            sesEndpoint: hub.SES_ENDPOINT,
+                        },
+                        hub.integrationManager,
+                        hub.ENCRYPTION_SALT_KEYS,
+                        hub.SITE_URL
+                    ),
+                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                )
+            ),
+            new RecipientPreferencesService(new RecipientsManagerService(hub.postgres)),
+            redis
+        )
+    }
+
     describe('ghost run reproduction - March 18-19 incident', () => {
         // This test reproduces the exact production scenario from the March 18-19
         // Cyclotron cross-routing incident. A workflow with trigger -> function -> delay
@@ -1852,38 +1886,7 @@ describe('Hogflow Executor', () => {
         })
 
         it('without dedup: all 4 invocations execute the function action (the bug)', async () => {
-            // Executor without Redis - no deduplication
-            const executorWithoutDedup = new HogFlowExecutorService(
-                new HogFlowFunctionsService(
-                    hub.SITE_URL,
-                    new HogFunctionTemplateManagerService(hub.postgres),
-                    new HogExecutorService(
-                        {
-                            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                            googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            fetchRetries: hub.CDP_FETCH_RETRIES,
-                            fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                            fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                        },
-                        { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-                        new EmailService(
-                            {
-                                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                                sesRegion: hub.SES_REGION,
-                                sesEndpoint: hub.SES_ENDPOINT,
-                            },
-                            hub.integrationManager,
-                            hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
-                        ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-                    )
-                ),
-                new RecipientPreferencesService(new RecipientsManagerService(hub.postgres))
-                // No Redis - dedup disabled
-            )
+            const executorWithoutDedup = createTestExecutor()
 
             const sharedEvent = { ...createHogExecutionGlobals().event, uuid: 'user-signup-event-001' }
 
@@ -1931,37 +1934,7 @@ describe('Hogflow Executor', () => {
                 }),
             }
 
-            const executorWithDedup = new HogFlowExecutorService(
-                new HogFlowFunctionsService(
-                    hub.SITE_URL,
-                    new HogFunctionTemplateManagerService(hub.postgres),
-                    new HogExecutorService(
-                        {
-                            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                            googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            fetchRetries: hub.CDP_FETCH_RETRIES,
-                            fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                            fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                        },
-                        { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-                        new EmailService(
-                            {
-                                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                                sesRegion: hub.SES_REGION,
-                                sesEndpoint: hub.SES_ENDPOINT,
-                            },
-                            hub.integrationManager,
-                            hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
-                        ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-                    )
-                ),
-                new RecipientPreferencesService(new RecipientsManagerService(hub.postgres)),
-                mockRedis as any
-            )
+            const executorWithDedup = createTestExecutor(mockRedis as any)
 
             const sharedEvent = { ...createHogExecutionGlobals().event, uuid: 'user-signup-event-002' }
 
@@ -2054,37 +2027,7 @@ describe('Hogflow Executor', () => {
                 })
                 .build()
 
-            executor = new HogFlowExecutorService(
-                new HogFlowFunctionsService(
-                    hub.SITE_URL,
-                    new HogFunctionTemplateManagerService(hub.postgres),
-                    new HogExecutorService(
-                        {
-                            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                            googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            fetchRetries: hub.CDP_FETCH_RETRIES,
-                            fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                            fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                        },
-                        { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-                        new EmailService(
-                            {
-                                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                                sesRegion: hub.SES_REGION,
-                                sesEndpoint: hub.SES_ENDPOINT,
-                            },
-                            hub.integrationManager,
-                            hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
-                        ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-                    )
-                ),
-                new RecipientPreferencesService(new RecipientsManagerService(hub.postgres)),
-                mockRedis
-            )
+            executor = createTestExecutor(mockRedis)
         })
 
         it('allows the first invocation to execute', async () => {
