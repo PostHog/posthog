@@ -7,13 +7,21 @@ from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
-def _zscore_to_probability(z_score: float) -> float:
-    """Convert a z-score to a [0, 1] anomaly probability using the error function.
+def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
+    """Normalize a z-score to a [0, 1] anomaly probability.
 
-    Uses the same erf-based approach as pyod's predict_proba so that
-    probability scores are comparable across all detector types.
+    Uses pyod's 'unify' approach: standardize the raw z-score against the
+    distribution of z-scores observed in the training window, then apply erf.
+    This asks "how unusual is this z-score compared to what we normally see?"
+    rather than mapping the raw z-score directly (which produces a fixed ~5%
+    false-positive rate regardless of data stability).
     """
-    return float(erf(z_score / np.sqrt(2)))
+    mean_z = float(window_zscores.mean())
+    std_z = float(window_zscores.std())
+    if std_z == 0:
+        return 1.0 if z_score > mean_z else 0.0
+    standardized = (z_score - mean_z) / std_z
+    return float(np.clip(erf(standardized / np.sqrt(2)), 0.0, 1.0))
 
 
 @register_detector(DetectorType.ZSCORE)
@@ -24,8 +32,8 @@ class ZScoreDetector(BaseDetector):
     Detects anomalies by calculating how many standard deviations
     a value is from the rolling mean.
 
-    Scores are normalized to [0, 1] probabilities using the error
-    function (same approach as pyod's predict_proba).
+    Scores are normalized to [0, 1] probabilities using pyod's 'unify'
+    approach (standardize against training window z-scores, then erf).
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
@@ -61,7 +69,8 @@ class ZScoreDetector(BaseDetector):
             )
 
         z_score = abs((current_value - mean) / std)
-        prob = _zscore_to_probability(z_score)
+        window_zscores = np.abs((window_data - mean) / std)
+        prob = _zscore_to_probability(z_score, window_zscores)
 
         return DetectionResult(
             is_anomaly=prob > threshold,
@@ -106,7 +115,8 @@ class ZScoreDetector(BaseDetector):
                 continue
 
             z_score = abs((current_val - mean) / std)
-            prob = _zscore_to_probability(z_score)
+            window_zscores = np.abs((window_data - mean) / std)
+            prob = _zscore_to_probability(z_score, window_zscores)
             scores.append(prob)
 
             if prob > threshold:

@@ -13,17 +13,19 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
-from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
-from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
 from posthog.temporal.event_screenshots import WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS
-from posthog.temporal.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
-from posthog.temporal.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.llm_analytics import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
-from posthog.temporal.rasterize_recording import WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
+from posthog.temporal.session_replay.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.enforce_max_replay_retention import (
+    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+)
+from posthog.temporal.session_replay.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.rasterize_recording import WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS

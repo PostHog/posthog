@@ -75,7 +75,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
+from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
 
 logger = structlog.get_logger(__name__)

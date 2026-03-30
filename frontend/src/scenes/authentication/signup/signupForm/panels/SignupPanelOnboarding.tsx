@@ -16,7 +16,9 @@ const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 export function SignupPanelOnboarding(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { setSignupPanelOnboardingManualErrors } = useActions(signupLogic)
-    const { isSignupPanelOnboardingSubmitting, challengeRequired, turnstileSiteKey } = useValues(signupLogic)
+    const { isSignupPanelOnboardingSubmitting, challengeRequired, turnstileSiteKey, turnstileToken, signupPanelEmail } =
+        useValues(signupLogic)
+    const { setTurnstileToken } = useActions(signupLogic)
 
     return (
         <div className="deprecated-space-y-4 Signup__panel__onboarding">
@@ -47,7 +49,12 @@ export function SignupPanelOnboarding(): JSX.Element | null {
                 <div className="divider" />
 
                 {challengeRequired && turnstileSiteKey ? (
-                    <TurnstileChallenge siteKey={turnstileSiteKey} />
+                    <TurnstileChallenge
+                        siteKey={turnstileSiteKey}
+                        onSuccess={setTurnstileToken}
+                        tokenReceived={!!turnstileToken}
+                        email={signupPanelEmail.email}
+                    />
                 ) : (
                     <LemonButton
                         fullWidth

@@ -1717,16 +1717,18 @@ export const StickinessComputationModes = {
 
 export type StickinessComputationMode = (typeof StickinessComputationModes)[keyof typeof StickinessComputationModes]
 
+export interface StickinessCriteria {
+    operator: StickinessOperator
+    value: integer
+}
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
-    stickinessCriteria?: {
-        operator: StickinessOperator
-        value: integer
-    }
+    stickinessCriteria?: StickinessCriteria
     computedAs?: StickinessComputationMode
     /**
      * Whether result datasets are associated by their values or by their order.
