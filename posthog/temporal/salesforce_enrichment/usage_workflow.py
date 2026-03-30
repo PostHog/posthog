@@ -148,13 +148,13 @@ async def fetch_salesforce_org_ids_activity() -> list[SalesforceOrgMapping]:
             )
             for m in cached_mappings
         ]
-        parse_duration_ms = (time.monotonic() - parse_start) * 1000
+        mapping_duration_ms = (time.monotonic() - parse_start) * 1000
 
         logger.info(
             "org_mappings_fetched_from_cache",
             total_mappings=len(mappings),
             redis_duration_ms=round(redis_duration_ms, 1),
-            parse_duration_ms=round(parse_duration_ms, 1),
+            mapping_duration_ms=round(mapping_duration_ms, 1),
         )
         return mappings
 

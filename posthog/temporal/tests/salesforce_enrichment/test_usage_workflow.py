@@ -238,23 +238,13 @@ class TestFetchSalesforceOrgIdsActivity(TestCase):
     @patch(f"{WORKFLOW_MODULE}.get_org_mappings_from_redis", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_malformed_cache_entry_raises_key_error(self, _mock_close, mock_get_mappings):
-        mock_get_mappings.return_value = [
-            {"salesforce_account_id": "001ABC"},  # Missing posthog_org_id
-        ]
-
-        with pytest.raises(KeyError, match="posthog_org_id"):
-            await fetch_salesforce_org_ids_activity()
-
-    @pytest.mark.asyncio
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_from_redis", new_callable=AsyncMock)
-    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_malformed_cache_entry_missing_account_id_raises(self, _mock_close, mock_get_mappings):
-        mock_get_mappings.return_value = [
-            {"posthog_org_id": "uuid-1"},  # Missing salesforce_account_id
-        ]
-
-        with pytest.raises(KeyError, match="salesforce_account_id"):
-            await fetch_salesforce_org_ids_activity()
+        for entry, missing_key in [
+            ({"salesforce_account_id": "001ABC"}, "posthog_org_id"),
+            ({"posthog_org_id": "uuid-1"}, "salesforce_account_id"),
+        ]:
+            mock_get_mappings.return_value = [entry]
+            with pytest.raises(KeyError, match=missing_key):
+                await fetch_salesforce_org_ids_activity()
 
 
 class TestUpdateSalesforceUsageActivity(TestCase):
