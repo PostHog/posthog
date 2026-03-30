@@ -140,7 +140,6 @@ class TestBuildAuditQueryCommand(TestCase):
         self.assertIn("LIMIT 10", cmd)
 
 
-
 class TestBuildExecPrefix(TestCase):
     def test_returns_correct_format(self):
         self.assertEqual(

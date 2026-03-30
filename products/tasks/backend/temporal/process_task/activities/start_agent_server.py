@@ -7,26 +7,18 @@ from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import Task
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.services.sandbox import Sandbox, SandboxProtocol
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.utils import get_sandbox_mcp_configs
+from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log, get_sandbox_mcp_configs
 
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
 
 
-def _format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
-    preview = ", ".join(domains[:limit])
-    remaining = len(domains) - limit
-    if remaining > 0:
-        return f"{preview}, +{remaining} more"
-    return preview
-
-
-def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: Sandbox) -> None:
+def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
     try:
         result = sandbox.execute("tail -n 20 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
     except Exception:
@@ -38,7 +30,7 @@ def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: Sandbox) -> None
         emit_agent_log(ctx.run_id, "debug", f"agentsh log tail:\n{log_tail}")
 
 
-def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: Sandbox) -> None:
+def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
     try:
         result = sandbox.execute("tail -n 40 /tmp/agent-server.log 2>/dev/null || true", timeout_seconds=5)
     except Exception:
@@ -112,7 +104,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Applying agentsh network policy for '{environment_name}' with allowlist: {_format_allowed_domains_for_log(ctx.allowed_domains)}",
+                f"Applying agentsh network policy for '{environment_name}' with allowlist: {format_allowed_domains_for_log(ctx.allowed_domains)}",
             )
         elif ctx.sandbox_environment_id:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id

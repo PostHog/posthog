@@ -9,17 +9,7 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.models import SandboxEnvironment, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
-
-
-def _format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
-    if not domains:
-        return "none"
-
-    preview = ", ".join(domains[:limit])
-    remaining = len(domains) - limit
-    if remaining > 0:
-        return f"{preview}, +{remaining} more"
-    return preview
+from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
 
 
 @dataclass
@@ -141,7 +131,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 emit_agent_log(
                     run_id,
                     "debug",
-                    f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {_format_allowed_domains_for_log(allowed_domains)}",
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}",
                 )
             else:
                 emit_agent_log(

@@ -265,7 +265,7 @@ class TestTaskAPI(BaseTaskAPITest):
             created_by=self.user,
             name="Restricted env",
             network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
-            allowed_domains=["apogliaghi.com"],
+            allowed_domains=["example.com"],
         )
 
         response = self.client.post(

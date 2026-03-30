@@ -237,18 +237,18 @@ class TestDockerSandboxUnit:
                         "task-123",
                         "run-456",
                         "background",
-                        allowed_domains=["apogliaghi.com"],
+                        allowed_domains=["example.com"],
                     )
 
         mock_setup_agentsh.assert_called_once_with(
-            "/tmp/workspace/repos/posthog/posthog",
-            ["apogliaghi.com"],
+            "/tmp/workspace",
+            ["example.com"],
         )
         command = mock_execute.call_args_list[0][0][0]
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
         assert "env -0 > /tmp/agent-env" in command
         assert "/tmp/agentsh-env-wrapper.sh" in command
-        assert "/scripts/node_modules/.bin/agent-server" in command
+        assert "./node_modules/.bin/agent-server" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

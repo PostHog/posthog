@@ -29358,11 +29358,8 @@ export namespace Schemas {
       resume_from_run_id?: string;
       /** Follow-up user message to include in the resumed run's prompt. */
       pending_user_message?: string;
-      /**
-       * ID of a SandboxEnvironment to use for network governance
-       * @nullable
-       */
-      sandbox_environment_id?: string | null;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
     }
 
     export interface TaskRunRelayMessageRequest {

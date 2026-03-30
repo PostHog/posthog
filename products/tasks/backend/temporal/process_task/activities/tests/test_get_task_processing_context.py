@@ -94,7 +94,7 @@ class TestGetTaskProcessingContextActivity:
             created_by=test_task.created_by,
             name="Restricted env",
             network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
-            allowed_domains=["apogliaghi.com"],
+            allowed_domains=["example.com"],
         )
         task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
 
@@ -103,4 +103,4 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.sandbox_environment_name == "Restricted env"
-        assert result.allowed_domains == ["apogliaghi.com"]
+        assert result.allowed_domains == ["example.com"]

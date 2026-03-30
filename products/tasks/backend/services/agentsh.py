@@ -1,6 +1,5 @@
 from urllib.parse import urlparse
 
-
 from django.conf import settings
 
 import yaml
@@ -12,7 +11,6 @@ ENV_WRAPPER_SCRIPT = "/tmp/agentsh-env-wrapper.sh"
 AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",
-    "mcp.posthog.com",
     "api.anthropic.com",
 ]
 
@@ -140,7 +138,6 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
     for domain in _get_infrastructure_domains():
         if domain not in merged_domains:
             merged_domains.append(domain)
-
 
     allowed_ports = [443, 80, 22]
     if getattr(settings, "DEBUG", False):

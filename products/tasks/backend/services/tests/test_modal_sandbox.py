@@ -197,12 +197,12 @@ class TestModalSandboxAgentServer:
                 task_id="task-123",
                 run_id="run-456",
                 mode="background",
-                allowed_domains=["apogliaghi.com"],
+                allowed_domains=["example.com"],
             )
 
         mock_setup_agentsh.assert_called_once_with(
             "/tmp/workspace",
-            ["apogliaghi.com"],
+            ["example.com"],
         )
         command = mock_sandbox.execute.call_args_list[0][0][0]
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
