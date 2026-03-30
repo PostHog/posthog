@@ -169,7 +169,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                         }}
                         renderValue={
                             hasEvent
-                                ? () => <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
+                                ? () => <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                 : undefined
                         }
                         type="secondary"
