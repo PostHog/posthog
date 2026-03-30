@@ -401,9 +401,10 @@ jobs:
                   # Start the Node.js containers now that the database exists and migrations have run.
                   # plugins: CDP, logs (no mode = default capabilities)
                   # ingestion-general: event ingestion (ingestion-v2-combined mode)
-                  # ingestion-recordings: session recording ingestion + recording API (recordings-blob-ingestion-v2 mode)
+                  # ingestion-sessionreplay: session replay ingestion (recordings-blob-ingestion-v2 mode)
+                  # recording-api: session replay API (recording-api mode)
                   # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-recordings ingestion-error-tracking
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -421,7 +422,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-recordings ingestion-error-tracking
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -527,7 +528,8 @@ jobs:
                   docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
                   docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
                   docker logs posthog-ingestion-general-1 > playwright/test-results/docker-ingestion-general.log 2>&1 || echo "No ingestion-general container" > playwright/test-results/docker-ingestion-general.log
-                  docker logs posthog-ingestion-recordings-1 > playwright/test-results/docker-ingestion-recordings.log 2>&1 || echo "No ingestion-recordings container" > playwright/test-results/docker-ingestion-recordings.log
+                  docker logs posthog-ingestion-sessionreplay-1 > playwright/test-results/docker-ingestion-sessionreplay.log 2>&1 || echo "No ingestion-sessionreplay container" > playwright/test-results/docker-ingestion-sessionreplay.log
+                  docker logs posthog-recording-api-1 > playwright/test-results/docker-recording-api.log 2>&1 || echo "No recording-api container" > playwright/test-results/docker-recording-api.log
                   docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
 
             - name: Archive test artifacts

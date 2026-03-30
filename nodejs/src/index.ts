@@ -6,7 +6,8 @@ import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
-import { IngestionRecordingsServer } from '~/servers/ingestion-recordings-server'
+import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
+import { RecordingApiServer } from '~/servers/recording-api-server'
 import { initSuperProperties } from '~/utils/posthog'
 
 function createServer(): NodeServer {
@@ -18,8 +19,10 @@ function createServer(): NodeServer {
 
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+            return new IngestionSessionReplayServer()
+
         case PluginServerMode.recording_api:
-            return new IngestionRecordingsServer()
+            return new RecordingApiServer()
 
         case PluginServerMode.ingestion_error_tracking:
             return new ErrorTrackingServer()
