@@ -69,6 +69,8 @@ class EventFilterConfig(UUIDTModel):
             validate_filter_tree(self.filter_tree)
         if self.test_cases:
             validate_test_cases(self.test_cases)
+        if self.filter_tree and self.test_cases:
+            run_test_cases(self.filter_tree, self.test_cases)
 
     def save(self, *args, **kwargs):
         if self.filter_tree:
@@ -102,13 +104,31 @@ def prune_filter_tree(node: dict) -> dict | None:
     return node
 
 
-def validate_filter_tree(node: object, depth: int = 0, path: str = "root", _counter: list | None = None) -> None:
-    if _counter is None:
-        _counter = [0]  # mutable counter for total conditions across the tree
+def _count_conditions(node: object) -> int:
+    if not isinstance(node, dict):
+        return 0
+    node_type = node.get("type")
+    if node_type == "condition":
+        return 1
+    if node_type == "not":
+        return _count_conditions(node.get("child"))
+    if node_type in ("and", "or"):
+        return sum(_count_conditions(c) for c in node.get("children", []))
+    return 0
 
-    if depth > MAX_TREE_DEPTH:
-        raise ValidationError({"filter_tree": f"Tree exceeds maximum depth of {MAX_TREE_DEPTH} at {path}."})
 
+def _check_max_depth(node: object, depth: int = 0) -> int:
+    if not isinstance(node, dict):
+        return depth
+    node_type = node.get("type")
+    if node_type == "not":
+        return _check_max_depth(node.get("child"), depth + 1)
+    if node_type in ("and", "or"):
+        return max((_check_max_depth(c, depth + 1) for c in node.get("children", [])), default=depth)
+    return depth
+
+
+def _validate_node(node: object, path: str = "root") -> None:
     if not isinstance(node, dict):
         raise ValidationError({"filter_tree": f"Node at {path} must be an object."})
 
@@ -119,20 +139,29 @@ def validate_filter_tree(node: object, depth: int = 0, path: str = "root", _coun
         )
 
     if node_type == "condition":
-        _counter[0] += 1
-        if _counter[0] > MAX_CONDITIONS:
-            raise ValidationError({"filter_tree": f"Filter exceeds maximum of {MAX_CONDITIONS} conditions."})
         _validate_condition(node, path)
     elif node_type == "not":
         if "child" not in node:
             raise ValidationError({"filter_tree": f"Node at {path}: 'not' node must have a 'child'."})
-        validate_filter_tree(node["child"], depth + 1, f"{path}.child", _counter)
+        _validate_node(node["child"], f"{path}.child")
     elif node_type in ("and", "or"):
         children = node.get("children")
         if not isinstance(children, list):
             raise ValidationError({"filter_tree": f"Node at {path}: '{node_type}' node must have a 'children' list."})
         for i, child in enumerate(children):
-            validate_filter_tree(child, depth + 1, f"{path}.children[{i}]", _counter)
+            _validate_node(child, f"{path}.children[{i}]")
+
+
+def validate_filter_tree(node: object) -> None:
+    condition_count = _count_conditions(node)
+    if condition_count > MAX_CONDITIONS:
+        raise ValidationError({"filter_tree": f"Filter exceeds maximum of {MAX_CONDITIONS} conditions."})
+
+    max_depth = _check_max_depth(node)
+    if max_depth > MAX_TREE_DEPTH:
+        raise ValidationError({"filter_tree": f"Tree exceeds maximum depth of {MAX_TREE_DEPTH}."})
+
+    _validate_node(node)
 
 
 def _validate_condition(node: dict, path: str) -> None:
@@ -175,6 +204,19 @@ def validate_test_cases(test_cases: object) -> None:
         for field in ("event_name", "distinct_id"):
             if field in tc and not isinstance(tc[field], str):
                 raise ValidationError({"test_cases": f"Test case {i}: {field} must be a string."})
+
+
+def run_test_cases(filter_tree: dict, test_cases: list[dict]) -> None:
+    failures: list[str] = []
+    for i, tc in enumerate(test_cases):
+        event = {k: v for k, v in tc.items() if k != "expected_result"}
+        should_drop = evaluate_filter_tree(filter_tree, event)
+        actual = "drop" if should_drop else "ingest"
+        expected = tc["expected_result"]
+        if actual != expected:
+            failures.append(f"Test case {i}: expected '{expected}' but got '{actual}' for {event}")
+    if failures:
+        raise ValidationError({"test_cases": failures})
 
 
 def tree_has_conditions(node: object) -> bool:
