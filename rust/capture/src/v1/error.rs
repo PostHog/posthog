@@ -62,6 +62,8 @@ pub enum Error {
     InvalidEventTimestamp,
     #[error("event properties is not a JSON object")]
     MalformedEventProperties,
+    #[error("$performance_event is not accepted")]
+    DroppedPerformanceEvent,
 
     // 401 - authentication_error
     #[error("API token is not valid: {0}")]
@@ -83,9 +85,11 @@ pub enum Error {
     #[error("body read stalled after receiving {0} bytes")]
     BodyReadTimeout(usize),
 
-    // 429 - rate_limit_error
+    // 402 - billing_error (non-retryable, unlike 429)
     #[error("billing limit exceeded")]
     BillingLimitExceeded,
+
+    // 429 - rate_limit_error
     #[error("rate limited: {0}")]
     RateLimited(String),
 
@@ -121,6 +125,7 @@ impl Error {
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
             Self::MalformedEventProperties => "malformed_event_properties",
+            Self::DroppedPerformanceEvent => "dropped_performance_event",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
             Self::InvalidApiToken(_) => "invalid_api_token",
@@ -140,6 +145,7 @@ impl Error {
             Self::RequestDecodingError(_) => "Failed to decode request body.".to_string(),
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
+            Self::BillingLimitExceeded => "Billing quota exceeded. Events are being dropped. Upgrade your plan to resume ingestion.".to_string(),
             Self::RateLimited(_) => "Rate limit exceeded.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
@@ -152,7 +158,10 @@ impl Error {
 
     // TODO: turn into a per-error match arm with specific doc links
     pub fn error_uri(&self) -> &'static str {
-        "https://posthog.com/docs/api"
+        match self {
+            Self::BillingLimitExceeded => "https://posthog.com/docs/billing/limits",
+            _ => "https://posthog.com/docs/api",
+        }
     }
 
     pub fn log_level(&self) -> Level {
@@ -174,6 +183,7 @@ impl Error {
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
+            | Self::DroppedPerformanceEvent
             | Self::RequestTimeout
             | Self::InvalidApiToken(_)
             | Self::PayloadTooLarge(_)
@@ -231,7 +241,8 @@ impl Error {
             | Self::MissingEventUuid
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
-            | Self::MalformedEventProperties => StatusCode::BAD_REQUEST,
+            | Self::MalformedEventProperties
+            | Self::DroppedPerformanceEvent => StatusCode::BAD_REQUEST,
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
@@ -243,7 +254,9 @@ impl Error {
                 StatusCode::UNSUPPORTED_MEDIA_TYPE
             }
 
-            Self::BillingLimitExceeded | Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
+            Self::BillingLimitExceeded => StatusCode::PAYMENT_REQUIRED,
+
+            Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
 
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
@@ -259,7 +272,7 @@ impl Error {
         headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
         match self {
-            Self::BillingLimitExceeded | Self::RateLimited(_) => {
+            Self::RateLimited(_) => {
                 headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
             }
             Self::InternalError(_) | Self::ServiceUnavailable(_) => {

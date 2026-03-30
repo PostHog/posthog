@@ -98,6 +98,10 @@ impl HasEventName for WrappedEvent {
 ///
 /// Checks needed at construction time (from legacy parity):
 /// - `Context.capture_internal`: if true, redact `ip` to "127.0.0.1"
+///   AND force the Kafka partition key to `token:127.0.0.1` to match
+///   the IP redaction (otherwise the key references a real IP while the
+///   payload carries a redacted one). See `CapturedEvent::key()` in
+///   `common_types/event.rs` for the v0 key derivation pattern.
 /// - `Options.cookieless_mode`: controls Kafka partition key selection
 ///   (true -> partition by token:ip, false -> token:distinct_id).
 ///   Non-boolean values are rejected at deserialization by serde.

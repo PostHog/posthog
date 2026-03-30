@@ -48,5 +48,8 @@ pub(super) const CAPTURE_V1_BODY_READ_TIMEOUT: &str = "capture_v1_body_read_time
 // Fallback values
 // ---------------------------------------------------------------------------
 
+/// Histogram tracking end-to-end response time for v1 analytics requests.
+pub(crate) const CAPTURE_V1_RESPONSE_TIME: &str = "capture_v1_response_time_seconds";
+
 /// Fallback path label used in error metrics when no request context is available.
 pub(super) const CAPTURE_V1_UNKNOWN_PATH: &str = "unknown";

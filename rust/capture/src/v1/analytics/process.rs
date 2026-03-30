@@ -186,6 +186,9 @@ fn is_distinct_id_illegal(distinct_id: &str) -> bool {
 }
 
 fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
+    if event.event == "$performance_event" {
+        return Err(Error::DroppedPerformanceEvent);
+    }
     if event.event.is_empty() {
         return Err(Error::MissingEventName);
     }
@@ -599,6 +602,56 @@ mod tests {
             validate_event(&event),
             Err(Error::InvalidEventTimestamp)
         ));
+    }
+
+    #[test]
+    fn event_performance_event_rejected() {
+        let mut event = valid_event();
+        event.event = "$performance_event".to_string();
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::DroppedPerformanceEvent)
+        ));
+    }
+
+    #[test]
+    fn validate_events_performance_event_dropped_others_ok() {
+        let ctx = validation_context();
+        let perf = Event {
+            event: "$performance_event".to_string(),
+            ..valid_event()
+        };
+        let perf_uuid = perf.uuid.clone();
+        let normal = valid_event();
+        let normal_uuid = normal.uuid.clone();
+        let batch = valid_batch(vec![perf, normal]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 2);
+        let p = events.get(&perf_uuid).unwrap();
+        assert_eq!(p.result, EventResult::Drop);
+        assert_eq!(p.details, Some("dropped_performance_event"));
+        let n = events.get(&normal_uuid).unwrap();
+        assert_eq!(n.result, EventResult::Ok);
+    }
+
+    #[test]
+    fn validate_events_all_performance_events_dropped() {
+        let ctx = validation_context();
+        let p1 = Event {
+            event: "$performance_event".to_string(),
+            ..valid_event()
+        };
+        let p2 = Event {
+            event: "$performance_event".to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![p1, p2]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 2);
+        for ev in events.values() {
+            assert_eq!(ev.result, EventResult::Drop);
+            assert_eq!(ev.details, Some("dropped_performance_event"));
+        }
     }
 
     // --- validate_events ---
