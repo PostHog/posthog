@@ -20,7 +20,6 @@ from rest_framework.request import Request
 
 from posthog.schema import SharingConfigurationSettings
 
-from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
@@ -34,7 +33,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.models.user import User
@@ -44,6 +42,9 @@ from posthog.session_recordings.session_recording_api import SessionRecordingSer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
+
+from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -774,13 +775,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     session_id=session_recording_id, team=resource.team
                 )
 
-                # Create a JWT for the recording
+                # Create a scoped JWT for the recording
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Session Recording"
@@ -831,13 +832,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound("Invalid heatmap export - missing heatmap_type")
 
             try:
-                # Create a JWT to access the heatmap data
+                # Create a scoped JWT to access the heatmap data
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Heatmap"

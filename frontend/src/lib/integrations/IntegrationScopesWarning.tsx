@@ -6,14 +6,14 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 export function IntegrationScopesWarning({
     integration,
     schema,
 }: {
     integration: IntegrationType
-    schema?: CyclotronJobInputSchemaType
+    schema?: { requiredScopes?: string }
 }): JSX.Element {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,

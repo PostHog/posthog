@@ -9,7 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
@@ -109,7 +109,7 @@ def _fetch_and_format_generation(
         """
     )
 
-    with tags_context(product=Product.LLM_ANALYTICS, team_id=team.id):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
             query_type="GenerationForSummarization",
             query=query,

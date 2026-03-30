@@ -158,7 +158,6 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `plan` - plan
  * `execution` - execution
  * `survey` - survey
- * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
  * `llm_analytics` - llm_analytics
@@ -174,7 +173,6 @@ export const AgentModeEnumApi = {
     Plan: 'plan',
     Execution: 'execution',
     Survey: 'survey',
-    Onboarding: 'onboarding',
     Research: 'research',
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',

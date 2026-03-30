@@ -19,7 +19,7 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -33,6 +33,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
@@ -42,6 +43,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { queryExportContext } from '~/queries/query'
@@ -138,13 +140,35 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     types: string[][]
 }
 
+type LegacyDataVisualizationNode = DataVisualizationNode & { connectionId?: string }
+
+function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
+    return {
+        ...source,
+        sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
+    }
+}
+
+function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
+    const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
+
+    return {
+        ...sanitizedSourceQuery,
+        source: normalizeRawQuerySource(sourceQuery.source),
+    }
+}
+
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
+        output_tab: values.outputActiveTab,
     }
     const connectionId = values.sourceQuery?.source.connectionId
     if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
         hash['c'] = connectionId
+        if (values.sourceQuery?.source.sendRawQuery) {
+            hash['raw'] = '1'
+        }
     }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
@@ -157,6 +181,14 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     }
 
     return hash
+}
+
+function parseOutputTab(value: unknown): OutputTab | null {
+    if (Object.values(OutputTab).includes(value as OutputTab)) {
+        return value as OutputTab
+    }
+
+    return null
 }
 
 export function getDisplayTypeToSaveInsight(
@@ -242,10 +274,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
         saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
-        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string) => ({
+        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string, isTest = false) => ({
             fromDraft,
             name,
             materializeAfterSave,
+            isTest,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
@@ -295,6 +328,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
+        setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -328,7 +363,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 display: ChartDisplayType.Auto,
             } as DataVisualizationNode,
             {
-                setSourceQuery: (_, { sourceQuery }) => sourceQuery,
+                setSourceQuery: (_, { sourceQuery }) => sanitizeSourceQuery(sourceQuery),
             },
         ],
         lastRunQuery: [
@@ -347,6 +382,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
+            },
+        ],
+        dashboardId: [
+            null as number | null,
+            {
+                setDashboardId: (_, { dashboardId }) => dashboardId,
             },
         ],
         editingInsight: [
@@ -711,13 +752,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
+            const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
             const currentTab = values.activeTab
             if (currentTab) {
                 actions.updateTab({
                     ...currentTab,
-                    sourceQuery,
+                    sourceQuery: nextSourceQuery,
                 })
             }
+        },
+        setSendRawQuery: ({ sendRawQuery }) => {
+            const currentSourceQuery = values.sourceQuery
+
+            actions.setSourceQuery({
+                ...currentSourceQuery,
+                source: {
+                    ...currentSourceQuery.source,
+                    sendRawQuery: sendRawQuery || undefined,
+                },
+            })
+            actions.syncUrlWithQuery()
         },
         initialize: async () => {
             actions.setFinishedLoading(false)
@@ -744,7 +798,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (values.activeTab) {
                 actions.saveAsDraft(
                     {
-                        kind: NodeKind.HogQLQuery,
+                        ...values.sourceQuery.source,
                         query: queryInput,
                     },
                     viewId,
@@ -758,10 +812,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         runQuery: ({ queryOverride, switchTab }) => {
             const query = (queryOverride || values.queryInput) ?? ''
 
-            const newSource = {
+            const newSource = normalizeRawQuerySource({
                 ...values.sourceQuery.source,
                 query,
-            }
+            })
 
             actions.setSourceQuery({
                 ...values.sourceQuery,
@@ -781,15 +835,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab ? 'force_async' : 'async')
+            }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, newSource)
 
             // Mark the first query task as complete when the query is run
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+            const isStaff = values.user?.is_staff ?? false
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '' },
+                initialValues: { viewName: values.activeTab?.name || '', isTest: false },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
@@ -797,14 +852,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             <ViewEmptyState />
                         </div>
                     ) : (
-                        <LemonField name="viewName">
-                            <LemonInput
-                                data-attr="sql-editor-input-save-view-name"
-                                disabled={isLoading}
-                                placeholder="Please enter the name of the view"
-                                autoFocus
-                            />
-                        </LemonField>
+                        <>
+                            <LemonField name="viewName">
+                                <LemonInput
+                                    data-attr="sql-editor-input-save-view-name"
+                                    disabled={isLoading}
+                                    placeholder="Please enter the name of the view"
+                                    autoFocus
+                                />
+                            </LemonField>
+                            {isStaff && (
+                                <LemonField name="isTest" className="mt-2">
+                                    {({ value, onChange }) => (
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-is-test"
+                                                label="Is this view for testing only?"
+                                            />
+                                            <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
+                                    )}
+                                </LemonField>
+                            )}
+                        </>
                     ),
                 errors: {
                     viewName: (name) =>
@@ -814,19 +888,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                               ? 'Name must be valid'
                               : undefined,
                 },
-                onSubmit: async ({ viewName }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft)
+                onSubmit: async ({ viewName, isTest }) => {
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
-            const queryToSave = {
+            const queryToSave = normalizeRawQuerySource({
                 ...query,
                 query: values.queryInput ?? '',
-            }
+            })
 
             const logic = dataNodeLogic({
                 key: values.dataLogicKey,
@@ -840,6 +914,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: queryToSave,
                     types,
+                    ...(isTest ? { is_test: true } : {}),
                 })
 
                 // Saved queries are unique by team,name
@@ -915,10 +990,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 effectiveVisualizationType
             )
 
+            const dashboardId = values.dashboardId
             const insight = await insightsApi.create({
                 name,
                 query: { ...values.sourceQuery, display } as DataVisualizationNode,
                 saved: true,
+                ...(dashboardId ? { dashboards: [dashboardId] } : {}),
             })
             const logic = insightLogic({
                 dashboardItemId: insight.short_id,
@@ -930,9 +1007,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.timeouts = cache.timeouts || []
             cache.timeouts.push(timeoutId)
 
-            lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
-
-            router.actions.push(urls.insightView(insight.short_id))
+            if (dashboardId) {
+                dashboardsModel.findMounted()?.actions.updateDashboardInsight(insight)
+                dashboardLogic
+                    .findMounted({ id: dashboardId })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.success('Insight saved & added to dashboard', {
+                    button: {
+                        label: 'View Insights list',
+                        action: () => router.actions.push(urls.savedInsights()),
+                    },
+                })
+                actions.setDashboardId(null)
+                router.actions.push(urls.dashboard(dashboardId, insight.short_id))
+            } else {
+                lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
+                router.actions.push(urls.insightView(insight.short_id))
+            }
         },
         saveAsEndpoint: async () => {
             LemonDialog.openForm({
@@ -969,10 +1060,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const endpoint = await api.endpoint.create({
                     name: slugify(name),
                     description: description || undefined,
-                    query: {
+                    query: normalizeRawQuerySource({
                         ...(values.sourceQuery.source as HogQLQuery),
                         query: values.queryInput ?? '',
-                    },
+                    }),
                 })
                 lemonToast.success('Endpoint created')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
@@ -1009,11 +1100,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 loadedLogic.actions.setInsight(savedInsight, { overrideQuery: true, fromPersistentApi: true })
             }
 
-            lemonToast.info(
-                `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
-            )
-
-            router.actions.push(urls.insightView(savedInsight.short_id))
+            const dashboardId = values.dashboardId
+            if (dashboardId) {
+                dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
+                dashboardLogic
+                    .findMounted({ id: dashboardId })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.success('Insight updated', {
+                    button: {
+                        label: 'View Insights list',
+                        action: () => router.actions.push(urls.savedInsights()),
+                    },
+                })
+                actions.setDashboardId(null)
+                router.actions.push(urls.dashboard(dashboardId, savedInsight.short_id))
+            } else {
+                lemonToast.info(
+                    `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
+                )
+                router.actions.push(urls.insightView(savedInsight.short_id))
+            }
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             if (values.activeTab?.view) {
@@ -1219,7 +1325,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
                     return undefined
                 }
-                return sourceQuery.source.connectionId
+                return sourceQuery.source && 'connectionId' in sourceQuery.source
+                    ? sourceQuery.source.connectionId
+                    : undefined
             },
         ],
         selectedDirectSource: [
@@ -1227,6 +1335,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (dataWarehouseSources, selectedConnectionId): ExternalDataSource | undefined => {
                 return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
             },
+        ],
+        sendRawQueryEnabled: [
+            (s) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
         ],
         isEditingMaterializedView: [
             (s) => [s.editingView],
@@ -1315,15 +1427,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource],
-            (editingInsight, insightLoading, editingView, viewLoading, editorSource) => {
+            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource, s.dashboardId],
+            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId) => {
                 if (editingInsight) {
-                    const forceBackTo: Breadcrumb = {
-                        key: editingInsight.short_id,
-                        name: 'Back to insight',
-                        path: urls.insightView(editingInsight.short_id),
-                        iconType: 'insight/hog',
-                    }
+                    const forceBackTo: Breadcrumb = dashboardId
+                        ? {
+                              key: 'dashboard',
+                              name: 'Back to dashboard',
+                              path: urls.dashboard(dashboardId),
+                              iconType: 'dashboard',
+                          }
+                        : {
+                              key: editingInsight.short_id,
+                              name: 'Back to insight',
+                              path: urls.insightView(editingInsight.short_id),
+                              iconType: 'insight/hog',
+                          }
 
                     return {
                         forceBackTo,
@@ -1384,6 +1503,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
+                if (dashboardId) {
+                    const forceBackTo: Breadcrumb = {
+                        key: 'dashboard',
+                        name: 'Back to dashboard',
+                        path: urls.dashboard(dashboardId),
+                        iconType: 'dashboard',
+                    }
+
+                    return {
+                        forceBackTo,
+                        name: 'New SQL query',
+                        resourceType: { type: 'sql_editor' },
+                    }
+                }
+
                 return {
                     name: 'New SQL query',
                     resourceType: { type: 'sql_editor' },
@@ -1392,11 +1526,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
 
         saveAsMenuItems: [
-            (s) => [s.editorSource],
-            (editorSource): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
+            (s) => [s.editorSource, s.dashboardId],
+            (editorSource, dashboardId): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
-                    label: 'Save as insight',
+                    label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
                 }
                 const saveAsEndpointItem: SaveAsMenuItem = {
                     action: 'endpoint',
@@ -1455,6 +1589,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
+        setActiveTab: () => {
+            if (values.isEmbeddedMode || !values.activeTab) {
+                return
+            }
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
@@ -1465,6 +1605,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (searchParams.source === 'endpoint' || searchParams.source === 'insight') {
                 actions.setEditorSource(searchParams.source)
             }
+            if (searchParams.dashboard) {
+                const parsed = parseInt(searchParams.dashboard, 10)
+                if (!isNaN(parsed)) {
+                    actions.setDashboardId(parsed)
+                }
+            }
+
+            const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
+
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
@@ -1473,8 +1622,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.c &&
+                !hashParams.raw &&
                 !hashParams.view &&
                 !hashParams.insight &&
+                !hashParams.draft &&
+                !hashParams.output_tab &&
                 values.queryInput !== null
             ) {
                 return
@@ -1486,17 +1638,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 hashParams.c !== ''
                     ? hashParams.c
                     : undefined
+            const sendRawQueryFromHash =
+                connectionIdFromHash !== undefined &&
+                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
+                String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
+            const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
 
-            if (connectionIdFromHash !== currentConnectionId) {
-                const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
-                    values.sourceQuery as typeof values.sourceQuery & { connectionId?: string }
-
+            if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
                 actions.setSourceQuery({
-                    ...sourceQueryWithoutLegacyConnectionId,
+                    ...values.sourceQuery,
                     source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
+                        sendRawQuery: sendRawQueryFromHash || undefined,
                     },
                 })
             }
@@ -1504,8 +1659,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.output_tab) {
-                    actions.setActiveTab(searchParams.output_tab as OutputTab)
+                if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
+                    actions.setActiveTab(outputTabFromUrl)
                 }
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
@@ -1532,7 +1687,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
-                    actions.setActiveTab(OutputTab.Materialization)
+                    if (!outputTabFromUrl) {
+                        actions.setActiveTab(OutputTab.Materialization)
+                    }
                     actions.setViewLoading(true)
 
                     if (values.dataWarehouseSavedQueries.length === 0) {
@@ -1559,7 +1716,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')
 
-                    actions.editView(queryToOpen, view)
+                    if (outputTabFromUrl) {
+                        actions.createTab(queryToOpen, view)
+                    } else {
+                        actions.editView(queryToOpen, view)
+                    }
                     actions.setViewLoading(false)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
@@ -1602,11 +1763,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
-                    actions.editInsight(queryToOpen, insight)
                     if (insight.query) {
                         actions.setSourceQuery(insight.query as DataVisualizationNode)
                     }
-                    actions.setActiveTab(OutputTab.Visualization)
+                    actions.editInsight(queryToOpen, insight)
+                    if (!outputTabFromUrl) {
+                        actions.setActiveTab(OutputTab.Visualization)
+                    }
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
                     if (
@@ -1661,9 +1824,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                await waitUntilMonaco().then(async () => {
+                try {
+                    await waitUntilMonaco()
                     await createQueryTab()
-                })
+                } catch {
+                    // Monaco timed out - still try to create tab if monaco loaded late
+                    if (props.monaco) {
+                        await createQueryTab()
+                    }
+                }
             }
 
             if (!values.database && !values.databaseLoading && connectionIdFromHash === undefined) {

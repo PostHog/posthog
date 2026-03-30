@@ -87,6 +87,7 @@ pub async fn handle_single(
         Ok(r) => r,
         Err(e) => {
             counter!(EMBEDDING_FAILED, labels.render()).increment(1);
+            error!("Failed to handle request: {request:?}");
             return Err(e);
         }
     };

@@ -815,8 +815,8 @@ class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
     def test_denies_access_to_other_team_in_scoped_org(self):
         """OAuth token with both org and team scopes denies access to other teams in the same org"""
         response = self._do_request(f"/api/projects/{self.team2.id}/feature_flags/")
-        # Returns 404 because the user is a member of the org but the token is scoped to a different team
-        self.assertEqual(response.status_code, 404)
+        # Returns 403 because the token is scoped to a different team
+        self.assertEqual(response.status_code, 403)
 
     def test_denies_access_to_team_in_non_scoped_org(self):
         """OAuth token with both org and team scopes denies access to teams in other orgs"""

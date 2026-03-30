@@ -17,8 +17,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.utils import hash_key_value
 from posthog.settings.utils import get_list
 from posthog.utils import patchable
 
@@ -331,16 +331,6 @@ class SignupEmailPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
 
-class OnboardingIPThrottle(IPThrottle):
-    """
-    Rate limit onboarding product recommendations by IP address.
-    This endpoint uses an LLM, so we want to be conservative with rate limits.
-    """
-
-    scope = "onboarding_ip"
-    rate = "10/hour"
-
-
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -481,16 +471,6 @@ class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
 
 class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_sustained"
-    rate = "2400/hour"
-
-
-class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_burst"
-    rate = "240/minute"
-
-
-class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "web_analytics_api_sustained"
     rate = "2400/hour"
 
 
@@ -814,3 +794,13 @@ class ToolbarOAuthRefreshThrottle(IPThrottle):
 
     scope = "toolbar_oauth_refresh"
     rate = "30/minute"
+
+
+class EmailVerifyDomainThrottle(UserRateThrottle):
+    scope = "email_verify_domain"
+    rate = "6/minute"
+
+
+class EmailSendTestThrottle(UserRateThrottle):
+    scope = "email_send_test"
+    rate = "1/minute"

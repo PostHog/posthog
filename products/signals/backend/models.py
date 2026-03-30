@@ -13,12 +13,16 @@ class SignalSourceConfig(UUIDModel):
         GITHUB = "github", "GitHub"
         LINEAR = "linear", "Linear"
         ZENDESK = "zendesk", "Zendesk"
+        ERROR_TRACKING = "error_tracking", "Error tracking"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
+        ISSUE_CREATED = "issue_created", "Issue created"
+        ISSUE_REOPENED = "issue_reopened", "Issue reopened"
+        ISSUE_SPIKING = "issue_spiking", "Issue spiking"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
@@ -28,6 +32,23 @@ class SignalSourceConfig(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    @classmethod
+    def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
+        """Check whether a given signal source is enabled for a team.
+
+        LLM analytics signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
+        For everything else, the team must have a SignalSourceConfig row with enabled=True.
+        """
+        if source_product == cls.SourceProduct.LLM_ANALYTICS:
+            return True
+
+        return cls.objects.filter(
+            team_id=team_id,
+            source_product=source_product,
+            source_type=source_type,
+            enabled=True,
+        ).exists()
 
     class Meta:
         constraints = [

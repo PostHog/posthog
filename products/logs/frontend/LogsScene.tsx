@@ -15,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
@@ -55,6 +56,7 @@ const LogsSceneContent = (): JSX.Element => {
                 actions={
                     <>
                         {hasLogs && <LogsSceneFeedbackButton />}
+                        <SavedViewsButton id={tabId} />
                         <LemonButton size="small" type="secondary" icon={<IconGear />} onClick={openLogsSettings}>
                             Settings
                         </LemonButton>
@@ -95,7 +97,12 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
-                actions={<>{hasLogs && <LogsSceneFeedbackButton />}</>}
+                actions={
+                    <>
+                        {hasLogs && <LogsSceneFeedbackButton />}
+                        <SavedViewsButton id={tabId} />
+                    </>
+                }
             />
             {teamHasLogsCheckFailed && (
                 <LemonBanner

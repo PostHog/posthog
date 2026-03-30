@@ -25,7 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { CohortType, EventDefinition, GroupTypeIndex } from '~/types'
+import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
@@ -359,6 +359,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        isLocalDataLoading: [
+            (selectors) => [
+                (state, props: InfiniteListLogicProps) => {
+                    const taxonomicGroups = selectors.taxonomicGroups(state)
+                    const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
+
+                    if (group?.logic && group?.valueLoading) {
+                        return group.logic.selectors[group.valueLoading]?.(state) ?? false
+                    }
+                    return false
+                },
+            ],
+            (isLocalDataLoading: boolean) => isLocalDataLoading,
+        ],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
             (s) => [s.listGroupType, s.taxonomicGroups],
@@ -484,8 +498,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     return null
                 },
+                (_, props: InfiniteListLogicProps) => props.listGroupType,
+                (_, props: InfiniteListLogicProps) => props.showNumericalPropsOnly,
             ],
-            (rawLocalItems: (EventDefinition | CohortType)[]) => rawLocalItems,
+            (
+                rawLocalItems: (EventDefinition | CohortType)[],
+                listGroupType: TaxonomicFilterGroupType,
+                showNumericalPropsOnly: boolean
+            ) => {
+                if (
+                    showNumericalPropsOnly &&
+                    listGroupType === TaxonomicFilterGroupType.DataWarehousePersonProperties
+                ) {
+                    return (rawLocalItems || []).filter(
+                        (item) => 'property_type' in item && item.property_type === PropertyType.Numeric
+                    )
+                }
+
+                return rawLocalItems
+            },
         ],
         fuse: [
             (s) => [s.rawLocalItems, s.taxonomicGroups, s.group],

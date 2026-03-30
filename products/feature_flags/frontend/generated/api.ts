@@ -10,8 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivityLogPaginatedResponseApi,
+    CopyFlagsRequestApi,
+    CopyFlagsResponseApi,
+    DependentFlagApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagStatusResponseApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -21,7 +25,13 @@ import type {
     LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
+    PaginatedScheduledChangeListApi,
     PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    PatchedScheduledChangeApi,
+    ScheduledChangeApi,
+    ScheduledChangesListParams,
+    UserBlastRadiusRequestApi,
+    UserBlastRadiusResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -60,10 +70,16 @@ export const getFeatureFlagsCopyFlagsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/feature_flags/copy_flags/`
 }
 
-export const featureFlagsCopyFlagsCreate = async (organizationId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
+export const featureFlagsCopyFlagsCreate = async (
+    organizationId: string,
+    copyFlagsRequestApi: CopyFlagsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsResponseApi> => {
+    return apiMutator<CopyFlagsResponseApi>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyFlagsRequestApi),
     })
 }
 
@@ -287,16 +303,16 @@ export const featureFlagsDashboardCreate = async (
 /**
  * Get other active flags that depend on this flag.
  */
-export const getFeatureFlagsDependentFlagsRetrieveUrl = (projectId: string, id: number) => {
+export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
 
-export const featureFlagsDependentFlagsRetrieve = async (
+export const featureFlagsDependentFlagsList = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsDependentFlagsRetrieveUrl(projectId, id), {
+): Promise<DependentFlagApi[]> => {
+    return apiMutator<DependentFlagApi[]>(getFeatureFlagsDependentFlagsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -358,8 +374,8 @@ export const featureFlagsStatusRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
+): Promise<FeatureFlagStatusResponseApi> => {
+    return apiMutator<FeatureFlagStatusResponseApi>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -576,13 +592,137 @@ export const getFeatureFlagsUserBlastRadiusCreateUrl = (projectId: string) => {
 
 export const featureFlagsUserBlastRadiusCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    userBlastRadiusRequestApi: UserBlastRadiusRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
+): Promise<UserBlastRadiusResponseApi> => {
+    return apiMutator<UserBlastRadiusResponseApi>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(userBlastRadiusRequestApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesListUrl = (projectId: string, params?: ScheduledChangesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/scheduled_changes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/scheduled_changes/`
+}
+
+export const scheduledChangesList = async (
+    projectId: string,
+    params?: ScheduledChangesListParams,
+    options?: RequestInit
+): Promise<PaginatedScheduledChangeListApi> => {
+    return apiMutator<PaginatedScheduledChangeListApi>(getScheduledChangesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/scheduled_changes/`
+}
+
+export const scheduledChangesCreate = async (
+    projectId: string,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesUpdate = async (
+    projectId: string,
+    id: number,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedScheduledChangeApi: NonReadonly<PatchedScheduledChangeApi>,
+    options?: RequestInit
+): Promise<ScheduledChangeApi> => {
+    return apiMutator<ScheduledChangeApi>(getScheduledChangesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedScheduledChangeApi),
+    })
+}
+
+/**
+ * Create, read, update and delete scheduled changes.
+ */
+export const getScheduledChangesDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/scheduled_changes/${id}/`
+}
+
+export const scheduledChangesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getScheduledChangesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }

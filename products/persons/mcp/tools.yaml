@@ -11,7 +11,7 @@ tools:
     persons-list:
         operation: persons_list
         enabled: true
-        mcp_version: 1
+
         scopes:
             - person:read
         annotations:
@@ -30,7 +30,7 @@ tools:
     persons-retrieve:
         operation: persons_retrieve
         enabled: true
-        mcp_version: 1
+
         scopes:
             - person:read
         annotations:

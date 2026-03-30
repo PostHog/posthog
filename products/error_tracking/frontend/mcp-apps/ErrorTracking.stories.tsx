@@ -1,5 +1,5 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import {
     ErrorDetailsView,
@@ -23,6 +23,8 @@ const meta: Meta = {
     },
 }
 export default meta
+
+type Story = StoryObj<{}>
 
 const activeIssue: ErrorIssueData = {
     id: 'issue-1',
@@ -65,14 +67,20 @@ const suppressedIssue: ErrorIssueData = {
     first_seen: '2025-10-01T12:00:00Z',
 }
 
-export const Active: StoryFn = () => <ErrorIssueView issue={activeIssue} />
-Active.storyName = 'Active issue'
+export const Active: Story = {
+    render: () => <ErrorIssueView issue={activeIssue} />,
+    storyName: 'Active issue',
+}
 
-export const Resolved: StoryFn = () => <ErrorIssueView issue={resolvedIssue} />
-Resolved.storyName = 'Resolved issue'
+export const Resolved: Story = {
+    render: () => <ErrorIssueView issue={resolvedIssue} />,
+    storyName: 'Resolved issue',
+}
 
-export const WithExternalLinks: StoryFn = () => <ErrorIssueView issue={issueWithLinks} />
-WithExternalLinks.storyName = 'Issue with external links'
+export const WithExternalLinks: Story = {
+    render: () => <ErrorIssueView issue={issueWithLinks} />,
+    storyName: 'Issue with external links',
+}
 
 const sampleListData: ErrorIssueListData = {
     count: 4,
@@ -80,8 +88,10 @@ const sampleListData: ErrorIssueListData = {
     _posthogUrl: 'https://us.posthog.com/project/1/error_tracking',
 }
 
-export const List: StoryFn = () => <ErrorIssueListView data={sampleListData} />
-List.storyName = 'Issue list'
+export const List: Story = {
+    render: () => <ErrorIssueListView data={sampleListData} />,
+    storyName: 'Issue list',
+}
 
 // -- Stack Trace stories --
 
@@ -194,14 +204,20 @@ const pythonException: ExceptionData = {
     },
 }
 
-export const StackTrace: StoryFn = () => <StackTraceView exceptions={[jsException]} />
-StackTrace.storyName = 'Stack trace (JavaScript)'
+export const StackTrace: Story = {
+    render: () => <StackTraceView exceptions={[jsException]} />,
+    storyName: 'Stack trace (JavaScript)',
+}
 
-export const PythonStackTrace: StoryFn = () => <StackTraceView exceptions={[pythonException]} />
-PythonStackTrace.storyName = 'Stack trace (Python)'
+export const PythonStackTrace: Story = {
+    render: () => <StackTraceView exceptions={[pythonException]} />,
+    storyName: 'Stack trace (Python)',
+}
 
-export const ChainedExceptions: StoryFn = () => <StackTraceView exceptions={[jsException, pythonException]} />
-ChainedExceptions.storyName = 'Chained exceptions'
+export const ChainedExceptions: Story = {
+    render: () => <StackTraceView exceptions={[jsException, pythonException]} />,
+    storyName: 'Chained exceptions',
+}
 
 const sampleErrorDetails: ErrorDetailsData = {
     results: [
@@ -225,5 +241,7 @@ const sampleErrorDetails: ErrorDetailsData = {
     _posthogUrl: 'https://us.posthog.com/project/1/error_tracking/issue-1',
 }
 
-export const ErrorDetails: StoryFn = () => <ErrorDetailsView data={sampleErrorDetails} />
-ErrorDetails.storyName = 'Error details with stack trace'
+export const ErrorDetails: Story = {
+    render: () => <ErrorDetailsView data={sampleErrorDetails} />,
+    storyName: 'Error details with stack trace',
+}

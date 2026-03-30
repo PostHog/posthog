@@ -43,6 +43,18 @@ describe('textCardMarkdown', () => {
         expect(markdown).toContain('![img](https://example.com/image.png)')
     })
 
+    it('parses and serializes strikethrough markdown', () => {
+        const input = '~~crossed~~ and **bold**'
+        const doc = markdownToTextCardDoc(input)
+        const paragraph = doc.content?.[0]
+        expect(paragraph?.type).toBe('paragraph')
+        const strikeText = paragraph?.content?.find(
+            (n) => n.type === 'text' && n.marks?.some((m) => m.type === 'strike')
+        )
+        expect(strikeText).toMatchObject({ type: 'text', text: 'crossed' })
+        expect(textCardDocToMarkdown(doc)).toContain('~~crossed~~')
+    })
+
     it('preserves resized image dimensions when serializing markdown', () => {
         const doc: JSONContent = {
             type: 'doc',

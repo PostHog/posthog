@@ -122,6 +122,7 @@ class PersonHogClient:
         initial_reconnect_backoff_ms: int = 1_000,
         max_send_message_length: int = 4 * 1024 * 1024,
         max_recv_message_length: int = 128 * 1024 * 1024,
+        client_idle_timeout_ms: int = 0,
     ):
         options = [
             ("grpc.keepalive_time_ms", keepalive_time_ms),
@@ -132,6 +133,8 @@ class PersonHogClient:
             ("grpc.initial_reconnect_backoff_ms", initial_reconnect_backoff_ms),
             ("grpc.max_send_message_length", max_send_message_length),
             ("grpc.max_receive_message_length", max_recv_message_length),
+            # Prevent the channel from transitioning to IDLE between requests.
+            ("grpc.client_idle_timeout_ms", client_idle_timeout_ms),
         ]
         channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
@@ -245,6 +248,7 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     initial_reconnect_backoff_ms=getattr(settings, "PERSONHOG_INITIAL_RECONNECT_BACKOFF_MS", 1_000),
                     max_send_message_length=getattr(settings, "PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024),
                     max_recv_message_length=getattr(settings, "PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024),
+                    client_idle_timeout_ms=getattr(settings, "PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0),
                 )
                 logger.info("personhog_client_initialized", addr=addr, timeout_ms=timeout_ms)
 
