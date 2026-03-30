@@ -1259,6 +1259,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         # Control: 2 purchases totaling 80, ratio = 80/2 = 40
         self.assertEqual(result.baseline.number_of_samples, 1)
 
+        assert result.variant_results is not None
         assert len(result.variant_results) == 1
         # Test: 1 purchase totaling 75, ratio = 75/1 = 75
         self.assertEqual(result.variant_results[0].number_of_samples, 1)

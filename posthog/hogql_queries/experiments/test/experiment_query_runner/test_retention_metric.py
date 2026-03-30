@@ -1801,6 +1801,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(result.baseline.number_of_samples, 1)
         self.assertEqual(result.baseline.sum, 1)
 
+        assert result.variant_results is not None
         assert len(result.variant_results) == 1
         self.assertEqual(result.variant_results[0].number_of_samples, 1)
         self.assertEqual(result.variant_results[0].sum, 1)
