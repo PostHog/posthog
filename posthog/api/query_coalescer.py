@@ -29,10 +29,10 @@ CHANNEL_PREFIX = "http_qc_ch"
 LOCK_TTL_SECONDS = 60
 POLL_INTERVAL_SECONDS = 0.2
 HEARTBEAT_INTERVAL_SECONDS = 5
-# Keep short: followers poll done_key every POLL_INTERVAL as a fallback for
-# missed pub/sub signals. A long TTL lets a NEW round's followers read a
-# stale result from the PREVIOUS round (same query, but possibly outdated
-# for force_blocking requests).
+# Keep short: followers poll done_key/error_key every POLL_INTERVAL as a
+# fallback for missed pub/sub signals. A long TTL lets a NEW round's
+# followers read a stale result from the PREVIOUS round (same query, but
+# possibly outdated for force_blocking requests).
 DONE_TTL_SECONDS = 5
 ERROR_TTL_SECONDS = 5
 
@@ -216,7 +216,10 @@ class QueryCoalescer:
             if isinstance(parsed, dict) and "status" in parsed:
                 return parsed
             return None
-        except (RedisError, orjson.JSONDecodeError):
+        except (RedisError, orjson.JSONDecodeError) as e:
+            logger.warning(
+                "query_coalescing_get_success_response_error", error=str(e), coalescing_key=self.coalescing_key
+            )
             return None
 
     def store_error_response(self, status_code: int, content: bytes) -> None:
@@ -234,12 +237,15 @@ class QueryCoalescer:
             pass
 
     def signal_error(self) -> None:
-        """Signal followers that the leader encountered a client error (4xx).
+        """Signal followers that the leader encountered an error.
 
-        Publishes ERROR to the channel without storing a response body,
-        so followers stop waiting and execute independently.
+        Stores a minimal error marker in Redis and publishes ERROR.
+        The marker is needed so late-subscribing followers can detect the
+        error via polling. Without it they receive no signal at all and
+        hit the crash timeout.
         """
         try:
+            self._redis.set(self._error_key, b'{"error": true}', ex=ERROR_TTL_SECONDS)
             self._redis.publish(self._channel_key, CoalesceSignal.ERROR)
         except RedisError:
             pass
@@ -307,6 +313,7 @@ class QueryCoalescingMiddleware:
         return self._handle_follower(request, coalescer)
 
     def _handle_leader(self, request: HttpRequest, coalescer: QueryCoalescer) -> HttpResponse:
+        log = logger.bind(coalescing_key=coalescer.coalescing_key)
         try:
             response = self.get_response(request)
             # Force render DRF responses so we can capture the body
@@ -318,9 +325,15 @@ class QueryCoalescingMiddleware:
                 # 4xx are user-specific (permissions, validation) and must not be shared.
                 coalescer.store_success_response(response.status_code, response.content, content_type)
             else:
+                log.warning(
+                    "query_coalescing_middleware_leader_error",
+                    status_code=response.status_code,
+                    path=request.path,
+                )
                 coalescer.signal_error()
             return response
-        except Exception:
+        except Exception as e:
+            log.warning("query_coalescing_middleware_leader_exception", path=request.path, error=str(e))
             coalescer.signal_error()
             raise
         finally:

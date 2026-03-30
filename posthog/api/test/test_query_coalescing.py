@@ -221,6 +221,20 @@ class TestQueryCoalescer(TestCase):
         self.assertEqual(result["status"], 200)
         leader_b.cleanup()
 
+    def test_signal_error_stores_error_key_for_polling(self):
+        """signal_error() must store an error marker in Redis so that
+        late-subscribing followers can detect it via polling instead of
+        hitting the crash timeout."""
+        leader = QueryCoalescer(self.key)
+        leader.try_acquire()
+        leader.signal_error()
+        leader.cleanup()
+
+        follower = QueryCoalescer(self.key)
+        error_value = self.redis.get(f"{ERROR_KEY_PREFIX}:{self.key}")
+        assert error_value is not None, "signal_error did not store error_key"
+        self.assertIsNone(follower.get_success_response())
+
     # -- Redis failure --
 
     def test_redis_failure_on_acquire_raises(self):
