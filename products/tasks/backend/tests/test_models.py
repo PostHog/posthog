@@ -19,9 +19,10 @@ from products.tasks.backend.models import CodeInvite, SandboxEnvironment, Sandbo
 
 
 class TestTask(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
 
     @parameterized.expand(
         [
@@ -203,9 +204,10 @@ class TestTask(TestCase):
 
 
 class TestTaskSlug(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
 
     @parameterized.expand(
         [
@@ -288,11 +290,12 @@ class TestTaskSlug(TestCase):
 
 
 class TestTaskRun(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.task = Task.objects.create(
-            team=self.team,
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.task = Task.objects.create(
+            team=cls.team,
             title="Test Task",
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
@@ -601,10 +604,11 @@ class TestTaskRun(TestCase):
 
 
 class TestSandboxSnapshot(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.integration = Integration.objects.create(team=self.team, kind="github", config={})
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.integration = Integration.objects.create(team=cls.team, kind="github", config={})
 
     @parameterized.expand(
         [
@@ -849,10 +853,11 @@ class TestSandboxSnapshot(TestCase):
 
 
 class TestSandboxEnvironment(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create(email="test@posthog.com")
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="test@posthog.com")
 
     def test_default_values(self):
         env = SandboxEnvironment.objects.create(
@@ -1004,18 +1009,19 @@ class TestSandboxEnvironment(TestCase):
 
 
 class TestTaskRunGetSandboxEnvironment(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        self.user = User.objects.create(email="creator@posthog.com")
-        self.other_user = User.objects.create(email="other@posthog.com")
-        self.integration = Integration.objects.create(team=self.team, kind="github")
-        self.task = Task.objects.create(
-            team=self.team,
-            created_by=self.user,
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.other_team = Team.objects.create(organization=cls.organization, name="Other Team")
+        cls.user = User.objects.create(email="creator@posthog.com")
+        cls.other_user = User.objects.create(email="other@posthog.com")
+        cls.integration = Integration.objects.create(team=cls.team, kind="github")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            created_by=cls.user,
             title="Test Task",
-            github_integration=self.integration,
+            github_integration=cls.integration,
             repository="org/repo",
         )
 

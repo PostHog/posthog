@@ -22,22 +22,23 @@ def _command_result(**kwargs):
 
 
 class TestForwardPendingUserMessage(TestCase):
-    def setUp(self):
-        self.Task = apps.get_model("tasks", "Task")
-        self.TaskRun = apps.get_model("tasks", "TaskRun")
-        self.org = Organization.objects.create(name="TestOrg")
-        self.team = Team.objects.create(organization=self.org, name="TestTeam")
-        self.user = User.objects.create(email="alice@test.com")
-        self.task = self.Task.objects.create(
-            team=self.team,
+    @classmethod
+    def setUpTestData(cls):
+        Task = apps.get_model("tasks", "Task")
+        cls.TaskRun = apps.get_model("tasks", "TaskRun")
+        cls.org = Organization.objects.create(name="TestOrg")
+        cls.team = Team.objects.create(organization=cls.org, name="TestTeam")
+        cls.user = User.objects.create(email="alice@test.com")
+        cls.task = Task.objects.create(
+            team=cls.team,
             title="Test task",
             description="desc",
-            origin_product=self.Task.OriginProduct.SLACK,
-            created_by=self.user,
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=cls.user,
             repository="org/repo",
         )
-        self.slack_integration = Integration.objects.create(
-            team=self.team,
+        cls.slack_integration = Integration.objects.create(
+            team=cls.team,
             kind="slack-posthog-code",
             integration_id="T123",
             config={},
