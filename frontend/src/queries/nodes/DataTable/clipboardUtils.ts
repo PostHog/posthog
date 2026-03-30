@@ -240,3 +240,27 @@ export function copyTableToExcel(dataTableRows: DataTableRow[], columns: string[
         lemonToast.error('Copy failed!')
     }
 }
+
+export function copyTableToMarkdown(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
+    try {
+        const tableData = getCsvTableData(dataTableRows, columns, query)
+
+        if (tableData.length === 0) {
+            lemonToast.error('No data to copy!')
+            return
+        }
+
+        const [headers, ...rows] = tableData
+        const escape = (cell: any): string => String(cell ?? '').replace(/\|/g, '\\|')
+
+        const headerRow = `| ${headers.map(escape).join(' | ')} |`
+        const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`
+        const dataRows = rows.map((row) => `| ${row.map(escape).join(' | ')} |`)
+
+        const markdown = [headerRow, separatorRow, ...dataRows].join('\n')
+
+        void copyToClipboard(markdown, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}

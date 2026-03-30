@@ -51,7 +51,12 @@ import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    copyTableToMarkdown,
+} from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
@@ -107,6 +112,10 @@ const copyMap = {
     [ExporterFormat.XLSX]: {
         label: 'Excel',
         copyFn: copyTableToExcel,
+    },
+    [ExporterFormat.MARKDOWN]: {
+        label: 'Markdown',
+        copyFn: copyTableToMarkdown,
     },
 }
 
