@@ -5064,7 +5064,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "has not been backfilled yet",
+                "is still being backfilled",
             ),
             (
                 "non_realtime_flag_on",

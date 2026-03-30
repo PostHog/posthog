@@ -131,7 +131,7 @@ def _validate_behavioral_cohort_for_feature_flag(cohort: Cohort, *, allow_realti
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(
-            detail=f"Cohort '{cohort.name}' has not been backfilled yet and cannot be used in feature flags.",
+            detail=f"Cohort '{cohort.name}' is still being backfilled and cannot be used in feature flags yet. It will become available once its initial backfill completes.",
             code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
         )
 
