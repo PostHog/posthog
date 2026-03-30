@@ -211,7 +211,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
             cohorts: None,
         };
 
@@ -227,7 +227,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone(), active_flag],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
             cohorts: None,
         };
 
@@ -243,7 +243,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_survey_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_survey_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
             cohorts: None,
         };
 
@@ -259,7 +259,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone(), survey_flag],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
             cohorts: None,
         };
 
@@ -303,7 +303,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_tour_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_tour_flag.id]),
-            evaluation_metadata: None,
+            evaluation_metadata: Default::default(),
             cohorts: None,
         };
 

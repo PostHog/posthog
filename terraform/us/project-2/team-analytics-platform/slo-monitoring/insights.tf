@@ -5,6 +5,11 @@ locals {
   # events with matching properties.operation value (see posthog/slo/types.py).
   # ===========================================================================
   slo_operations = {
+    export = {
+      name    = "Exports"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     subscription_delivery = {
       name    = "Subscription deliveries"
       slo     = 99.95 # error budget = 0.05%
@@ -13,7 +18,7 @@ locals {
     alert_check = {
       name    = "Alert checks"
       slo     = 99.95 # error budget = 0.05%
-      regions = ["US", "EU"]
+      regions = ["US"] # EU not captured yet: ph_scoped_capture hardcodes US client
     }
   }
 
@@ -24,17 +29,18 @@ locals {
     for op_key, op in local.slo_operations : {
       for region in op.regions :
       "${op_key}_${lower(region)}" => {
-        name      = op.name
-        slo       = op.slo
-        operation = op_key
-        region    = region
+        name         = op.name
+        slo          = op.slo
+        operation    = op_key
+        region       = region
+        region_count = length(op.regions)
       }
     }
   ]...)
 
   # Row budgets for queries (with 2x margin for safety).
   slo_burn_rate_limit    = 168 * 4 * 2 # 7 days * 24h * 4 metrics * margin
-  slo_duration_limit     = 28 * 3 * 2  # 28 days * 3 percentiles * margin
+  slo_duration_limit     = 7 * 3 * 2   # 7 days * 3 percentiles * margin
   slo_success_rate_limit = length(local.slo_operations) * 28 * 2
 
   # Explicit operation list for the success rate query (avoids DISTINCT drift).
@@ -90,12 +96,16 @@ locals {
     FROM (
         SELECT
             hour,
+            if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_1h,
+            if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL) AS raw_24h,
+            if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_7d,
+            if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL) AS raw_28d,
             ['Burn rate 1h', 'Burn rate 24h', 'Burn rate 7d', 'Burn rate 28d'] AS metrics,
             [
-                if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL),
-                if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL)
+                sign(raw_1h)  * log10(1 + abs(raw_1h)),
+                sign(raw_24h) * log10(1 + abs(raw_24h)),
+                sign(raw_7d)  * log10(1 + abs(raw_7d)),
+                sign(raw_28d) * log10(1 + abs(raw_28d))
             ] AS vals
         FROM rolling
         WHERE hour >= now() - INTERVAL 7 DAY
@@ -121,11 +131,11 @@ locals {
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND properties.duration_ms IS NOT NULL
-          AND timestamp >= now() - INTERVAL 28 DAY
+          AND timestamp >= now() - INTERVAL 7 DAY
         GROUP BY date
     ),
     date_range AS (
-        SELECT toDate(now()) - number AS date FROM numbers(28)
+        SELECT toDate(now()) - number AS date FROM numbers(7)
     ),
     base AS (
         SELECT
@@ -161,7 +171,7 @@ locals {
 resource "posthog_insight" "slo_burn_rate" {
   for_each = local.slo_operation_regions
 
-  name        = "SLO: Burn Rates - ${each.value.name} (${each.value.slo}%) — ${each.value.region}"
+  name        = "SLO: Burn Rates - ${each.value.name} (${each.value.slo}%)${each.value.region_count > 1 ? " — ${each.value.region}" : ""}"
   description = "[Investigate failures with AI](/ai?ask=Investigate+${each.value.operation}+failures+in+${each.value.region}+region.+Check+slo_operation_started+events+without+matching+slo_operation_completed+success+outcomes+in+the+last+24h)"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
@@ -186,7 +196,8 @@ resource "posthog_insight" "slo_burn_rate" {
       seriesBreakdownColumn = "metric"
       showLegend            = true
       goalLines = [
-        { label = "Budget rate", value = 1.0, position = "start" }
+        { label = "Budget rate", value = 0.30, position = "start" },
+        { label = "100x burn",   value = 2.00, position = "start" }
       ]
     }
     tableSettings = {
@@ -208,7 +219,7 @@ resource "posthog_insight" "slo_burn_rate" {
 resource "posthog_insight" "slo_duration" {
   for_each = local.slo_operation_regions
 
-  name        = "SLO: Duration - ${each.value.name} — ${each.value.region}"
+  name        = "SLO: Duration - ${each.value.name}${each.value.region_count > 1 ? " — ${each.value.region}" : ""}"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -330,6 +341,7 @@ resource "posthog_insight" "slo_success_rate" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "slo_volume" {
   name        = "SLO: 28d Volume by Operation"
+  description = "* = all regions, but events are only emitted from the US project (ph_scoped_capture hardcodes the US client)"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -337,7 +349,11 @@ resource "posthog_insight" "slo_volume" {
       query = <<-SQL
         SELECT
             properties.operation AS operation,
-            properties.region AS region,
+            if(
+                count(properties.region) OVER (PARTITION BY properties.operation) = 1,
+                'all*',
+                properties.region
+            ) AS region,
             countIf(event = 'slo_operation_started') AS started,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
@@ -352,7 +368,7 @@ resource "posthog_insight" "slo_volume" {
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND timestamp >= now() - INTERVAL 28 DAY
-        GROUP BY operation, region
+        GROUP BY operation, properties.region
         ORDER BY operation, region
       SQL
     }

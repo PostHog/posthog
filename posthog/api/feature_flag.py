@@ -25,7 +25,6 @@ from posthog.schema import ProductKey, PropertyOperator
 from posthog.hogql.property import parse_semver
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
@@ -87,6 +86,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 from posthog.views import format_bytes
 
+from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -1644,7 +1644,8 @@ class FeatureFlagSerializer(
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
-    from posthog.models.dashboard import Dashboard
+
+    from products.dashboards.backend.models.dashboard import Dashboard
 
     usage_dashboard = Dashboard.objects.create(
         name="Generated Dashboard: " + feature_flag.key + " Usage",
@@ -1780,6 +1781,11 @@ class UserBlastRadiusResponseSerializer(serializers.Serializer):
     total_users = serializers.IntegerField(help_text="Total number of users in the project")
 
 
+# HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
+# service deserializes. Field changes (renames, removals, type changes) must follow the
+# expand-and-contract pattern. Run the contract tests to verify compatibility:
+#   pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+# See also: rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_contexts = serializers.SerializerMethodField()

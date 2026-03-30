@@ -7,6 +7,7 @@
 category: Early access features
 feature: early_access_features
 url_prefix: /early_access_features
+ui_apps: {}
 tools:
     early-access-feature-list:
         operation: early_access_feature_list
@@ -18,11 +19,10 @@ tools:
             destructive: false
             idempotent: true
         list: true
-
         title: List early access features
         description: >
-            List early access features in the current project. Returns name, stage,
-            description, linked feature flag, and creation date for each feature.
+            List early access features in the current project. Returns name, stage, description, linked feature flag,
+            and creation date for each feature.
     early-access-feature-create:
         operation: early_access_feature_create
         enabled: true
@@ -35,9 +35,8 @@ tools:
         enrich_url: '{id}'
         title: Create early access feature
         description: >
-            Create a new early access feature. A feature flag is automatically created
-            unless feature_flag_id is provided. Stage determines whether opted-in
-            users get the feature enabled.
+            Create a new early access feature. A feature flag is automatically created unless feature_flag_id is
+            provided. Stage determines whether opted-in users get the feature enabled.
         include_params:
             - name
             - description
@@ -55,11 +54,10 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-
         title: Get early access feature
         description: >
-            Get a single early access feature by ID. Returns full details including
-            the linked feature flag configuration.
+            Get a single early access feature by ID. Returns full details including the linked feature flag
+            configuration.
     early-access-feature-update:
         operation: early_access_feature_update
         enabled: false
@@ -75,8 +73,8 @@ tools:
         enrich_url: '{id}'
         title: Update early access feature
         description: >
-            Update an early access feature by ID. Changing the stage automatically
-            updates the linked feature flag's enrollment conditions.
+            Update an early access feature by ID. Changing the stage automatically updates the linked feature flag's
+            enrollment conditions.
         include_params:
             - name
             - description
@@ -93,5 +91,5 @@ tools:
             idempotent: true
         title: Delete early access feature
         description: >
-            Delete an early access feature by ID. Clears enrollment conditions
-            from the linked feature flag but does not delete the flag itself.
+            Delete an early access feature by ID. Clears enrollment conditions from the linked feature flag but does not
+            delete the flag itself.

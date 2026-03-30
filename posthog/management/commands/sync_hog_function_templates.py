@@ -151,7 +151,7 @@ class Command(BaseCommand):
         duration = time.time() - start_time
         self.stdout.write(
             self.style.SUCCESS(
-                f"Sync completed in {duration:.2f}s. "
+                f"Hog function template sync complete in {duration:.2f}s. "
                 f"Templates: {total_templates}, "
                 f"Created or updated: {updated_count}, "
                 f"Deleted: {deleted_count}, "

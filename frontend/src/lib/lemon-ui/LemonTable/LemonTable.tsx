@@ -287,12 +287,17 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table ref={tableRef}>
                         <colgroup>
-                            {isRowExpansionToggleShown && <col className="w-0" /> /* Expand/collapse column */}
+                            {isRowExpansionToggleShown && <col style={{ width: '1%' }} /> /* Expand/collapse column */}
                             {columns
                                 .filter((column) => !column.isHidden)
                                 .map((column, index) => (
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
+                                    <col
+                                        key={`LemonTable-col-${index}`}
+                                        // width:0 has no effect in auto-layout tables (ignored by Safari).
+                                        // width:1% is a standard workaround to shrink a column to its content.
+                                        style={{ width: column.width === 0 ? '1%' : column.width }}
+                                    />
                                 ))}
                         </colgroup>
                         {showHeader && (

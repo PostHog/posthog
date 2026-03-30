@@ -685,6 +685,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         schema_names = [schema.name for schema in source_schemas]
+        schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
         if not payload_schemas or not isinstance(payload_schemas, list):
@@ -757,6 +758,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     else {"schema_metadata": schema_metadata}
                 ),
                 description=source_schema.description if source_schema else None,
+                label=schema_label_by_name.get(schema_name),
             )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -928,7 +930,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if instance.is_direct_postgres
                 else instance.connection_metadata
             )
-            schema_names = [s.name for s in schemas]
+            schema_names = {s.name: s.label for s in schemas}
             logger.info(
                 "refresh_schemas fetched from source",
                 source_id=str(instance.id),

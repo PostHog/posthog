@@ -298,6 +298,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
 
     run = Run.objects.create(
         repo=repo,
+        team_id=repo.team_id,
         status=RunStatus.COMPLETED,
         run_type="storybook",
         commit_sha=commit_sha,
@@ -310,6 +311,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     # Create artifacts for the snapshots
     artifact1 = Artifact.objects.create(
         repo=repo,
+        team_id=repo.team_id,
         content_hash="abc123hash",
         storage_path="visual_review/test/abc123hash.png",
         width=800,
@@ -317,6 +319,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     )
     artifact2 = Artifact.objects.create(
         repo=repo,
+        team_id=repo.team_id,
         content_hash="def456hash",
         storage_path="visual_review/test/def456hash.png",
         width=1200,
@@ -326,6 +329,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     # Create snapshots
     RunSnapshot.objects.create(
         run=run,
+        team_id=repo.team_id,
         identifier="button--primary",
         current_hash="abc123hash",
         baseline_hash="old111hash",
@@ -334,6 +338,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     )
     RunSnapshot.objects.create(
         run=run,
+        team_id=repo.team_id,
         identifier="card--default",
         current_hash="def456hash",
         baseline_hash="old222hash",
@@ -512,6 +517,7 @@ class TestGitHubCommitOnApprove:
         # Create run without pr_number
         run = Run.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             status=RunStatus.COMPLETED,
             run_type="storybook",
             commit_sha="abc123",
@@ -523,12 +529,14 @@ class TestGitHubCommitOnApprove:
 
         artifact = Artifact.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             content_hash="newhash",
             storage_path="path/to/artifact.png",
         )
 
         RunSnapshot.objects.create(
             run=run,
+            team_id=repo.team_id,
             identifier="test-snapshot",
             current_hash="newhash",
             current_artifact=artifact,
@@ -607,6 +615,7 @@ class TestGitHubIntegrationErrors:
 
         run = Run.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             status=RunStatus.COMPLETED,
             run_type="storybook",
             commit_sha="abc123",
@@ -617,12 +626,14 @@ class TestGitHubIntegrationErrors:
 
         artifact = Artifact.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             content_hash="hash123",
             storage_path="path.png",
         )
 
         RunSnapshot.objects.create(
             run=run,
+            team_id=repo.team_id,
             identifier="snap",
             current_hash="hash123",
             current_artifact=artifact,

@@ -25,6 +25,7 @@ import { createHogTransformerService } from '../cdp/hog-transformations/hog-tran
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
@@ -224,11 +225,13 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         team = fetchedTeam
         currentToken = team.api_token
 
+        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
         ingester = new IngestionConsumer(hub, {
             ...hub,
             kafkaMetricsProducer: hub.kafkaProducer,
             hogTransformer: createHogTransformerService(hub, hub),
-            outputs: createTestIngestionOutputs(hub.kafkaProducer),
+            outputs,
+            clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
         })
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),

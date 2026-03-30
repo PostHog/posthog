@@ -7,11 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from parameterized import parameterized
 
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     _block_for_asset,

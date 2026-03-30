@@ -14,6 +14,10 @@ pub enum CohortType {
     Analytical,
 }
 
+/// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
+/// `_serialize_cohort()` in posthog/models/feature_flag/flags_cache.py. Field changes
+/// must follow the expand-and-contract pattern. Golden fixture contract test:
+///   cargo test -p feature-flags test_hypercache_contract
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
