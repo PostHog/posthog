@@ -1,6 +1,7 @@
-import os
+import copy
 import json
-from typing import Any, Optional
+import hashlib
+from typing import Any, NamedTuple, Optional
 
 from django.conf import settings
 from django.db import models, transaction
@@ -18,7 +19,15 @@ from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.js_snippet_versioning import (
+    DEFAULT_SNIPPET_VERSION,
+    get_disk_js_hash,
+    get_js_content,
+    resolve_version,
+)
 from posthog.models.plugin import PluginConfig
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
@@ -51,21 +60,6 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
-# Load the JS content from the frontend build
-_array_js_content: Optional[str] = None
-
-
-@tracer.start_as_current_span("RemoteConfig.get_array_js_content")
-def get_array_js_content():
-    global _array_js_content
-
-    if _array_js_content is None:
-        with open(os.path.join(settings.BASE_DIR, "frontend/dist/array.js")) as f:
-            _array_js_content = f.read()
-
-    return _array_js_content
-
-
 @tracer.start_as_current_span("RemoteConfig.indent_js")
 def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
@@ -89,7 +83,15 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
 
     # Remove site apps JS
     config.pop("siteAppsJS", None)
+
     return config
+
+
+class ArrayJSMetadata(NamedTuple):
+    etag: str  # ETag derived from resolved version + config hash
+    requested_version: str  # The snippet version pin (e.g. "1", "1.358") for Cache-Tag
+    resolved_version: Optional[str]  # Exact version the request resolved to (e.g. "1.360.1")
+    config: dict  # Pre-loaded config — pass to build_array_js_content to avoid a second cache read
 
 
 class RemoteConfig(UUIDTModel):
@@ -344,6 +346,11 @@ class RemoteConfig(UUIDTModel):
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
+        # MARK: Snippet versioning — store requested version, resolved at request time
+        if settings.POSTHOG_JS_S3_BUCKET:
+            snippet_config = get_or_create_team_extension(team, TeamJsSnippetConfig)
+            config["sdkVersion"] = {"requested": snippet_config.js_snippet_version or DEFAULT_SNIPPET_VERSION}
+
         return config
 
     @tracer.start_as_current_span("RemoteConfig._build_site_apps_js")
@@ -365,7 +372,12 @@ class RemoteConfig(UUIDTModel):
             )
         site_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team=self.team, enabled=True, deleted=False, type__in=("site_destination", "site_app"))
+            .filter(
+                team=self.team,
+                enabled=True,
+                deleted=False,
+                type__in=("site_destination", "site_app"),
+            )
             .all()
         )
 
@@ -408,42 +420,108 @@ class RemoteConfig(UUIDTModel):
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         return data
 
+    @staticmethod
+    def _resolve_version_info(config: dict, resolved_version: Optional[str] = None) -> dict:
+        """Resolve version info at request time so it reflects the live manifest.
+
+        If resolved_version is provided, it is used directly instead of calling
+        resolve_version() again (avoids redundant manifest lookups when the
+        caller has already resolved the version).
+        """
+        sdk_version = config.get("sdkVersion")
+        if not sdk_version:
+            return config
+
+        resolved = resolved_version or resolve_version(sdk_version["requested"])
+        if not resolved:
+            return config
+
+        enriched = {**sdk_version, "resolved": resolved}
+        if settings.POSTHOG_JS_SCRIPTS_BASE_URL:
+            enriched["scriptBaseUrl"] = f"{settings.POSTHOG_JS_SCRIPTS_BASE_URL.rstrip('/')}/{resolved}"
+        return {**config, "sdkVersion": enriched}
+
     @classmethod
     @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_config_via_cache(token)
+        config = cls._resolve_version_info(config)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
 
     @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
-    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_config_via_cache(token)
+    def _build_config_js(
+        cls,
+        config: dict,
+        token: str,
+        request: Optional[HttpRequest] = None,
+        resolved_version: Optional[str] = None,
+    ) -> str:
+        """Build the config JS wrapper from an already-loaded config dict."""
+        # Deep copy: sanitize_config_for_public_cdn mutates nested dicts (e.g. sessionRecording.domains)
+        config = copy.deepcopy(config)
+        config = cls._resolve_version_info(config, resolved_version=resolved_version)
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
         config.pop("siteApps", None)
         config = sanitize_config_for_public_cdn(config, request=request)
 
-        js_content = f"""(function() {{
+        return f"""(function() {{
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
   window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
-    config: {json.dumps(config)},
+    config: {json.dumps(config, sort_keys=True)},
     siteApps: [{",".join(site_apps_js)}]
   }}
 }})();
         """.strip()
 
-        return js_content
+    @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
+    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
+        config = cls._get_config_via_cache(token)
+        return cls._build_config_js(config, token, request=request)
 
     @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
-    def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
-        js_content = cls.get_config_js_via_token(token, request=request)
+    @tracer.start_as_current_span("RemoteConfig.compute_array_js_metadata")
+    def compute_array_js_metadata(cls, token: str) -> ArrayJSMetadata:
+        """Compute an ETag for the array.js response without building it.
 
-        return f"""{get_array_js_content()}\n\n{js_content}"""
+        Returns metadata including the pre-loaded config. Pass this to
+        build_array_js_content to build the response without a second cache read.
+        """
+        config = cls._get_config_via_cache(token)
+        sdk_version = config.get("sdkVersion", {})
+        requested = sdk_version.get("requested", DEFAULT_SNIPPET_VERSION)
+
+        # ETag derived from inputs (resolved version + config hash) rather than
+        # hashing the full ~200KB response body.
+        resolved = resolve_version(requested)
+        etag_version = resolved or get_disk_js_hash()
+        config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
+        etag = f'"{etag_version}:{config_hash}"'
+
+        return ArrayJSMetadata(etag=etag, requested_version=requested, resolved_version=resolved, config=config)
+
+    @classmethod
+    @tracer.start_as_current_span("RemoteConfig.build_array_js_content")
+    def build_array_js_content(
+        cls,
+        token: str,
+        config: dict,
+        resolved_version: Optional[str] = None,
+        request: Optional[HttpRequest] = None,
+    ) -> str:
+        """Build the full array.js + config JS response body.
+
+        Takes a pre-loaded config dict (from compute_array_js_metadata) to avoid
+        a redundant cache read. resolved_version is the exact version string
+        (e.g. "1.360.1") from ArrayJSMetadata.
+        """
+        array_js = get_js_content(resolved_version)
+        config_js = cls._build_config_js(config, token, request=request, resolved_version=resolved_version)
+        return f"""{array_js}\n\n{config_js}"""
 
     def sync(self, force: bool = False):
         """
@@ -511,6 +589,28 @@ class RemoteConfig(UUIDTModel):
 
         except Exception:
             logger.exception(f"Failed to purge CDN for team {self.team_id}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
+
+    @staticmethod
+    def purge_cdn_by_tag(tag: str):
+        """Purge all CDN entries matching a Cache-Tag."""
+        if not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN:
+            return
+
+        data = {"tags": [tag]}
+
+        try:
+            res = requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                json=data,
+            )
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN by tag {tag}: {res.status_code} {res.text}")
+        except Exception:
+            logger.exception(f"Failed to purge CDN by tag {tag}")
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
         else:
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
@@ -596,4 +696,9 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.TeamJsSnippetConfig")
+def js_snippet_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))

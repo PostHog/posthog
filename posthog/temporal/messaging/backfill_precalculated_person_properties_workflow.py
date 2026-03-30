@@ -223,9 +223,7 @@ async def backfill_precalculated_person_properties_activity(
                 # Use JSON extract to get only the specific property
                 escaped_prop = prop.replace("'", "''")  # Escape single quotes for SQL safety
                 safe_alias = f"prop_{i}"  # Use safe numeric aliases
-                property_selects.append(
-                    f"JSONExtractString(argMax(properties, version), '{escaped_prop}') as `{safe_alias}`"
-                )
+                property_selects.append(f"JSONExtractString(properties, '{escaped_prop}') as `{safe_alias}`")
                 property_alias_mapping[safe_alias] = prop
 
             properties_clause = ",\n                ".join(property_selects)
@@ -234,7 +232,7 @@ async def backfill_precalculated_person_properties_activity(
             )
         else:
             # Fallback to all properties if we have too many properties or can't determine which ones are needed
-            properties_clause = "argMax(properties, version) as properties"
+            properties_clause = "properties"
             if person_properties and len(person_properties) > MAX_OPTIMIZED_PROPERTIES:
                 logger.warning(
                     f"Too many properties ({len(person_properties)} > {MAX_OPTIMIZED_PROPERTIES}) - falling back to fetching all properties for performance"
@@ -248,11 +246,10 @@ async def backfill_precalculated_person_properties_activity(
             SELECT
                 id as person_id,
                 {properties_clause}
-            FROM person
+            FROM person FINAL
             WHERE team_id = %(team_id)s
               AND id > %(cursor)s
-            GROUP BY id
-            HAVING argMax(is_deleted, version) = 0
+              AND is_deleted = 0
             ORDER BY id
             LIMIT %(batch_size)s
             FORMAT JSONEachRow
