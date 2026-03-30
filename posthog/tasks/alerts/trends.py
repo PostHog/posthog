@@ -90,9 +90,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     if not threshold or not threshold.bounds:
         return AlertEvaluationResult(value=0, breaches=[])
 
-    has_breakdown = query.breakdownFilter and (
-        (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
-    )
+    has_breakdown = _has_breakdown(query)
     is_non_time_series = _is_non_time_series_trend(query)
     check_current_interval = config.check_ongoing_interval
 
@@ -391,6 +389,16 @@ def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
 
 
+def _has_breakdown(query: TrendsQuery) -> bool:
+    return bool(
+        query.breakdownFilter
+        and (
+            (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type)
+            or query.breakdownFilter.breakdowns
+        )
+    )
+
+
 def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> Optional[dict]:
     """
     Resulting filter overrides don't set 'date_to' so we always get value for current interval.
@@ -589,9 +597,7 @@ def check_trends_alert_with_detector(
             interval=query.interval.value if query.interval else None,
         )
 
-    has_breakdown = query.breakdownFilter and (
-        (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
-    )
+    has_breakdown = _has_breakdown(query)
 
     interval_value = query.interval.value if query.interval else None
 
@@ -605,7 +611,7 @@ def check_trends_alert_with_detector(
             else:
                 data = np.array(breakdown_result.get("data", []))
 
-            if len(data) < 2:
+            if len(data) == 0 or (not is_non_time_series and len(data) < 2):
                 continue
 
             detector = get_detector(detector_config)
@@ -781,10 +787,7 @@ def simulate_detector_on_insight(
     if calculation_result.result is None or not calculation_result.result:
         raise ValueError("No results found for insight.")
 
-    has_breakdown = trends_query.breakdownFilter and (
-        (trends_query.breakdownFilter.breakdown and trends_query.breakdownFilter.breakdown_type)
-        or trends_query.breakdownFilter.breakdowns
-    )
+    has_breakdown = _has_breakdown(trends_query)
     interval_value = trends_query.interval.value if trends_query.interval else None
 
     if has_breakdown:
@@ -802,7 +805,7 @@ def simulate_detector_on_insight(
                 bd_data_list = [float(v) for v in br.get("data", [])]
 
             bd_data = np.array(bd_data_list)
-            if len(bd_data) < 2:
+            if len(bd_data) == 0 or (not is_non_time_series and len(bd_data) < 2):
                 continue
 
             bd_dates: list[str] = br.get("days") or br.get("labels") or []
@@ -845,15 +848,15 @@ def simulate_detector_on_insight(
         if not breakdown_sim_results:
             raise ValueError("No breakdown values had enough data points for simulation.")
 
-        # Return the first breakdown as the top-level result for backward compatibility,
-        # plus the full list in breakdown_results
-        first = breakdown_sim_results[0]
+        # Top-level fields use empty arrays for data/scores/triggered — the real
+        # per-breakdown data lives in breakdown_results. total_points and
+        # anomaly_count are aggregated across all breakdowns.
         return {
-            "data": first["data"],
-            "dates": first["dates"],
-            "scores": first["scores"],
-            "triggered_indices": first["triggered_indices"],
-            "triggered_dates": first["triggered_dates"],
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
             "interval": interval_value,
             "total_points": total_points,
             "anomaly_count": total_anomalies,
