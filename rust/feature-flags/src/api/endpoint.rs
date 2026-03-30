@@ -10,6 +10,7 @@ use crate::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
+    metrics::consts::FLAG_QUEUE_TIME_MS,
     router,
     utils::user_agent::UserAgentInfo,
 };
@@ -261,6 +262,15 @@ pub async fn flags(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let ua_info = UserAgentInfo::parse(user_agent);
 
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    let queue_time_ms: Option<i64> = headers
+        .get("X-Request-Start")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_request_start_ms)
+        .and_then(|start_ms| plausible_delta_ms(start_ms, now_ms));
+
+
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
     let canonical_log = FlagsCanonicalLogLine {
@@ -271,6 +281,7 @@ pub async fn flags(
         // Browser SDK sends ver= query param, server SDKs send version in User-Agent
         lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
         api_version: query_params.version.clone(),
+        queue_time_ms,
         ..Default::default()
     };
 
@@ -368,6 +379,11 @@ pub async fn flags(
     // Emit DB operations metrics before the canonical log
     log.emit_db_operations_metrics();
 
+    // Emit queue time histogram for proxy-to-app latency dashboards
+    if let Some(delta) = log.queue_time_ms {
+        common_metrics::histogram(FLAG_QUEUE_TIME_MS, &[], delta as f64);
+    }
+
     match result {
         Ok(response) => {
             // Determine the response format based on whether request is from decide and version
@@ -430,6 +446,47 @@ fn create_request_span(
         sent_at = %query_params.sent_at.unwrap_or(0).to_string(),
         request_id = %request_id
     )
+}
+
+/// Parse the `X-Request-Start` header value into epoch milliseconds.
+/// Contour sets this as `t=<epoch_seconds>.<fractional>` (e.g., `t=1774859827.782`).
+/// Also accepts the bare numeric form without the `t=` prefix.
+///
+/// Uses integer arithmetic to avoid f64 precision loss when converting seconds to ms.
+fn parse_request_start_ms(value: &str) -> Option<i64> {
+    let stripped = value.strip_prefix("t=").unwrap_or(value);
+    if stripped.is_empty() {
+        return None;
+    }
+
+    let (secs_str, frac_str) = match stripped.split_once('.') {
+        Some((s, f)) => (s, Some(f)),
+        None => (stripped, None),
+    };
+
+    let secs: i64 = secs_str.parse().ok()?;
+    if secs < 0 {
+        return None;
+    }
+
+    // Convert whole seconds to ms, guarding against overflow from extreme values.
+    let mut ms = secs.checked_mul(1_000)?;
+
+    // Parse up to 3 fractional digits as milliseconds, zero-padding on the right.
+    // Reject if the fractional part contains non-digit characters (trailing garbage, multi-value).
+    if let Some(frac) = frac_str {
+        if !frac.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let digits: String = frac.chars().take(3).collect();
+        if !digits.is_empty() {
+            let padded = format!("{:0<3}", digits);
+            let frac_ms: i64 = padded.parse().ok()?;
+            ms = ms.checked_add(frac_ms)?;
+        }
+    }
+
+    Some(ms)
 }
 
 #[cfg(test)]
@@ -670,5 +727,76 @@ mod tests {
         // Two calls without header should generate different UUIDs
         let extracted_id_empty2 = extract_request_id(&empty_headers);
         assert_ne!(extracted_id_empty, extracted_id_empty2);
+    }
+
+    #[test]
+    fn test_plausible_delta_ms() {
+        let now = 1_700_000_000_000i64;
+
+        // Normal transit time (100ms)
+        assert_eq!(plausible_delta_ms(now - 100, now), Some(100));
+
+        // Zero delta
+        assert_eq!(plausible_delta_ms(now, now), Some(0));
+
+        // Just below 5min threshold
+        assert_eq!(plausible_delta_ms(now - 299_999, now), Some(299_999));
+
+        // Exactly 5min — excluded
+        assert_eq!(plausible_delta_ms(now - 300_000, now), None);
+
+        // Large delta (stale timestamp)
+        assert_eq!(plausible_delta_ms(now - 600_000, now), None);
+
+        // Negative delta (source clock ahead)
+        assert_eq!(plausible_delta_ms(now + 1000, now), None);
+    }
+
+    #[test]
+    fn test_parse_request_start_ms() {
+        // Standard Contour format: t=<seconds>.<fractional>
+        assert_eq!(
+            parse_request_start_ms("t=1774859827.782"),
+            Some(1774859827782)
+        );
+
+        // Without t= prefix
+        assert_eq!(
+            parse_request_start_ms("1774859827.782"),
+            Some(1774859827782)
+        );
+
+        // Integer seconds (no fractional part)
+        assert_eq!(parse_request_start_ms("t=1774859827"), Some(1774859827000));
+
+        // Invalid values
+        assert_eq!(parse_request_start_ms("t="), None);
+        assert_eq!(parse_request_start_ms("t=abc"), None);
+        assert_eq!(parse_request_start_ms(""), None);
+        assert_eq!(parse_request_start_ms("not-a-number"), None);
+    }
+
+    #[test]
+    fn test_parse_request_start_ms_negative() {
+        assert_eq!(parse_request_start_ms("t=-1.0"), None);
+        assert_eq!(parse_request_start_ms("-100"), None);
+    }
+
+    #[test]
+    fn test_parse_request_start_ms_special_floats() {
+        assert_eq!(parse_request_start_ms("NaN"), None);
+        assert_eq!(parse_request_start_ms("inf"), None);
+        assert_eq!(parse_request_start_ms("t=Infinity"), None);
+        assert_eq!(parse_request_start_ms("t=-inf"), None);
+    }
+
+    #[test]
+    fn test_parse_request_start_ms_whitespace_and_trailing_garbage() {
+        assert_eq!(parse_request_start_ms(" t=1774859827.782"), None);
+        assert_eq!(parse_request_start_ms("t=1774859827.782 "), None);
+        assert_eq!(
+            parse_request_start_ms("t=1774859827.782, t=1774859828.000"),
+            None
+        );
     }
 }
