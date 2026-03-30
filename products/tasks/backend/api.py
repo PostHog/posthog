@@ -156,7 +156,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization = params.get("organization")
         repository = params.get("repository")
         created_by = params.get("created_by")
-        internal = params.get("internal", "false").lower()
 
         if repository:
             repo_str = repository.strip().lower()
@@ -174,7 +173,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Only filter by internal on list — retrieve should always work if you have the ID
         if self.action == "list":
-            if internal == "true":
+            internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
+            if internal_param is True:
                 qs = qs.filter(internal=True)
             else:
                 qs = qs.filter(internal=False)
