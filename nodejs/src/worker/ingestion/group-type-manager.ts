@@ -63,6 +63,10 @@ export class GroupTypeManager {
         }
 
         const usedIndexes = new Set(Object.values(groupTypes))
+        if (usedIndexes.size >= MAX_GROUP_TYPES_PER_TEAM) {
+            return null
+        }
+
         let nextAvailableIndex = 0
         while (usedIndexes.has(nextAvailableIndex as GroupTypeIndex)) {
             nextAvailableIndex++
