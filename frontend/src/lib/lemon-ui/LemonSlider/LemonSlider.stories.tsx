@@ -1,9 +1,9 @@
 import { Meta } from '@storybook/react'
 import { useState } from 'react'
 
-import { LemonSlider } from './LemonSlider'
+import { LemonSlider, LemonSliderProps } from './LemonSlider'
 
-const meta: Meta<typeof LemonSlider> = {
+const meta: Meta<LemonSliderProps> = {
     title: 'Lemon UI/Lemon Slider',
     component: LemonSlider,
     tags: ['autodocs'],

@@ -254,3 +254,6 @@ tools:
     error-tracking-spike-events-list:
         operation: error_tracking_spike_events_list
         enabled: false
+    error-tracking-symbol-sets-bulk-delete-create:
+        operation: error_tracking_symbol_sets_bulk_delete_create
+        enabled: false

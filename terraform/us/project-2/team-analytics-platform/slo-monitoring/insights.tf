@@ -40,7 +40,7 @@ locals {
 
   # Row budgets for queries (with 2x margin for safety).
   slo_burn_rate_limit    = 168 * 4 * 2 # 7 days * 24h * 4 metrics * margin
-  slo_duration_limit     = 28 * 3 * 2  # 28 days * 3 percentiles * margin
+  slo_duration_limit     = 7 * 3 * 2   # 7 days * 3 percentiles * margin
   slo_success_rate_limit = length(local.slo_operations) * 28 * 2
 
   # Explicit operation list for the success rate query (avoids DISTINCT drift).
@@ -96,12 +96,16 @@ locals {
     FROM (
         SELECT
             hour,
+            if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_1h,
+            if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL) AS raw_24h,
+            if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_7d,
+            if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL) AS raw_28d,
             ['Burn rate 1h', 'Burn rate 24h', 'Burn rate 7d', 'Burn rate 28d'] AS metrics,
             [
-                if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL),
-                if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL)
+                sign(raw_1h)  * log10(1 + abs(raw_1h)),
+                sign(raw_24h) * log10(1 + abs(raw_24h)),
+                sign(raw_7d)  * log10(1 + abs(raw_7d)),
+                sign(raw_28d) * log10(1 + abs(raw_28d))
             ] AS vals
         FROM rolling
         WHERE hour >= now() - INTERVAL 7 DAY
@@ -127,11 +131,11 @@ locals {
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND properties.duration_ms IS NOT NULL
-          AND timestamp >= now() - INTERVAL 28 DAY
+          AND timestamp >= now() - INTERVAL 7 DAY
         GROUP BY date
     ),
     date_range AS (
-        SELECT toDate(now()) - number AS date FROM numbers(28)
+        SELECT toDate(now()) - number AS date FROM numbers(7)
     ),
     base AS (
         SELECT
@@ -192,7 +196,8 @@ resource "posthog_insight" "slo_burn_rate" {
       seriesBreakdownColumn = "metric"
       showLegend            = true
       goalLines = [
-        { label = "Budget rate", value = 1.0, position = "start" }
+        { label = "Budget rate", value = 0.30, position = "start" },
+        { label = "100x burn",   value = 2.00, position = "start" }
       ]
     }
     tableSettings = {
