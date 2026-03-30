@@ -63,9 +63,8 @@ pub struct WrappedEvent {
     pub event: Event,
     // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
     pub adjusted_timestamp: Option<DateTime<Utc>>,
-    pub ordinal: usize,
     pub result: EventResult,
-    pub details: Option<String>,
+    pub details: Option<&'static str>,
     pub destination: Destination,
     pub skip_person_processing: bool,
 }
@@ -121,15 +120,17 @@ pub struct IngestionEvent {
     pub timestamp: DateTime<Utc>,
     pub token: String,
     pub is_cookieless_mode: bool,
+    // TODO: custom build this serialized JSON from Event's raw payload
+    // and inject event.options including legacy $-prefixes
     pub data: String,
     pub now: String,
     #[serde(skip)]
     pub destination: Destination,
     #[serde(skip)]
     pub skip_person_processing: bool,
-    /// Maps back to the originating WrappedEvent in the batch for result tracking.
+    /// Maps back to the originating WrappedEvent via HashMap key for result tracking.
     #[serde(skip)]
-    pub ordinal: usize,
+    pub uuid_key: String,
 }
 
 #[cfg(test)]

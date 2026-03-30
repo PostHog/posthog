@@ -53,7 +53,7 @@ pub enum Error {
     #[error("distinct_id exceeds maximum size")]
     DistinctIdTooLarge,
     #[error("distinct_id is a known illegal value: {0}")]
-    MalformedDistinctId(String),
+    InvalidDistinctId(String),
     #[error("event submitted without a uuid")]
     MissingEventUuid,
     #[error("duplicate event uuid: {0}")]
@@ -116,7 +116,7 @@ impl Error {
             Self::EventNameTooLong => "event_name_too_long",
             Self::MissingDistinctId => "missing_distinct_id",
             Self::DistinctIdTooLarge => "distinct_id_too_large",
-            Self::MalformedDistinctId(_) => "malformed_distinct_id",
+            Self::InvalidDistinctId(_) => "invalid_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
@@ -169,7 +169,7 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::MalformedDistinctId(_)
+            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
@@ -227,7 +227,7 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::MalformedDistinctId(_)
+            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp

@@ -58,12 +58,6 @@ pub async fn handle_request(
         err
     })?;
 
-    if batch.batch.is_empty() {
-        let err = v1::Error::EmptyBatch;
-        log_stat_error!(err, ctx = &context);
-        return Err(err);
-    }
-
     if let Some(ref limiter) = state.global_rate_limiter_token {
         check_token_rate_limit(limiter, &context, batch.batch.len() as u64).await?;
     }
