@@ -19974,6 +19974,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at: string | null;
       /**
@@ -23717,6 +23722,11 @@ export namespace Schemas {
     * `monthly` - monthly
     * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
       /**

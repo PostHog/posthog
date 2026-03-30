@@ -389,6 +389,9 @@ const scheduledChangesCreate = (): ToolBase<typeof ScheduledChangesCreateSchema,
         if (params.recurrence_interval !== undefined) {
             body['recurrence_interval'] = params.recurrence_interval
         }
+        if (params.cron_expression !== undefined) {
+            body['cron_expression'] = params.cron_expression
+        }
         if (params.end_date !== undefined) {
             body['end_date'] = params.end_date
         }
@@ -428,6 +431,9 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
         }
         if (params.recurrence_interval !== undefined) {
             body['recurrence_interval'] = params.recurrence_interval
+        }
+        if (params.cron_expression !== undefined) {
+            body['cron_expression'] = params.cron_expression
         }
         if (params.end_date !== undefined) {
             body['end_date'] = params.end_date

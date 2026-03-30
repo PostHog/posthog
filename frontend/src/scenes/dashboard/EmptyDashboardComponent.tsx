@@ -1,151 +1,223 @@
-import './EmptyDashboardComponent.scss'
-
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconSparkles } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { GraphsHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DashboardType,
+    QueryBasedInsightModel,
+    SidePanelTab,
+} from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 
-function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
-    return (
-        <div className="border rounded p-10 h-full deprecated-space-y-4 flex-1 flex flex-col justify-between">
-            <div className="deprecated-space-y-4">
-                <LemonSkeleton className="w-1/3 h-4" active={active} />
-                <LemonSkeleton className="w-1/2 h-4" active={active} />
-            </div>
-            {children}
-        </div>
-    )
-}
+const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
 
-function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
-    return (
-        <SkeletonCard active={active}>
-            <div className="flex justify-center flex-1 items-end gap-10">
-                {[100, 66, 33].map((height) => (
-                    <div
-                        key={height}
-                        className="border border-primary rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
-                    >
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
-                        <div style={{ height: `${height}%` }}>
-                            <LemonSkeleton active={active} className="h-full w-full" />
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </SkeletonCard>
-    )
-}
+const BASE_TEXT =
+    'A simple first step is to add an insight from your library. Over time this becomes the home for the data you care about most.'
 
-function SkeletonBarsRaw({ active }: { active: boolean }): JSX.Element {
-    return (
-        <div className="flex items-end gap-1 flex-1">
-            {Array(8)
-                .fill(0)
-                .map((_, index) => {
-                    const height = Math.random() * 60 + 10
-                    return (
-                        <div
-                            key={index}
-                            className="w-[12.5%]"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                height: `${height}%`,
+const DASHBOARD_AI_PROMPT_CHIPS: readonly { id: string; label: string; prompt: string }[] = [
+    {
+        id: 'landing_performance',
+        label: 'See which campaigns and landing pages actually convert',
+        prompt: 'Build a dashboard for landing page performance over the last 30 days: pageview or $pageview by path / UTM campaign, bounce proxy (single-page sessions), conversion to a primary goal event (e.g. signed up or book a demo), and session replay links for top paths with drop-off. Add insights I can save to this dashboard.',
+    },
+    {
+        id: 'core_web_metrics',
+        label: 'Know who visits, which pages matter, and where the site struggles',
+        prompt: 'Give me a core web metrics dashboard: traffic (DAU/visitors), top pages, referrers, device breakdown, web vitals (LCP, INP, CLS) if available, and error rate (exceptions or client errors). Help me pin the right insights here.',
+    },
+    {
+        id: 'weekly_marketing_health',
+        label: 'Check whether this week is doing better than last week',
+        prompt: 'I want a weekly health view for our marketing site: week-over-week visitors, conversion funnel to signup, geo split, and flag for any anomaly vs prior week. Help me build it on this dashboard.',
+    },
+    {
+        id: 'mixed_full_funnel',
+        label: 'Follow the journey from traffic to signup to retention and feedback',
+        prompt: 'Combine landing page + website metrics into one dashboard covering Acquisition (UTMs, landing pages), Activation (signup funnel), Retention (returning visitors), Research (survey + feedback volume). Using this dashboard, help me build that.',
+    },
+    {
+        id: 'user_research_ops',
+        label: 'Hear what people say in surveys and dig into the right sessions',
+        prompt: 'Build a user research ops dashboard: survey response volume and completion rate, NPS/CSAT if we use surveys, feature request tags from feedback events, and session replay sampled from users who rated low. Add insights to this dashboard.',
+    },
+]
+
+function DashboardEmptyActions({
+    canEdit,
+    dashboard,
+    aiDisabledReason,
+    onAddInsight,
+    push,
+    onOpenAiWithPrompt,
+}: {
+    canEdit: boolean
+    dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
+    aiDisabledReason: string | false
+    onAddInsight: () => void
+    push: (path: string) => void
+    onOpenAiWithPrompt: (prompt: string) => void
+}): JSX.Element {
+    const { reportDashboardEmptyAiPromptClicked } = useActions(eventUsageLogic)
+    const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
+
+    const addInsightButton = (
+        <LemonButton
+            data-attr="dashboard-add-graph-header"
+            onClick={onAddInsight}
+            type="primary"
+            icon={<IconPlus />}
+            disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
+            sideAction={
+                dashboard
+                    ? {
+                          dropdown: {
+                              placement: 'bottom-end',
+                              overlay: (
+                                  <AccessControlAction
+                                      resourceType={AccessControlResourceType.Dashboard}
+                                      minAccessLevel={AccessControlLevel.Editor}
+                                      userAccessLevel={dashboard.user_access_level}
+                                  >
+                                      <LemonButton
+                                          fullWidth
+                                          onClick={() => {
+                                              push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                          }}
+                                          data-attr="add-text-tile-to-dashboard"
+                                      >
+                                          Add text card
+                                      </LemonButton>
+                                  </AccessControlAction>
+                              ),
+                          },
+                          disabled: false,
+                          'data-attr': 'dashboard-add-dropdown',
+                      }
+                    : undefined
+            }
+        >
+            Get started
+        </LemonButton>
+    )
+
+    const aiSection = (
+        <div className="rounded-xl border-2 border-[var(--color-ai)] bg-bg-surface-primary p-4">
+            <div className="flex items-center gap-2 mb-1">
+                <IconSparkles className="text-ai size-4 shrink-0" />
+                <span className="text-sm font-semibold">Try PostHog AI</span>
+            </div>
+            <p className="text-sm text-secondary m-0 mb-3">
+                Pick a topic below. PostHog AI does the work so you can look at the data you care about quickly.
+            </p>
+            <div className="flex flex-wrap gap-2">
+                {DASHBOARD_AI_PROMPT_CHIPS.map((chip) => {
+                    const button = (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            className="max-w-full whitespace-normal text-left [&_.LemonButton__chrome]:h-auto [&_.LemonButton__chrome]:py-1.5"
+                            disabledReason={chipDisabledReason}
+                            data-attr={`dashboard-empty-ai-prompt-${chip.id}`}
+                            onClick={() => {
+                                reportDashboardEmptyAiPromptClicked(chip.label, dashboard?.id)
+                                onOpenAiWithPrompt(chip.prompt)
                             }}
                         >
-                            <LemonSkeleton active={active} className="h-full w-full" />
-                        </div>
+                            {chip.label}
+                        </LemonButton>
+                    )
+                    return (
+                        <Tooltip key={chip.id} title={chipDisabledReason ? chipDisabledReason : chip.prompt}>
+                            {button}
+                        </Tooltip>
                     )
                 })}
+            </div>
+        </div>
+    )
+
+    return (
+        <div className="flex flex-col gap-5 w-full max-w-full">
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 @min-[48rem]/main-content:justify-start">
+                {addInsightButton}
+            </div>
+            {aiSection}
         </div>
     )
 }
-/** This component looks different on each render due to Math.random() calls within, so it's memoized to avoid that. */
-const SkeletonBars = React.memo(SkeletonBarsRaw)
 
-function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
+function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const { dashboard } = useValues(dashboardLogic)
+    const { push } = useActions(router)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+
+    const aiDisabledReason =
+        !dataProcessingAccepted &&
+        (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
+
+    const onOpenAiWithPrompt = (prompt: string): void => {
+        const trimmed = prompt.trim()
+        if (trimmed) {
+            // `!` = auto-send after mount (parseCommandString in maxLogic); same as #panel=max:!…
+            openSidePanel(SidePanelTab.Max, `!${trimmed}`)
+        } else {
+            openSidePanel(SidePanelTab.Max)
+        }
+    }
+
     return (
-        <SkeletonCard active={active}>
-            <SkeletonBars active={active} />
-        </SkeletonCard>
+        <ProductIntroduction
+            productName="Dashboard"
+            thingName="insight"
+            titleOverride="So empty. So much potential."
+            description={BASE_TEXT}
+            isEmpty={true}
+            customHog={GraphsHog}
+            hogLayout="responsive"
+            useMainContentContainerQueries={true}
+            docsURL={DASHBOARD_DOCS_URL}
+            className="mt-4 mb-2 px-4 @min-[40rem]/main-content:px-8 py-20 @min-[48rem]/main-content:py-28"
+            actionElementOverride={
+                <DashboardEmptyActions
+                    canEdit={canEdit}
+                    dashboard={dashboard}
+                    aiDisabledReason={aiDisabledReason}
+                    onAddInsight={showAddInsightToDashboardModal}
+                    push={push}
+                    onOpenAiWithPrompt={onOpenAiWithPrompt}
+                />
+            }
+        />
     )
 }
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
-    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { dashboard } = useValues(dashboardLogic)
-    const { push } = useActions(router)
-    return (
-        <div className="EmptyDashboard">
-            {!loading && (
-                <div className="EmptyDashboard__cta">
-                    <h3 className="l3">Dashboard empty</h3>
-                    <p>This dashboard sure would look better with some graphs!</p>
-                    <div className="mt-4 text-center">
-                        <LemonButton
-                            data-attr="dashboard-add-graph-header"
-                            onClick={showAddInsightToDashboardModal}
-                            type="primary"
-                            icon={<IconPlus />}
-                            center
-                            fullWidth
-                            disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                            sideAction={
-                                dashboard
-                                    ? {
-                                          dropdown: {
-                                              placement: 'bottom-end',
-                                              overlay: (
-                                                  <AccessControlAction
-                                                      resourceType={AccessControlResourceType.Dashboard}
-                                                      minAccessLevel={AccessControlLevel.Editor}
-                                                      userAccessLevel={dashboard.user_access_level}
-                                                  >
-                                                      <LemonButton
-                                                          fullWidth
-                                                          onClick={() => {
-                                                              push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                          }}
-                                                          data-attr="add-text-tile-to-dashboard"
-                                                      >
-                                                          Add text card
-                                                      </LemonButton>
-                                                  </AccessControlAction>
-                                              ),
-                                          },
-                                          disabled: false,
-                                          'data-attr': 'dashboard-add-dropdown',
-                                      }
-                                    : undefined
-                            }
-                        >
-                            Add insight
-                        </LemonButton>
-                    </div>
-                </div>
-            )}
-            <div className="flex items-center gap-2 h-[30rem]">
-                <SkeletonCardOne active={loading} />
-                <SkeletonCardTwo active={loading} />
+    if (loading) {
+        return (
+            <div className="flex justify-center items-center min-h-[24rem] py-8">
+                <Spinner />
             </div>
-            <div className="EmptyDashboard__fade">
-                <div className="flex items-center gap-2 h-[30rem]">
-                    <SkeletonCardOne active={loading} />
-                    <SkeletonCardTwo active={loading} />
-                </div>
-            </div>
-        </div>
-    )
+        )
+    }
+
+    return <EmptyDashboardContent canEdit={canEdit} />
 }
