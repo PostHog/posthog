@@ -452,11 +452,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 actions.setSessionSummaryContent(aiSummaryMock)
                 return
             }
-            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return
             }
+
+            // Stop loading after 10 minutes — the workflow may still finish,
+            // and the summary will load when the user comes back (via has_summary)
+            const timeout = setTimeout(
+                () => {
+                    actions.setSessionSummaryLoading(false)
+                },
+                10 * 60 * 1000
+            )
+
             try {
                 const response = await api.recordings.summarizeStream(id)
                 const reader = response.body?.getReader()
@@ -467,7 +476,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const parser = createParser({
                     onEvent: ({ event, data }) => {
                         try {
-                            // Stop loading and show error if encountered an error event
+                            // Real workflow failure — stop loading and show error
                             if (event === 'session-summary-error') {
                                 lemonToast.error(data)
                                 actions.setSessionSummaryLoading(false)
@@ -492,11 +501,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     const decodedValue = decoder.decode(value)
                     parser.feed(decodedValue)
                 }
-            } catch (err) {
-                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
-                throw err
+            } catch {
+                // Connection lost (e.g. timeout) — the workflow is likely still running,
+                // so keep the loading state until the timeout above fires
             } finally {
-                actions.setSessionSummaryLoading(false)
+                clearTimeout(timeout)
             }
         },
     })),
