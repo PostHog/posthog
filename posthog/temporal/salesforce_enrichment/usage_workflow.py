@@ -274,7 +274,7 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         # Fetch mappings from cache
         mappings = await workflow.execute_activity(
             fetch_salesforce_org_ids_activity,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
