@@ -113,12 +113,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
         temporalio.workflow.logger.info("Starting MaterializeViewWorkflow", extra=inputs.properties_to_log)
         start_time = temporalio.workflow.now()
+        parent_info = temporalio.workflow.info().parent
+        parent_workflow_id = parent_info.workflow_id if parent_info else None
         job_id = await temporalio.workflow.execute_activity(
             create_data_modeling_job_activity,
             CreateDataModelingJobInputs(
                 team_id=inputs.team_id,
                 node_id=inputs.node_id,
                 dag_id=inputs.dag_id,
+                parent_workflow_id=parent_workflow_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
         )
@@ -131,6 +134,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 node_id=inputs.node_id,
                 dag_id=inputs.dag_id,
                 engine=DataModelingJobEngine.DUCKGRES,
+                parent_workflow_id=parent_workflow_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
         )

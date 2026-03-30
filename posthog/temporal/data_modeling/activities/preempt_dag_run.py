@@ -49,7 +49,12 @@ def _mark_jobs_as_preempted(job_ids: list[str]) -> int:
 
 @activity.defn
 async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
-    """Preempt a previous run of the same DAG by cancelling its child workflows and marking jobs as failed."""
+    """Preempt a previous run of the same DAG by cancelling its parent workflow and marking jobs as failed.
+
+    Cancelling the parent ExecuteDAGWorkflow cascades to all child MaterializeViewWorkflows
+    (via ParentClosePolicy.REQUEST_CANCEL), which avoids a race where new children could be
+    spawned after individual child cancellation.
+    """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -62,24 +67,24 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
         f"Preempting previous DAG run: found {len(running_jobs)} running jobs",
         dag_id=inputs.dag_id,
     )
-    # collect unique workflow IDs to cancel
-    workflow_ids_to_cancel = {job.workflow_id for job in running_jobs if job.workflow_id}
+    # collect unique parent workflow IDs — cancelling the parent cascades to all children
+    parent_workflow_ids = {job.parent_workflow_id for job in running_jobs if job.parent_workflow_id}
     job_ids = [str(job.id) for job in running_jobs]
     # mark all running jobs as preempted
     updated_count = await _mark_jobs_as_preempted(job_ids)
     await logger.ainfo(f"Marked {updated_count} jobs as preempted", dag_id=inputs.dag_id)
-    # request cancellation of child workflows
-    if workflow_ids_to_cancel:
+    # request cancellation of parent workflows — this cascades to all children
+    if parent_workflow_ids:
         try:
             temporal = await async_connect()
-            for workflow_id in workflow_ids_to_cancel:
+            for workflow_id in parent_workflow_ids:
                 try:
                     handle = temporal.get_workflow_handle(workflow_id)
                     await handle.cancel()
-                    await logger.ainfo(f"Requested cancellation of workflow {workflow_id}")
+                    await logger.ainfo(f"Requested cancellation of parent workflow {workflow_id}")
                 except Exception as e:
                     # workflow may have already completed — that's fine
-                    await logger.awarning(f"Could not cancel workflow {workflow_id}: {str(e)}")
+                    await logger.awarning(f"Could not cancel parent workflow {workflow_id}: {str(e)}")
         except Exception as e:
             capture_exception(e)
             await logger.aexception(f"Failed to connect to Temporal for workflow cancellation: {str(e)}")
