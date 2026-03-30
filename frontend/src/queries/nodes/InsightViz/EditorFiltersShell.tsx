@@ -81,7 +81,7 @@ export function EditorFiltersShell({
             <div
                 ref={panelRef}
                 className={clsx(
-                    'EditorFiltersWrapper relative self-stretch @container/editor-panel',
+                    'EditorFiltersWrapper EditorFiltersWrapper--panels relative self-stretch @container/editor-panel',
                     isResizing ? '' : 'transition-all duration-300 ease-out',
                     showing
                         ? 'opacity-100 p-px overflow-visible'
