@@ -191,6 +191,14 @@ class TestFetchCimdMetadata(APIBaseTest):
         self.assertIn("redirect_uris", str(ctx.exception))
 
     @patch("posthog.api.oauth.cimd.requests.get")
+    def test_redirect_uri_with_whitespace_rejected(self, mock_get, _url_mock):
+        metadata = _make_metadata(redirect_uris=["https://legit.com/callback https://attacker.com/steal"])
+        mock_get.return_value = _mock_response(metadata)
+        with self.assertRaises(CIMDValidationError) as ctx:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertEqual(str(ctx.exception), "redirect_uri must not contain whitespace")
+
+    @patch("posthog.api.oauth.cimd.requests.get")
     def test_non_200_response(self, mock_get, _url_mock):
         mock_get.return_value = _mock_response(status_code=404)
         with self.assertRaises(CIMDFetchError) as ctx:

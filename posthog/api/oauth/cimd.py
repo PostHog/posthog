@@ -7,6 +7,7 @@ server fetches client metadata (name, redirect URIs, logo) from that URL,
 removing the need for pre-registration or Dynamic Client Registration.
 """
 
+import re
 import json
 import time
 import hashlib
@@ -239,6 +240,11 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     for uri in redirect_uris:
         if not isinstance(uri, str) or not uri.strip():
             raise CIMDValidationError("Each redirect_uri must be a non-empty string")
+
+        # Reject whitespace in URIs — they're stored space-separated, so embedded
+        # whitespace would be interpreted as multiple redirect URIs by the model.
+        if re.search(r"\s", uri):
+            raise CIMDValidationError("redirect_uri must not contain whitespace")
 
     # CIMD clients cannot use secret-based auth methods
     auth_method = metadata.get("token_endpoint_auth_method", "none")
