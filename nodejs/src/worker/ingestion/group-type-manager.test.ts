@@ -200,7 +200,7 @@ describe('GroupTypeManager()', () => {
             })
         })
 
-        it('uses next available index after a group type is deleted from the dashboard', async () => {
+        it('uses next available index after a group type is deleted', async () => {
             await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'A', 0)
             await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'B', 1)
             await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'C', 2)
@@ -247,8 +247,7 @@ describe('GroupTypeManager()', () => {
             expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
                 A: 0,
                 B: 1,
-                // C is now deleted
-                // C: 2,
+                // C: 2,  // C is now deleted
                 D: 3,
                 F: 4,
             })
