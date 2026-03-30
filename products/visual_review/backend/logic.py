@@ -547,23 +547,16 @@ def mark_run_processing(run_id: UUID) -> Run:
     return run
 
 
-def complete_run(
-    run_id: UUID,
-    removed_identifiers: list[str] | None = None,
-    unchanged_count: int = 0,
-    baseline_hashes: dict[str, str] | None = None,
-) -> Run:
+def complete_run(run_id: UUID) -> Run:
     """
-    Complete a run: verify uploads, create artifacts, trigger diff processing.
+    Complete a run: detect removals, verify uploads, trigger diff processing.
 
-    In shard flow, this is where removed snapshots are detected and final
-    counts are reconciled — shards only know about their own subset.
-
-    1. Registers removed identifiers (shard flow)
-    2. Verifies all expected uploads exist in S3
-    3. Creates Artifact records for verified uploads
-    4. Links artifacts to snapshots
-    5. Triggers async diff processing (only if there are changes to diff)
+    1. Fetches baseline from GitHub, diffs against RunSnapshot rows to find removed
+    2. Creates REMOVED RunSnapshot rows
+    3. Verifies all expected uploads exist in S3
+    4. Creates Artifact records for verified uploads
+    5. Links artifacts to snapshots
+    6. Triggers async diff processing (only if there are changes to diff)
 
     Idempotent: returns immediately if already processing or completed.
     """
@@ -571,33 +564,33 @@ def complete_run(
     if run.status in (RunStatus.PROCESSING, RunStatus.COMPLETED):
         return run
 
-    # Shard flow: register removed identifiers at complete time
-    removed = removed_identifiers or []
-    if removed:
-        repo = run.repo
-        verified = _verify_baseline_hashes(repo, baseline_hashes or {})
-        for identifier in removed:
-            baseline_hash = verified.get(identifier)
-            baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
-            RunSnapshot.objects.get_or_create(
-                run=run,
-                team_id=repo.team_id,
-                identifier=identifier,
-                defaults={
-                    "current_hash": "",
-                    "baseline_hash": baseline_hash or "",
-                    "baseline_artifact": baseline_artifact,
-                    "result": SnapshotResult.REMOVED,
-                    "metadata": {},
-                },
-            )
+    repo = run.repo
 
-    # Reconcile final counts (includes shards' unchanged + any removals)
-    if unchanged_count or removed:
-        Run.objects.filter(id=run_id, team_id=run.repo.team_id).update(
-            total_snapshots=F("total_snapshots") + unchanged_count,
-        )
-        _update_run_counts(run)
+    # Detect removed snapshots: baseline identifiers not in this run's RunSnapshot rows
+    baseline = _resolve_baselines(repo, run.run_type, run.branch)
+    if baseline:
+        produced = set(run.snapshots.values_list("identifier", flat=True))
+        for identifier in baseline:
+            if identifier not in produced:
+                baseline_hash = baseline.get(identifier)
+                baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
+                RunSnapshot.objects.get_or_create(
+                    run=run,
+                    team_id=repo.team_id,
+                    identifier=identifier,
+                    defaults={
+                        "current_hash": "",
+                        "baseline_hash": baseline_hash or "",
+                        "baseline_artifact": baseline_artifact,
+                        "result": SnapshotResult.REMOVED,
+                        "metadata": {},
+                    },
+                )
+
+    # Update total and counts from actual RunSnapshot rows
+    run.total_snapshots = run.snapshots.count()
+    run.save(update_fields=["total_snapshots"])
+    _update_run_counts(run)
 
     verify_uploads_and_create_artifacts(run_id)
 
