@@ -214,11 +214,10 @@ class TestQueryCoalescer(TestCase):
         leader_b = QueryCoalescer(self.key)
         leader_b.try_acquire()
 
-        # Follower from round A should still be able to read the done_key
-        result = leader_b.get_success_response()
-        self.assertIsNotNone(
-            result, "done_key was deleted by new leader — followers from the previous round will crash"
-        )
+        # A lingering follower from round A should still be able to read the done_key
+        follower_a = QueryCoalescer(self.key)
+        result = follower_a.get_success_response()
+        assert result is not None, "done_key was deleted by new leader"
         self.assertEqual(result["status"], 200)
         leader_b.cleanup()
 
