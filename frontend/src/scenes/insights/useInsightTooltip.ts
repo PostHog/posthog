@@ -105,7 +105,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
     if (!instance) {
         const tooltipEl = document.createElement('div')
         tooltipEl.id = `InsightTooltipWrapper-${id}`
-        tooltipEl.classList.add('InsightTooltipWrapper')
+        tooltipEl.classList.add('InsightTooltipWrapper', 'ph-no-capture')
         tooltipEl.setAttribute('data-attr', 'insight-tooltip-wrapper')
         tooltipEl.style.pointerEvents = 'none'
         document.body.appendChild(tooltipEl)
