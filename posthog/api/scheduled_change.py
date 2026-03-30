@@ -108,10 +108,14 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"recurrence_interval": f"Must be one of: {', '.join(valid_intervals)}"}
                 )
-            # POC constraint: only update_status allowed for recurring schedules
-            if payload.get("operation") != ScheduledChange.OperationType.UPDATE_STATUS:
+            # Recurring add_release_condition is not supported because it appends
+            # condition groups on each run, creating duplicates.
+            if payload.get("operation") == ScheduledChange.OperationType.ADD_RELEASE_CONDITION:
                 raise serializers.ValidationError(
-                    {"payload": "Recurring schedules only support the update_status operation."}
+                    {
+                        "payload": "Recurring schedules are not supported for add_release_condition "
+                        "because it appends conditions on each run, creating duplicates."
+                    }
                 )
         # For new schedules (create), if is_recurring is false, recurrence_interval must be null
         # We only preserve recurrence_interval when is_recurring=false for UPDATES (pausing existing schedules)

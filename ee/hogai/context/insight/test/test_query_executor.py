@@ -641,15 +641,18 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         # The schema should not be present
         self.assertNotIn("SELECT 1", result)
 
-    async def test_compress_results_raises_for_unsupported_paths_query(self):
-        """Test that _compress_results raises NotImplementedError for PathsQuery."""
+    async def test_compress_results_formats_paths_query(self):
         paths_query = PathsQuery(pathsFilter=PathsFilter(includeEventTypes=["$pageview"]))
-        response = {"results": [{"path": "data"}]}
+        response = {
+            "results": [
+                {"source": "1_/home", "target": "2_/pricing", "value": 150, "average_conversion_time": 150.0},
+                {"source": "1_/home", "target": "2_/docs", "value": 80, "average_conversion_time": 75.5},
+            ]
+        }
 
-        with self.assertRaises(NotImplementedError) as context:
-            await self.query_runner._compress_results(paths_query, response)
-
-        self.assertIn("PathsQuery", str(context.exception))
+        result = await self.query_runner._compress_results(paths_query, response)
+        self.assertIn("Source|Target|Users|Avg. conversion time", result)
+        self.assertIn("1_/home|2_/pricing|150|2m 30s", result)
 
 
 class TestValidateAssistantQuery(NonAtomicBaseTest):

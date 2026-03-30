@@ -162,6 +162,64 @@ describe('createXAxisTickCallback', () => {
                 66: '18:00',
             }),
         },
+        {
+            scenario: 'hourly, multi-day (4 days) → day-start labels only, no intermediate time ticks',
+            interval: 'hour' as const,
+            allDays: hourlyDates('2025-02-15', 96),
+            expected: sparseLabels(96, {
+                0: 'Feb 15',
+                24: 'Feb 16',
+                48: 'Feb 17',
+                72: 'Feb 18',
+            }),
+        },
+        {
+            scenario:
+                'hourly, multi-day sparse (5 days, 8am-10pm only) → date label at each day start, not just midnight',
+            interval: 'hour' as const,
+            allDays: [
+                // Day 1: Mar 24
+                '2026-03-24 08:00:00',
+                '2026-03-24 09:00:00',
+                '2026-03-24 10:00:00',
+                '2026-03-24 11:00:00',
+                '2026-03-24 12:00:00',
+                '2026-03-24 14:00:00',
+                '2026-03-24 16:00:00',
+                '2026-03-24 18:00:00',
+                '2026-03-24 20:00:00',
+                '2026-03-24 22:00:00',
+                // Day 2: Mar 25
+                '2026-03-25 08:00:00',
+                '2026-03-25 10:00:00',
+                '2026-03-25 12:00:00',
+                '2026-03-25 14:00:00',
+                '2026-03-25 18:00:00',
+                '2026-03-25 22:00:00',
+                // Day 3: Mar 26
+                '2026-03-26 09:00:00',
+                '2026-03-26 12:00:00',
+                '2026-03-26 15:00:00',
+                '2026-03-26 20:00:00',
+                // Day 4: Mar 27
+                '2026-03-27 08:00:00',
+                '2026-03-27 12:00:00',
+                '2026-03-27 16:00:00',
+                '2026-03-27 22:00:00',
+                // Day 5: Mar 28
+                '2026-03-28 10:00:00',
+                '2026-03-28 12:00:00',
+                '2026-03-28 14:00:00',
+                '2026-03-28 20:00:00',
+            ],
+            expected: sparseLabels(28, {
+                0: 'Mar 24', // day 1 start
+                10: 'Mar 25', // day 2 start
+                16: 'Mar 26', // day 3 start
+                20: 'Mar 27', // day 4 start
+                24: 'Mar 28', // day 5 start
+            }),
+        },
     ])('$scenario', ({ interval, allDays, expected }) => {
         const callback = createXAxisTickCallback({ interval, allDays, timezone: 'UTC' })
 

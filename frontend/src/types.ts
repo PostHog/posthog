@@ -2370,6 +2370,8 @@ export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
     // matches on template name, description, and tags
     search?: string
+    /** When set, sort by template name (not searching). Omit for server default order. Ignored when `search` is set. */
+    ordering?: 'template_name' | '-template_name'
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'

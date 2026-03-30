@@ -206,7 +206,7 @@ dev = [
     "djangorestframework-stubs~=3.16.0",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
-    "hypothesis~=6.130.0",
+    "hypothesis~=6.151.9",
     "pytest-rerunfailures~=16.1",
     "freezegun==1.2.2",
     "grpcio-tools~=1.71.0",
