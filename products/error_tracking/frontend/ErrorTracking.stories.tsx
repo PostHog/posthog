@@ -42,6 +42,6 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const ListPage: Story = {}
 export const GroupPage: Story = { parameters: { pageUrl: urls.errorTrackingIssue('id') } }

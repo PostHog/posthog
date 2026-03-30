@@ -30,9 +30,8 @@
 {% block content %}
 <div class="alert alert-info">
     <strong>Note:</strong> This tool triggers the Temporal workflow to backfill the precalculated_person_properties table
-    for a specific realtime cohort with person property filters. The backfill runs asynchronously in the background
-    and processes all persons matching the cohort's person property filters.
-    Check the Temporal UI for progress and results.
+    for realtime cohorts with person property filters. The backfill runs sequentially using cursor-based pagination
+    and processes persons in batches to avoid memory issues. Check the Temporal UI for progress and results.
 </div>
 
 {% if messages %}
@@ -76,17 +75,6 @@
         <h2>Processing Configuration</h2>
 
         <div class="form-row">
-            <label for="{{ form.parallelism.id_for_label }}" class="required">
-                {{ form.parallelism.label }}:
-            </label>
-            {{ form.parallelism }}
-            {% if form.parallelism.help_text %}
-                <p class="help">{{ form.parallelism.help_text }}</p>
-            {% endif %}
-            {{ form.parallelism.errors }}
-        </div>
-
-        <div class="form-row">
             <label for="{{ form.batch_size.id_for_label }}" class="required">
                 {{ form.batch_size.label }}:
             </label>
@@ -95,32 +83,6 @@
                 <p class="help">{{ form.batch_size.help_text }}</p>
             {% endif %}
             {{ form.batch_size.errors }}
-        </div>
-    </fieldset>
-
-    <fieldset class="module aligned">
-        <h2>Jittered Scheduling</h2>
-
-        <div class="form-row">
-            <label for="{{ form.workflows_per_batch.id_for_label }}" class="required">
-                {{ form.workflows_per_batch.label }}:
-            </label>
-            {{ form.workflows_per_batch }}
-            {% if form.workflows_per_batch.help_text %}
-                <p class="help">{{ form.workflows_per_batch.help_text }}</p>
-            {% endif %}
-            {{ form.workflows_per_batch.errors }}
-        </div>
-
-        <div class="form-row">
-            <label for="{{ form.batch_delay_minutes.id_for_label }}" class="required">
-                {{ form.batch_delay_minutes.label }}:
-            </label>
-            {{ form.batch_delay_minutes }}
-            {% if form.batch_delay_minutes.help_text %}
-                <p class="help">{{ form.batch_delay_minutes.help_text }}</p>
-            {% endif %}
-            {{ form.batch_delay_minutes.errors }}
         </div>
     </fieldset>
 

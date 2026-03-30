@@ -365,7 +365,10 @@ export function InsightMeta({
                             <LemonButton
                                 to={
                                     isDataVisualizationNode(insight.query)
-                                        ? urls.sqlEditor({ insightShortId: short_id })
+                                        ? urls.sqlEditor({
+                                              insightShortId: short_id,
+                                              dashboard: dashboardId ?? undefined,
+                                          })
                                         : urls.insightEdit(short_id, dashboardId)
                                 }
                                 fullWidth

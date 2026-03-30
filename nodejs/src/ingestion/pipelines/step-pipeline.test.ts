@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { createContext } from './helpers'
-import { drop, isOkResult, ok } from './results'
+import { createContext, createOkContext } from './helpers'
+import { isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 
@@ -25,23 +25,10 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
-            const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message }))
 
             expect(step).toHaveBeenCalledWith({ data: 'test' })
             expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
-        })
-
-        it('should skip step when previous result is not success', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
-
-            const step = jest.fn()
-            const previous = new StartPipeline<{ data: string }, unknown>()
-
-            const pipeline = new StepPipeline(step, previous)
-            const result = await pipeline.process(createContext(drop('dropped'), { message }))
-
-            expect(step).not.toHaveBeenCalled()
-            expect(result).toEqual(createContext(drop('dropped'), { message }))
         })
 
         it('should handle step errors', async () => {
@@ -52,7 +39,7 @@ describe('StepPipeline', () => {
 
             const pipeline = new StepPipeline(step, previous)
 
-            await expect(pipeline.process(createContext(ok({ data: 'test' }), { message }))).rejects.toThrow(
+            await expect(pipeline.process(createOkContext({ data: 'test' }, { message }))).rejects.toThrow(
                 'Step failed'
             )
         })
@@ -85,7 +72,7 @@ describe('StepPipeline', () => {
             const pipeline1 = new StepPipeline(step1, previous)
             const pipeline2 = pipeline1.pipe(step)
 
-            const result = await pipeline2.process(createContext(ok({ value: 4 }), { message }))
+            const result = await pipeline2.process(createOkContext({ value: 4 }, { message }))
 
             expect(step1).toHaveBeenCalledWith({ value: 4 })
             expect(step).toHaveBeenCalledWith({ value: 12 }) // 4 * 3
@@ -109,7 +96,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(testStep, previous)
-            const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message }))
 
             expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }))
         })
@@ -123,25 +110,9 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(anonymousStep, previous)
-            const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message }))
 
             expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'anonymousStep' }))
-        })
-
-        it('should not update lastStep for failed results', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
-
-            function testStep(input: any) {
-                return Promise.resolve(ok({ processed: input.data }))
-            }
-
-            const previous = new StartPipeline<{ data: string }, unknown>()
-            const pipeline = new StepPipeline(testStep, previous)
-            const result = await pipeline.process(createContext(drop('dropped'), { message }))
-
-            expect(result).toEqual(
-                createContext(drop('dropped'), { message }) // No lastStep update for failed results
-            )
         })
 
         it('should preserve existing lastStep in context', async () => {
@@ -153,9 +124,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(testStep, previous)
-            const result = await pipeline.process(
-                createContext(ok({ data: 'test' }), { message, lastStep: 'firstStep' })
-            )
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message, lastStep: 'firstStep' }))
 
             expect(result).toEqual(
                 createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }) // Should update to current step
@@ -179,10 +148,13 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), {
-                message,
-                sideEffects: [initialSideEffect1, initialSideEffect2],
-            })
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    sideEffects: [initialSideEffect1, initialSideEffect2],
+                }
+            )
 
             const result = await pipeline.process(input)
 
@@ -203,7 +175,7 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), { message, sideEffects: [existingSideEffect] })
+            const input = createOkContext({ data: 'test' }, { message, sideEffects: [existingSideEffect] })
 
             const result = await pipeline.process(input)
 
@@ -219,32 +191,11 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), { message })
+            const input = createOkContext({ data: 'test' }, { message })
 
             const result = await pipeline.process(input)
 
             expect(result.context.sideEffects).toEqual([stepSideEffect])
-        })
-
-        it('should not modify side effects for non-successful results', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
-
-            const existingSideEffect = Promise.resolve('existing-side-effect')
-            const step = jest.fn() // Should not be called
-
-            const previous = new StartPipeline<{ data: string }, unknown>()
-            const pipeline = new StepPipeline(step, previous)
-
-            const input = createContext(drop<{ data: string }>('dropped'), {
-                message,
-                sideEffects: [existingSideEffect],
-            })
-
-            const result = await pipeline.process(input)
-
-            expect(step).not.toHaveBeenCalled()
-            expect(result.context.sideEffects).toEqual([existingSideEffect])
-            expect(result.result).toEqual(drop('dropped'))
         })
 
         it('should accumulate side effects across multiple chained steps', async () => {
@@ -261,7 +212,7 @@ describe('StepPipeline', () => {
             const pipeline1 = new StepPipeline(step1, previous)
             const pipeline2 = new StepPipeline(step2, pipeline1)
 
-            const input = createContext(ok({ data: 'test' }), { message, sideEffects: [initialSideEffect] })
+            const input = createOkContext({ data: 'test' }, { message, sideEffects: [initialSideEffect] })
 
             const result = await pipeline2.process(input)
 
@@ -276,7 +227,7 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), { message })
+            const input = createOkContext({ data: 'test' }, { message })
 
             const result = await pipeline.process(input)
 
@@ -296,10 +247,13 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), {
-                message,
-                sideEffects: [contextSideEffect1, contextSideEffect2],
-            })
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    sideEffects: [contextSideEffect1, contextSideEffect2],
+                }
+            )
 
             const result = await pipeline.process(input)
 
@@ -323,7 +277,7 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), { message })
+            const input = createOkContext({ data: 'test' }, { message })
             const result = await pipeline.process(input)
 
             expect(result.context.warnings).toEqual([stepWarning])
@@ -340,10 +294,13 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), {
-                message,
-                warnings: [contextWarning],
-            })
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
             const result = await pipeline.process(input)
 
             expect(result.context.warnings).toEqual([contextWarning, stepWarning])
@@ -357,7 +314,7 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), { message })
+            const input = createOkContext({ data: 'test' }, { message })
             const result = await pipeline.process(input)
 
             expect(result.context.warnings).toEqual([])
@@ -376,34 +333,17 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }, unknown>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = createContext(ok({ data: 'test' }), {
-                message,
-                warnings: [contextWarning1, contextWarning2],
-            })
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    warnings: [contextWarning1, contextWarning2],
+                }
+            )
             const result = await pipeline.process(input)
 
             // Should preserve order: context warnings first, then step warnings
             expect(result.context.warnings).toEqual([contextWarning1, contextWarning2, stepWarning1, stepWarning2])
-        })
-
-        it('should not accumulate warnings when step is skipped (non-OK result)', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
-
-            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
-            const step = jest.fn()
-
-            const previous = new StartPipeline<{ data: string }, unknown>()
-            const pipeline = new StepPipeline(step, previous)
-
-            const input = createContext<{ data: string }, { message: Message }>(drop('dropped'), {
-                message,
-                warnings: [contextWarning],
-            })
-            const result = await pipeline.process(input)
-
-            // Should preserve context warnings but not call step
-            expect(step).not.toHaveBeenCalled()
-            expect(result.context.warnings).toEqual([contextWarning])
         })
     })
 })

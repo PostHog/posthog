@@ -135,6 +135,27 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
             new_fields.append(field)
             continue
 
+        # Handle array/list types (e.g., Array(DateTime))
+        if pa.types.is_list(field.type):
+            if "datetime" in type.lower():
+                list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                list_int64 = pc.cast(column, pa.list_(pa.int64()))
+                list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
+                list_column = pc.cast(list_timestamp_s, list_type)
+            else:
+                list_element_type = pa.date32()
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                list_int32 = pc.cast(column, pa.list_(pa.int32()))
+                list_column = pc.cast(list_int32, list_type)
+
+            new_fields.append(list_field)
+            new_columns.append(list_column)
+            continue
+
+        # Handle scalar types
         if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
             new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
             new_column = pc.cast(column, new_field.type)
@@ -288,7 +309,15 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "IPv6": ("toString", ()),
     }
 
-    has_type_to_convert = lambda ch_type: any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+    def _needs_conversion(ch_type: str) -> bool:
+        # Skip array types from conversion — they are already properly typed by ClickHouse
+        # and attempting to convert them causes errors like:
+        # "Illegal type Array(DateTime) of argument of function toTimezone"
+        is_array_type = ch_type.lower().startswith("array(")
+        if is_array_type:
+            return False
+        return any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+
     get_call_tuple = lambda ch_type: next(
         iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
     )
@@ -301,7 +330,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
             table_describe_response = await ch_response.content.read()
             for line in table_describe_response.decode("utf-8").splitlines():
                 column_name, ch_type = line.strip().split("\t")
-                if has_type_to_convert(ch_type):
+                if _needs_conversion(ch_type):
                     query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
                 else:
                     query_typings.append((column_name, ch_type, None))
@@ -428,7 +457,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-            # i know this isn't DRY but it was the only way to make type checking shut up
             if index == 0:
                 await logger.adebug(
                     f"Writing batch to delta table: index={index} mode=overwrite schema_mode=overwrite batch_row_count={batch.num_rows}"
@@ -441,23 +469,23 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     schema_mode="overwrite",
                     storage_options=storage_options,
                 )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
             else:
                 await logger.adebug(
                     f"Writing batch to delta table: index={index} mode=append batch_row_count={batch.num_rows}"
                 )
                 await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=table_uri,
+                    deltalake.write_deltalake,  # type: ignore[arg-type]
+                    table_or_uri=delta_table,
                     data=batch,
                     mode="append",
                     storage_options=storage_options,
                 )
-            if index == 0:
-                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
-
+            # explicitly delete batch to free memory after writing
+            del batch, ch_types
     await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
     # row count validation warning
     if job.rows_expected is not None:
@@ -467,17 +495,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 expected=job.rows_expected,
                 actual=row_count,
             )
-
-    if delta_table is None:
-        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
-
-    await logger.adebug("Compacting delta table")
-    delta_table.optimize.compact()
-    await logger.adebug("Vacuuming delta table")
-    delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
-
-    file_uris = delta_table.file_uris()
-
+    file_uris = []
+    if delta_table is not None:
+        await logger.adebug("Compacting delta table")
+        delta_table.optimize.compact()
+        await logger.adebug("Vacuuming delta table")
+        delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
+        file_uris = delta_table.file_uris()
     await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
     return MaterializeViewResult(
         node_id=node.id,

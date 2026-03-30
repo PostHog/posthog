@@ -43,7 +43,6 @@ tools:
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
-
         ui_resource_uri: ui://posthog/workflow-list.html
     hog-flows-create:
         operation: hog_flows_create
@@ -62,7 +61,6 @@ tools:
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
             condition, and variables.
-
         ui_resource_uri: ui://posthog/workflow.html
     hog-flows-update:
         operation: hog_flows_update
@@ -96,4 +94,16 @@ tools:
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
+        enabled: false
+    hog-flows-schedules-list:
+        operation: hog_flows_schedules_list
+        enabled: false
+    hog-flows-schedules-create:
+        operation: hog_flows_schedules_create
+        enabled: false
+    hog-flows-schedules-partial-update:
+        operation: hog_flows_schedules_partial_update
+        enabled: false
+    hog-flows-schedules-destroy:
+        operation: hog_flows_schedules_destroy
         enabled: false

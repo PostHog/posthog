@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { createBatch, createContext, createNewBatchPipeline } from './helpers'
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
+import { createBatch, createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { sideEffectResultCounter } from './metrics'
 import { dlq, drop, ok } from './results'
 import {
@@ -90,7 +91,7 @@ describe('SideEffectHandlingPipeline', () => {
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             // Manually create batch with side effects
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffectPromise] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
 
             pipeline.feed(batchWithSideEffects)
             const result = await pipeline.next()
@@ -123,7 +124,7 @@ describe('SideEffectHandlingPipeline', () => {
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [
-                createContext(ok({ message }), { message, sideEffects: [sideEffectPromise1, sideEffectPromise2] }),
+                createOkContext({ message }, { message, sideEffects: [sideEffectPromise1, sideEffectPromise2] }),
             ]
 
             pipeline.feed(batchWithSideEffects)
@@ -161,8 +162,8 @@ describe('SideEffectHandlingPipeline', () => {
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [
-                createContext(ok({ message }), { message, sideEffects: [sideEffectPromise1] }),
-                createContext(ok({ message: message2 }), { message: message2, sideEffects: [sideEffectPromise2] }),
+                createOkContext({ message }, { message, sideEffects: [sideEffectPromise1] }),
+                createOkContext({ message: message2 }, { message: message2, sideEffects: [sideEffectPromise2] }),
             ]
 
             pipeline.feed(batchWithSideEffects)
@@ -185,7 +186,7 @@ describe('SideEffectHandlingPipeline', () => {
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [failingSideEffect] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [failingSideEffect] })]
 
             pipeline.feed(batchWithSideEffects)
 
@@ -208,16 +209,14 @@ describe('SideEffectHandlingPipeline', () => {
             const dropResult = drop<{ message: Message }>('test drop')
             const dlqResult = dlq<{ message: Message }>('test dlq', new Error('test error'))
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
-            const config: SideEffectHandlingConfig = { await: true }
-            const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
-
             const batchWithSideEffects = [
                 createContext(dropResult, { message, sideEffects: [sideEffectPromise] }),
                 createContext(dlqResult, { message, sideEffects: [sideEffectPromise] }),
             ]
 
-            pipeline.feed(batchWithSideEffects)
+            const mockPrevious = createMockPipeline<{ message: Message }>(batchWithSideEffects)
+            const config: SideEffectHandlingConfig = { await: true }
+            const pipeline = new SideEffectHandlingPipeline(mockPrevious, mockPromiseScheduler, config)
 
             const result = await pipeline.next()
 
@@ -232,7 +231,7 @@ describe('SideEffectHandlingPipeline', () => {
             const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler)
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffectPromise] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
 
             pipeline.feed(batchWithSideEffects)
 
@@ -248,7 +247,7 @@ describe('SideEffectHandlingPipeline', () => {
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffectPromise] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
 
             pipeline.feed(batchWithSideEffects)
 
@@ -271,7 +270,7 @@ describe('SideEffectHandlingPipeline', () => {
             const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler) // Default config
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffectPromise] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
 
             pipeline.feed(batchWithSideEffects)
             const result = await pipeline.next()
@@ -299,7 +298,7 @@ describe('SideEffectHandlingPipeline', () => {
             const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffectPromise] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
 
             pipeline.feed(batchWithSideEffects)
             const result = await pipeline.next()
@@ -323,7 +322,7 @@ describe('SideEffectHandlingPipeline', () => {
             const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffectPromise] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
 
             pipeline.feed(batchWithSideEffects)
             const result = await pipeline.next()
@@ -345,7 +344,7 @@ describe('SideEffectHandlingPipeline', () => {
             const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffectPromise] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
 
             pipeline.feed(batchWithSideEffects)
             await pipeline.next()
@@ -364,10 +363,13 @@ describe('SideEffectHandlingPipeline', () => {
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [
-                createContext(ok({ message }), {
-                    message,
-                    sideEffects: [successfulSideEffect1, successfulSideEffect2],
-                }),
+                createOkContext(
+                    { message },
+                    {
+                        message,
+                        sideEffects: [successfulSideEffect1, successfulSideEffect2],
+                    }
+                ),
             ]
 
             pipeline.feed(batchWithSideEffects)
@@ -386,7 +388,7 @@ describe('SideEffectHandlingPipeline', () => {
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [
-                createContext(ok({ message }), { message, sideEffects: [failingSideEffect1, failingSideEffect2] }),
+                createOkContext({ message }, { message, sideEffects: [failingSideEffect1, failingSideEffect2] }),
             ]
 
             pipeline.feed(batchWithSideEffects)
@@ -405,7 +407,7 @@ describe('SideEffectHandlingPipeline', () => {
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [
-                createContext(ok({ message }), { message, sideEffects: [successfulSideEffect, failingSideEffect] }),
+                createOkContext({ message }, { message, sideEffects: [successfulSideEffect, failingSideEffect] }),
             ]
 
             pipeline.feed(batchWithSideEffects)
@@ -423,7 +425,7 @@ describe('SideEffectHandlingPipeline', () => {
             const config: SideEffectHandlingConfig = { await: false }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
-            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffect] })]
+            const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffect] })]
 
             pipeline.feed(batchWithSideEffects)
             await pipeline.next()
@@ -438,7 +440,7 @@ describe('SideEffectHandlingPipeline', () => {
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
-            const batchWithNoSideEffects = [createContext(ok({ message }), { message, sideEffects: [] })]
+            const batchWithNoSideEffects = [createOkContext({ message }, { message, sideEffects: [] })]
 
             pipeline.feed(batchWithNoSideEffects)
             await pipeline.next()
@@ -457,8 +459,8 @@ describe('SideEffectHandlingPipeline', () => {
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [
-                createContext(ok({ message }), { message, sideEffects: [successSideEffect] }),
-                createContext(ok({ message: message2 }), { message: message2, sideEffects: [failSideEffect] }),
+                createOkContext({ message }, { message, sideEffects: [successSideEffect] }),
+                createOkContext({ message: message2 }, { message: message2, sideEffects: [failSideEffect] }),
             ]
 
             pipeline.feed(batchWithSideEffects)

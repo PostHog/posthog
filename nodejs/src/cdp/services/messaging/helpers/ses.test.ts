@@ -12,7 +12,18 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456', teamId: 1 })] },
+        tags: {
+            ph_id: [
+                generateEmailTrackingCode({
+                    functionId: 'abc123',
+                    id: 'inv456',
+                    teamId: 1,
+                    state: {
+                        actionId: 'act789',
+                    },
+                }),
+            ],
+        },
     }
 
     it('parses a raw Open event', async () => {
@@ -34,6 +45,7 @@ describe('SesWebhookHandler', () => {
             {
                 functionId: 'abc123',
                 invocationId: 'inv456',
+                actionId: 'act789',
                 metricName: 'email_opened',
             },
         ])
@@ -57,18 +69,32 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].metricName).toBe('email_link_clicked')
     })
 
-    it.each([
-        ['Send', {}],
-        ['Delivery', { delivery: { timestamp: '2025-10-03T12:03:00Z' } }],
-    ] as const)(
-        'skips %s events (email_sent is recorded synchronously, not from webhooks)',
-        async (eventType, extra) => {
-            const body = [{ eventType, mail: baseMail, ...extra }]
-            const result = await handler.handleWebhook({ body, headers: {} })
-            expect(result.status).toBe(200)
-            expect(result.metrics).toHaveLength(0)
-        }
-    )
+    it('skips Send events (email_sent is recorded synchronously, not from webhooks)', async () => {
+        const body = [{ eventType: 'Send', mail: baseMail }]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics).toHaveLength(0)
+    })
+
+    it('parses a raw Delivery event', async () => {
+        const body = [
+            {
+                eventType: 'Delivery',
+                mail: baseMail,
+                delivery: { timestamp: '2025-10-03T12:03:00Z' },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics).toEqual([
+            {
+                functionId: 'abc123',
+                invocationId: 'inv456',
+                actionId: 'act789',
+                metricName: 'email_delivered',
+            },
+        ])
+    })
 
     it('parses a raw Bounce event and returns opt-out recipients for permanent bounces', async () => {
         const body = [
