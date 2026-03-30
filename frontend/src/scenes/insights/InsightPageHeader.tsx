@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -40,6 +41,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
 
     const { push } = useActions(router)
 
@@ -71,7 +73,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 name={defaultInsightName || ''}
                 description={insight?.description || ''}
                 resourceType={{
-                    type: getInsightIconTypeFromQuery(query),
+                    type: editorPanelsEnabled ? 'product_analytics' : getInsightIconTypeFromQuery(query),
                 }}
                 onNameChange={(name) => {
                     if (insightMode === ItemMode.Edit) {
