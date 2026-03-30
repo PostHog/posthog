@@ -33,6 +33,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         values: [sidePanelStateLogic, ['sidePanelOpen'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
+        initTickets: true,
         loadTickets: true,
         startPolling: true,
         stopPolling: true,
@@ -124,6 +125,30 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         totalUnreadCount: [(s) => [s.tickets], (tickets) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0)],
     }),
     listeners(({ actions, values, cache }) => ({
+        initTickets: () => {
+            if (cache.initialized) {
+                return
+            }
+            cache.initialized = true
+
+            const restoreToken = router.values.searchParams['ph_conv_restore']
+            if (restoreToken) {
+                actions.restoreFromUrlToken(restoreToken)
+            } else {
+                actions.loadTickets()
+            }
+
+            if (!cache.onVisibilityChange) {
+                cache.onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        actions.loadTickets()
+                    } else {
+                        actions.stopPolling()
+                    }
+                }
+                document.addEventListener('visibilitychange', cache.onVisibilityChange)
+            }
+        },
         loadTickets: async () => {
             if (!values.isEnabled) {
                 return
@@ -292,10 +317,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         restoreFromUrlToken: async ({ token }) => {
             const conversations = posthog.conversations as any
             if (!conversations?.restoreFromToken) {
-                // Conversations not ready yet — retry until it is (reuses loadTickets counter)
-                if ((cache.conversationsRetries ?? 0) < 20) {
-                    cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
-                    cache.conversationsRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
+                if ((cache.restoreRetries ?? 0) < 20) {
+                    cache.restoreRetries = (cache.restoreRetries ?? 0) + 1
+                    cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
                 } else {
                     removeRestoreTokenFromUrl()
                     actions.loadTickets()
@@ -325,28 +349,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
     })),
-    subscriptions(({ actions, values, cache }) => ({
+    subscriptions(({ actions, values }) => ({
         isEnabled: (enabled: boolean) => {
             if (!enabled) {
                 return
             }
-            const restoreToken = router.values.searchParams['ph_conv_restore']
-            if (restoreToken) {
-                actions.restoreFromUrlToken(restoreToken)
-            } else {
-                actions.loadTickets()
-            }
-
-            if (!cache.onVisibilityChange) {
-                cache.onVisibilityChange = (): void => {
-                    if (document.visibilityState === 'visible') {
-                        actions.loadTickets()
-                    } else {
-                        actions.stopPolling()
-                    }
-                }
-                document.addEventListener('visibilitychange', cache.onVisibilityChange)
-            }
+            actions.initTickets()
         },
         sidePanelOpen: () => {
             if (values.isEnabled) {
@@ -359,18 +367,16 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         if (cache.conversationsRetryTimer) {
             clearTimeout(cache.conversationsRetryTimer)
         }
+        if (cache.restoreRetryTimer) {
+            clearTimeout(cache.restoreRetryTimer)
+        }
         if (cache.onVisibilityChange) {
             document.removeEventListener('visibilitychange', cache.onVisibilityChange)
         }
     }),
     afterMount(({ values, actions }) => {
         if (values.isEnabled) {
-            const restoreToken = router.values.searchParams['ph_conv_restore']
-            if (restoreToken) {
-                actions.restoreFromUrlToken(restoreToken)
-            } else {
-                actions.loadTickets()
-            }
+            actions.initTickets()
         }
     }),
 ])
