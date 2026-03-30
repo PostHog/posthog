@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { DEBUG_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { withUiApp } from '@/resources/ui-apps'
 import { DebugMcpUiAppsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -36,15 +36,9 @@ export const debugMcpUiAppsHandler: ToolBase<typeof schema, Result>['handler'] =
     }
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'debug-mcp-ui-apps',
-    schema,
-    handler: debugMcpUiAppsHandler,
-    _meta: {
-        ui: {
-            resourceUri: DEBUG_RESOURCE_URI,
-        },
-    },
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('debug', {
+        name: 'debug-mcp-ui-apps',
+        schema,
+        handler: debugMcpUiAppsHandler,
+    })

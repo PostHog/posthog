@@ -343,21 +343,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         maxContext: [
-            (s) => [s.insight, s.filtersOverride, s.variablesOverride, s.insightData],
-            (
-                insight: Partial<QueryBasedInsightModel>,
-                filtersOverride,
-                variablesOverride,
-                insightData
-            ): MaxContextInput[] => {
+            (s) => [s.insight, s.filtersOverride, s.variablesOverride],
+            (insight: Partial<QueryBasedInsightModel>, filtersOverride, variablesOverride): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
-                // Merge the latest result from insightDataLogic (more up-to-date than insight.result)
-                const insightWithResult =
-                    insightData?.result != null ? { ...insight, result: insightData.result } : insight
                 return [
-                    createMaxContextHelpers.insight(insightWithResult, {
+                    createMaxContextHelpers.insight(insight, {
                         filtersOverride: filtersOverride ?? undefined,
                         variablesOverride: variablesOverride ?? undefined,
                     }),
