@@ -67,6 +67,13 @@ function computeVisibleXLabels(
     return visible
 }
 
+const TICK_STYLE_BASE: React.CSSProperties = {
+    position: 'absolute',
+    fontSize: 11,
+    pointerEvents: 'none',
+    whiteSpace: 'nowrap',
+}
+
 export function AxisLabels({
     xTickFormatter,
     yTickFormatter,
@@ -95,14 +102,11 @@ export function AxisLabels({
                         <div
                             key={`y-${tick}`}
                             style={{
-                                position: 'absolute',
+                                ...TICK_STYLE_BASE,
                                 right: dimensions.width - dimensions.plotLeft + 8,
                                 top: y,
                                 transform: 'translateY(-50%)',
-                                fontSize: 11,
                                 color: axisColor,
-                                pointerEvents: 'none',
-                                whiteSpace: 'nowrap',
                             }}
                         >
                             {label}
@@ -114,14 +118,11 @@ export function AxisLabels({
                 <div
                     key={`x-${index}`}
                     style={{
-                        position: 'absolute',
+                        ...TICK_STYLE_BASE,
                         left: x,
                         top: dimensions.plotTop + dimensions.plotHeight + 8,
                         transform: 'translateX(-50%)',
-                        fontSize: 11,
                         color: axisColor,
-                        pointerEvents: 'none',
-                        whiteSpace: 'nowrap',
                     }}
                 >
                     {text}

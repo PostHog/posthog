@@ -11,8 +11,13 @@ export function findNearestIndex(
         return -1
     }
 
-    // Build sorted x-positions
-    const positions = labels.map((label, i) => ({ x: xScale(label) ?? 0, index: i })).filter((p) => isFinite(p.x))
+    const positions: { x: number; index: number }[] = []
+    for (let i = 0; i < labels.length; i++) {
+        const x = xScale(labels[i]) ?? 0
+        if (isFinite(x)) {
+            positions.push({ x, index: i })
+        }
+    }
 
     if (positions.length === 0) {
         return -1
@@ -51,17 +56,21 @@ export function buildTooltipContext(
         return null
     }
 
-    const seriesData = series
-        .filter((s) => !s.hidden)
-        .map((s) => ({
-            series: s,
-            value: resolveValue(s, dataIndex),
-            color: s.color,
-        }))
+    const seriesData: TooltipContext['seriesData'] = []
+    const yPixels: number[] = []
+    for (const s of series) {
+        if (s.hidden) {
+            continue
+        }
+        const value = resolveValue(s, dataIndex)
+        seriesData.push({ series: s, value, color: s.color })
+        const yVal = yScale(value)
+        if (isFinite(yVal)) {
+            yPixels.push(yVal)
+        }
+    }
 
-    // Position Y at the midpoint of all visible series values
-    const yValues = seriesData.map((d) => yScale(d.value)).filter(isFinite)
-    const y = yValues.length > 0 ? Math.min(...yValues) : 0
+    const y = yPixels.length > 0 ? Math.min(...yPixels) : 0
 
     return {
         dataIndex,

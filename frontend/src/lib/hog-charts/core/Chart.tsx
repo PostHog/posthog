@@ -6,6 +6,7 @@ import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { GoalLines } from '../overlays/GoalLines'
 import { Tooltip } from '../overlays/Tooltip'
 import { ChartContext } from './chart-context'
+import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/use-chart-canvas'
 import { useChartDraw } from './hooks/use-chart-draw'
 import { useChartInteraction } from './hooks/use-chart-interaction'
@@ -23,21 +24,17 @@ import type {
     TooltipContext,
 } from './types'
 
+const OVERLAY_STYLE: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    pointerEvents: 'none',
+}
+
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
-    return (
-        <div
-            style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-            }}
-        >
-            {children}
-        </div>
-    )
+    return <div style={OVERLAY_STYLE}>{children}</div>
 }
 
 export interface ChartProps {
@@ -156,47 +153,49 @@ export function Chart({
     }, [scales, dimensions, labels, coloredSeries, hoverIndex])
 
     return (
-        <ChartContext.Provider value={contextValue}>
-            <div
-                ref={wrapperRef as React.RefObject<HTMLDivElement>}
-                className={className}
-                style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
-                onMouseMove={handlers.onMouseMove}
-                onMouseLeave={handlers.onMouseLeave}
-                onClick={handlers.onClick}
-            >
-                <canvas
-                    ref={canvasRef as React.RefObject<HTMLCanvasElement>}
-                    role="img"
-                    aria-label={`Chart with ${coloredSeries.filter((s) => !s.hidden).length} data series`}
-                    style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        cursor: cursorStyle,
-                    }}
-                />
+        <ChartErrorBoundary>
+            <ChartContext.Provider value={contextValue}>
+                <div
+                    ref={wrapperRef}
+                    className={className}
+                    style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
+                    onMouseMove={handlers.onMouseMove}
+                    onMouseLeave={handlers.onMouseLeave}
+                    onClick={handlers.onClick}
+                >
+                    <canvas
+                        ref={canvasRef}
+                        role="img"
+                        aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.hidden ? 0 : 1), 0)} data series`}
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            cursor: cursorStyle,
+                        }}
+                    />
 
-                {dimensions && scales && (
-                    <OverlayLayer>
-                        <AxisLabels
-                            xTickFormatter={xTickFormatter}
-                            yTickFormatter={resolvedYFormatter}
-                            hideXAxis={hideXAxis}
-                            hideYAxis={hideYAxis}
-                            axisColor={theme.axisColor}
-                        />
+                    {dimensions && scales && (
+                        <OverlayLayer>
+                            <AxisLabels
+                                xTickFormatter={xTickFormatter}
+                                yTickFormatter={resolvedYFormatter}
+                                hideXAxis={hideXAxis}
+                                hideYAxis={hideYAxis}
+                                axisColor={theme.axisColor}
+                            />
 
-                        {showCrosshair && <Crosshair color={theme.crosshairColor} />}
+                            {showCrosshair && <Crosshair color={theme.crosshairColor} />}
 
-                        {goalLines && goalLines.length > 0 && <GoalLines goalLines={goalLines} />}
+                            {goalLines && goalLines.length > 0 && <GoalLines goalLines={goalLines} />}
 
-                        {tooltipCtx && showTooltip && <Tooltip context={tooltipCtx} component={TooltipComponent} />}
+                            {tooltipCtx && showTooltip && <Tooltip context={tooltipCtx} component={TooltipComponent} />}
 
-                        {children}
-                    </OverlayLayer>
-                )}
-            </div>
-        </ChartContext.Provider>
+                            {children}
+                        </OverlayLayer>
+                    )}
+                </div>
+            </ChartContext.Provider>
+        </ChartErrorBoundary>
     )
 }

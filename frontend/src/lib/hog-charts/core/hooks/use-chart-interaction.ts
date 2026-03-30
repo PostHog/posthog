@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from '../interaction'
 import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Series, TooltipContext } from '../types'
@@ -10,7 +10,7 @@ interface UseChartInteractionOptions {
     dimensions: ChartDimensions | null
     labels: string[]
     series: Series[]
-    canvasRef: React.RefObject<HTMLCanvasElement | null>
+    canvasRef: React.RefObject<HTMLCanvasElement>
     showTooltip: boolean
     onPointClick?: (data: PointClickData) => void
     resolveValue?: ResolveValueFn
@@ -91,9 +91,7 @@ export function useChartInteraction({
         }
     }, [onPointClick, series, labels, resolveValue])
 
-    return {
-        hoverIndex,
-        tooltipCtx,
-        handlers: { onMouseMove, onMouseLeave, onClick },
-    }
+    const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
+
+    return { hoverIndex, tooltipCtx, handlers }
 }
