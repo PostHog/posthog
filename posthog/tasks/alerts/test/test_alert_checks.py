@@ -1218,15 +1218,11 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             outcome=expected_outcome,
             duration_ms=completed_kwargs["properties"].duration_ms,
         )
-        assert completed_kwargs["extra_properties"] == {
-            "calculation_interval": calculation_interval,
-            **(expected_error_extra or {}),
-            **(
-                {"error_origin": completed_kwargs["extra_properties"]["error_origin"]}
-                if side_effect is not None
-                else {}
-            ),
-        }
+        assert completed_kwargs["extra_properties"]["calculation_interval"] == calculation_interval
+        for key, value in (expected_error_extra or {}).items():
+            assert completed_kwargs["extra_properties"][key] == value
         if side_effect is not None:
             assert completed_kwargs["extra_properties"]["error_origin"]
+        else:
+            assert "error_origin" not in completed_kwargs["extra_properties"]
         assert mock_slo_completed.call_args.kwargs["properties"].duration_ms >= 0

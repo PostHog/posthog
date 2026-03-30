@@ -99,6 +99,16 @@ def test_slo_operation_emits_success_with_completion_properties(
     assert get_current_slo() is None
 
 
+def test_slo_handle_tag_none_unsets_existing_key() -> None:
+    from posthog.slo.context import SloHandle
+
+    slo = SloHandle()
+    slo.tag(alert_state="healthy", notifications_sent=2)
+    slo.tag(alert_state=None)
+
+    assert slo.completion_properties == {"notifications_sent": 2}
+
+
 @patch("posthog.slo.context.emit_slo_completed")
 @patch("posthog.slo.context.emit_slo_started")
 def test_slo_operation_emits_failure_with_automatic_error_properties(

@@ -24,6 +24,7 @@ import dataclasses
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
+from os import sep
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -34,6 +35,8 @@ from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, Slo
 type JsonScalar = None | bool | int | float | str
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 SLO_REPO_ROOT = Path(__file__).resolve().parents[2]
+SLO_REPO_ROOT_STR = str(SLO_REPO_ROOT)
+SLO_REPO_ROOT_PREFIX = f"{SLO_REPO_ROOT_STR}{sep}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,7 +54,11 @@ class SloHandle:
     outcome_override: SloOutcome | None = None
 
     def tag(self, **props: JsonValue) -> None:
-        self.completion_properties.update({key: value for key, value in props.items() if value is not None})
+        for key, value in props.items():
+            if value is None:
+                self.completion_properties.pop(key, None)
+            else:
+                self.completion_properties[key] = value
 
     def succeed(self, **props: JsonValue) -> None:
         self.outcome_override = SloOutcome.SUCCESS
@@ -79,7 +86,8 @@ def tag_current_slo(**props: JsonValue) -> bool:
 
 
 def _is_repo_frame(filename: str) -> bool:
-    return Path(filename).resolve().is_relative_to(SLO_REPO_ROOT)
+    normalized_filename = str(Path(filename).absolute())
+    return normalized_filename == SLO_REPO_ROOT_STR or normalized_filename.startswith(SLO_REPO_ROOT_PREFIX)
 
 
 def _build_error_origin(exc: Exception) -> str | None:
