@@ -1,8 +1,8 @@
 import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
-import { PersonHogClient } from '../../../personhog/client'
-import { PersonHogGroupRepository } from '../../../personhog/personhog-group-repository'
+import { PersonHogClient } from '../../../ingestion/personhog/client'
+import { PersonHogGroupRepository } from '../../../ingestion/personhog/personhog-group-repository'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'

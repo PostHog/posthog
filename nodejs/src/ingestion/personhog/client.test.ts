@@ -2,19 +2,19 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '../generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel } from '../generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
+import { ConsistencyLevel } from '../../generated/personhog/personhog/types/v1/common_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '../generated/personhog/personhog/types/v1/group_pb'
+} from '../../generated/personhog/personhog/types/v1/group_pb'
 import type {
     GetGroupRequest,
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdsRequest,
     GetGroupsBatchRequest,
-} from '../generated/personhog/personhog/types/v1/group_pb'
+} from '../../generated/personhog/personhog/types/v1/group_pb'
 import { PersonHogClient } from './client'
 
 const textEncoder = new TextEncoder()
@@ -98,7 +98,7 @@ describe('PersonHogClient', () => {
                 getGroup: () => ({ group: makeProtoGroup() }),
             })
 
-            const result = await client.fetchGroup(1, 0, 'acme-corp')
+            const result = await client.groups.fetchGroup(1, 0, 'acme-corp')
 
             expect(result).toEqual({
                 id: 42,
@@ -118,7 +118,7 @@ describe('PersonHogClient', () => {
                 getGroup: () => ({}),
             })
 
-            const result = await client.fetchGroup(1, 0, 'nonexistent')
+            const result = await client.groups.fetchGroup(1, 0, 'nonexistent')
 
             expect(result).toBeUndefined()
         })
@@ -134,7 +134,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroup(1, 0, 'empty-props')
+            const result = await client.groups.fetchGroup(1, 0, 'empty-props')
 
             expect(result).toMatchObject({
                 group_properties: {},
@@ -150,7 +150,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroup(77, 0, 'acme-corp')
+            const result = await client.groups.fetchGroup(77, 0, 'acme-corp')
 
             expect(result).toMatchObject({
                 id: 999,
@@ -166,7 +166,7 @@ describe('PersonHogClient', () => {
                 },
             })
 
-            await expect(client.fetchGroup(1, 0, 'key')).rejects.toThrow(ConnectError)
+            await expect(client.groups.fetchGroup(1, 0, 'key')).rejects.toThrow(ConnectError)
         })
     })
 
@@ -187,7 +187,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroupsByKeys([1, 2], [0, 1], ['acme', 'globex'])
+            const result = await client.groups.fetchGroupsByKeys([1, 2], [0, 1], ['acme', 'globex'])
 
             expect(result).toEqual([
                 { team_id: 1, group_type_index: 0, group_key: 'acme', group_properties: { name: 'Acme' } },
@@ -211,7 +211,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroupsByKeys([1, 1], [0, 1], ['found', 'missing'])
+            const result = await client.groups.fetchGroupsByKeys([1, 1], [0, 1], ['found', 'missing'])
 
             expect(result).toEqual([
                 { team_id: 1, group_type_index: 0, group_key: 'found', group_properties: { x: 1 } },
@@ -222,7 +222,7 @@ describe('PersonHogClient', () => {
             const handler = jest.fn()
             const client = createClientWithHandlers({ getGroupsBatch: handler })
 
-            const result = await client.fetchGroupsByKeys([], [], [])
+            const result = await client.groups.fetchGroupsByKeys([], [], [])
 
             expect(result).toEqual([])
             expect(handler).not.toHaveBeenCalled()
@@ -249,7 +249,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroupTypesByTeamIds([1, 2])
+            const result = await client.groups.fetchGroupTypesByTeamIds([1, 2])
 
             expect(result).toEqual({
                 '1': [
@@ -264,7 +264,7 @@ describe('PersonHogClient', () => {
             const handler = jest.fn()
             const client = createClientWithHandlers({ getGroupTypeMappingsByTeamIds: handler })
 
-            const result = await client.fetchGroupTypesByTeamIds([])
+            const result = await client.groups.fetchGroupTypesByTeamIds([])
 
             expect(result).toEqual({})
             expect(handler).not.toHaveBeenCalled()
@@ -275,7 +275,7 @@ describe('PersonHogClient', () => {
                 getGroupTypeMappingsByTeamIds: () => ({ results: [] }),
             })
 
-            const result = await client.fetchGroupTypesByTeamIds([999])
+            const result = await client.groups.fetchGroupTypesByTeamIds([999])
 
             expect(result).toEqual({})
         })
@@ -294,7 +294,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroupTypesByProjectIds([100])
+            const result = await client.groups.fetchGroupTypesByProjectIds([100])
 
             expect(result).toEqual({
                 '100': [{ group_type: 'workspace', group_type_index: 0 }],
@@ -305,7 +305,7 @@ describe('PersonHogClient', () => {
             const handler = jest.fn()
             const client = createClientWithHandlers({ getGroupTypeMappingsByProjectIds: handler })
 
-            const result = await client.fetchGroupTypesByProjectIds([])
+            const result = await client.groups.fetchGroupTypesByProjectIds([])
 
             expect(result).toEqual({})
             expect(handler).not.toHaveBeenCalled()
@@ -328,7 +328,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroupTypesByTeamIds([1, 5])
+            const result = await client.groups.fetchGroupTypesByTeamIds([1, 5])
 
             expect(result).toEqual({
                 '1': [{ group_type: 'organization', group_type_index: 0 }],
@@ -351,7 +351,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroupTypesByProjectIds([100, 200])
+            const result = await client.groups.fetchGroupTypesByProjectIds([100, 200])
 
             expect(result).toEqual({
                 '100': [{ group_type: 'workspace', group_type_index: 0 }],
@@ -370,7 +370,7 @@ describe('PersonHogClient', () => {
                 },
             })
 
-            await client.fetchGroup(42, 2, 'my-group')
+            await client.groups.fetchGroup(42, 2, 'my-group')
 
             expect(capturedRequest!.teamId).toBe(42n)
             expect(capturedRequest!.groupTypeIndex).toBe(2)
@@ -387,7 +387,7 @@ describe('PersonHogClient', () => {
                 },
             })
 
-            await client.fetchGroupsByKeys([10, 20], [0, 3], ['key-a', 'key-b'])
+            await client.groups.fetchGroupsByKeys([10, 20], [0, 3], ['key-a', 'key-b'])
 
             expect(capturedRequest!.keys).toHaveLength(2)
             expect(capturedRequest!.keys[0].teamId).toBe(10n)
@@ -408,7 +408,7 @@ describe('PersonHogClient', () => {
                 },
             })
 
-            await client.fetchGroupTypesByTeamIds([1, 2, 3])
+            await client.groups.fetchGroupTypesByTeamIds([1, 2, 3])
 
             expect(capturedRequest!.teamIds).toEqual([1n, 2n, 3n])
             expect(capturedRequest!.readOptions?.consistency).toBe(ConsistencyLevel.EVENTUAL)
@@ -423,7 +423,7 @@ describe('PersonHogClient', () => {
                 },
             })
 
-            await client.fetchGroupTypesByProjectIds([100, 200])
+            await client.groups.fetchGroupTypesByProjectIds([100, 200])
 
             expect(capturedRequest!.projectIds).toEqual([100n, 200n])
             expect(capturedRequest!.readOptions?.consistency).toBe(ConsistencyLevel.EVENTUAL)
@@ -447,7 +447,7 @@ describe('PersonHogClient', () => {
                 getGroup: () => ({ group: makeProtoGroup({ groupProperties: jsonBytes(nested) }) }),
             })
 
-            const result = await client.fetchGroup(1, 0, 'nested')
+            const result = await client.groups.fetchGroup(1, 0, 'nested')
 
             expect(result!.group_properties).toEqual(nested)
         })
@@ -469,7 +469,7 @@ describe('PersonHogClient', () => {
                 }),
             })
 
-            const result = await client.fetchGroup(1, 0, 'grp-日本語-🚀')
+            const result = await client.groups.fetchGroup(1, 0, 'grp-日本語-🚀')
 
             expect(result!.group_key).toBe('grp-日本語-🚀')
             expect(result!.group_properties).toEqual(unicodeProps)
@@ -481,7 +481,7 @@ describe('PersonHogClient', () => {
                 getGroup: () => ({ group: makeProtoGroup({ id: largeId, version: largeId }) }),
             })
 
-            const result = await client.fetchGroup(1, 0, 'big-ids')
+            const result = await client.groups.fetchGroup(1, 0, 'big-ids')
 
             expect(result!.id).toBe(Number.MAX_SAFE_INTEGER)
             expect(result!.version).toBe(Number.MAX_SAFE_INTEGER)
@@ -493,7 +493,7 @@ describe('PersonHogClient', () => {
                 getGroup: () => ({ group: makeProtoGroup({ groupProperties: jsonBytes(propsWithNulls) }) }),
             })
 
-            const result = await client.fetchGroup(1, 0, 'nulls')
+            const result = await client.groups.fetchGroup(1, 0, 'nulls')
 
             expect(result!.group_properties).toEqual(propsWithNulls)
         })
@@ -503,7 +503,7 @@ describe('PersonHogClient', () => {
                 getGroup: () => ({ group: makeProtoGroup({ groupKey: '' }) }),
             })
 
-            const result = await client.fetchGroup(1, 0, '')
+            const result = await client.groups.fetchGroup(1, 0, '')
 
             expect(result!.group_key).toBe('')
         })
@@ -522,7 +522,7 @@ describe('PersonHogClient', () => {
             const client = createClientWithHandlers({
                 getGroup: () => ({ group: makeProtoGroup({ createdAt: epochMs }) }),
             })
-            const result = await client.fetchGroup(1, 0, 'test')
+            const result = await client.groups.fetchGroup(1, 0, 'test')
 
             expect(result!.created_at.toISO()).toBe(fromPostgres.toISO())
             expect(result!.created_at.toMillis()).toBe(fromPostgres.toMillis())
@@ -535,7 +535,7 @@ describe('PersonHogClient', () => {
             const client = createClientWithHandlers({
                 getGroup: () => ({ group: makeProtoGroup({ createdAt: epochMs }) }),
             })
-            const result = await client.fetchGroup(1, 0, 'test')
+            const result = await client.groups.fetchGroup(1, 0, 'test')
 
             expect(result!.created_at.toISO()).toBe(isoString)
             expect(result!.created_at.toMillis()).toBe(1704067200000)
@@ -545,7 +545,7 @@ describe('PersonHogClient', () => {
             const client = createClientWithHandlers({
                 getGroup: () => ({ group: makeProtoGroup({ createdAt: 0n }) }),
             })
-            const result = await client.fetchGroup(1, 0, 'test')
+            const result = await client.groups.fetchGroup(1, 0, 'test')
 
             expect(result!.created_at.toMillis()).toBe(0)
             expect(result!.created_at.toISO()).toBe('1970-01-01T00:00:00.000Z')

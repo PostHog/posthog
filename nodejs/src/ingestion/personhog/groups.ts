@@ -1,20 +1,19 @@
 import { create } from '@bufbuild/protobuf'
-import { Transport, createClient } from '@connectrpc/connect'
-import { createGrpcTransport } from '@connectrpc/connect-node'
+import { Client } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '../generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel } from '../generated/personhog/personhog/types/v1/common_pb'
-import { GroupKeySchema, ReadOptionsSchema } from '../generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
+import { ConsistencyLevel } from '../../generated/personhog/personhog/types/v1/common_pb'
+import { GroupKeySchema, ReadOptionsSchema } from '../../generated/personhog/personhog/types/v1/common_pb'
 import {
     GetGroupRequestSchema,
     GetGroupTypeMappingsByProjectIdsRequestSchema,
     GetGroupTypeMappingsByTeamIdsRequestSchema,
     GetGroupsBatchRequestSchema,
-} from '../generated/personhog/personhog/types/v1/group_pb'
-import type { Group as ProtoGroup } from '../generated/personhog/personhog/types/v1/group_pb'
-import { Group as DomainGroup, GroupTypeIndex } from '../types'
-import { parseJSON } from '../utils/json-parse'
+} from '../../generated/personhog/personhog/types/v1/group_pb'
+import type { Group as ProtoGroup } from '../../generated/personhog/personhog/types/v1/group_pb'
+import { Group as DomainGroup, GroupTypeIndex } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 
 const textDecoder = new TextDecoder()
 
@@ -29,11 +28,20 @@ function epochMsToDateTime(epochMs: bigint): DateTime {
     return DateTime.fromMillis(Number(epochMs), { zone: 'utc' })
 }
 
+const VALID_GROUP_TYPE_INDEXES = new Set<number>([0, 1, 2, 3, 4])
+
+function toGroupTypeIndex(value: number): GroupTypeIndex {
+    if (!VALID_GROUP_TYPE_INDEXES.has(value)) {
+        throw new Error(`Invalid group type index: ${value}`)
+    }
+    return value as GroupTypeIndex
+}
+
 function protoGroupToDomain(proto: ProtoGroup): DomainGroup {
     return {
         id: Number(proto.id),
         team_id: Number(proto.teamId),
-        group_type_index: proto.groupTypeIndex as GroupTypeIndex,
+        group_type_index: toGroupTypeIndex(proto.groupTypeIndex),
         group_key: proto.groupKey,
         group_properties: parseJsonBytes(proto.groupProperties) ?? {},
         properties_last_updated_at: parseJsonBytes(proto.propertiesLastUpdatedAt) ?? {},
@@ -47,39 +55,8 @@ function eventualReadOptions() {
     return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
 }
 
-export interface PersonHogClientConfig {
-    addr: string
-    useTls?: boolean
-    timeoutMs?: number
-    readMaxBytes?: number
-    writeMaxBytes?: number
-    pingIntervalMs?: number
-    pingTimeoutMs?: number
-    pingIdleConnection?: boolean
-}
-
-export class PersonHogClient {
-    private client: ReturnType<typeof createClient<typeof PersonHogService>>
-
-    static fromTransport(transport: Transport): PersonHogClient {
-        const instance = Object.create(PersonHogClient.prototype) as PersonHogClient
-        instance.client = createClient(PersonHogService, transport)
-        return instance
-    }
-
-    constructor(config: PersonHogClientConfig) {
-        const scheme = config.useTls ? 'https' : 'http'
-        const transport = createGrpcTransport({
-            baseUrl: `${scheme}://${config.addr}`,
-            defaultTimeoutMs: config.timeoutMs ?? 5_000,
-            readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
-            writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
-            pingIntervalMs: config.pingIntervalMs ?? 30_000,
-            pingTimeoutMs: config.pingTimeoutMs ?? 5_000,
-            pingIdleConnection: config.pingIdleConnection ?? true,
-        })
-        this.client = createClient(PersonHogService, transport)
-    }
+export class PersonHogGroupOperations {
+    constructor(private client: Client<typeof PersonHogService>) {}
 
     async fetchGroup(teamId: number, groupTypeIndex: number, groupKey: string): Promise<DomainGroup | undefined> {
         const response = await this.client.getGroup(
@@ -133,7 +110,7 @@ export class PersonHogClient {
             if (result.group && result.key) {
                 results.push({
                     team_id: Number(result.key.teamId),
-                    group_type_index: result.key.groupTypeIndex as GroupTypeIndex,
+                    group_type_index: toGroupTypeIndex(result.key.groupTypeIndex),
                     group_key: result.key.groupKey,
                     group_properties: parseJsonBytes(result.group.groupProperties) ?? {},
                 })
@@ -161,7 +138,7 @@ export class PersonHogClient {
         for (const entry of response.results) {
             result[entry.key.toString()] = entry.mappings.map((m) => ({
                 group_type: m.groupType,
-                group_type_index: m.groupTypeIndex as GroupTypeIndex,
+                group_type_index: toGroupTypeIndex(m.groupTypeIndex),
             }))
         }
         return result
@@ -185,7 +162,7 @@ export class PersonHogClient {
         for (const entry of response.results) {
             result[entry.key.toString()] = entry.mappings.map((m) => ({
                 group_type: m.groupType,
-                group_type_index: m.groupTypeIndex as GroupTypeIndex,
+                group_type_index: toGroupTypeIndex(m.groupTypeIndex),
             }))
         }
         return result

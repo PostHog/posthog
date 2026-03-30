@@ -2,19 +2,19 @@ import { create } from '@bufbuild/protobuf'
 import { createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { insertRow, resetTestDatabase } from '../../tests/helpers/sql'
-import { PersonHogService } from '../generated/personhog/personhog/service/v1/service_pb'
+import { insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
+import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '../generated/personhog/personhog/types/v1/group_pb'
-import type { Group as ProtoGroup } from '../generated/personhog/personhog/types/v1/group_pb'
-import { GroupTypeIndex, Hub, ProjectId, PropertyUpdateOperation, TeamId } from '../types'
-import { closeHub, createHub } from '../utils/db/hub'
-import { PostgresUse } from '../utils/db/postgres'
-import { UUIDT } from '../utils/utils'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
+} from '../../generated/personhog/personhog/types/v1/group_pb'
+import type { Group as ProtoGroup } from '../../generated/personhog/personhog/types/v1/group_pb'
+import { GroupTypeIndex, Hub, ProjectId, PropertyUpdateOperation, TeamId } from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { PostgresUse } from '../../utils/db/postgres'
+import { UUIDT } from '../../utils/utils'
+import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PersonHogClient } from './client'
 
 jest.mock('../utils/logger')
@@ -189,7 +189,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const grpcClient = createPersonHogClient({
                 getGroup: () => ({ group: postgresRowToProtoGroup(rawRow!) }),
             })
-            const fromGrpc = await grpcClient.fetchGroup(teamId, 0, 'acme')
+            const fromGrpc = await grpcClient.groups.fetchGroup(teamId, 0, 'acme')
 
             expect(fromGrpc).toEqual(fromPostgres)
         })
@@ -200,7 +200,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const grpcClient = createPersonHogClient({
                 getGroup: () => ({}),
             })
-            const fromGrpc = await grpcClient.fetchGroup(teamId, 0, 'nonexistent')
+            const fromGrpc = await grpcClient.groups.fetchGroup(teamId, 0, 'nonexistent')
 
             expect(fromGrpc).toEqual(fromPostgres)
             expect(fromGrpc).toBeUndefined()
@@ -223,7 +223,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const grpcClient = createPersonHogClient({
                 getGroup: () => ({ group: postgresRowToProtoGroup(rawRow!) }),
             })
-            const fromGrpc = await grpcClient.fetchGroup(teamId, 1, 'complex')
+            const fromGrpc = await grpcClient.groups.fetchGroup(teamId, 1, 'complex')
 
             expect(fromGrpc).toEqual(fromPostgres)
         })
@@ -239,7 +239,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const grpcClient = createPersonHogClient({
                 getGroup: () => ({ group: postgresRowToProtoGroup(rawRow!) }),
             })
-            const fromGrpc = await grpcClient.fetchGroup(teamId, 0, 'grp-日本語')
+            const fromGrpc = await grpcClient.groups.fetchGroup(teamId, 0, 'grp-日本語')
 
             expect(fromGrpc).toEqual(fromPostgres)
         })
@@ -282,7 +282,7 @@ describe('PersonHog ↔ Postgres parity', () => {
                     ],
                 }),
             })
-            const fromGrpc = await grpcClient.fetchGroupsByKeys([teamId, teamId], [0, 1], ['acme', 'eng-team'])
+            const fromGrpc = await grpcClient.groups.fetchGroupsByKeys([teamId, teamId], [0, 1], ['acme', 'eng-team'])
 
             expect(fromGrpc).toEqual(fromPostgres)
         })
@@ -312,7 +312,7 @@ describe('PersonHog ↔ Postgres parity', () => {
                     ],
                 }),
             })
-            const fromGrpc = await grpcClient.fetchGroupsByKeys([teamId, teamId], [0, 0], ['exists', 'missing'])
+            const fromGrpc = await grpcClient.groups.fetchGroupsByKeys([teamId, teamId], [0, 0], ['exists', 'missing'])
 
             expect(fromGrpc).toEqual(fromPostgres)
         })
@@ -321,7 +321,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const fromPostgres = await postgresRepo.fetchGroupsByKeys([], [], [])
 
             const grpcClient = createPersonHogClient({})
-            const fromGrpc = await grpcClient.fetchGroupsByKeys([], [], [])
+            const fromGrpc = await grpcClient.groups.fetchGroupsByKeys([], [], [])
 
             expect(fromGrpc).toEqual(fromPostgres)
             expect(fromGrpc).toEqual([])
@@ -348,7 +348,7 @@ describe('PersonHog ↔ Postgres parity', () => {
                     ],
                 }),
             })
-            const fromGrpc = await grpcClient.fetchGroupTypesByTeamIds([teamId])
+            const fromGrpc = await grpcClient.groups.fetchGroupTypesByTeamIds([teamId])
 
             expect(fromGrpc).toEqual(fromPostgres)
         })
@@ -362,7 +362,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const grpcClient = createPersonHogClient({
                 getGroupTypeMappingsByTeamIds: () => ({ results: [] }),
             })
-            const fromGrpc = await grpcClient.fetchGroupTypesByTeamIds([teamId])
+            const fromGrpc = await grpcClient.groups.fetchGroupTypesByTeamIds([teamId])
 
             // Postgres: { "1": [] }, gRPC: {}
             expect(fromPostgres).toEqual({ [teamId]: [] })
@@ -392,7 +392,7 @@ describe('PersonHog ↔ Postgres parity', () => {
                     ],
                 }),
             })
-            const fromGrpc = await grpcClient.fetchGroupTypesByTeamIds([teamId, teamId2])
+            const fromGrpc = await grpcClient.groups.fetchGroupTypesByTeamIds([teamId, teamId2])
 
             // Teams with data match exactly
             expect(fromGrpc[teamId]).toEqual(fromPostgres[teamId])
@@ -407,7 +407,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const fromPostgres = await postgresRepo.fetchGroupTypesByTeamIds([])
 
             const grpcClient = createPersonHogClient({})
-            const fromGrpc = await grpcClient.fetchGroupTypesByTeamIds([])
+            const fromGrpc = await grpcClient.groups.fetchGroupTypesByTeamIds([])
 
             expect(fromGrpc).toEqual(fromPostgres)
             expect(fromGrpc).toEqual({})
@@ -430,7 +430,7 @@ describe('PersonHog ↔ Postgres parity', () => {
                     ],
                 }),
             })
-            const fromGrpc = await grpcClient.fetchGroupTypesByProjectIds([projectId])
+            const fromGrpc = await grpcClient.groups.fetchGroupTypesByProjectIds([projectId])
 
             expect(fromGrpc).toEqual(fromPostgres)
         })
@@ -441,7 +441,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const grpcClient = createPersonHogClient({
                 getGroupTypeMappingsByProjectIds: () => ({ results: [] }),
             })
-            const fromGrpc = await grpcClient.fetchGroupTypesByProjectIds([projectId])
+            const fromGrpc = await grpcClient.groups.fetchGroupTypesByProjectIds([projectId])
 
             expect(fromPostgres).toEqual({ [projectId]: [] })
             expect(fromGrpc).toEqual({})
@@ -452,7 +452,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             const fromPostgres = await postgresRepo.fetchGroupTypesByProjectIds([])
 
             const grpcClient = createPersonHogClient({})
-            const fromGrpc = await grpcClient.fetchGroupTypesByProjectIds([])
+            const fromGrpc = await grpcClient.groups.fetchGroupTypesByProjectIds([])
 
             expect(fromGrpc).toEqual(fromPostgres)
             expect(fromGrpc).toEqual({})

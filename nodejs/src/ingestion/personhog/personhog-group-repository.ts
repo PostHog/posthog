@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../types'
-import { logger } from '../utils/logger'
-import { GroupRepositoryTransaction } from '../worker/ingestion/groups/repositories/group-repository-transaction.interface'
-import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
+import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../types'
+import { logger } from '../../utils/logger'
+import { GroupRepositoryTransaction } from '../../worker/ingestion/groups/repositories/group-repository-transaction.interface'
+import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonHogClient } from './client'
 import { personhogErrorsTotal, personhogLatencySeconds, personhogRequestsTotal } from './metrics'
 
@@ -73,7 +73,7 @@ export class PersonHogGroupRepository implements GroupRepository {
 
         try {
             return await this.timedGrpc('fetchGroup', () =>
-                this.grpcClient.fetchGroup(teamId, groupTypeIndex, groupKey)
+                this.grpcClient.groups.fetchGroup(teamId, groupTypeIndex, groupKey)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroup failed, falling back to Postgres', {
@@ -107,7 +107,7 @@ export class PersonHogGroupRepository implements GroupRepository {
 
         try {
             return await this.timedGrpc('fetchGroupsByKeys', () =>
-                this.grpcClient.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+                this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupsByKeys failed, falling back to Postgres', {
@@ -129,7 +129,7 @@ export class PersonHogGroupRepository implements GroupRepository {
 
         try {
             return await this.timedGrpc('fetchGroupTypesByTeamIds', () =>
-                this.grpcClient.fetchGroupTypesByTeamIds(teamIds)
+                this.grpcClient.groups.fetchGroupTypesByTeamIds(teamIds)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupTypesByTeamIds failed, falling back to Postgres', {
@@ -151,7 +151,7 @@ export class PersonHogGroupRepository implements GroupRepository {
 
         try {
             return await this.timedGrpc('fetchGroupTypesByProjectIds', () =>
-                this.grpcClient.fetchGroupTypesByProjectIds(projectIds)
+                this.grpcClient.groups.fetchGroupTypesByProjectIds(projectIds)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupTypesByProjectIds failed, falling back to Postgres', {
