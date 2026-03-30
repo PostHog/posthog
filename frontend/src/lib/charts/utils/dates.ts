@@ -13,7 +13,7 @@ type TickMode =
     | { type: 'day' }
     | { type: 'monthly'; visibleBoundaries: Set<number> }
     | { type: 'hourly' }
-    | { type: 'hourly-multi-day'; step: number }
+    | { type: 'hourly-multi-day'; step: number; dayStartIndices: Set<number> }
 
 export function createXAxisTickCallback({
     interval,
@@ -84,7 +84,8 @@ function pickMode(interval: IntervalType, parsedDates: Dayjs[], first: Dayjs, la
     }
     if (spanDays >= 2) {
         const step = spanDays <= 3 ? 6 : spanDays <= 7 ? 12 : 24
-        return { type: 'hourly-multi-day', step }
+        const dayStartIndices = buildDayStartIndices(parsedDates)
+        return { type: 'hourly-multi-day', step, dayStartIndices }
     }
     return { type: 'hourly' }
 }
@@ -94,7 +95,7 @@ function isTickVisible(mode: TickMode, date: Dayjs, index: number): boolean {
         case 'monthly':
             return mode.visibleBoundaries.has(index)
         case 'hourly-multi-day':
-            return index === 0 || date.hour() % mode.step === 0
+            return mode.dayStartIndices.has(index) || date.hour() % mode.step === 0
         default:
             return true
     }
@@ -108,7 +109,7 @@ function formatTick(mode: TickMode, date: Dayjs, index: number): string {
         case 'day':
             return date.date() === 1 ? formatMonthLabel(date) : date.format('MMM D')
         case 'hourly-multi-day':
-            return date.hour() === 0 || index === 0 ? date.format('MMM D') : date.format('HH:mm')
+            return mode.dayStartIndices.has(index) ? date.format('MMM D') : date.format('HH:mm')
         case 'hourly':
             return date.format('HH:mm')
     }
@@ -140,6 +141,19 @@ function inferInterval(parsedDates: Dayjs[]): IntervalType {
         return 'week'
     }
     return 'day'
+}
+
+function buildDayStartIndices(parsedDates: Dayjs[]): Set<number> {
+    const indices = new Set<number>()
+    let prevDateStr = ''
+    for (let i = 0; i < parsedDates.length; i++) {
+        const dateStr = parsedDates[i].format('YYYY-MM-DD')
+        if (dateStr !== prevDateStr) {
+            indices.add(i)
+            prevDateStr = dateStr
+        }
+    }
+    return indices
 }
 
 function buildVisibleBoundaries(parsedDates: Dayjs[]): Set<number> {
