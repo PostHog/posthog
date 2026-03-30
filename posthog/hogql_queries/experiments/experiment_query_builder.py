@@ -248,8 +248,6 @@ class ExperimentQueryBuilder:
             return 0
 
         if isinstance(self.metric, ExperimentRetentionMetric):
-            if self.metric.retention_window_end is None or self.metric.retention_window_unit is None:
-                return conversion_window_seconds
             retention_window_end_seconds = conversion_window_to_seconds(
                 self.metric.retention_window_end,
                 self.metric.retention_window_unit,
