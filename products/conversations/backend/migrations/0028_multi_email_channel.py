@@ -17,12 +17,33 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Remove old model from Django state only (table stays in DB, empty in prod)
+        # Remove old model from Django state and drop FK constraints on the
+        # orphaned table so TRUNCATE posthog_team doesn't fail in tests.
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.DeleteModel(name="TeamConversationsEmailConfig"),
             ],
-            database_operations=[],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        DO $$
+                        DECLARE r RECORD;
+                        BEGIN
+                            FOR r IN (
+                                SELECT conname FROM pg_constraint
+                                WHERE conrelid = 'posthog_conversations_email_config'::regclass
+                                AND contype = 'f'
+                            ) LOOP
+                                EXECUTE format(
+                                    'ALTER TABLE posthog_conversations_email_config DROP CONSTRAINT %I', r.conname
+                                );
+                            END LOOP;
+                        EXCEPTION WHEN undefined_table THEN NULL;
+                        END $$;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
         ),
         # Create new model with UUID PK, ForeignKey to team, different table name
         migrations.CreateModel(
