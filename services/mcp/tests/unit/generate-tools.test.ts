@@ -313,9 +313,7 @@ describe('generateToolCode with input_schema', () => {
         const resolved = makeResolved({ method: 'GET' })
 
         const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
-
-        expect(result.code).toContain('.results ?? result')
-        expect(result.code).toContain('.map(')
+        expect(result.code).toContain('result.results.map(')
     })
 })
 
