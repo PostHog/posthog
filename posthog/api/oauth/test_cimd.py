@@ -1,3 +1,4 @@
+import json
 import base64
 import hashlib
 from urllib.parse import urlencode
@@ -7,19 +8,25 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache as real_cache
 from django.test import override_settings
 
+import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
+    CIMDBurstThrottle,
     CIMDFetchError,
     CIMDValidationError,
+    _fetch_lock_key,
+    fetch_and_upsert_cimd_application,
     fetch_cimd_metadata,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
+    refresh_cimd_metadata_task,
     validate_cimd_url,
 )
 from posthog.models.oauth import OAuthApplication
@@ -53,7 +60,6 @@ def _make_metadata(url: str = VALID_CIMD_URL, **overrides) -> dict:
 
 def _mock_response(metadata: dict | None = None, status_code: int = 200, headers: dict | None = None):
     """Create a mock requests.Response."""
-    import json
 
     resp = MagicMock()
     resp.status_code = status_code
@@ -183,8 +189,6 @@ class TestFetchCimdMetadata(APIBaseTest):
 
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_timeout(self, mock_get, _url_mock):
-        import requests
-
         mock_get.side_effect = requests.Timeout("Connection timed out")
         with self.assertRaises(CIMDFetchError):
             fetch_cimd_metadata(VALID_CIMD_URL)
@@ -226,14 +230,18 @@ class TestFetchCimdMetadata(APIBaseTest):
         "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
     }
 )
-class TestGetOrCreateCimdApplication(APIBaseTest):
+class TestFetchAndUpsertCimdApplication(APIBaseTest):
+    """Tests for fetch_and_upsert_cimd_application — the core fetch+create/update function."""
+
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_creates_new_application(self, mock_get, _url_mock):
         metadata = _make_metadata(logo_uri="https://example.com/logo.png")
         mock_get.return_value = _mock_response(metadata, headers={})
 
-        app = get_or_create_cimd_application(VALID_CIMD_URL)
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
+        self.assertIsNotNone(app)
+        assert app is not None
         self.assertTrue(app.is_cimd_client)
         self.assertFalse(app.is_dcr_client)
         self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
@@ -245,6 +253,68 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         self.assertIsNone(app.user)
 
     @patch("posthog.api.oauth.cimd.requests.get")
+    def test_updates_existing_application(self, mock_get, _url_mock):
+        metadata1 = _make_metadata(client_name="Original Name")
+        mock_get.return_value = _mock_response(metadata1, headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+
+        metadata2 = _make_metadata(client_name="Updated Name", logo_uri="https://example.com/new-logo.png")
+        mock_get.return_value = _mock_response(metadata2, headers={})
+        updated = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert updated is not None
+        self.assertEqual(updated.pk, app.pk)
+        self.assertEqual(updated.name, "Updated Name")
+        self.assertEqual(updated.logo_uri, "https://example.com/new-logo.png")
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_returns_none_when_lock_held(self, mock_get, _url_mock):
+        # Simulate another caller holding the lock
+        real_cache.set(_fetch_lock_key(VALID_CIMD_URL), True, timeout=30)
+
+        result = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        self.assertIsNone(result)
+        mock_get.assert_not_called()
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_blocked_name_uses_default(self, mock_get, _url_mock):
+        metadata = _make_metadata(client_name="PostHog Official Client")
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+        self.assertEqual(app.name, "CIMD Client")
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_fetch_failure_propagates(self, mock_get, _url_mock):
+        mock_get.side_effect = requests.ConnectionError("DNS resolution failed")
+        with self.assertRaises(CIMDFetchError):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_releases_lock_on_failure(self, mock_get, _url_mock):
+        mock_get.side_effect = requests.ConnectionError("DNS failed")
+        with self.assertRaises(CIMDFetchError):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        # Lock should be released — a subsequent call should acquire it
+        self.assertIsNone(real_cache.get(_fetch_lock_key(VALID_CIMD_URL)))
+
+
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
+class TestGetOrCreateCimdApplication(APIBaseTest):
+    """Tests for get_or_create_cimd_application — the orchestration layer."""
+
+    @patch("posthog.api.oauth.cimd.requests.get")
     def test_returns_existing_when_cache_fresh(self, mock_get, _url_mock):
         metadata = _make_metadata()
         mock_get.return_value = _mock_response(metadata, headers={})
@@ -253,57 +323,54 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         app2 = get_or_create_cimd_application(VALID_CIMD_URL)
 
         self.assertEqual(app1.pk, app2.pk)
-        # Only fetched once — second call used cache
         self.assertEqual(mock_get.call_count, 1)
 
     @patch("posthog.api.oauth.cimd.cache")
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_updates_on_stale_cache(self, mock_get, mock_cache, _url_mock):
-        # First call: cache miss, creates app
+    def test_stale_cache_returns_immediately_and_queues_refresh(self, mock_get, mock_cache, _url_mock):
         mock_cache.get.return_value = None
-        metadata1 = _make_metadata(client_name="Original Name")
-        mock_get.return_value = _mock_response(metadata1, headers={})
-        app = get_or_create_cimd_application(VALID_CIMD_URL)
-        self.assertEqual(app.name, "Original Name")
-
-        # Second call: cache still miss (simulating expiry), update metadata
-        metadata2 = _make_metadata(client_name="Updated Name", logo_uri="https://example.com/new-logo.png")
-        mock_get.return_value = _mock_response(metadata2, headers={})
-        app = get_or_create_cimd_application(VALID_CIMD_URL)
-        self.assertEqual(app.name, "Updated Name")
-        self.assertEqual(app.logo_uri, "https://example.com/new-logo.png")
-
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_blocked_name_uses_default(self, mock_get, _url_mock):
-        metadata = _make_metadata(client_name="PostHog Official Client")
+        mock_cache.add.return_value = True
+        metadata = _make_metadata(client_name="Original Name")
         mock_get.return_value = _mock_response(metadata, headers={})
-
         app = get_or_create_cimd_application(VALID_CIMD_URL)
-        self.assertEqual(app.name, "CIMD Client")
+
+        with patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task") as mock_task:
+            result = get_or_create_cimd_application(VALID_CIMD_URL)
+            self.assertEqual(result.pk, app.pk)
+            self.assertEqual(result.name, "Original Name")
+            mock_task.delay.assert_called_once_with(VALID_CIMD_URL)
 
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_fetch_failure_raises_when_no_existing_app(self, mock_get, _url_mock):
-        import requests
-
+    def test_new_client_fetch_failure_raises(self, mock_get, _url_mock):
         mock_get.side_effect = requests.ConnectionError("DNS resolution failed")
         with self.assertRaises(CIMDFetchError):
             get_or_create_cimd_application(VALID_CIMD_URL)
 
-    @patch("posthog.api.oauth.cimd.cache")
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_fetch_failure_returns_stale_app(self, mock_get, mock_cache, _url_mock):
-        import requests as req_lib
+    def test_refresh_task_updates_metadata(self, mock_get, _url_mock):
+        metadata1 = _make_metadata(client_name="Original Name")
+        mock_get.return_value = _mock_response(metadata1, headers={})
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
-        # Create existing app first
-        mock_cache.get.return_value = None
-        metadata = _make_metadata()
+        metadata2 = _make_metadata(client_name="Updated Name", logo_uri="https://example.com/new-logo.png")
+        mock_get.return_value = _mock_response(metadata2, headers={})
+        refresh_cimd_metadata_task(VALID_CIMD_URL)
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        self.assertEqual(app.name, "Updated Name")
+        self.assertEqual(app.logo_uri, "https://example.com/new-logo.png")
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_task_handles_fetch_failure_gracefully(self, mock_get, _url_mock):
+        metadata = _make_metadata(client_name="Original Name")
         mock_get.return_value = _mock_response(metadata, headers={})
-        app = get_or_create_cimd_application(VALID_CIMD_URL)
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
-        # Now simulate fetch failure with stale cache
-        mock_get.side_effect = req_lib.ConnectionError("DNS failed")
-        result = get_or_create_cimd_application(VALID_CIMD_URL)
-        self.assertEqual(result.pk, app.pk)
+        mock_get.side_effect = requests.ConnectionError("DNS failed")
+        refresh_cimd_metadata_task(VALID_CIMD_URL)
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        self.assertEqual(app.name, "Original Name")
 
 
 @override_settings(
@@ -431,9 +498,7 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_cimd_fetch_failure_rejects_new_client(self, mock_get, _url_mock):
-        import requests as req_lib
-
-        mock_get.side_effect = req_lib.ConnectionError("DNS failed")
+        mock_get.side_effect = requests.ConnectionError("DNS failed")
         url = self._authorize_url(VALID_CIMD_URL)
 
         response = self.client.get(url)
@@ -454,8 +519,6 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_cimd_rate_limit_rejects_new_client(self, mock_get, _url_mock):
-        from posthog.api.oauth.cimd import CIMDBurstThrottle
-
         metadata = _make_metadata()
         mock_get.return_value = _mock_response(metadata)
 

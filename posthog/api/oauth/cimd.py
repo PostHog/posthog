@@ -21,6 +21,7 @@ from django.utils import timezone
 import requests
 import structlog
 import posthoganalytics
+from celery import shared_task
 from oauth2_provider.models import AbstractApplication
 from rest_framework.throttling import SimpleRateThrottle
 
@@ -141,7 +142,13 @@ def validate_cimd_url(url: str) -> tuple[bool, str | None]:
 
 
 def _cache_key(url: str) -> str:
-    return f"cimd:metadata:{hashlib.sha256(url.encode()).hexdigest()}"
+    hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:metadata:{hash}"
+
+
+def _fetch_lock_key(url: str) -> str:
+    hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:fetching:{hash}"
 
 
 def _parse_cache_ttl(response: requests.Response) -> int:
@@ -320,86 +327,107 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     return app
 
 
+def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
+    """
+    Fetch CIMD metadata and create or update the application.
+
+    Uses a cache-based lock to coalesce concurrent calls for the same URL.
+    Returns the created/updated app, or None if the lock couldn't be acquired
+    (meaning another caller is already handling it).
+
+    Used by both synchronous (new client) and asynchronous (stale refresh) paths.
+    """
+    fetch_lock = _fetch_lock_key(url)
+    if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
+        return None
+
+    try:
+        metadata, cache_ttl = fetch_cimd_metadata(url)
+        cache.set(_cache_key(url), True, timeout=cache_ttl)
+
+        app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
+        if app:
+            updated = _update_cimd_application(app, metadata)
+            logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
+            posthoganalytics.capture(
+                distinct_id=url,
+                event="cimd_application_metadata_refreshed",
+                properties={
+                    "cimd_url": url,
+                    "client_name": metadata.get("client_name"),
+                    "app_id": str(updated.pk),
+                    "cache_ttl": cache_ttl,
+                },
+            )
+            return updated
+
+        try:
+            new_app = _create_cimd_application(url, metadata)
+            logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
+            posthoganalytics.capture(
+                distinct_id=url,
+                event="cimd_application_created",
+                properties={
+                    "cimd_url": url,
+                    "client_name": new_app.name,
+                    "app_id": str(new_app.pk),
+                    "redirect_uris_count": len(metadata.get("redirect_uris", [])),
+                    "has_logo": bool(metadata.get("logo_uri")),
+                    "cache_ttl": cache_ttl,
+                },
+            )
+            return new_app
+        except (IntegrityError, ValidationError):
+            app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
+            if app:
+                logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
+                return app
+            raise
+    finally:
+        cache.delete(fetch_lock)
+
+
+@shared_task(ignore_result=True, time_limit=30)
+def refresh_cimd_metadata_task(url: str) -> None:
+    """Celery task wrapper: refresh CIMD metadata in the background."""
+    try:
+        fetch_and_upsert_cimd_application(url)
+    except (CIMDFetchError, CIMDValidationError) as e:
+        logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
+        capture_exception(e)
+
+
 def get_or_create_cimd_application(url: str) -> OAuthApplication:
     """
     Resolve a CIMD URL to an OAuthApplication.
 
-    Creates a new application if none exists for this URL.
-    Refreshes metadata if the cache has expired.
+    - Cache fresh + app exists: return immediately
+    - App exists + cache stale: return stale app, refresh in background
+    - No app: fetch synchronously (must have the app before proceeding)
     """
-    cache_key = _cache_key(url)
-    cached = cache.get(cache_key)
-
-    # Check for existing application
     app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
 
-    if app and cached:
-        logger.debug("cimd_cache_hit", url=url, app_id=str(app.pk))
+    if app and cache.get(_cache_key(url)):
         return app
 
     if app:
-        logger.debug("cimd_cache_miss", url=url, app_id=str(app.pk), reason="stale")
-    else:
-        logger.debug("cimd_cache_miss", url=url, reason="new_client")
+        refresh_cimd_metadata_task.delay(url)
+        return app
 
-    # Need to fetch (or re-fetch) metadata
-    try:
-        metadata, cache_ttl = fetch_cimd_metadata(url)
-        logger.debug("cimd_metadata_fetched", url=url, cache_ttl=cache_ttl, client_name=metadata.get("client_name"))
-    except (CIMDFetchError, CIMDValidationError) as e:
-        if app:
-            logger.warning("cimd_refresh_failed_serving_stale", url=url, error=str(e))
-            return app
-        logger.warning("cimd_fetch_failed", url=url, error=str(e))
-        posthoganalytics.capture(
-            distinct_id=url,
-            event="cimd_metadata_fetch_failed",
-            properties={"cimd_url": url, "error": str(e)},
-        )
-        raise
+    # New client: synchronous fetch
+    result = fetch_and_upsert_cimd_application(url)
+    if result:
+        return result
 
-    # Update cache
-    cache.set(cache_key, True, timeout=cache_ttl)
-    logger.debug("cimd_cache_set", url=url, cache_ttl=cache_ttl)
-
-    if app:
-        logger.debug("cimd_app_updated", url=url, app_id=str(app.pk))
-        posthoganalytics.capture(
-            distinct_id=url,
-            event="cimd_application_metadata_refreshed",
-            properties={
-                "cimd_url": url,
-                "client_name": metadata.get("client_name"),
-                "app_id": str(app.pk),
-                "cache_ttl": cache_ttl,
-            },
-        )
-        return _update_cimd_application(app, metadata)
-
-    # Create new application
-    try:
-        new_app = _create_cimd_application(url, metadata)
-        logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
-        posthoganalytics.capture(
-            distinct_id=url,
-            event="cimd_application_created",
-            properties={
-                "cimd_url": url,
-                "client_name": new_app.name,
-                "app_id": str(new_app.pk),
-                "redirect_uris_count": len(metadata.get("redirect_uris", [])),
-                "has_logo": bool(metadata.get("logo_uri")),
-                "cache_ttl": cache_ttl,
-            },
-        )
-        return new_app
-    except (IntegrityError, ValidationError):
-        # Race condition: another request already created this app
+    # Lock was held — another request is already creating this app.
+    # Poll the DB until it appears or we give up.
+    for _ in range(CIMD_FETCH_TIMEOUT_SECONDS + 1):
+        time.sleep(1)
         app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
         if app:
-            logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
             return app
-        raise
+
+    raise CIMDFetchError(f"Another request is already registering this client ({url}). Please try again.")
 
 
 def get_application_by_client_id(client_id: str) -> OAuthApplication:
