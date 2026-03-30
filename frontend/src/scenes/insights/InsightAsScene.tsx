@@ -82,9 +82,13 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
             <SceneContent className={clsx('Insight', fullHeightEdit && '!gap-0')}>
-                <div className={clsx('flex flex-col gap-y-4', fullHeightEdit && 'shrink-0')}>
+                {fullHeightEdit ? (
+                    <div className="flex flex-col gap-y-4 shrink-0">
+                        <InsightSceneHeader insightLogicProps={insightProps} />
+                    </div>
+                ) : (
                     <InsightSceneHeader insightLogicProps={insightProps} />
-                </div>
+                )}
 
                 <Query
                     attachTo={attachTo}

@@ -43,11 +43,14 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
                 </LemonBanner>
             )}
 
-            {insightMode === ItemMode.Edit && (
-                <div className={editorPanelsEnabled ? '[&_.LemonTabs]:![--lemon-tabs-margin-bottom:0]' : undefined}>
+            {insightMode === ItemMode.Edit &&
+                (editorPanelsEnabled ? (
+                    <div className="[&_.LemonTabs]:![--lemon-tabs-margin-bottom:0]">
+                        <InsightsNav />
+                    </div>
+                ) : (
                     <InsightsNav />
-                </div>
-            )}
+                ))}
 
             {showDebugPanel && (
                 <div className="mb-4">
