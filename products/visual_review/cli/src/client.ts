@@ -132,11 +132,45 @@ export class VisualReviewClient {
     }
 
     /**
-     * Signal that all artifacts are uploaded, trigger diff processing.
+     * Add a batch of snapshots to an existing run (shard-based flow).
      */
-    async completeRun(runId: string): Promise<RunApi> {
+    async addSnapshots(
+        runId: string,
+        input: {
+            snapshots: SnapshotManifestItemApi[]
+            baselineHashes?: Record<string, string>
+        }
+    ): Promise<{ added: number; uploads: UploadTargetApi[] }> {
+        return this.request(`/visual_review/runs/${runId}/add-snapshots/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                snapshots: input.snapshots,
+                baseline_hashes: input.baselineHashes ?? {},
+            }),
+        })
+    }
+
+    /**
+     * Signal that all artifacts are uploaded, trigger diff processing.
+     * Optionally accepts reconciliation data for shard flow.
+     */
+    async completeRun(
+        runId: string,
+        input?: {
+            removedIdentifiers?: string[]
+            unchangedCount?: number
+            baselineHashes?: Record<string, string>
+        }
+    ): Promise<RunApi> {
         return this.request<RunApi>(`/visual_review/runs/${runId}/complete/`, {
             method: 'POST',
+            body: input
+                ? JSON.stringify({
+                      removed_identifiers: input.removedIdentifiers ?? [],
+                      unchanged_count: input.unchangedCount ?? 0,
+                      baseline_hashes: input.baselineHashes ?? {},
+                  })
+                : undefined,
         })
     }
 
