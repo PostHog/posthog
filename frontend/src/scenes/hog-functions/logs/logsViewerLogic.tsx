@@ -29,7 +29,7 @@ export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
-export const LOG_GROUP_TOTAL_LOGS_LIMIT = 500
+export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
