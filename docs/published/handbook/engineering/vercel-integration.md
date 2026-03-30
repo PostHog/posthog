@@ -28,8 +28,9 @@ Before diving in, a few PostHog data model basics:
 7. [Feature flag & experiment sync](#7-feature-flag--experiment-sync)
 8. [SSO (single sign-on)](#8-sso-single-sign-on)
 9. [Uninstall flow](#9-uninstall-flow)
-10. [Contacting Vercel support](#10-contacting-vercel-support)
-11. [Key files reference](#11-key-files-reference)
+10. [Monitoring](#10-monitoring)
+11. [Contacting Vercel support](#11-contacting-vercel-support)
+12. [Key files reference](#12-key-files-reference)
 
 ---
 
@@ -515,13 +516,19 @@ For connectable integrations (linked existing accounts), the webhook handler sim
 
 ---
 
-## 10. Contacting Vercel support
+## 10. Monitoring
+
+PostHog dashboard: [Vercel Billing Integration](https://us.posthog.com/project/2/dashboard/1404045) - covers customer integrity, invoice lifecycle, usage reporting, submission gap tracking, and financial reconciliation.
+
+---
+
+## 11. Contacting Vercel support
 
 For integration or billing issues that need Vercel's involvement, post in the shared Slack channel [#posthog-vercel](https://posthog.slack.com/archives/C08LYBQ58N5) with a :ticket: reaction on the message. This flags it for the Vercel team to pick up.
 
 ---
 
-## 11. Key files reference
+## 12. Key files reference
 
 ### PostHog repo (`posthog/`)
 

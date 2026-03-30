@@ -6,7 +6,10 @@ use crate::{
         flag_group_type_mapping::{
             GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
         },
-        flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
+        flag_models::{
+            EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters,
+            FlagPropertyGroup,
+        },
     },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     team::team_models::Team,
@@ -21,6 +24,7 @@ use common_types::{Person, PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -79,6 +83,12 @@ pub async fn insert_new_team_in_redis(
     Ok(team)
 }
 
+/// Write flags to the hypercache key for `team_id` in Redis.
+/// Auto-generates single-stage `evaluation_metadata` with no transitive-dependency
+/// information (all flags in one stage, `transitive_deps[id] = []` for each flag).
+///
+/// Not suitable for tests that combine inter-flag dependencies with `flag_keys`
+/// filtering — use `insert_flags_with_metadata_for_team_in_redis` instead.
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
@@ -111,14 +121,47 @@ pub async fn insert_flags_for_team_in_redis(
         }]),
     };
 
-    // Create hypercache format JSON object ({"flags": [...]}) as a string,
-    // then pickle the JSON string to match Django's cache format: Pickle(JSON)
-    let json_string = json!({ "flags": flags_array }).to_string();
+    // Build evaluation_metadata that mirrors what Django writes:
+    // all flag IDs in a single stage (no deps), each with an empty transitive set.
+    let flag_ids: Vec<i32> = flags_array
+        .as_array()
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|f| f.get("id").and_then(|v| v.as_i64()).map(|v| v as i32))
+        .collect();
+    let transitive_deps: serde_json::Map<String, serde_json::Value> = flag_ids
+        .iter()
+        .map(|id| (id.to_string(), json!([])))
+        .collect();
+
+    let evaluation_metadata = json!({
+        "dependency_stages": [flag_ids],
+        "flags_with_missing_deps": [],
+        "transitive_deps": transitive_deps
+    });
+
+    insert_flags_with_metadata_for_team_in_redis(client, team_id, flags_array, evaluation_metadata)
+        .await
+}
+
+/// Write flags with custom `evaluation_metadata` to the hypercache key in Redis.
+/// Use for tests with dependency chains or other custom metadata needs.
+/// `insert_flags_for_team_in_redis` delegates here with auto-generated metadata.
+pub async fn insert_flags_with_metadata_for_team_in_redis(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team_id: i32,
+    flags_array: serde_json::Value,
+    evaluation_metadata: serde_json::Value,
+) -> Result<(), Error> {
+    let json_string = json!({
+        "flags": flags_array,
+        "evaluation_metadata": evaluation_metadata
+    })
+    .to_string();
     let pickled_bytes =
         serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle flags");
 
-    // Write to hypercache key format with Django's version prefix
-    // Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
     let cache_key = format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json");
     client.set_bytes(cache_key, pickled_bytes, None).await?;
 
@@ -957,6 +1000,151 @@ pub fn create_test_flag_that_depends_on_flag(
             compiled_regex: None,
         },
     )
+}
+
+/// Build a `FeatureFlagList` with proper `EvaluationMetadata` from a list of flags.
+///
+/// Scans each flag's filters for `PropertyType::Flag` dependencies and produces
+/// topologically sorted `dependency_stages`. Flags with no inter-flag dependencies
+/// land in the first stage; flags that depend on others land in later stages.
+///
+/// Handles cycles (cycle participants go into `flags_with_missing_deps`) and
+/// missing dependencies (deps on flag IDs not in the set).
+pub fn flag_list_with_metadata(flags: Vec<FeatureFlag>) -> FeatureFlagList {
+    flag_list_with_metadata_and_filter(flags, HashSet::new())
+}
+
+/// Like `flag_list_with_metadata` but also sets `filtered_out_flag_ids`.
+pub fn flag_list_with_metadata_and_filter(
+    flags: Vec<FeatureFlag>,
+    filtered_out_flag_ids: HashSet<i32>,
+) -> FeatureFlagList {
+    let flag_ids: HashSet<i32> = flags.iter().map(|f| f.id).collect();
+    debug_assert_eq!(
+        flags.len(),
+        flag_ids.len(),
+        "flag_list_with_metadata called with duplicate flag IDs: {:?}",
+        flags.iter().map(|f| f.id).collect::<Vec<_>>()
+    );
+
+    // Build adjacency: flag_id -> set of flag_ids it depends on (only known flags)
+    // Also track flags with missing deps (deps on IDs not in the flag set)
+    let mut deps: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut flags_with_missing_deps_set: HashSet<i32> = HashSet::new();
+    for flag in &flags {
+        let mut flag_deps = HashSet::new();
+        for group in &flag.filters.groups {
+            if let Some(props) = &group.properties {
+                for prop in props {
+                    if prop.prop_type == PropertyType::Flag {
+                        if let Ok(dep_id) = prop.key.parse::<i32>() {
+                            if dep_id == flag.id {
+                                // Self-referencing dependency is a cycle
+                                flags_with_missing_deps_set.insert(flag.id);
+                            } else if flag_ids.contains(&dep_id) {
+                                flag_deps.insert(dep_id);
+                            } else {
+                                flags_with_missing_deps_set.insert(flag.id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        deps.insert(flag.id, flag_deps);
+    }
+
+    // Topological sort (Kahn's algorithm) — cycle participants stay in `remaining`
+    // Build reverse adjacency: dep_id -> set of flag_ids that depend on it
+    let mut reverse_deps: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut in_degree: HashMap<i32, usize> = flag_ids.iter().map(|&id| (id, 0)).collect();
+    for (&id, flag_deps) in &deps {
+        for &dep in flag_deps {
+            if flag_ids.contains(&dep) && dep != id {
+                *in_degree.entry(id).or_insert(0) += 1;
+                reverse_deps.entry(dep).or_default().push(id);
+            }
+        }
+    }
+
+    let mut stages: Vec<Vec<i32>> = Vec::new();
+    let mut remaining: HashSet<i32> = flag_ids.clone();
+
+    loop {
+        let mut stage: Vec<i32> = remaining
+            .iter()
+            .filter(|&&id| *in_degree.get(&id).unwrap_or(&0) == 0)
+            .copied()
+            .collect();
+        stage.sort();
+
+        if stage.is_empty() {
+            break; // remaining flags are all cycle participants
+        }
+
+        for &id in &stage {
+            remaining.remove(&id);
+        }
+
+        // Decrease in-degree for dependents via reverse adjacency
+        for &resolved_id in &stage {
+            if let Some(dependents) = reverse_deps.get(&resolved_id) {
+                for &dependent_id in dependents {
+                    if remaining.contains(&dependent_id) {
+                        *in_degree.get_mut(&dependent_id).unwrap() -= 1;
+                    }
+                }
+            }
+        }
+
+        stages.push(stage);
+    }
+
+    // Any flags still in `remaining` are cycle participants
+    for &id in &remaining {
+        flags_with_missing_deps_set.insert(id);
+    }
+
+    // Compute transitive deps (only for non-cycle flags)
+    let mut transitive_deps: HashMap<i32, HashSet<i32>> = HashMap::new();
+    for &id in &flag_ids {
+        if remaining.contains(&id) {
+            transitive_deps.insert(id, HashSet::new());
+            continue;
+        }
+        let mut visited = HashSet::new();
+        let mut stack: Vec<i32> = deps
+            .get(&id)
+            .map_or(vec![], |d| d.iter().copied().collect());
+        while let Some(dep) = stack.pop() {
+            if visited.insert(dep) && !remaining.contains(&dep) {
+                if let Some(transitive) = deps.get(&dep) {
+                    for &t in transitive {
+                        if !visited.contains(&t) {
+                            stack.push(t);
+                        }
+                    }
+                }
+            }
+        }
+        transitive_deps.insert(id, visited);
+    }
+
+    let mut flags_with_missing_deps: Vec<i32> = flags_with_missing_deps_set.into_iter().collect();
+    flags_with_missing_deps.sort();
+
+    let evaluation_metadata = EvaluationMetadata {
+        dependency_stages: stages,
+        flags_with_missing_deps,
+        transitive_deps,
+    };
+
+    FeatureFlagList {
+        flags,
+        filtered_out_flag_ids,
+        evaluation_metadata,
+        cohorts: None,
+    }
 }
 
 /// Test context that encapsulates all database connections needed for testing

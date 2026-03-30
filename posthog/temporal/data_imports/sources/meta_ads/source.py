@@ -102,7 +102,6 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
                 ],
             ),
             betaSource=True,
-            featureFlag="meta-ads-dwh",
             suggestedTables=[
                 SuggestedTable(
                     table="campaigns",

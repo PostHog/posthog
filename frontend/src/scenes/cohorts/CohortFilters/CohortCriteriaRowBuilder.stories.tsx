@@ -15,7 +15,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { BehavioralEventType } from '~/types'
 
-const meta: Meta<typeof CohortCriteriaRowBuilder> = {
+const meta: Meta<CohortCriteriaRowBuilderProps> = {
     title: 'Filters/Cohort Filters/Row Builder',
     component: CohortCriteriaRowBuilder,
     decorators: [taxonomicFilterMocksDecorator],

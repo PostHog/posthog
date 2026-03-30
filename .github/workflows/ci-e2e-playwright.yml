@@ -319,14 +319,14 @@ jobs:
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: capture
+                  COMPOSE_PROFILES: capture,temporal
               run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: capture
-              run: bin/ci-wait-for-docker wait capture
+                  COMPOSE_PROFILES: capture,temporal
+              run: bin/ci-wait-for-docker wait capture temporal
 
             - name: Build frontend
               run: |
@@ -392,15 +392,17 @@ jobs:
                     echo "POSTHOG_NODE_TAG=master" >> "$GITHUB_ENV"
                   fi
 
-            - name: Start PostHog web, Celery worker & ingestion
+            - name: Start PostHog web, Celery worker, Temporal worker & ingestion
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
+                  python manage.py start_temporal_worker --task-queue analytics-platform-task-queue &> /tmp/temporal-worker.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
                   # Start the Node.js containers now that the database exists and migrations have run.
-                  # plugins: CDP, recordings, logs, error tracking (no mode = default capabilities)
+                  # plugins: CDP, recordings, logs (no mode = default capabilities)
                   # ingestion-general: event ingestion (ingestion-v2-combined mode)
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general
+                  # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-error-tracking
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -418,7 +420,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins ingestion-general
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-error-tracking
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -524,6 +526,7 @@ jobs:
                   docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
                   docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
                   docker logs posthog-ingestion-general-1 > playwright/test-results/docker-ingestion-general.log 2>&1 || echo "No ingestion-general container" > playwright/test-results/docker-ingestion-general.log
+                  docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
 
             - name: Archive test artifacts
               if: always()
@@ -537,6 +540,7 @@ jobs:
                       playwright/test-results-attempt-*/
                       /tmp/celery.log
                       /tmp/server.log
+                      /tmp/temporal-worker.log
                       /tmp/playwright-output-attempt-*.log
                   retention-days: 30
                   if-no-files-found: ignore
@@ -756,7 +760,17 @@ jobs:
                     echo "Screenshot changes detected in patches"
                   fi
 
-            # Visual Review: submit snapshots and auto-approve baseline
+            # Apply patches BEFORE VR so it hashes the final state
+            # Uses --index so changes are staged for the downstream commit action
+            - name: Apply screenshot patches
+              if: steps.check-screenshots.outputs.has-changes == 'true'
+              run: |
+                  for patch in $(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c | sort); do
+                    echo "Applying $patch"
+                    git apply --index "$patch"
+                  done
+
+            # Visual Review: submit snapshots after patches are applied
             - name: Install VR CLI deps
               run: cd products/visual_review/cli && npm ci
 
