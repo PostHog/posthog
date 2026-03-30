@@ -19,10 +19,7 @@ from posthog.rate_limit import (
 )
 
 from products.llm_analytics.backend.api.proxy import LLMProxyCompletionSerializer, LLMProxyViewSet
-from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS, get_default_models, get_trial_models
-from products.llm_analytics.backend.llm.providers.anthropic import AnthropicConfig
-from products.llm_analytics.backend.llm.providers.gemini import GeminiConfig
-from products.llm_analytics.backend.llm.providers.openai import OpenAIConfig
+from products.llm_analytics.backend.llm import _PROVIDERS, TRIAL_MODEL_IDS, get_default_models, get_trial_models
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 TRIAL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
@@ -159,49 +156,23 @@ class TestLLMProxyThrottles(APIBaseTest):
 
 class TestTrialModelAllowlist(TestCase):
     def test_trial_models_are_subset_of_supported_models(self) -> None:
-        assert set(OpenAIConfig.TRIAL_MODELS) <= set(OpenAIConfig.SUPPORTED_MODELS)
-        assert set(AnthropicConfig.TRIAL_MODELS) <= set(AnthropicConfig.SUPPORTED_MODELS)
-        assert set(GeminiConfig.TRIAL_MODELS) <= set(GeminiConfig.SUPPORTED_MODELS)
+        for _, config in _PROVIDERS:
+            assert set(config.TRIAL_MODELS) <= set(config.SUPPORTED_MODELS), (
+                f"{config.__name__}.TRIAL_MODELS contains models not in SUPPORTED_MODELS"
+            )
 
-    def test_trial_models_exclude_expensive_models(self) -> None:
-        expensive_models = {
-            "gpt-5.2-pro",
-            "gpt-5-pro",
-            "o3-pro",
-            "o1-pro",
-            "claude-opus-4-6",
-            "claude-opus-4-5",
-            "claude-opus-4-1",
-            "claude-opus-4-0",
-        }
-        assert TRIAL_MODEL_IDS.isdisjoint(expensive_models)
+    def test_no_supported_only_model_leaks_into_trial(self) -> None:
+        supported_only = set()
+        for _, config in _PROVIDERS:
+            supported_only |= set(config.SUPPORTED_MODELS) - set(config.TRIAL_MODELS)
+        assert TRIAL_MODEL_IDS.isdisjoint(supported_only)
 
     def test_get_trial_models_returns_only_trial_eligible(self) -> None:
-        trial_models = get_trial_models()
-        trial_ids = {m["id"] for m in trial_models}
+        trial_ids = {m["id"] for m in get_trial_models()}
         assert trial_ids == TRIAL_MODEL_IDS
 
     def test_get_trial_models_smaller_than_default(self) -> None:
         assert len(get_trial_models()) < len(get_default_models())
-
-    @parameterized.expand(
-        [
-            ("openai_trial_model", "gpt-4.1-mini", "openai"),
-            ("anthropic_trial_model", "claude-sonnet-4-6", "anthropic"),
-            ("gemini_trial_model", "gemini-2.5-flash", "gemini"),
-        ]
-    )
-    def test_trial_model_ids_contains_expected(self, _name: str, model: str, _provider: str) -> None:
-        assert model in TRIAL_MODEL_IDS
-
-    @parameterized.expand(
-        [
-            ("expensive_openai", "o3-pro", "openai"),
-            ("expensive_anthropic", "claude-opus-4-6", "anthropic"),
-        ]
-    )
-    def test_trial_model_ids_excludes_expensive(self, _name: str, model: str, _provider: str) -> None:
-        assert model not in TRIAL_MODEL_IDS
 
 
 class TestTrialModelEnforcement(APIBaseTest):
@@ -242,3 +213,9 @@ class TestTrialModelEnforcement(APIBaseTest):
             format="json",
         )
         assert response.status_code == 200
+
+    def test_models_endpoint_returns_only_trial_models(self) -> None:
+        response = self.client.get("/api/llm_proxy/models/")
+        assert response.status_code == 200
+        returned_ids = {m["id"] for m in response.json()}
+        assert returned_ids == TRIAL_MODEL_IDS

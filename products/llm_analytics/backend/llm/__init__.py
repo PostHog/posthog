@@ -20,17 +20,25 @@ class ModelInfo(TypedDict):
     is_recommended: bool
 
 
+# Single registry of providers. Add new providers here and everything else
+# (model lists, trial models, ID sets) derives from it automatically.
+_PROVIDERS: list[tuple[str, type[OpenAIConfig] | type[AnthropicConfig] | type[GeminiConfig]]] = [
+    ("OpenAI", OpenAIConfig),
+    ("Anthropic", AnthropicConfig),
+    ("Gemini", GeminiConfig),
+]
+
+
 def _build_model_infos(provider: str, models: list[str]) -> list[ModelInfo]:
     return [{"id": m, "name": m, "provider": provider, "description": "", "is_recommended": True} for m in models]
 
 
 def get_default_models() -> list[ModelInfo]:
-    """Returns the default static list of models for all providers."""
-    return (
-        _build_model_infos("OpenAI", OpenAIConfig.SUPPORTED_MODELS)
-        + _build_model_infos("Anthropic", AnthropicConfig.SUPPORTED_MODELS)
-        + _build_model_infos("Gemini", GeminiConfig.SUPPORTED_MODELS)
-    )
+    """Returns the full list of supported models across all providers."""
+    result: list[ModelInfo] = []
+    for display_name, config in _PROVIDERS:
+        result.extend(_build_model_infos(display_name, config.SUPPORTED_MODELS))
+    return result
 
 
 def get_trial_models() -> list[ModelInfo]:
@@ -39,22 +47,17 @@ def get_trial_models() -> list[ModelInfo]:
     This is a curated subset excluding expensive models like pro/opus tiers
     while including one flagship per provider for quality evaluation.
     """
-    return (
-        _build_model_infos("OpenAI", OpenAIConfig.TRIAL_MODELS)
-        + _build_model_infos("Anthropic", AnthropicConfig.TRIAL_MODELS)
-        + _build_model_infos("Gemini", GeminiConfig.TRIAL_MODELS)
-    )
+    result: list[ModelInfo] = []
+    for display_name, config in _PROVIDERS:
+        result.extend(_build_model_infos(display_name, config.TRIAL_MODELS))
+    return result
 
 
-TRIAL_MODEL_IDS: frozenset[str] = frozenset(
-    OpenAIConfig.TRIAL_MODELS + AnthropicConfig.TRIAL_MODELS + GeminiConfig.TRIAL_MODELS
-)
+TRIAL_MODEL_IDS: frozenset[str] = frozenset(model for _, config in _PROVIDERS for model in config.TRIAL_MODELS)
 
-# Provider-keyed lookup for code that needs per-provider trial lists
+# Provider-keyed lookup (lowercase keys matching DB provider values)
 TRIAL_MODELS_BY_PROVIDER: dict[str, list[str]] = {
-    "openai": OpenAIConfig.TRIAL_MODELS,
-    "anthropic": AnthropicConfig.TRIAL_MODELS,
-    "gemini": GeminiConfig.TRIAL_MODELS,
+    display_name.lower(): config.TRIAL_MODELS for display_name, config in _PROVIDERS
 }
 
 
