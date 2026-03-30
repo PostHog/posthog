@@ -532,6 +532,36 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["scope"] == "global"
 
+    @parameterized.expand(
+        [
+            ("template_name", ["Alpha", "Zebra"]),
+            ("-template_name", ["Zebra", "Alpha"]),
+        ]
+    )
+    def test_ordering_when_listing_templates_without_search(self, ordering: str, expected_names: list[str]) -> None:
+        DashboardTemplate.objects.all().delete()
+
+        self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Zebra"})
+        self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Alpha"})
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?ordering={ordering}")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        assert [r["template_name"] for r in results] == expected_names
+
+    def test_default_ordering_when_listing_templates(self) -> None:
+        DashboardTemplate.objects.all().delete()
+
+        self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Zebra"})
+        self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Alpha"})
+
+        default_order = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert default_order.status_code == status.HTTP_200_OK
+        default_results = default_order.json()["results"]
+        assert len(default_results) == 2
+        assert {r["template_name"] for r in default_results} == {"Alpha", "Zebra"}
+
     def test_search_when_listing_templates(self):
         # ensure there are no templates
         DashboardTemplate.objects.all().delete()
@@ -582,10 +612,12 @@ class TestDashboardTemplates(APIBaseTest):
 
         default_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert default_response.status_code == status.HTTP_200_OK
-        assert [(r["id"], r["scope"]) for r in default_response.json()["results"]] == [
+        default_rows = default_response.json()["results"]
+        assert len(default_rows) == 2
+        assert {(r["id"], r["scope"]) for r in default_rows} == {
             (flag_template_id, "feature_flag"),
             (global_template_id, "global"),
-        ]
+        }
 
         global_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=global")
         assert global_response.status_code == status.HTTP_200_OK

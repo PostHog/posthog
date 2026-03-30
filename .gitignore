@@ -1,6 +1,7 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.cache
 .planning
 .pr-review-diff.patch
 __emails__
@@ -166,6 +167,7 @@ bin/phrocs
 # Claude Code review outputs
 CODE_DEBUGGING_SESSION.md
 CODE_REVIEW.md
+QAREPORT.md
 
 # SeaweedFS data + migration checkpoint
 .migration-checkpoint.json

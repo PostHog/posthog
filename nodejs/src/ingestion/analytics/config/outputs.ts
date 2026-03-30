@@ -7,10 +7,19 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
     KAFKA_GROUPS,
     KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
 } from '../../../config/kafka-topics'
 import { DLQ_OUTPUT, GROUPS_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
 import { IngestionOutputDefinition } from '../../outputs/resolver'
-import { AI_EVENTS_OUTPUT, ASYNC_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from '../outputs'
+import {
+    AI_EVENTS_OUTPUT,
+    ASYNC_OUTPUT,
+    EVENTS_OUTPUT,
+    HEATMAPS_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+} from '../outputs'
 import { DEFAULT_PRODUCER, ProducerName } from './producers'
 
 /** Static config for all analytics ingestion outputs. */
@@ -62,5 +71,17 @@ export const INGESTION_OUTPUT_DEFINITIONS: Record<string, IngestionOutputDefinit
         defaultProducerName: DEFAULT_PRODUCER,
         producerOverrideEnvVar: 'INGESTION_OUTPUT_GROUPS_PRODUCER',
         topicOverrideEnvVar: 'INGESTION_OUTPUT_GROUPS_TOPIC',
+    },
+    [PERSONS_OUTPUT]: {
+        defaultTopic: KAFKA_PERSON,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'INGESTION_OUTPUT_PERSONS_PRODUCER',
+        topicOverrideEnvVar: 'INGESTION_OUTPUT_PERSONS_TOPIC',
+    },
+    [PERSON_DISTINCT_IDS_OUTPUT]: {
+        defaultTopic: KAFKA_PERSON_DISTINCT_ID,
+        defaultProducerName: DEFAULT_PRODUCER,
+        producerOverrideEnvVar: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER',
+        topicOverrideEnvVar: 'INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC',
     },
 }

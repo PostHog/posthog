@@ -29,6 +29,7 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+pub const FLAG_SENT_AT_DELTA_MS: &str = "flags_sent_at_delta_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
 // Performance monitoring

@@ -49,6 +49,11 @@ jobs:
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
+                        # Hypercache contract: Python serializer changes may break Rust deserialization
+                        - 'posthog/api/feature_flag.py'
+                        - 'posthog/models/feature_flag/flags_cache.py'
+                        - 'posthog/models/feature_flag/feature_flag.py'
+                        - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
 
             # Bin-pack packages into balanced test shards.
             # Weights are approximate test durations in seconds — update periodically.
