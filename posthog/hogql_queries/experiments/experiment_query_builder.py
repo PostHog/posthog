@@ -256,7 +256,7 @@ class ExperimentQueryBuilder:
 
         return conversion_window_seconds
 
-    def _build_maturity_having_clause(self) -> Optional[ast.Expr]:
+    def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
         """
         Returns a HAVING clause expression to filter out users whose conversion window
         hasn't elapsed yet, or None if the feature is not enabled.
@@ -272,7 +272,7 @@ class ExperimentQueryBuilder:
 
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
         return parse_expr(
-            "max(timestamp) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
+            f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
             placeholders={
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),
@@ -1325,21 +1325,12 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
 
         # Filter out users whose conversion window hasn't elapsed yet
-        if self.metric and getattr(self.metric, "only_count_matured_users", False):
-            maturity_seconds = self._get_maturity_window_seconds()
-            if maturity_seconds > 0:
-                now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-                maturity_expr = parse_expr(
-                    "max(t.last_exposure_time) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
-                    placeholders={
-                        "maturity_seconds": ast.Constant(value=maturity_seconds),
-                        "now": ast.Constant(value=now),
-                    },
-                )
-                if query.having is None:
-                    query.having = maturity_expr
-                else:
-                    query.having = ast.And(exprs=[query.having, maturity_expr])
+        maturity_having = self._build_maturity_having_clause(timestamp_expr="t.last_exposure_time")
+        if maturity_having is not None:
+            if query.having is None:
+                query.having = maturity_having
+            else:
+                query.having = ast.And(exprs=[query.having, maturity_having])
 
         return query
 
