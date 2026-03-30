@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1077_add_cron_expression_to_scheduled_change"),
+        ("posthog", "1078_backfill_feature_enrollment_fix"),
     ]
 
     operations = [

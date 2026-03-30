@@ -28,8 +28,10 @@ import {
     ChartDataPoint,
     CountryBreakdownItem,
     DeviceBreakdownItem,
+    DIRECT_REFERRER,
     LiveGeoEvent,
     PathItem,
+    ReferrerItem,
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
 
@@ -78,6 +80,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
                             const browser = event.properties?.$browser
+                            const referringDomain = event.properties?.$referring_domain
 
                             // For cookieless events, device_id isn't set before preprocessing
                             // so we create a device key from IP + user agent
@@ -88,11 +91,23 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                 deviceKey = `cookieless_${hashCodeForString(ip + ua)}`
                             }
 
+                            const isPageview = event.event === '$pageview'
+                            const normalizedReferrer =
+                                isPageview &&
+                                referringDomain &&
+                                referringDomain !== DIRECT_REFERRER &&
+                                referringDomain !== ''
+                                    ? referringDomain
+                                    : isPageview
+                                      ? DIRECT_REFERRER
+                                      : undefined
+
                             window.addDataPoint(eventTs, event.distinct_id, {
-                                pageviews: event.event === '$pageview' ? 1 : 0,
+                                pageviews: isPageview ? 1 : 0,
                                 device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
-                                pathname: event.event === '$pageview' ? pathname : undefined,
+                                pathname: isPageview ? pathname : undefined,
+                                referringDomain: normalizedReferrer,
                             })
                         }
                     }
@@ -181,6 +196,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
             { resultEqualityCheck: equal },
         ],
+        topReferrers: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): ReferrerItem[] => slidingWindow.getTopReferrers(10),
+            { resultEqualityCheck: equal },
+        ],
         totalPageviews: [
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalPageviews(),
@@ -234,8 +254,14 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     cache.geoConnection = null
                     cache.geoBatch = []
                 }
-                const [usersPageviewsResponse, deviceResponse, browserResponse, pathsResponse, geoResponse] =
-                    await loadQueryData(dateFrom, handoff, geoEnabled)
+                const [
+                    usersPageviewsResponse,
+                    deviceResponse,
+                    browserResponse,
+                    pathsResponse,
+                    referrerResponse,
+                    geoResponse,
+                ] = await loadQueryData(dateFrom, handoff, geoEnabled)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -243,6 +269,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addBreakdownDataToBuckets(deviceResponse, bucketMap, (b) => b.devices)
                 addBreakdownDataToBuckets(browserResponse, bucketMap, (b) => b.browsers)
                 addPathDataToBuckets(pathsResponse, bucketMap)
+                addReferrerDataToBuckets(referrerResponse, bucketMap)
                 if (geoResponse) {
                     addGeoDataToBuckets(geoResponse, bucketMap)
                 }
@@ -270,7 +297,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-            url.searchParams.append('columns', '$pathname,$device_type,$device_id,$browser,$ip,$raw_user_agent')
+            url.searchParams.append(
+                'columns',
+                '$pathname,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
+            )
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -414,7 +444,14 @@ const loadQueryData = async (
     dateTo: Date,
     includeGeo: boolean
 ): Promise<
-    [HogQLQueryResponse, HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse, HogQLQueryResponse | null]
+    [
+        HogQLQueryResponse,
+        HogQLQueryResponse,
+        HogQLQueryResponse,
+        TrendsQueryResponse,
+        HogQLQueryResponse,
+        HogQLQueryResponse | null,
+    ]
 > => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
@@ -498,6 +535,25 @@ const loadQueryData = async (
         },
     }
 
+    const referrerQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    toStartOfMinute(timestamp) AS minute_bucket,
+                    if(isNotNull(properties.$referring_domain) AND properties.$referring_domain != '', properties.$referring_domain, '$direct') AS referring_domain,
+                    count() AS view_count
+                FROM events
+                WHERE
+                    timestamp >= toDateTime({dateFrom})
+                    AND timestamp <= toDateTime({dateTo})
+                    AND event = '$pageview'
+                GROUP BY minute_bucket, referring_domain
+                ORDER BY minute_bucket ASC`,
+        values: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+        },
+    }
+
     const geoQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
@@ -535,6 +591,7 @@ const loadQueryData = async (
         performQuery(deviceQuery),
         performQuery(browserQuery),
         performQuery(pathsQuery),
+        performQuery(referrerQuery),
         includeGeo ? performQuery(geoQuery) : Promise.resolve(null),
     ])
 }
@@ -601,6 +658,21 @@ const addPathDataToBuckets = (
     }
 }
 
+const addReferrerDataToBuckets = (
+    referrerResponse: HogQLQueryResponse,
+    bucketMap: Map<number, SlidingWindowBucket>
+): void => {
+    const results = referrerResponse.results as [string, string, number][]
+
+    for (const [timestampStr, referringDomain, viewCount] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
+
+        const domain = referringDomain || DIRECT_REFERRER
+        bucket.referrers.set(domain, (bucket.referrers.get(domain) ?? 0) + viewCount)
+    }
+}
+
 const addGeoDataToBuckets = (geoResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
     const results = geoResponse.results as [string, Record<string, string[]>][]
 
@@ -634,6 +706,7 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         devices: new Map<string, Set<string>>(),
         browsers: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
+        referrers: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
         countries: new Map<string, Set<string>>(),
     }
