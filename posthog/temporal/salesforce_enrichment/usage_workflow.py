@@ -1,6 +1,7 @@
 """Salesforce usage enrichment workflow - enriches accounts with PostHog usage signals."""
 
 import json
+import time
 import asyncio
 import datetime as dt
 import dataclasses
@@ -126,22 +127,40 @@ async def fetch_salesforce_org_ids_activity() -> list[SalesforceOrgMapping]:
     close_old_connections()
     logger = LOGGER.bind()
 
-    cached_mappings = await get_org_mappings_from_redis()
+    try:
+        redis_start = time.monotonic()
+        cached_mappings = await get_org_mappings_from_redis()
+        redis_duration_ms = (time.monotonic() - redis_start) * 1000
 
-    if cached_mappings is None:
-        logger.warning("org_mappings_cache_miss", reason="cache_expired_or_missing")
-        return []
+        if cached_mappings is None:
+            logger.warning(
+                "org_mappings_cache_miss",
+                reason="cache_expired_or_missing",
+                redis_duration_ms=round(redis_duration_ms, 1),
+            )
+            return []
 
-    mappings = [
-        SalesforceOrgMapping(
-            salesforce_account_id=m["salesforce_account_id"],
-            posthog_org_id=m["posthog_org_id"],
+        parse_start = time.monotonic()
+        mappings = [
+            SalesforceOrgMapping(
+                salesforce_account_id=m["salesforce_account_id"],
+                posthog_org_id=m["posthog_org_id"],
+            )
+            for m in cached_mappings
+        ]
+        parse_duration_ms = (time.monotonic() - parse_start) * 1000
+
+        logger.info(
+            "org_mappings_fetched_from_cache",
+            total_mappings=len(mappings),
+            redis_duration_ms=round(redis_duration_ms, 1),
+            parse_duration_ms=round(parse_duration_ms, 1),
         )
-        for m in cached_mappings
-    ]
+        return mappings
 
-    logger.info("org_mappings_fetched_from_cache", total_mappings=len(mappings))
-    return mappings
+    except Exception as e:
+        logger.exception("org_mappings_parse_failed", error=str(e))
+        raise
 
 
 @activity.defn
@@ -255,7 +274,7 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         # Fetch mappings from cache
         mappings = await workflow.execute_activity(
             fetch_salesforce_org_ids_activity,
-            start_to_close_timeout=dt.timedelta(minutes=2),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 

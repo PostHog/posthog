@@ -17,6 +17,11 @@ def _decompress_redis_data(raw_redis_data: bytes) -> str:
     return gzip.decompress(raw_redis_data).decode("utf-8")
 
 
+def _decompress_and_parse_redis_data(raw_redis_data: bytes) -> list[dict[str, Any]]:
+    """Decompress gzip data and parse JSON in a single call to minimize thread scheduling overhead."""
+    return json.loads(gzip.decompress(raw_redis_data).decode("utf-8"))
+
+
 async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[str, Any]] | None:
     """Retrieve and decompress a cached list from Redis.
 
@@ -30,8 +35,7 @@ async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[s
         if not raw_redis_data:
             return None
 
-        data_json = _decompress_redis_data(raw_redis_data)
-        return json.loads(data_json)
+        return await asyncio.to_thread(_decompress_and_parse_redis_data, raw_redis_data)
 
     except TimeoutError:
         capture_exception(TimeoutError(f"Redis operation timed out after {timeout}s for key {cache_key}"))
