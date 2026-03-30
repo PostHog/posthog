@@ -17,7 +17,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const PersonsEmpty: Story = { parameters: { pageUrl: urls.persons() } }
 
 export const Persons: Story = {
