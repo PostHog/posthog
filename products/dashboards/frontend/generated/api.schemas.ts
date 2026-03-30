@@ -139,6 +139,8 @@ export interface DashboardTemplateApi {
     scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
 }
 
 export interface PaginatedDashboardTemplateListApi {
