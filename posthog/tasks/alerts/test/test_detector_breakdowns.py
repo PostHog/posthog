@@ -101,7 +101,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
 
         result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
 
-        assert len(result.breaches) > 0
+        assert result.breaches is not None and len(result.breaches) > 0
         assert "staking" in result.breaches[0]
         assert "Anomaly detected" in result.breaches[0]
         # "staking" is at index 1 in the breakdown results
@@ -208,7 +208,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
 
         result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
 
-        assert len(result.breaches) > 0
+        assert result.breaches is not None and len(result.breaches) > 0
         assert "Anomaly detected" in result.breaches[0]
         # Non-breakdown alerts should not set triggered_series_index
         assert result.triggered_series_index is None

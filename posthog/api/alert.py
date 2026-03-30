@@ -500,7 +500,7 @@ class AlertSimulateSerializer(serializers.Serializer):
 
 
 class BreakdownSimulationResultSerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Breakdown value label.")
+    label = serializers.CharField(help_text="Breakdown value label.")  # type: ignore[assignment]
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
     scores = serializers.ListField(
