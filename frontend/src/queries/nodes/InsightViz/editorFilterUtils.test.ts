@@ -135,18 +135,16 @@ describe('editorFilterUtils', () => {
             expect(getSeriesSummary([{ custom_name: 'My Event', event: '$pageview' }])).toBe('My Event')
         })
 
-        it('falls back to event name', () => {
-            expect(getSeriesSummary([{ event: '$pageview' }])).toBe('$pageview')
+        it('falls back to event name and formats it', () => {
+            expect(getSeriesSummary([{ event: '$pageview' }])).toBe('Pageview')
         })
 
         it('falls back to name when event is null', () => {
             expect(getSeriesSummary([{ name: 'All events', event: null }])).toBe('All events')
         })
 
-        it('joins multiple series with comma', () => {
-            expect(getSeriesSummary([{ event: '$pageview' }, { event: '$autocapture' }])).toBe(
-                '$pageview, $autocapture'
-            )
+        it('joins multiple series with comma and formats names', () => {
+            expect(getSeriesSummary([{ event: '$pageview' }, { event: '$autocapture' }])).toBe('Pageview, Autocapture')
         })
 
         it('returns count when no names available', () => {
