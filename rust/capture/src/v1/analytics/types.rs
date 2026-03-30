@@ -51,7 +51,7 @@ pub struct Options {
 
 #[derive(Debug, Deserialize)]
 pub struct Event {
-    pub name: String,
+    pub event: String,
     pub uuid: String,
     pub distinct_id: String,
     pub timestamp: String,
@@ -71,7 +71,7 @@ pub struct WrappedEvent {
     pub adjusted_timestamp: Option<DateTime<Utc>>,
     pub ordinal: usize,
     pub result: EventResult,
-    pub details: Option<&'static str>,
+    pub details: Option<String>,
     pub destination: Destination,
     pub skip_person_processing: bool,
 }
@@ -84,7 +84,7 @@ pub struct WrappedEvent {
 /// limiter predicate needs a property not in Options, add it there first.
 impl HasEventName for WrappedEvent {
     fn event_name(&self) -> &str {
-        &self.event.name
+        &self.event.event
     }
 
     fn has_property(&self, key: &str) -> bool {
@@ -140,7 +140,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "$pageview",
+                "event": "$pageview",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "user-42",
                 "timestamp": "2026-03-19T14:29:58.123Z",
@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(batch.batch.len(), 1);
 
         let event = &batch.batch[0];
-        assert_eq!(event.name, "$pageview");
+        assert_eq!(event.event, "$pageview");
         assert_eq!(event.uuid, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
         assert_eq!(event.distinct_id, "user-42");
         assert_eq!(event.timestamp, "2026-03-19T14:29:58.123Z");
@@ -167,7 +167,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "$identify",
+                "event": "$identify",
                 "uuid": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
                 "distinct_id": "user-99",
                 "timestamp": "2026-03-19T14:30:00.000Z",
@@ -196,7 +196,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "e",
+                "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d",
                 "timestamp": "2026-03-19T14:30:00.000Z",
@@ -212,7 +212,7 @@ mod tests {
     fn parse_batch_missing_created_at() {
         let json = r#"{
             "batch": [{
-                "name": "e",
+                "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d",
                 "timestamp": "2026-03-19T14:30:00.000Z"
@@ -245,7 +245,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "e",
+                "event": "e",
                 "distinct_id": "d",
                 "timestamp": "2026-03-19T14:30:00.000Z"
             }]
@@ -258,7 +258,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "e",
+                "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "timestamp": "2026-03-19T14:30:00.000Z"
             }]
@@ -271,7 +271,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "e",
+                "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d"
             }]
@@ -303,7 +303,7 @@ mod tests {
             "created_at": "2026-03-19T14:30:00.000Z",
             "unknown_top_field": true,
             "batch": [{
-                "name": "e",
+                "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d",
                 "timestamp": "2026-03-19T14:30:00.000Z",
@@ -313,7 +313,7 @@ mod tests {
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        assert_eq!(batch.batch[0].name, "e");
+        assert_eq!(batch.batch[0].event, "e");
     }
 
     #[test]
@@ -346,7 +346,7 @@ mod tests {
     fn parse_batch_missing_created_at_with_events() {
         let json = r#"{
             "batch": [{
-                "name": "e",
+                "event": "e",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "d",
                 "timestamp": "2026-03-19T14:30:00.000Z"
@@ -360,7 +360,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "$pageview",
+                "event": "$pageview",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "user-1",
                 "timestamp": "2026-03-19T14:29:58.123Z",
@@ -389,7 +389,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "$pageview",
+                "event": "$pageview",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "user-42",
                 "timestamp": "2026-03-19T14:29:58.123Z"
@@ -403,7 +403,7 @@ mod tests {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
-                "name": "$pageview",
+                "event": "$pageview",
                 "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
                 "distinct_id": "user-42",
                 "timestamp": "2026-03-19T14:29:58.123Z",

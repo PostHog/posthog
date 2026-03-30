@@ -7,6 +7,7 @@ use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, FUTURE_EVENT_HOURS_CUTOFF_MS,
+    ILLEGAL_DISTINCT_IDS,
 };
 use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
@@ -99,13 +100,19 @@ fn validate_events(context: &Context, batch: Batch) -> Vec<WrappedEvent> {
                 }
                 Err(err) => {
                     let tag = err.tag();
+                    let detail = match &err {
+                        Error::MalformedDistinctId(id) => {
+                            format!("malformed distinct_id: {id}")
+                        }
+                        _ => tag.to_string(),
+                    };
                     *malformed.entry(tag).or_insert(0) += 1;
                     WrappedEvent {
                         event,
                         adjusted_timestamp: None,
                         ordinal,
                         result: EventResult::Drop,
-                        details: Some(tag),
+                        details: Some(detail),
                         destination: Destination::default(),
                         skip_person_processing: false,
                     }
@@ -150,11 +157,15 @@ fn observe_malformed_events(context: &Context, malformed: &HashMap<&'static str,
     );
 }
 
+fn is_distinct_id_illegal(distinct_id: &str) -> bool {
+    ILLEGAL_DISTINCT_IDS.contains(&distinct_id.trim().to_lowercase().as_str())
+}
+
 fn validate_event(uuids: &mut HashSet<Uuid>, event: &Event) -> Result<DateTime<Utc>, Error> {
-    if event.name.is_empty() {
+    if event.event.is_empty() {
         return Err(Error::MissingEventName);
     }
-    if event.name.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
+    if event.event.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
         return Err(Error::EventNameTooLong);
     }
     if event.distinct_id.is_empty() {
@@ -162,6 +173,9 @@ fn validate_event(uuids: &mut HashSet<Uuid>, event: &Event) -> Result<DateTime<U
     }
     if event.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
         return Err(Error::DistinctIdTooLarge);
+    }
+    if is_distinct_id_illegal(&event.distinct_id) {
+        return Err(Error::MalformedDistinctId(event.distinct_id.clone()));
     }
 
     let parsed = Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
@@ -238,7 +252,7 @@ async fn apply_restrictions(
         let event_ctx = EventContext {
             distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
-            event_name: Some(&event.event.name),
+            event_name: Some(&event.event.event),
             event_uuid: Some(&event.event.uuid),
             now_ts,
         };
@@ -288,7 +302,7 @@ async fn apply_token_distinct_id_limits(
         if limiter.is_limited(&cache_key, 1).await.is_some() {
             event.result = EventResult::Limited;
             event.destination = Destination::Drop;
-            event.details = Some("event rate limited by distinct_id");
+            event.details = Some("event rate limited by distinct_id".to_string());
             let did = event.event.distinct_id.as_str();
             if !limited_distinct_ids.contains(&did) {
                 limited_distinct_ids.push(did);
@@ -366,7 +380,7 @@ mod tests {
 
     fn valid_event() -> Event {
         Event {
-            name: "$pageview".to_string(),
+            event: "$pageview".to_string(),
             uuid: Uuid::new_v4().to_string(),
             distinct_id: "user-42".to_string(),
             timestamp: "2026-03-19T14:29:58.123Z".to_string(),
@@ -448,7 +462,7 @@ mod tests {
     fn event_empty_name() {
         let mut uuids = HashSet::new();
         let mut event = valid_event();
-        event.name = String::new();
+        event.event = String::new();
         assert!(matches!(
             validate_event(&mut uuids, &event),
             Err(Error::MissingEventName)
@@ -459,7 +473,7 @@ mod tests {
     fn event_name_too_long() {
         let mut uuids = HashSet::new();
         let mut event = valid_event();
-        event.name = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH + 1);
+        event.event = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH + 1);
         assert!(matches!(
             validate_event(&mut uuids, &event),
             Err(Error::EventNameTooLong)
@@ -470,7 +484,7 @@ mod tests {
     fn event_name_at_max_length_ok() {
         let mut uuids = HashSet::new();
         let mut event = valid_event();
-        event.name = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH);
+        event.event = "x".repeat(CAPTURE_V1_MAX_EVENT_NAME_LENGTH);
         assert!(validate_event(&mut uuids, &event).is_ok());
     }
 
@@ -502,6 +516,62 @@ mod tests {
         let mut event = valid_event();
         event.distinct_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE);
         assert!(validate_event(&mut uuids, &event).is_ok());
+    }
+
+    #[test]
+    fn event_illegal_distinct_ids_rejected() {
+        let illegal_ids = [
+            "anonymous",
+            "ANONYMOUS",
+            "null",
+            "NULL",
+            "0",
+            "  undefined  ",
+            "[object Object]",
+            "NaN",
+            "GUEST",
+            "none",
+            "00000000-0000-0000-0000-000000000000",
+            "  guest  ",
+            "true",
+            "FALSE",
+            "distinct_id",
+            "not_authenticated",
+        ];
+        for id in illegal_ids {
+            let mut uuids = HashSet::new();
+            let mut event = valid_event();
+            event.distinct_id = id.to_string();
+            assert!(
+                matches!(
+                    validate_event(&mut uuids, &event),
+                    Err(Error::MalformedDistinctId(_))
+                ),
+                "expected MalformedDistinctId for distinct_id={id:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn event_legal_distinct_ids_accepted() {
+        let legal_ids = [
+            "user-42",
+            "my-email@foo.com",
+            "1",
+            "anon-abc123",
+            "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+            "01",
+            "nope",
+        ];
+        for id in legal_ids {
+            let mut uuids = HashSet::new();
+            let mut event = valid_event();
+            event.distinct_id = id.to_string();
+            assert!(
+                validate_event(&mut uuids, &event).is_ok(),
+                "expected Ok for distinct_id={id:?}"
+            );
+        }
     }
 
     #[test]
@@ -573,7 +643,10 @@ mod tests {
         let events = validate_events(&ctx, batch);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].result, EventResult::Drop);
-        assert_eq!(events[0].details, Some("malformed_event_properties"));
+        assert_eq!(
+            events[0].details,
+            Some("malformed_event_properties".to_string())
+        );
     }
 
     // --- normalize_timestamp ---
@@ -605,7 +678,7 @@ mod tests {
 
     fn event_with_ignore_attempt_timestamp(ignore: bool) -> Event {
         Event {
-            name: "$pageview".to_string(),
+            event: "$pageview".to_string(),
             uuid: Uuid::new_v4().to_string(),
             distinct_id: "user-1".to_string(),
             timestamp: "2026-03-19T11:00:00Z".to_string(),
@@ -696,7 +769,7 @@ mod tests {
     fn wrapped_event(ordinal: usize, event_name: &str, distinct_id: &str) -> WrappedEvent {
         WrappedEvent {
             event: Event {
-                name: event_name.to_string(),
+                event: event_name.to_string(),
                 uuid: Uuid::new_v4().to_string(),
                 distinct_id: distinct_id.to_string(),
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
@@ -717,7 +790,7 @@ mod tests {
     fn malformed_wrapped_event(ordinal: usize) -> WrappedEvent {
         WrappedEvent {
             event: Event {
-                name: String::new(),
+                event: String::new(),
                 uuid: Uuid::new_v4().to_string(),
                 distinct_id: "user-1".to_string(),
                 timestamp: "bad".to_string(),
@@ -729,7 +802,7 @@ mod tests {
             adjusted_timestamp: None,
             ordinal,
             result: EventResult::Drop,
-            details: Some("missing_event_name"),
+            details: Some("missing_event_name".to_string()),
             destination: Destination::default(),
             skip_person_processing: false,
         }
@@ -1061,7 +1134,10 @@ mod tests {
         assert!(events[0].details.is_none());
         assert_eq!(events[1].result, EventResult::Limited);
         assert_eq!(events[1].destination, Destination::Drop);
-        assert_eq!(events[1].details, Some("event rate limited by distinct_id"));
+        assert_eq!(
+            events[1].details,
+            Some("event rate limited by distinct_id".to_string())
+        );
     }
 
     #[tokio::test]
@@ -1102,7 +1178,7 @@ mod tests {
             );
             assert_eq!(
                 event.details,
-                Some("event rate limited by distinct_id"),
+                Some("event rate limited by distinct_id".to_string()),
                 "event {i} should have details"
             );
         }
@@ -1128,7 +1204,10 @@ mod tests {
         // Event 1 rate-limited
         assert_eq!(events[1].result, EventResult::Limited);
         assert_eq!(events[1].destination, Destination::Drop);
-        assert_eq!(events[1].details, Some("event rate limited by distinct_id"));
+        assert_eq!(
+            events[1].details,
+            Some("event rate limited by distinct_id".to_string())
+        );
     }
 
     // --- apply_historical_rerouting ---
@@ -1163,7 +1242,7 @@ mod tests {
     fn wrapped_event_at(ordinal: usize, timestamp: DateTime<Utc>) -> WrappedEvent {
         WrappedEvent {
             event: Event {
-                name: "$pageview".to_string(),
+                event: "$pageview".to_string(),
                 uuid: Uuid::new_v4().to_string(),
                 distinct_id: "user-1".to_string(),
                 timestamp: timestamp.to_rfc3339(),

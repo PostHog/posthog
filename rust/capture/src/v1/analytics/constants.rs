@@ -61,6 +61,41 @@ pub(super) const CAPTURE_V1_MAX_EVENT_NAME_LENGTH: usize = 200;
 pub(super) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
 
 // ---------------------------------------------------------------------------
+// Illegal distinct_id values
+// ---------------------------------------------------------------------------
+
+/// Known-bad distinct_id values that indicate a bug or misconfiguration in the
+/// sending SDK. Ported from the Node.js ingestion pipeline
+/// (nodejs/src/worker/ingestion/persons/person-merge-service.ts) with
+/// additions from the new #ingestion-reports feed.
+///
+/// All comparisons are case-insensitive after trimming whitespace, which is a
+/// deliberate simplification over Node.js (which splits into case-sensitive and
+/// case-insensitive sets).
+pub(super) const ILLEGAL_DISTINCT_IDS: &[&str] = &[
+    "0",
+    "00000000-0000-0000-0000-000000000000",
+    "[object object]",
+    "anonymous",
+    "anonymous-user",
+    "backend",
+    "distinct_id",
+    "distinctid",
+    "email",
+    "false",
+    "guest",
+    "id",
+    "nan",
+    "none",
+    "not_authenticated",
+    "null",
+    "system",
+    "true",
+    "undefined",
+    "user",
+];
+
+// ---------------------------------------------------------------------------
 // Timestamp normalization
 // ---------------------------------------------------------------------------
 

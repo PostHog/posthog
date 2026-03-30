@@ -37,7 +37,7 @@ pub async fn apply_quota_limits(
             if ev.result == EventResult::Ok {
                 ev.result = EventResult::Limited;
                 ev.destination = Destination::Drop;
-                ev.details = Some("billing_limit_exceeded");
+                ev.details = Some("billing_limit_exceeded".to_string());
                 marked += 1;
             }
         }
@@ -67,12 +67,15 @@ pub async fn apply_quota_limits(
             if predicate(info) {
                 ev.result = EventResult::Limited;
                 ev.destination = Destination::Drop;
-                ev.details = Some(match resource {
-                    QuotaResource::Exceptions => "exceptions_over_quota",
-                    QuotaResource::Surveys => "survey_responses_over_quota",
-                    QuotaResource::LLMEvents => "llm_events_over_quota",
-                    _ => "over_quota",
-                });
+                ev.details = Some(
+                    match resource {
+                        QuotaResource::Exceptions => "exceptions_over_quota",
+                        QuotaResource::Surveys => "survey_responses_over_quota",
+                        QuotaResource::LLMEvents => "llm_events_over_quota",
+                        _ => "over_quota",
+                    }
+                    .to_string(),
+                );
                 count += 1;
             }
         }
@@ -108,6 +111,7 @@ mod tests {
     use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
     use serde_json::value::RawValue;
     use tracing::Level;
+    use uuid::Uuid;
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
     use crate::v1::analytics::types::{Event, Options};
@@ -255,8 +259,8 @@ mod tests {
     fn make_event(name: &str, product_tour_id: Option<&str>) -> WrappedEvent {
         WrappedEvent {
             event: Event {
-                name: name.to_string(),
-                uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+                event: name.to_string(),
+                uuid: Uuid::now_v7().to_string(),
                 distinct_id: "test_user".to_string(),
                 timestamp: "2026-03-26T12:00:00.000Z".to_string(),
                 session_id: None,
@@ -286,7 +290,7 @@ mod tests {
         events
             .iter()
             .filter(|e| e.result == EventResult::Ok)
-            .map(|e| e.event.name.as_str())
+            .map(|e| e.event.event.as_str())
             .collect()
     }
 
@@ -294,7 +298,7 @@ mod tests {
         events
             .iter()
             .filter(|e| e.result == EventResult::Limited)
-            .map(|e| e.event.name.as_str())
+            .map(|e| e.event.event.as_str())
             .collect()
     }
 
@@ -339,7 +343,7 @@ mod tests {
         assert_eq!(limited_event_names(&events).len(), 4);
         for ev in &events {
             assert_eq!(ev.destination, Destination::Drop);
-            assert_eq!(ev.details, Some("billing_limit_exceeded"));
+            assert_eq!(ev.details, Some("billing_limit_exceeded".to_string()));
         }
     }
 
@@ -350,18 +354,21 @@ mod tests {
         // Pre-mark one event as Drop (e.g. from validation)
         events[1].result = EventResult::Drop;
         events[1].destination = Destination::Drop;
-        events[1].details = Some("invalid_event_name");
+        events[1].details = Some("invalid_event_name".to_string());
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_err());
 
         // First event should be marked Limited
         assert_eq!(events[0].result, EventResult::Limited);
-        assert_eq!(events[0].details, Some("billing_limit_exceeded"));
+        assert_eq!(
+            events[0].details,
+            Some("billing_limit_exceeded".to_string())
+        );
 
         // Second event should retain its original Drop status, not overwritten
         assert_eq!(events[1].result, EventResult::Drop);
-        assert_eq!(events[1].details, Some("invalid_event_name"));
+        assert_eq!(events[1].details, Some("invalid_event_name".to_string()));
     }
 
     #[tokio::test]
@@ -400,7 +407,7 @@ mod tests {
             vec!["$exception", "$exception"]
         );
         for ev in events.iter().filter(|e| e.result == EventResult::Limited) {
-            assert_eq!(ev.details, Some("exceptions_over_quota"));
+            assert_eq!(ev.details, Some("exceptions_over_quota".to_string()));
         }
     }
 
@@ -441,7 +448,7 @@ mod tests {
             vec!["survey sent", "survey shown", "survey dismissed"]
         );
         for ev in events.iter().filter(|e| e.result == EventResult::Limited) {
-            assert_eq!(ev.details, Some("survey_responses_over_quota"));
+            assert_eq!(ev.details, Some("survey_responses_over_quota".to_string()));
         }
     }
 
@@ -484,7 +491,7 @@ mod tests {
             vec!["$ai_generation", "$ai_span", "$ai_trace"]
         );
         for ev in events.iter().filter(|e| e.result == EventResult::Limited) {
-            assert_eq!(ev.details, Some("llm_events_over_quota"));
+            assert_eq!(ev.details, Some("llm_events_over_quota".to_string()));
         }
     }
 
@@ -535,9 +542,12 @@ mod tests {
 
         assert_eq!(ok_event_names(&events), vec!["$pageview"]);
         assert_eq!(limited_event_names(&events).len(), 3);
-        assert_eq!(events[0].details, Some("exceptions_over_quota"));
-        assert_eq!(events[1].details, Some("survey_responses_over_quota"));
-        assert_eq!(events[2].details, Some("llm_events_over_quota"));
+        assert_eq!(events[0].details, Some("exceptions_over_quota".to_string()));
+        assert_eq!(
+            events[1].details,
+            Some("survey_responses_over_quota".to_string())
+        );
+        assert_eq!(events[2].details, Some("llm_events_over_quota".to_string()));
     }
 
     #[tokio::test]
@@ -582,7 +592,7 @@ mod tests {
         // Both should be marked "billing_limit_exceeded" by global, not "exceptions_over_quota"
         for ev in &events {
             assert_eq!(ev.result, EventResult::Limited);
-            assert_eq!(ev.details, Some("billing_limit_exceeded"));
+            assert_eq!(ev.details, Some("billing_limit_exceeded".to_string()));
         }
     }
 
