@@ -97,7 +97,6 @@ posthog/tests/test_product_tour.py @PostHog/team-surveys
 posthog/tests/test_product_tour.py @PostHog/team-surveys
 
 # Nodejs Services - ownership is split between ingestion and workflows teams
-nodejs/src/ @PostHog/team-ingestion @PostHog/team-workflows
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows

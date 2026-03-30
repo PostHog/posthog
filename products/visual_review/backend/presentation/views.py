@@ -109,6 +109,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         input_dto = UpdateRepoInput(
             repo_id=UUID(pk),
             baseline_file_paths=body.baseline_file_paths,
+            enable_pr_comments=body.enable_pr_comments,
         )
 
         try:

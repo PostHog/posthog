@@ -123,8 +123,8 @@ export function HogFunctionTemplateList({
                                     type="primary"
                                     data-attr="new-destination"
                                     icon={<IconPlusSmall />}
+                                    className="whitespace-nowrap"
                                     to={urlForTemplate(template) ?? undefined}
-                                    fullWidth
                                     disabledReason={dataWarehouseSourceAccessDisabledReason ?? undefined}
                                 >
                                     Create

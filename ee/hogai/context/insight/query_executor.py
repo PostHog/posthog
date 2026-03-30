@@ -2,7 +2,7 @@ import json
 import time
 import asyncio
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -538,7 +538,6 @@ async def execute_and_format_query(
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
     truncate_results: bool = True,
-    precalculated_result: object | None = None,
     user: Optional["User"] = None,
 ) -> str:
     """
@@ -555,7 +554,6 @@ async def execute_and_format_query(
         query: The query to execute.
         execution_mode: The execution mode to use.
         insight_id: The insight ID to use.
-        precalculated_result: Pre-calculated result from the frontend. If provided, skips backend query execution.
     Returns:
         The formatted query results.
     """
@@ -563,24 +561,9 @@ async def execute_and_format_query(
     utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user)
 
-    if precalculated_result is not None and is_supported_query(query):
-        try:
-            results = await query_runner._compress_results(
-                query,
-                cast(dict, precalculated_result),
-                truncate_results=truncate_results,
-            )
-            used_fallback = False
-        except Exception as e:
-            logger.warning(f"Failed to format precalculated result: {str(e)}, falling back to query execution")
-            # Fall back to executing the query if formatting the precalculated result fails
-            results, used_fallback = await query_runner.arun_and_format_query(
-                query, execution_mode, insight_id, truncate_results=truncate_results
-            )
-    else:
-        results, used_fallback = await query_runner.arun_and_format_query(
-            query, execution_mode, insight_id, truncate_results=truncate_results
-        )
+    results, used_fallback = await query_runner.arun_and_format_query(
+        query, execution_mode, insight_id, truncate_results=truncate_results
+    )
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 
