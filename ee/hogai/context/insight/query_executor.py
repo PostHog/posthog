@@ -454,7 +454,7 @@ class AssistantQueryExecutor:
                 result = await database_sync_to_async(formatter.format, thread_sensitive=False)()
             elif isinstance(query, AssistantPathsQuery | PathsQuery):
                 formatter_name = "PathsResultsFormatter"
-                result = PathsResultsFormatter(query, response["results"]).format()
+                result = PathsResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()

@@ -56,7 +56,7 @@ def format_query_results_for_llm(
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()
     elif isinstance(query, AssistantPathsQuery | PathsQuery):
-        return PathsResultsFormatter(query, response["results"]).format()
+        return PathsResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):

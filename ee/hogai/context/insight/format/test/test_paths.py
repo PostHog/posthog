@@ -1,7 +1,5 @@
 from posthog.test.base import BaseTest
 
-from posthog.schema import AssistantPathsFilter, AssistantPathsQuery
-
 from .. import PathsResultsFormatter
 
 
@@ -15,10 +13,7 @@ class TestPathsResultsFormatter(BaseTest):
         ]
 
         self.assertEqual(
-            PathsResultsFormatter(
-                AssistantPathsQuery(pathsFilter=AssistantPathsFilter()),
-                results,
-            ).format(),
+            PathsResultsFormatter(results).format(),
             "Source|Target|Users|Avg. conversion time\n"
             "1_/home|2_/pricing|150|2m 30s\n"
             "1_/home|2_/docs|80|1m 15s\n"
@@ -28,10 +23,7 @@ class TestPathsResultsFormatter(BaseTest):
 
     def test_format_empty_results(self):
         self.assertEqual(
-            PathsResultsFormatter(
-                AssistantPathsQuery(pathsFilter=AssistantPathsFilter()),
-                [],
-            ).format(),
+            PathsResultsFormatter([]).format(),
             "No data recorded for this time period.",
         )
 
@@ -41,10 +33,7 @@ class TestPathsResultsFormatter(BaseTest):
         ]
 
         self.assertEqual(
-            PathsResultsFormatter(
-                AssistantPathsQuery(pathsFilter=AssistantPathsFilter()),
-                results,
-            ).format(),
+            PathsResultsFormatter(results).format(),
             "Source|Target|Users|Avg. conversion time\n1_/home|2_/pricing|42|4s",
         )
 
@@ -54,10 +43,7 @@ class TestPathsResultsFormatter(BaseTest):
         ]
 
         self.assertEqual(
-            PathsResultsFormatter(
-                AssistantPathsQuery(pathsFilter=AssistantPathsFilter()),
-                results,
-            ).format(),
+            PathsResultsFormatter(results).format(),
             "Source|Target|Users|Avg. conversion time\n1_/home|2_/pricing|10|0s",
         )
 
@@ -67,10 +53,7 @@ class TestPathsResultsFormatter(BaseTest):
         ]
 
         self.assertEqual(
-            PathsResultsFormatter(
-                AssistantPathsQuery(pathsFilter=AssistantPathsFilter()),
-                results,
-            ).format(),
+            PathsResultsFormatter(results).format(),
             "Source|Target|Users|Avg. conversion time\n1_/home|2_/pricing|5|500ms",
         )
 
@@ -80,9 +63,6 @@ class TestPathsResultsFormatter(BaseTest):
         ]
 
         self.assertEqual(
-            PathsResultsFormatter(
-                AssistantPathsQuery(pathsFilter=AssistantPathsFilter()),
-                results,
-            ).format(),
+            PathsResultsFormatter(results).format(),
             "Source|Target|Users|Avg. conversion time\n1_/home|2_/pricing|42.5|1m",
         )

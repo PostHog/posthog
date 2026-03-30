@@ -1,5 +1,3 @@
-from posthog.schema import AssistantPathsQuery, PathsQuery
-
 from .utils import format_duration, format_matrix, format_number
 
 
@@ -16,8 +14,7 @@ class PathsResultsFormatter:
     ```
     """
 
-    def __init__(self, query: AssistantPathsQuery | PathsQuery, results: list[dict]):
-        self._query = query
+    def __init__(self, results: list[dict]):
         self._results = results
 
     def format(self) -> str:
