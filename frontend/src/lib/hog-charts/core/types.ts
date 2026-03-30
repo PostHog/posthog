@@ -135,7 +135,7 @@ export interface ChartDrawArgs {
     /** Index of the currently hovered data point, or -1. */
     hoverIndex: number
     /** Chart theme colors. */
-    theme: import('lib/charts/types').ChartTheme
+    theme: ChartTheme
 }
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */

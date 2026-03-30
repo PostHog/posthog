@@ -9,14 +9,19 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { GoalLine } from '~/queries/schema/schema-general'
-import { ChartDisplayType, ChartParams } from '~/types'
+import { GoalLine as SchemaGoalLine, InsightVizNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
+import { ChartDisplayType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
 
-export function TrendsLineChartD3({ context }: ChartParams): JSX.Element | null {
+interface TrendsLineChartD3Props {
+    context?: QueryContext<InsightVizNode>
+}
+
+export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps } = useValues(insightLogic)
@@ -68,7 +73,7 @@ export function TrendsLineChartD3({ context }: ChartParams): JSX.Element | null 
         yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
         percentStackView: !!showPercentStackView && !!supportsPercentStackView,
         xTickFormatter: xTickFormatter,
-        goalLines: goalLines?.map((g: GoalLine) => ({
+        goalLines: goalLines?.map((g: SchemaGoalLine) => ({
             value: g.value,
             label: g.label ?? undefined,
             borderColor: g.borderColor ?? undefined,
