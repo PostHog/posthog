@@ -18,7 +18,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 try:
     from posthog.taxonomy.taxonomy import IGNORED_EVENT_NAMES, WELL_KNOWN_EVENT_NAMES
 except ImportError:
-    IGNORED_EVENT_NAMES = []
+    IGNORED_EVENT_NAMES: list[str] = []
     WELL_KNOWN_EVENT_NAMES: list[str] = []
 
 DEFAULT_LIMIT = 500
