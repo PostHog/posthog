@@ -272,6 +272,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
+                allowContentScroll && 'h-full overflow-hidden',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
