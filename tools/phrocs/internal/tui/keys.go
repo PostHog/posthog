@@ -175,7 +175,13 @@ func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
 		m.infoMode = false
 		if !m.isDockerMode() {
-			m.viewport.SetContent(m.buildContent())
+			m.activeContent = m.buildContent()
+			if m.activeContent == "" {
+				m.activeLineCount = 0
+			} else {
+				m.activeLineCount = strings.Count(m.activeContent, "\n") + 1
+			}
+			m.viewport.SetContent(m.activeContent)
 			m.viewport.GotoBottom()
 			m.viewportAtBottom = true
 		}

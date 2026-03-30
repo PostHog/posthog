@@ -57,9 +57,13 @@ type StatusMsg struct {
 // Notification that a process has new output available.
 // Lines are batched (flushed every ~16ms) to avoid backpressure on the PTY
 // when a process produces output faster than the TUI can render it.
-// The TUI reads actual lines from p.Lines().
+// Added contains the new lines; Evicted is the number of lines dropped from
+// the front of the scrollback buffer. The TUI can use these for incremental
+// viewport updates instead of calling p.Lines().
 type OutputMsg struct {
-	Name string
+	Name    string
+	Added   []string
+	Evicted int
 }
 
 // Metrics holds the most recent sampled resource usage for a process tree.
@@ -505,7 +509,8 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	}()
 
 	var partial []byte
-	dirty := false
+	var batch []string
+	var evicted int
 
 	partialTimer := time.NewTimer(0)
 	if !partialTimer.Stop() {
@@ -520,9 +525,13 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 		case data, ok := <-chunkCh:
 			if !ok {
 				if len(partial) > 0 {
-					p.bufferLine(string(partial), send)
+					s := string(partial)
+					if p.bufferLine(s, send) {
+						evicted++
+					}
+					batch = append(batch, s)
 				}
-				send(OutputMsg{Name: p.Name})
+				send(OutputMsg{Name: p.Name, Added: batch, Evicted: evicted})
 				return
 			}
 
@@ -539,7 +548,11 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 				if len(line) > 0 && line[len(line)-1] == '\r' {
 					line = line[:len(line)-1]
 				}
-				p.bufferLine(string(line), send)
+				s := string(line)
+				if p.bufferLine(s, send) {
+					evicted++
+				}
+				batch = append(batch, s)
 				data = data[idx+1:]
 			}
 
@@ -560,20 +573,24 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 				partialTimer.Reset(flushInterval * 3)
 			}
 
-			dirty = true
-
 		case <-flushTicker.C:
-			if dirty {
-				dirty = false
-				send(OutputMsg{Name: p.Name})
+			if len(batch) > 0 {
+				send(OutputMsg{Name: p.Name, Added: batch, Evicted: evicted})
+				batch = nil
+				evicted = 0
 			}
 
 		case <-partialTimer.C:
 			if len(partial) > 0 {
-				p.bufferLine(string(partial), send)
+				s := string(partial)
+				if p.bufferLine(s, send) {
+					evicted++
+				}
+				batch = append(batch, s)
 				partial = nil
-				dirty = false
-				send(OutputMsg{Name: p.Name})
+				send(OutputMsg{Name: p.Name, Added: batch, Evicted: evicted})
+				batch = nil
+				evicted = 0
 			}
 		}
 	}
@@ -581,11 +598,14 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 
 // bufferLine appends a single line to the scrollback buffer and checks the
 // ready pattern. Only sends a StatusMsg if the process just became ready.
-func (p *Process) bufferLine(line string, send func(tea.Msg)) {
+// Returns true if a line was evicted from the front of the buffer.
+func (p *Process) bufferLine(line string, send func(tea.Msg)) bool {
 	p.mu.Lock()
+	evicted := false
 	if len(p.lines) >= p.maxLines {
 		p.lines[0] = "" // allow GC of evicted string data
 		p.lines = p.lines[1:]
+		evicted = true
 	}
 	p.lines = append(p.lines, line)
 
@@ -601,6 +621,7 @@ func (p *Process) bufferLine(line string, send func(tea.Msg)) {
 	if shouldNotify {
 		send(StatusMsg{Name: p.Name, Status: StatusRunning})
 	}
+	return evicted
 }
 
 // Sampling CPU/mem/threads every metricsSampleInterval for the process tree
