@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import json
 import uuid
 import shlex
@@ -95,27 +94,15 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
     if template == SandboxTemplate.DEFAULT_BASE:
         if settings.DEBUG:
-            dockerfile_path = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
-            )
-
-            if not os.path.exists(dockerfile_path):
-                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
-
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
+            dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
+            return modal.Image.from_dockerfile(dockerfile_path, force_build=True, context_dir=context_dir, ignore=[])
         else:
             return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_BASE_IMAGE))
 
     if template == SandboxTemplate.NOTEBOOK_BASE:
         if settings.DEBUG:
-            dockerfile_path = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
-            )
-
-            if not os.path.exists(dockerfile_path):
-                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
-
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
+            dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
+            return modal.Image.from_dockerfile(dockerfile_path, force_build=True, context_dir=context_dir, ignore=[])
         else:
             return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_NOTEBOOK_IMAGE))
 
@@ -183,7 +170,6 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     return str(destination_dockerfile_path), str(context_dir)
 
 
-
 class ModalSandbox:
     """
     Modal-based sandbox for production use.
@@ -195,12 +181,14 @@ class ModalSandbox:
     _sandbox: modal.Sandbox
     _app: modal.App
     _sandbox_url: str | None
+    DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
+    NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = ModalSandbox._get_app_for_template(config.template)
+        self._app = type(self)._get_app_for_template(config.template)
         self._sandbox_url = sandbox_url
 
     @property
@@ -208,20 +196,20 @@ class ModalSandbox:
         """Return the URL for connecting to the agent server, or None if not available."""
         return self._sandbox_url
 
-    @staticmethod
-    def _get_default_app() -> modal.App:
-        return modal.App.lookup(DEFAULT_MODAL_APP_NAME, create_if_missing=True)
+    @classmethod
+    def _get_default_app(cls) -> modal.App:
+        return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
 
-    @staticmethod
-    def _get_app_for_template(template: SandboxTemplate) -> modal.App:
+    @classmethod
+    def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
-            return modal.App.lookup(NOTEBOOK_MODAL_APP_NAME, create_if_missing=True)
-        return ModalSandbox._get_default_app()
+            return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
+        return cls._get_default_app()
 
-    @staticmethod
-    def create(config: SandboxConfig) -> ModalSandbox:
+    @classmethod
+    def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
-            app = ModalSandbox._get_app_for_template(config.template)
+            app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
             used_snapshot_image = False
@@ -277,7 +265,7 @@ class ModalSandbox:
             if config.metadata:
                 sb.set_tags(config.metadata)
 
-            sandbox = ModalSandbox(sandbox=sb, config=config)
+            sandbox = cls(sandbox=sb, config=config)
 
             logger.info(f"Created sandbox {sandbox.id} for {config.name}")
 
@@ -582,9 +570,6 @@ class ModalSandbox:
         if allowed_domains:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
 
-        if allowed_domains and repo_path:
-            self._setup_agentsh(repo_path, allowed_domains)
-
         mcp_servers_arg = ""
         if mcp_configs:
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
@@ -628,7 +613,6 @@ class ModalSandbox:
             self.id,
             len(allowed_domains),
         )
-
 
         config_yaml = generate_config_yaml(enable_ptrace=True, full_trace=True)
         policy_yaml = generate_policy_yaml(allowed_domains)

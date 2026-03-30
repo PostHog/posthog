@@ -208,7 +208,7 @@ class TestModalSandboxAgentServer:
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
         assert "env -0 > /tmp/agent-env" in command
         assert "/tmp/agentsh-env-wrapper.sh" in command
-        assert "/scripts/node_modules/.bin/agent-server" in command
+        assert "./node_modules/.bin/agent-server" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0

@@ -169,8 +169,10 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             metadata={"task_id": ctx.task_id},
         )
 
+        emit_agent_log(ctx.run_id, "debug", "Provisioning sandbox (image build may take a few minutes on first run)")
         with StepTimer("sandbox_creation", used_snapshot=used_snapshot):
             sandbox = Sandbox.create(config)
+        emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
 
         if has_repo and not used_snapshot:
             assert repository is not None
