@@ -110,7 +110,8 @@ const WIZARD_GRADIENT_STYLE: React.CSSProperties = {
     color: 'transparent',
     WebkitBackgroundClip: 'text',
     backgroundClip: 'text',
-    backgroundImage: 'linear-gradient(90deg, #0143cb 0%, #2b6ff4 24%, #d23401 47%, #ff651f 66%, #fba000 83%)',
+    backgroundImage:
+        'linear-gradient(90deg, #0143cb 0%, #2b6ff4 24%, #d23401 47%, #ff651f 66%, #fba000 83%, #0143cb 100%)',
     backgroundSize: '200% 100%',
     animation: 'wizard-gradient-scroll 3s linear infinite',
 }
