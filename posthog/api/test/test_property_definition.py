@@ -27,16 +27,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         {"name": "purchase", "is_numerical": True},
         {"name": "purchase_value", "is_numerical": True},
         {"name": "first_visit", "is_numerical": False},
-        # Virtual event properties (bot detection)
-        {"name": "$virt_bot_name", "is_numerical": False},
-        {"name": "$virt_is_bot", "is_numerical": False},
-        {"name": "$virt_traffic_category", "is_numerical": False},
-        {"name": "$virt_traffic_type", "is_numerical": False},
     ]
 
     @staticmethod
     def _exclude_virtual(results: list) -> list:
         return exclude_virtual_properties(results)
+
 
     def setUp(self) -> None:
         super().setUp()
@@ -166,10 +162,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "plan",
                 "purchase",
                 "purchase_value",
-                "$virt_bot_name",
-                "$virt_is_bot",
-                "$virt_traffic_category",
-                "$virt_traffic_type",
             ]
         )
 
@@ -227,11 +219,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("$lib", False),
             ("$current_url", False),
             ("$browser_version", False),
-            # Virtual event properties (bot detection) - appended at the end
-            ("$virt_is_bot", None),
-            ("$virt_traffic_type", None),
-            ("$virt_traffic_category", None),
-            ("$virt_bot_name", None),
         ]
 
     def test_is_event_property_filter(self):
@@ -259,10 +246,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("$browser_version", False),
             ("$current_url", False),
             ("$lib", False),
-            ("$virt_bot_name", None),
-            ("$virt_is_bot", None),
-            ("$virt_traffic_category", None),
-            ("$virt_traffic_type", None),
             ("app_rating", False),
             ("first_visit", True),
             ("is_first_movie", False),
@@ -328,14 +311,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "$initial_referrer",
                     "another",
                     "person property",
-                    "$virt_initial_channel_type",
-                    "$virt_initial_referring_domain_type",
-                    "$virt_revenue",
-                    "$virt_mrr",
-                    "$virt_is_bot",
-                    "$virt_traffic_type",
-                    "$virt_traffic_category",
-                    "$virt_bot_name",
                 ],
             ),
             ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),

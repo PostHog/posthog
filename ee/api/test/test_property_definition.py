@@ -528,10 +528,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("4_when_verified", False, None),
             ("5_when_verified", False, None),
             ("6_when_verified", False, None),
-            ("$virt_is_bot", False, None),
-            ("$virt_traffic_type", False, None),
-            ("$virt_traffic_category", False, None),
-            ("$virt_bot_name", False, None),
         ]
 
         for property in properties:
@@ -551,10 +547,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("4_when_verified", False, None),
             ("5_when_verified", False, None),
             ("6_when_verified", False, None),
-            ("$virt_is_bot", False, None),
-            ("$virt_traffic_type", False, None),
-            ("$virt_traffic_category", False, None),
-            ("$virt_bot_name", False, None),
         ]
 
         # We should prefer properties that have been seen on an event if that is available
@@ -571,10 +563,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("2_when_verified", True, False),
             ("5_when_verified", False, False),
             ("6_when_verified", False, False),
-            ("$virt_is_bot", False, None),
-            ("$virt_traffic_type", False, None),
-            ("$virt_traffic_category", False, None),
-            ("$virt_bot_name", False, None),
         ]
 
     def test_exclude_hidden_properties(self):
