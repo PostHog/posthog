@@ -12,12 +12,14 @@ import { FetchResponse } from '../../utils/request'
 import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { LegacyWebhookService } from './legacy-webhook-service'
 
-type MockPersonHogClient = jest.Mocked<
-    Pick<
-        PersonHogClient,
-        'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+type MockPersonHogClient = {
+    groups: jest.Mocked<
+        Pick<
+            PersonHogClient['groups'],
+            'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+        >
     >
->
+}
 
 jest.setTimeout(10000)
 
@@ -394,12 +396,14 @@ describe('LegacyWebhookService', () => {
             // Wrap the real postgres groupRepository with PersonHogGroupRepository at 100% gRPC rollout
             // with a mock gRPC client that returns the same data as the existing mock
             const mockGrpcClient: MockPersonHogClient = {
-                fetchGroup: jest.fn().mockResolvedValue({
-                    group_properties: { name: 'Test Project' },
-                } as any),
-                fetchGroupsByKeys: jest.fn(),
-                fetchGroupTypesByTeamIds: jest.fn(),
-                fetchGroupTypesByProjectIds: jest.fn(),
+                groups: {
+                    fetchGroup: jest.fn().mockResolvedValue({
+                        group_properties: { name: 'Test Project' },
+                    } as any),
+                    fetchGroupsByKeys: jest.fn(),
+                    fetchGroupTypesByTeamIds: jest.fn(),
+                    fetchGroupTypesByProjectIds: jest.fn(),
+                },
             }
 
             const personhogRepo = new PersonHogGroupRepository(
@@ -449,7 +453,7 @@ describe('LegacyWebhookService', () => {
             })
 
             // fetchGroup with useReadReplica: true should route to gRPC at 100%
-            expect(mockGrpcClient.fetchGroup).toHaveBeenCalled()
+            expect(mockGrpcClient.groups.fetchGroup).toHaveBeenCalled()
 
             await personhogService.stop()
         })

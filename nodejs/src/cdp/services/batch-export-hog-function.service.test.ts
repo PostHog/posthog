@@ -23,12 +23,14 @@ import { GroupTypeIndex, TeamId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { GroupsManagerService } from './managers/groups-manager.service'
 
-type MockPersonHogClient = jest.Mocked<
-    Pick<
-        PersonHogClient,
-        'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+type MockPersonHogClient = {
+    groups: jest.Mocked<
+        Pick<
+            PersonHogClient['groups'],
+            'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+        >
     >
->
+}
 
 describe('BatchExportHogFunctionService', () => {
     let hub: Hub
@@ -438,23 +440,25 @@ describe('BatchExportHogFunctionService', () => {
 
             // Build a mock gRPC client that returns the same data postgres holds
             const mockGrpc: MockPersonHogClient = {
-                fetchGroup: jest.fn(),
-                fetchGroupsByKeys: jest.fn().mockResolvedValue([
-                    {
-                        team_id: team.id as TeamId,
-                        group_type_index: 0 as GroupTypeIndex,
-                        group_key: 'acme-inc',
-                        group_properties: { name: 'Acme Inc', industry: 'Tech' },
-                    },
-                ]),
-                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
-                    const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
-                    for (const id of teamIds) {
-                        result[id.toString()] = [{ group_type: 'company', group_type_index: 0 as GroupTypeIndex }]
-                    }
-                    return Promise.resolve(result)
-                }),
-                fetchGroupTypesByProjectIds: jest.fn(),
+                groups: {
+                    fetchGroup: jest.fn(),
+                    fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                        {
+                            team_id: team.id as TeamId,
+                            group_type_index: 0 as GroupTypeIndex,
+                            group_key: 'acme-inc',
+                            group_properties: { name: 'Acme Inc', industry: 'Tech' },
+                        },
+                    ]),
+                    fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
+                        const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+                        for (const id of teamIds) {
+                            result[id.toString()] = [{ group_type: 'company', group_type_index: 0 as GroupTypeIndex }]
+                        }
+                        return Promise.resolve(result)
+                    }),
+                    fetchGroupTypesByProjectIds: jest.fn(),
+                },
             }
 
             const personhogRepo = new PersonHogGroupRepository(
@@ -496,8 +500,8 @@ describe('BatchExportHogFunctionService', () => {
             })
 
             // Verify gRPC was the path used (not postgres)
-            expect(mockGrpc.fetchGroupTypesByTeamIds).toHaveBeenCalled()
-            expect(mockGrpc.fetchGroupsByKeys).toHaveBeenCalled()
+            expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalled()
+            expect(mockGrpc.groups.fetchGroupsByKeys).toHaveBeenCalled()
         })
     })
 })
