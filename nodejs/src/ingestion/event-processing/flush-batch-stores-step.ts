@@ -1,16 +1,16 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
+import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { PipelineResult, ok } from '../pipelines/results'
 
 export interface FlushBatchStoresStepConfig {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
-    kafkaProducer: KafkaProducerWrapper
+    outputs: PersonOutputs
 }
 
 /**
@@ -37,7 +37,7 @@ export interface FlushBatchStoresStepConfig {
  * @returns A batch processing step that flushes both stores
  */
 export function createFlushBatchStoresStep<T>(config: FlushBatchStoresStepConfig): BatchProcessingStep<T, void> {
-    const { personsStore, groupStore, kafkaProducer } = config
+    const { personsStore, groupStore, outputs } = config
 
     return async function flushBatchStoresStep(batch: T[]): Promise<PipelineResult<void>[]> {
         if (batch.length === 0) {
@@ -54,7 +54,7 @@ export function createFlushBatchStoresStep<T>(config: FlushBatchStoresStepConfig
             })
 
             // Create Kafka produce promises for all person/group store updates
-            const producePromises = createProducePromises(personsStoreMessages, kafkaProducer)
+            const producePromises = createProducePromises(personsStoreMessages, outputs)
 
             // Report metrics for this batch
             personsStore.reportBatch()
@@ -84,34 +84,29 @@ export function createFlushBatchStoresStep<T>(config: FlushBatchStoresStepConfig
 /**
  * Creates Kafka produce promises for all person store flush results.
  * These promises handle errors appropriately:
- * - MessageSizeTooLarge: Captures ingestion warning (non-fatal)
+ * - MessageSizeTooLarge: Emits ingestion warning (non-fatal)
  * - Other errors: Propagated to fail the side effect
  */
-function createProducePromises(
-    personsStoreMessages: FlushResult[],
-    kafkaProducer: KafkaProducerWrapper
-): Promise<unknown>[] {
+function createProducePromises(personsStoreMessages: FlushResult[], outputs: PersonOutputs): Promise<unknown>[] {
     const promises: Promise<unknown>[] = []
 
     for (const record of personsStoreMessages) {
-        for (const message of record.topicMessage.messages) {
-            const promise = kafkaProducer
-                .produce({
-                    topic: record.topicMessage.topic,
-                    key: message.key ? Buffer.from(message.key) : null,
-                    value: message.value ? Buffer.from(message.value) : null,
-                    headers: message.headers,
+        for (const message of record.messages) {
+            const promise = outputs
+                .produce(message.output, {
+                    key: null,
+                    value: message.value,
                 })
                 .catch((error) => {
                     // Handle message size errors gracefully by capturing a warning
                     if (error instanceof MessageSizeTooLarge) {
                         logger.warn('🪣', 'flushBatchStoresStep: Message size too large', {
-                            topic: record.topicMessage.topic,
+                            output: message.output,
                             teamId: record.teamId,
                             distinctId: record.distinctId,
                             uuid: record.uuid,
                         })
-                        return captureIngestionWarning(kafkaProducer, record.teamId, 'message_size_too_large', {
+                        return emitIngestionWarning(outputs, record.teamId, 'message_size_too_large', {
                             eventUuid: record.uuid,
                             distinctId: record.distinctId,
                             step: 'flushBatchStoresStep',
@@ -120,7 +115,7 @@ function createProducePromises(
                         // Other errors should fail the side effect
                         logger.error('❌', 'flushBatchStoresStep: Failed to produce message', {
                             error,
-                            topic: record.topicMessage.topic,
+                            output: message.output,
                             teamId: record.teamId,
                             distinctId: record.distinctId,
                             uuid: record.uuid,

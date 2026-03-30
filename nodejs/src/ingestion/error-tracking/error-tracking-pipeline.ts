@@ -1,14 +1,12 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { EVENTS_OUTPUT, EventOutput, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
+import { DlqOutput, EVENTS_OUTPUT, EventOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -27,6 +25,7 @@ import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
@@ -45,10 +44,10 @@ export interface ErrorTrackingPipelineInput {
  */
 export type ErrorTrackingPipelineOutput = void
 
+export type ErrorTrackingOutputs = IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput>
+
 export interface ErrorTrackingPipelineConfig {
-    kafkaProducer: KafkaProducerWrapper
-    dlqTopic: string
-    outputTopic: string
+    outputs: ErrorTrackingOutputs
     groupId: string
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
@@ -58,9 +57,6 @@ export interface ErrorTrackingPipelineConfig {
     groupTypeManager: GroupTypeManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
-    overflowTopic: string
-    /** Producer for ingestion warnings. */
-    ingestionWarningProducer: KafkaProducerWrapper
     /** Service for rate limiting and redirecting to overflow (main lane only). */
     overflowRedirectService?: OverflowRedirectService
     /** Service for refreshing TTLs on overflow lane events. */
@@ -91,11 +87,14 @@ export interface ErrorTrackingPipelineConfig {
  */
 export function createErrorTrackingPipeline(
     config: ErrorTrackingPipelineConfig
-): BatchPipelineUnwrapper<ErrorTrackingPipelineInput, ErrorTrackingPipelineOutput, { message: Message }> {
+): BatchPipelineUnwrapper<
+    ErrorTrackingPipelineInput,
+    ErrorTrackingPipelineOutput,
+    { message: Message },
+    OverflowOutput
+> {
     const {
-        kafkaProducer,
-        dlqTopic,
-        outputTopic,
+        outputs,
         groupId,
         promiseScheduler,
         teamManager,
@@ -105,8 +104,6 @@ export function createErrorTrackingPipeline(
         groupTypeManager,
         eventIngestionRestrictionManager,
         overflowEnabled,
-        overflowTopic,
-        ingestionWarningProducer,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
@@ -114,21 +111,8 @@ export function createErrorTrackingPipeline(
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    // Create outputs configuration for the emit step
-    const outputs = new IngestionOutputs<EventOutput | IngestionWarningsOutput>({
-        [EVENTS_OUTPUT]: {
-            topic: outputTopic,
-            producer: kafkaProducer,
-        },
-        [INGESTION_WARNINGS_OUTPUT]: {
-            topic: KAFKA_INGESTION_WARNINGS,
-            producer: ingestionWarningProducer,
-        },
-    })
-
-    const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+    const pipelineConfig: PipelineConfig<OverflowOutput> = {
+        outputs,
         promiseScheduler,
     }
 
@@ -143,8 +127,7 @@ export function createErrorTrackingPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                overflowTopic,
-                                preservePartitionLocality: false,
+                                preservePartitionLocality: true,
                             })
                         )
                         // Parse Kafka message body [REUSE]
@@ -158,10 +141,14 @@ export function createErrorTrackingPipeline(
                             ])
                         )
                 )
-                // Map team to context for handleIngestionWarnings
+                // Map team to context for handleIngestionWarnings, and carry
+                // the Kafka message byte size through for Cymbal batch chunking.
                 .filterMap(
                     (element) => ({
-                        result: element.result,
+                        result: ok({
+                            ...element.result.value,
+                            messageBytes: element.context.message.value?.length ?? 0,
+                        }),
                         context: {
                             ...element.context,
                             team: { id: element.result.value.team.id },
@@ -175,8 +162,7 @@ export function createErrorTrackingPipeline(
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
-                                            overflowTopic,
-                                            false, // preservePartitionLocality
+                                            true, // preservePartitionLocality
                                             overflowRedirectService
                                         )
                                     )
@@ -238,7 +224,12 @@ export function createErrorTrackingPipeline(
  * handled by the result handling pipeline (DLQ, drop, redirect).
  */
 export async function runErrorTrackingPipeline(
-    pipeline: BatchPipelineUnwrapper<ErrorTrackingPipelineInput, ErrorTrackingPipelineOutput, { message: Message }>,
+    pipeline: BatchPipelineUnwrapper<
+        ErrorTrackingPipelineInput,
+        ErrorTrackingPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >,
     messages: Message[]
 ): Promise<void> {
     if (messages.length === 0) {

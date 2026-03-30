@@ -1,0 +1,64 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generateToolCode with input_schema > applies enrich_url with input_schema 1`] = `
+"
+const ThingsCreateSchema = ThingCreateSchema
+
+const thingsCreate = (): ToolBase<typeof ThingsCreateSchema> => ({
+    name: 'things-create',
+    schema: ThingsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ThingsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request({
+            method: 'POST',
+            path: \`/api/projects/\${projectId}/things/\`,
+            body: params,
+        })
+        return await withPostHogUrl(context, result, \`/things/\${result.id}\`)
+    },
+})
+"
+`;
+
+exports[`generateToolCode with input_schema > applies list enrichment with input_schema 1`] = `
+"
+const ThingsListSchema = ThingListSchema
+
+const thingsList = (): ToolBase<typeof ThingsListSchema> => ({
+    name: 'things-list',
+    schema: ThingsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ThingsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request({
+            method: 'GET',
+            path: \`/api/projects/\${projectId}/things/\`,
+            query: params,
+        })
+        return await withPostHogUrl(context, {
+            ...result,
+            results: await Promise.all(result.results.map((item) => withPostHogUrl(context, item, \`/things/\${item.id}\`))),
+        }, '/things')
+    },
+})
+"
+`;
+
+exports[`generateToolCode with input_schema > uses custom schema import when input_schema is set 1`] = `
+"
+const ThingsCreateSchema = ThingCreateSchema
+
+const thingsCreate = (): ToolBase<typeof ThingsCreateSchema> => ({
+    name: 'things-create',
+    schema: ThingsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ThingsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request({
+            method: 'POST',
+            path: \`/api/projects/\${projectId}/things/\`,
+            body: params,
+        })
+        return result
+    },
+})
+"
+`;

@@ -2,9 +2,9 @@ import { Meta } from '@storybook/react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Spinner, SpinnerOverlay } from './Spinner'
+import { Spinner, SpinnerOverlay, SpinnerProps } from './Spinner'
 
-const meta: Meta<typeof Spinner> = {
+const meta: Meta<SpinnerProps> = {
     title: 'Lemon UI/Spinner',
     component: Spinner,
     parameters: {

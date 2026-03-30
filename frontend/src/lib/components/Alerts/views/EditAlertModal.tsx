@@ -343,8 +343,9 @@ export function EditAlertModal({
                                                 if (value === 'detector') {
                                                     setAlertFormValue('detector_config', {
                                                         type: 'zscore',
-                                                        threshold: 0.9,
+                                                        threshold: 0.95,
                                                         window: getDefaultWindow(alertForm.calculation_interval),
+                                                        preprocessing: { diffs_n: 1 },
                                                     })
                                                 } else {
                                                     setAlertFormValue('detector_config', null)

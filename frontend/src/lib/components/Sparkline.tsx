@@ -23,7 +23,7 @@ export interface SparklineTimeSeries {
 
 export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
 
-interface SparklineProps {
+export interface SparklineProps {
     /** Either a list of numbers for a muted graph or an array of time series */
     data: number[] | SparklineTimeSeries[]
     /** Check vars.scss for available colors. @default 'muted' */

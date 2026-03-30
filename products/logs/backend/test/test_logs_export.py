@@ -15,8 +15,9 @@ def _minimal_query_data() -> dict:
 
 
 class TestLogsExportEndpoint(APIBaseTest):
+    @patch("products.logs.backend.api.report_user_action")
     @patch("products.logs.backend.api.export_asset")
-    def test_export_creates_asset_with_correct_context(self, mock_export_asset):
+    def test_export_creates_asset_with_correct_context(self, mock_export_asset, mock_report):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/logs/export/",
             data={
@@ -35,6 +36,10 @@ class TestLogsExportEndpoint(APIBaseTest):
         assert asset.export_context["source"]["kind"] == "LogsQuery"
         assert asset.export_context["columns"] == ["timestamp", "body"]
         mock_export_asset.delay.assert_called_once_with(asset.id)
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs export requested"
+        assert mock_report.call_args[0][2]["columns_count"] == 2
 
     @parameterized.expand(
         [

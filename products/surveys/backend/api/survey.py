@@ -26,6 +26,7 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_field,
     extend_schema_view,
+    inline_serializer,
 )
 from loginas.utils import is_impersonated_session
 from nanoid import generate
@@ -48,6 +49,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
@@ -1621,6 +1623,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             GROUP BY survey_id
         """
 
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         data = sync_execute(query, params)
 
         counts = {}
@@ -1854,6 +1857,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             "dismissed": SurveyEventName.DISMISSED.value,
             "sent": SurveyEventName.SENT.value,
         }
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
         results_base = sync_execute(base_stats_query, query_params)
 
         # Query 2: Count of unique persons who both dismissed AND sent
@@ -1942,7 +1946,25 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 required=False,
                 description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
             ),
-        ]
+        ],
+        responses={
+            200: inline_serializer(
+                name="SurveyStatsResponse",
+                fields={
+                    "survey_id": serializers.CharField(help_text="The survey ID these stats belong to."),
+                    "start_date": serializers.DateTimeField(
+                        allow_null=True, help_text="When the survey started collecting responses."
+                    ),
+                    "end_date": serializers.DateTimeField(
+                        allow_null=True, help_text="When the survey stopped collecting responses."
+                    ),
+                    "stats": serializers.DictField(
+                        help_text="Event counts keyed by event name (survey shown, survey dismissed, survey sent)."
+                    ),
+                    "rates": serializers.DictField(help_text="Calculated response and dismissal rates."),
+                },
+            )
+        },
     )
     @action(methods=["GET"], detail=True, url_path="stats", required_scopes=["survey:read"])
     def survey_stats(self, request: request.Request, **kwargs) -> Response:
@@ -2069,7 +2091,18 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 required=False,
                 description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
             ),
-        ]
+        ],
+        responses={
+            200: inline_serializer(
+                name="SurveyGlobalStatsResponse",
+                fields={
+                    "stats": serializers.DictField(
+                        help_text="Event counts keyed by event name (survey shown, survey dismissed, survey sent)."
+                    ),
+                    "rates": serializers.DictField(help_text="Calculated response and dismissal rates."),
+                },
+            )
+        },
     )
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:

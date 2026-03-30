@@ -1,7 +1,7 @@
 """Anonymous opt-out telemetry for hogli CLI.
 
-Events are sent via a direct HTTP POST to PostHog's /capture endpoint.
-No SDK is used because the `posthog` package name collides with the repo module.
+Events are queued in-process and flushed as a single batch POST to
+PostHog's ``/batch/`` endpoint.
 
 Opt-out precedence:
     CI=* -> POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false
@@ -14,20 +14,20 @@ from __future__ import annotations
 import os
 import sys
 import json
-import time as _time
 import uuid
+import atexit
 import threading
-from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import click
+import requests
 
 # Write-only project token -- routes events to the correct PostHog project.
 # It cannot read data; safe to embed in source code.
-_API_KEY = "phc_JYFXrbqdzueOYb0wFUTnCglFKZuC4xRXBW790ewdcvn"
-_HOST = "https://us.i.posthog.com"
+_DEFAULT_API_KEY = "phc_JYFXrbqdzueOYb0wFUTnCglFKZuC4xRXBW790ewdcvn"
+_DEFAULT_HOST = "https://us.i.posthog.com"
 
 
 # ---------------------------------------------------------------------------
@@ -35,18 +35,24 @@ _HOST = "https://us.i.posthog.com"
 # ---------------------------------------------------------------------------
 
 
+class TelemetryConfig(TypedDict, total=False):
+    enabled: bool
+    anonymous_id: str
+    first_run_notice_shown: bool
+
+
 def get_config_path() -> Path:
     return Path.home() / ".config" / "posthog" / "hogli_telemetry.json"
 
 
-def _load_config() -> dict[str, Any]:
+def _load_config() -> TelemetryConfig:
     try:
         return json.loads(get_config_path().read_text())
     except Exception:
-        return {}
+        return TelemetryConfig()
 
 
-def _save_config(config: dict[str, Any]) -> None:
+def _save_config(config: TelemetryConfig) -> None:
     try:
         path = get_config_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,124 +62,166 @@ def _save_config(config: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# TelemetryClient
 # ---------------------------------------------------------------------------
 
 
-def is_enabled() -> bool:
-    """Return whether telemetry is enabled.
+class TelemetryClient:
+    """Queue-based telemetry client that batches events into a single POST."""
 
-    Checks, in order: POSTHOG_TELEMETRY_OPT_OUT, DO_NOT_TRACK, config file.
-    """
-    if os.environ.get("CI"):
-        return False
-    if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
-        return False
-    if os.environ.get("DO_NOT_TRACK") == "1":
-        return False
-    config = _load_config()
-    return config.get("enabled", True)
+    def __init__(self) -> None:
+        self._queue: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+
+    # -- config-backed helpers --
+
+    @property
+    def _host(self) -> str:
+        return os.environ.get("POSTHOG_TELEMETRY_HOST", _DEFAULT_HOST)
+
+    @property
+    def _api_key(self) -> str:
+        return os.environ.get("POSTHOG_TELEMETRY_API_KEY", _DEFAULT_API_KEY)
+
+    def is_enabled(self) -> bool:
+        if os.environ.get("CI"):
+            return False
+        if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
+            return False
+        if os.environ.get("DO_NOT_TRACK") == "1":
+            return False
+        return _load_config().get("enabled", True)
+
+    def get_anonymous_id(self) -> str:
+        config = _load_config()
+        anon_id = config.get("anonymous_id")
+        if anon_id:
+            return anon_id
+        anon_id = str(uuid.uuid4())
+        config["anonymous_id"] = anon_id
+        _save_config(config)
+        return anon_id
+
+    def set_enabled(self, enabled: bool) -> None:
+        config = _load_config()
+        config["enabled"] = enabled
+        _save_config(config)
+
+    def show_first_run_notice_if_needed(self) -> None:
+        config = _load_config()
+        if config.get("first_run_notice_shown"):
+            return
+
+        click.echo(
+            "\n"
+            "hogli collects anonymous usage data to help improve the developer experience.\n"
+            "No personal information is collected -- only command names and timing.\n"
+            "\n"
+            "You can opt out at any time:\n"
+            "  hogli telemetry:off          (persistent)\n"
+            "  POSTHOG_TELEMETRY_OPT_OUT=1  (per-session / CI)\n"
+            "  DO_NOT_TRACK=1               (cross-tool convention)\n"
+            "\n"
+            "Run `hogli telemetry:status` for details.\n",
+            err=True,
+        )
+
+        config["first_run_notice_shown"] = True
+        if "anonymous_id" not in config:
+            config["anonymous_id"] = str(uuid.uuid4())
+        config.setdefault("enabled", True)
+        _save_config(config)
+
+    # -- event tracking --
+
+    def track(self, event: str, properties: dict[str, Any] | None = None) -> None:
+        """Queue a single event. No-ops if telemetry is disabled."""
+        if not self.is_enabled():
+            return
+        config = _load_config()
+        if not config.get("first_run_notice_shown"):
+            return
+
+        props: dict[str, Any] = {
+            "$process_person_profile": False,
+            "$groups": {"project": "hogli"},
+        }
+        if properties:
+            props.update(properties)
+
+        entry = {
+            "event": event,
+            "distinct_id": self.get_anonymous_id(),
+            "properties": props,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+        _debug(f"queued: {event}")
+        with self._lock:
+            self._queue.append(entry)
+
+    def flush(self, timeout: float = 2.0) -> None:
+        """Send queued events as a single batch POST, blocking up to *timeout*."""
+        with self._lock:
+            if not self._queue:
+                return
+            batch = self._queue[:]
+            self._queue.clear()
+
+        thread = threading.Thread(target=self._send_batch, args=(batch,), daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+    def _send_batch(self, batch: list[dict[str, Any]]) -> None:
+        host = self._host
+        api_key = self._api_key
+        url = f"{host}/batch/"
+
+        body = {"api_key": api_key, "batch": batch}
+        _debug(f"POST {url} ({len(batch)} events)", body)
+
+        try:
+            resp = requests.post(url, json=body, timeout=5)
+            _debug(f"POST {url} -> {resp.status_code}")
+        except Exception as exc:
+            _debug(f"POST failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton and public API
+# ---------------------------------------------------------------------------
+
+_client = TelemetryClient()
+atexit.register(_client.flush)
+
+
+def is_enabled() -> bool:
+    return _client.is_enabled()
 
 
 def get_anonymous_id() -> str:
-    """Return the persistent anonymous UUID, creating one if needed."""
-    config = _load_config()
-    anon_id = config.get("anonymous_id")
-    if anon_id:
-        return anon_id
-    anon_id = str(uuid.uuid4())
-    config["anonymous_id"] = anon_id
-    _save_config(config)
-    return anon_id
+    return _client.get_anonymous_id()
 
 
 def set_enabled(enabled: bool) -> None:
-    """Persist the enabled flag in the config file."""
-    config = _load_config()
-    config["enabled"] = enabled
-    _save_config(config)
+    _client.set_enabled(enabled)
 
 
 def show_first_run_notice_if_needed() -> None:
-    """Print a one-time notice to stderr on first invocation, then create config."""
-    config = _load_config()
-    if config.get("first_run_notice_shown"):
-        return
-
-    click.echo(
-        "\n"
-        "hogli collects anonymous usage data to help improve the developer experience.\n"
-        "No personal information is collected -- only command names and timing.\n"
-        "\n"
-        "You can opt out at any time:\n"
-        "  hogli telemetry:off          (persistent)\n"
-        "  POSTHOG_TELEMETRY_OPT_OUT=1  (per-session / CI)\n"
-        "  DO_NOT_TRACK=1               (cross-tool convention)\n"
-        "\n"
-        "Run `hogli telemetry:status` for details.\n",
-        err=True,
-    )
-
-    config["first_run_notice_shown"] = True
-    if "anonymous_id" not in config:
-        config["anonymous_id"] = str(uuid.uuid4())
-    config.setdefault("enabled", True)
-    _save_config(config)
+    _client.show_first_run_notice_if_needed()
 
 
 def track(event: str, properties: dict[str, Any] | None = None) -> None:
-    """Fire a single event to PostHog in a background daemon thread.
-
-    Silently no-ops if telemetry is disabled or on any error.
-    """
-    if not is_enabled():
-        return
-    config = _load_config()
-    if not config.get("first_run_notice_shown"):
-        return
-
-    host = os.environ.get("POSTHOG_TELEMETRY_HOST", _HOST)
-    api_key = os.environ.get("POSTHOG_TELEMETRY_API_KEY", _API_KEY)
-
-    props: dict[str, Any] = {
-        "$process_person_profile": False,
-        "$groups": {"project": "hogli"},
-    }
-    if properties:
-        props.update(properties)
-
-    payload = {
-        "api_key": api_key,
-        "distinct_id": get_anonymous_id(),
-        "event": event,
-        "properties": props,
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-
-    _debug(f"track: {event} → {host}/capture/", payload)
-
-    thread = threading.Thread(target=_post_event, args=(host, payload), daemon=True)
-    thread.start()
-    _pending_threads.append(thread)
+    _client.track(event, properties)
 
 
-_pending_threads: deque[threading.Thread] = deque()
+def flush(timeout: float = 2.0) -> None:
+    _client.flush(timeout)
 
 
-def flush(timeout: float = 0.5) -> None:
-    """Block until pending telemetry threads complete or *timeout* elapses.
-
-    Tradeoff: higher timeout improves delivery on slow networks (first
-    request needs DNS + TLS) but adds latency to CLI exit. 0.5s is
-    imperceptible interactively and covers most first-request scenarios.
-    """
-    deadline = _time.monotonic() + timeout
-    while _pending_threads:
-        thread = _pending_threads.popleft()
-        remaining = deadline - _time.monotonic()
-        if remaining <= 0:
-            break
-        thread.join(timeout=remaining)
+# ---------------------------------------------------------------------------
+# Debug logging
+# ---------------------------------------------------------------------------
 
 
 def _debug(msg: str, payload: dict[str, Any] | None = None) -> None:
@@ -182,21 +230,3 @@ def _debug(msg: str, payload: dict[str, Any] | None = None) -> None:
     sys.stderr.write(f"[telemetry] {msg}\n")
     if payload:
         sys.stderr.write(f"[telemetry] payload: {json.dumps(payload, indent=2)}\n")
-
-
-def _post_event(host: str, payload: dict[str, Any]) -> None:
-    """POST the event payload to the capture endpoint."""
-    try:
-        import requests
-    except ImportError:
-        _debug("requests package not installed, skipping telemetry POST")
-        return
-    try:
-        resp = requests.post(
-            f"{host}/capture/",
-            json=payload,
-            timeout=2,
-        )
-        _debug(f"POST {host}/capture/ -> {resp.status_code}")
-    except Exception as exc:
-        _debug(f"POST failed: {exc}")
