@@ -102,6 +102,13 @@ const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType
 export const DEFAULT_SLOTS_PER_GROUP = 5
 export const MAX_TOP_MATCHES_PER_GROUP = 10
 
+const TRAFFIC_TYPE_VIRTUAL_PROPERTIES = [
+    '$virt_is_bot',
+    '$virt_traffic_type',
+    '$virt_traffic_category',
+    '$virt_bot_name',
+]
+
 const REDISTRIBUTION_PRIORITY_GROUPS: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.CustomEvents,
     TaxonomicFilterGroupType.PageviewUrls,
@@ -572,8 +579,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties:
-                            excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
+                        excludedProperties: [
+                            ...(excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString) ?? []),
+                            ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
+                                ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
+                                : []),
+                        ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
